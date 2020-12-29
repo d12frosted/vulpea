@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    paths-ignore:
+      - "**/*.md"
+      - "**/*.org"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        emacs_version:
+          - 26.1
+          - 26.2
+          - 26.3
+          - 27.1
+          - snapshot
+    steps:
+      - uses: purcell/setup-emacs@master
+        with:
+          version: ${{ matrix.emacs_version }}
+
+      - uses: actions/checkout@v2.3.4
+
+      - name: Create Sandbox Directory
+        run: |
+          SANDBOX_DIR=$(mktemp -d) || exit 1
+          echo "SANDBOX_DIR=$SANDBOX_DIR" >> $GITHUB_ENV
+
+      - name: Initialize Sandbox
+        run: |
+          ./makem.sh -vv --sandbox=$SANDBOX_DIR --install-deps --install-linters
+
+      # The "all" rule is not used, because it treats compilation warnings
+      # as failures, so linting and testing are run as separate steps.
+      - name: Lint
+        continue-on-error: true
+        run: ./makem.sh -vv --sandbox=$SANDBOX_DIR lint
+
+      - name: Test
+        if: always() # Run test even if linting fails.
+        run: ./makem.sh -vv --sandbox=$SANDBOX_DIR test
