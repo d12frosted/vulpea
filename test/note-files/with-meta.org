@@ -1,0 +1,17 @@
+:PROPERTIES:
+:ID:                     05907606-f836-45bf-bd36-a8444308eddd
+:END:
+#+TITLE: Note with META
+
+- name :: some name
+- tags :: tag 1
+- tags :: tag 2
+- tags :: tag 3
+- numbers :: 12
+- numbers :: 18
+- numbers :: 24
+- singleton :: only value
+- link :: [[id:444f94d7-61e0-4b7c-bb7e-100814c6b4bb][Note without META]]
+- references :: [[id:444f94d7-61e0-4b7c-bb7e-100814c6b4bb][Note without META]]
+- references :: [[id:5093fc4e-8c63-4e60-a1da-83fc7ecd5db7][Reference]]
+- answer :: 42

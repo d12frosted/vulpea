@@ -21,6 +21,7 @@
 ;;
 ;;; Code:
 
+(require 'test-vulpea)
 (require 'buttercup)
 (require 'org-id)
 (require 'vulpea-const)
