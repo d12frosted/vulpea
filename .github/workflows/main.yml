@@ -8,6 +8,8 @@ on:
     paths-ignore:
       - "**/*.md"
       - "**/*.org"
+  schedule:
+    - cron: "0 6 * * *"
 
 jobs:
   build:
