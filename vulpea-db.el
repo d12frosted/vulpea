@@ -30,7 +30,10 @@
 ;; Searching
 
 (defun vulpea-db-search-by-title (title)
-  "Search notes with TITLE."
+  "Return a list of notes with TITLE.
+
+Each note is represented as a property list of the following
+form: (:path :title :tags :id)."
   (let ((files
          (+seq-singleton
           (org-roam-db-query [:select file
@@ -50,7 +53,9 @@
 ;; Exchanging ID to X
 
 (defun vulpea-db-get-title-by-id (id)
-  "Find a note by ID."
+  "Find a note by ID.
+
+Supports headings in the note."
   (when-let* ((fls
                (org-roam-db-query
                 [:select [file level]
@@ -67,7 +72,9 @@
         (org-entry-get (point) "ITEM")))))
 
 (defun vulpea-db-get-file-by-id (id)
-  "Get file of note with ID."
+  "Get file of note with ID.
+
+Supports headings in the note."
   (+seq-singleton
    (car
     (org-roam-db-query

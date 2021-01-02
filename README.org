@@ -1,0 +1,58 @@
+:PROPERTIES:
+:ID:                     8fc370e3-29ae-47ab-bb2e-02e572e54599
+:END:
+
+* Vulpea
+:PROPERTIES:
+:ID:                     c97abc5d-b39f-4356-bc93-8f591a0a6ac8
+:END:
+
+A collection of functions for note taking based on =org= and =org-roam=. This
+repository goal is to be a tested library for other applications around note
+taking. It started as an effort of organising my [[https://github.com/d12frosted/environment/][Emacs configurations]].
+
+** Modules
+:PROPERTIES:
+:ID:                     3bc76150-557b-471b-94e3-efa2d903167a
+:END:
+
+*** =vulpea-db=
+:PROPERTIES:
+:ID:                     55717e59-d850-4659-8a02-8153fda52fef
+:END:
+
+This module contains functions to query notes data base. Functions of interest:
+
+- =vulpea-db-get-file-id= - function to get =ID= of a note represented by =FILE=.
+- =vulpea-db-get-file-by-id= - function to get =FILE= of a note represented by
+  =ID=. Supports headings of the note.
+- =vulpea-db-get-title-by-id= - function to get =TITLE= of a note represented by
+  =ID=. Supports headings of the note.
+- =vulpea-db-search-by-title= - function to query notes with =TITLE=.
+
+*** =vulpea-meta=
+:PROPERTIES:
+:ID:                     c1f820af-1940-46cb-a6bb-752146eec52b
+:END:
+
+This module contains functions for manipulating note metadata represented by the
+first description list in the note, e.g. list like:
+
+#+begin_src org-mode
+- key1 :: value1
+- key2 :: value21
+- key2 :: value22
+- key3 :: value3
+#+end_src
+
+Functions of interest:
+
+- =vulpea-meta-get= - function to get a value of =PROP= for note with =ID=.
+  Value is parsed based on the passed =TYPE= or as a string if omitted.
+- =vulpea-meta-get-list= - function to get all values of =PROP= for note with
+  =ID=. Values are parsed based on the passed =TYPE= or as a string if
+  omitted.
+- =vulpea-meta-set= - function to set =VALUE= of =PROP= for note with =ID=.
+  Supports multi-value properties.
+- =vulpea-meta-remove= - function to remove a =PROP= for note with =ID=.
+- =vulpea-meta-remove= - function to remove all meta for note with =ID=.
