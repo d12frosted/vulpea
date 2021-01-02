@@ -209,5 +209,124 @@
                         'item #'identity))
             :to-equal 0)))
 
+(buttercup-define-matcher :to-contain-exactly (file value)
+  (cl-destructuring-bind
+      ((file-expr . file) (value-expr . value))
+      (mapcar #'buttercup--expr-and-value (list file value))
+    (let* ((content (test-vulpea--map-file
+                     (lambda (_)
+                       (buffer-substring-no-properties (point-min)
+                                                       (point-max)))
+                     file))
+           (spec (format-spec-make
+                  ?F (format "%S" file-expr)
+                  ?f (format "%S" file)
+                  ?V (format "%S" value-expr)
+                  ?v (format "%S" value)
+                  ?c (format "%S" content))))
+      (if (string-equal content value)
+          (cons t (buttercup-format-spec
+                   "Expected `%F' not to have content equal to `%v'"
+                   spec))
+        (cons nil (buttercup-format-spec
+                   "Expected `%F' to have content equal to `%v', but instead `%F' has content equal to `%c'"
+                   spec))))))
+
+(describe "vulpea-meta formatting"
+  :var ((without-meta-id "444f94d7-61e0-4b7c-bb7e-100814c6b4bb")
+        (without-meta-file "without-meta.org")
+        (with-meta-id "05907606-f836-45bf-bd36-a8444308eddd")
+        (with-meta-file "with-meta.org")
+        (reference-id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")
+        (reference-file "reference.org"))
+  (before-each
+    (test-vulpea--init))
+
+  (after-each
+    (test-vulpea--teardown))
+
+  (describe "vulpea-meta-set"
+    (it "formats single string value upon insertion to file without meta and without body"
+      (vulpea-meta-set reference-id "name" "some name")
+      (expect reference-file
+              :to-contain-exactly
+              ":PROPERTIES:
+:ID:                     5093fc4e-8c63-4e60-a1da-83fc7ecd5db7
+:END:
+#+title: Reference
+
+- name :: some name
+"))
+
+    (it "formats single string value upon insertion to file without meta"
+      (vulpea-meta-set without-meta-id "name" "some name")
+      (expect without-meta-file
+              :to-contain-exactly
+              ":PROPERTIES:
+:ID:                     444f94d7-61e0-4b7c-bb7e-100814c6b4bb
+:END:
+#+title: Note without META
+
+- name :: some name
+
+Just some text to make sure that meta is inserted before.
+"))
+
+    (it "formats single number value upon insertion to file without meta"
+      (vulpea-meta-set without-meta-id "answer" 42)
+      (expect without-meta-file
+              :to-contain-exactly
+              ":PROPERTIES:
+:ID:                     444f94d7-61e0-4b7c-bb7e-100814c6b4bb
+:END:
+#+title: Note without META
+
+- answer :: 42
+
+Just some text to make sure that meta is inserted before.
+"))
+
+    (it "formats single id value upon insertion to file without meta"
+      (vulpea-meta-set without-meta-id "references" "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")
+      (expect without-meta-file
+              :to-contain-exactly
+              ":PROPERTIES:
+:ID:                     444f94d7-61e0-4b7c-bb7e-100814c6b4bb
+:END:
+#+title: Note without META
+
+- references :: [[id:5093fc4e-8c63-4e60-a1da-83fc7ecd5db7][Reference]]
+
+Just some text to make sure that meta is inserted before.
+"))
+
+    (it "formats multiple values upon insertion to file without meta"
+      (vulpea-meta-set without-meta-id "references" '("5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"
+                                                      "05907606-f836-45bf-bd36-a8444308eddd"))
+      (expect without-meta-file
+              :to-contain-exactly
+              ":PROPERTIES:
+:ID:                     444f94d7-61e0-4b7c-bb7e-100814c6b4bb
+:END:
+#+title: Note without META
+
+- references :: [[id:5093fc4e-8c63-4e60-a1da-83fc7ecd5db7][Reference]]
+- references :: [[id:05907606-f836-45bf-bd36-a8444308eddd][Note with META]]
+
+Just some text to make sure that meta is inserted before.
+"))
+
+    (it "cleans meta from a note with body"
+      (vulpea-meta-clean with-meta-id)
+      (expect with-meta-file
+              :to-contain-exactly
+              ":PROPERTIES:
+:ID:                     05907606-f836-45bf-bd36-a8444308eddd
+:END:
+#+title: Note with META
+
+Don't mind me. I am a content of this note.
+"))))
+
 (provide 'test-vulpea-meta)
 ;;; test-vulpea-meta.el ends here

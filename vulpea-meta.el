@@ -180,16 +180,19 @@ Please note that all occurrences of PROP are replaced by VALUE."
         ;; line
         (let* ((element (or (car (last (org-element-map buffer 'keyword #'identity)))
                             (car (org-element-map buffer 'property-drawer #'identity))))
-               (point (if element
-                          (org-element-property :end element)
-                        1)))
+               (point (if element (org-element-property :end element) 1))
+               (eob (eq point (point-max))))
           (goto-char point)
+          (when eob
+            (insert "\n"))
           (seq-do
            (lambda (val)
              (insert "- " prop " :: "
                      (vulpea-meta--format val)
-                     "\n\n"))
-           values)))))))
+                     "\n"))
+           values)
+          (unless eob
+            (insert "\n"))))))))
 
 (defun vulpea-meta-remove (id prop)
   "Delete values of PROP for note with ID."

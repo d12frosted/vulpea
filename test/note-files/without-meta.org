@@ -2,3 +2,5 @@
 :ID:                     444f94d7-61e0-4b7c-bb7e-100814c6b4bb
 :END:
 #+title: Note without META
+
+Just some text to make sure that meta is inserted before.
