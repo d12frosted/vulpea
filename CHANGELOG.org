@@ -1,0 +1,34 @@
+:PROPERTIES:
+:ID:                     e96f8ec2-368c-4d7a-9afa-a4bab5b8511e
+:END:
+
+* Changelog
+:PROPERTIES:
+:ID:                     e3f3602c-426e-451e-bcb5-b59b99e3b10e
+:END:
+
+** TBD
+:PROPERTIES:
+:ID:                     2649dad1-485a-4082-986a-5d67698604db
+:END:
+
+Features:
+
+- =vulpea-db= module - for querying notes data base.
+  - =vulpea-db-get-file-id= - function to get =ID= of a note represented by =FILE=.
+  - =vulpea-db-get-file-by-id= - function to get =FILE= of a note represented by
+    =ID=. Supports headings of the note.
+  - =vulpea-db-get-title-by-id= - function to get =TITLE= of a note represented
+    by =ID=. Supports headings of the note.
+  - =vulpea-db-search-by-title= - function to query notes with =TITLE=.
+- =vulpea-meta= module - for manipulating note metadata represented by
+  description list:
+  - =vulpea-meta-get= - function to get a value of =PROP= for note with =ID=.
+    Value is parsed based on the passed =TYPE= or as a string if omitted.
+  - =vulpea-meta-get-list= - function to get all values of =PROP= for note with
+    =ID=. Values are parsed based on the passed =TYPE= or as a string if
+    omitted.
+  - =vulpea-meta-set= - function to set =VALUE= of =PROP= for note with =ID=.
+    Supports multi-value properties.
+  - =vulpea-meta-remove= - function to remove a =PROP= for note with =ID=.
+  - =vulpea-meta-remove= - function to remove all meta for note with =ID=.
