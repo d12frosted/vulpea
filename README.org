@@ -56,3 +56,16 @@ Functions of interest:
   Supports multi-value properties.
 - =vulpea-meta-remove= - function to remove a =PROP= for note with =ID=.
 - =vulpea-meta-remove= - function to remove all meta for note with =ID=.
+
+** Building and testing
+:PROPERTIES:
+:ID:                     69263cd2-927a-4a38-9ca0-e2dc8848e285
+:END:
+
+Vulpea tests are written using [[https://github.com/jorgenschaefer/emacs-buttercup/][buttercup]] testing framework. And [[https://github.com/alphapapa/makem.sh][makem.sh]] is used
+to run them both locally and on CI. In order to run the tests locally, simple
+run the following command in the root of repository:
+
+#+begin_src bash
+  $ make sandbox=t v=vv test-buttercup
+#+end_src
