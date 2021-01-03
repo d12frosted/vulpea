@@ -47,7 +47,7 @@ form: (:path :title :tags :id)."
              :title title
              :tags (vulpea-with-file file
                      (org-roam--extract-tags file))
-             :id (vulpea-db-get-file-id file)))
+             :id (vulpea-db-get-id-by-file file)))
      files)))
 
 ;;
@@ -90,7 +90,7 @@ Supports headings in the note."
 ;; Exchange FILE to X
 
 ;;;###autoload
-(defun vulpea-db-get-file-id (file)
+(defun vulpea-db-get-id-by-file (file)
   "Get ID of note represented by FILE."
   (+seq-singleton
    (car

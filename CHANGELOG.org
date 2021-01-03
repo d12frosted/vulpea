@@ -15,7 +15,7 @@
 Features:
 
 - =vulpea-db= module - for querying notes data base.
-  - =vulpea-db-get-file-id= - function to get =ID= of a note represented by =FILE=.
+  - =vulpea-db-get-id-by-file= - function to get =ID= of a note represented by =FILE=.
   - =vulpea-db-get-file-by-id= - function to get =FILE= of a note represented by
     =ID=. Supports headings of the note.
   - =vulpea-db-get-title-by-id= - function to get =TITLE= of a note represented
