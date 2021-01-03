@@ -1,4 +1,4 @@
-;;; test-vulpea-const.el --- Test consts -*- lexical-binding: t; -*-
+;;; vulpea-const-test.el --- Test `vulpea-const' module -*- lexical-binding: t; -*-
 ;;
 ;; Copyright (c) 2020 Boris Buliga
 ;;
@@ -21,7 +21,7 @@
 ;;
 ;;; Code:
 
-(require 'test-vulpea)
+(require 'vulpea-test)
 (require 'buttercup)
 (require 'org-id)
 (require 'vulpea-const)
@@ -34,5 +34,5 @@
     (expect (string-match vulpea-uuid-regexp "not UUID")
             :to-be nil)))
 
-(provide 'test-vulpea-const)
-;;; test-vulpea-const.el ends here
+(provide 'vulpea-const-test)
+;;; vulpea-const-test.el ends here

@@ -1,4 +1,4 @@
-;;; test-seq.el --- Test seq extensions -*- lexical-binding: t; -*-
+;;; +seq-test.el --- Test `+seq' module -*- lexical-binding: t; -*-
 ;;
 ;; Copyright (c) 2020 Boris Buliga
 ;;
@@ -35,5 +35,5 @@
     (expect (+seq-singleton nil)
             :to-be nil)))
 
-(provide 'test-seq)
-;;; test-seq.el ends here
+(provide '+seq-test)
+;;; +seq-test.el ends here

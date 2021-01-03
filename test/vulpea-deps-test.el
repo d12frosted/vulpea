@@ -1,4 +1,4 @@
-;;; test-vulpea-deps.el --- Test for vulpea dependencies -*- lexical-binding: t; -*-
+;;; vulpea-deps-test.el --- Test for vulpea dependencies -*- lexical-binding: t; -*-
 ;;
 ;; Copyright (c) 2021 Boris Buliga
 ;;
@@ -15,11 +15,14 @@
 ;;
 ;;; Commentary:
 ;;
+;; Tests for checking existence of `vulpea' dependencies.
 ;;
+;; Unfortunately, `org' is built in, but `vulpea' requires the latest version.
+;; This test simplifies analysis of failing tests.
 ;;
 ;;; Code:
 
-(require 'test-vulpea)
+(require 'vulpea-test)
 (require 'buttercup)
 (require 'org)
 
@@ -28,5 +31,5 @@
     (expect org-version
             :not :to-be-version< "9.4")))
 
-(provide 'test-vulpea-deps)
-;;; test-vulpea-deps.el ends here
+(provide 'vulpea-deps-test)
+;;; vulpea-deps-test.el ends here

@@ -1,4 +1,4 @@
-;;; test-vulpea-meta.el --- Test metadata API  -*- lexical-binding: t; -*-
+;;; vulpea-meta-test.el --- Test metadata API  -*- lexical-binding: t; -*-
 ;;
 ;; Copyright (c) 2020 Boris Buliga
 ;;
@@ -21,7 +21,7 @@
 ;;
 ;;; Code:
 
-(require 'test-vulpea)
+(require 'vulpea-test)
 (require 'buttercup)
 (require 'org-roam)
 (require 'vulpea-meta)
@@ -328,5 +328,5 @@ Just some text to make sure that meta is inserted before.
 Don't mind me. I am a content of this note.
 "))))
 
-(provide 'test-vulpea-meta)
-;;; test-vulpea-meta.el ends here
+(provide 'vulpea-meta-test)
+;;; vulpea-meta-test.el ends here

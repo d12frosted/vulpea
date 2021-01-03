@@ -1,4 +1,4 @@
-;;; test-vulpea.el --- Helpers for testing Vulpea -*- lexical-binding: t; -*-
+;;; vulpea-test.el --- Helpers for testing Vulpea -*- lexical-binding: t; -*-
 ;;
 ;; Copyright (c) 2020 Boris Buliga
 ;;
@@ -68,5 +68,5 @@
   :expect-match-phrase "Expected `%A' < %b, but `%A' was %a."
   :expect-mismatch-phrase "Expected `%A' >= %b, but `%A' was %a.")
 
-(provide 'test-vulpea)
-;;; test-vulpea.el ends here
+(provide 'vulpea-test)
+;;; vulpea-test.el ends here
