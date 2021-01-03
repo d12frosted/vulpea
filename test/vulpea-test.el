@@ -34,30 +34,30 @@
 (require 'org-roam)
 (require 'vulpea-db)
 
-(defvar test-vulpea-directory (expand-file-name "test/note-files")
+(defvar vulpea-test-directory (expand-file-name "test/note-files")
   "Directory containing test notes.")
 
-(defun test-vulpea--abs-path (file-path)
+(defun vulpea-test--abs-path (file-path)
   "Get absolute FILE-PATH from `org-roam-directory'."
   (expand-file-name file-path org-roam-directory))
 
-(defun test-vulpea--map-file (fn file)
+(defun vulpea-test--map-file (fn file)
   "Execute FN with buffer visiting FILE."
-  (let* ((fname (test-vulpea--abs-path file))
+  (let* ((fname (vulpea-test--abs-path file))
          (buf (find-file-noselect fname)))
     (with-current-buffer buf
       (funcall fn fname))))
 
-(defun test-vulpea--init ()
+(defun vulpea-test--init ()
   "Initialize testing environment."
-  (let ((original-dir test-vulpea-directory)
+  (let ((original-dir vulpea-test-directory)
         (new-dir (expand-file-name (make-temp-name "note-files") temporary-file-directory)))
     (copy-directory original-dir new-dir)
     (setq org-roam-directory new-dir)
     (org-roam-mode +1)
     (sleep-for 2)))
 
-(defun test-vulpea--teardown ()
+(defun vulpea-test--teardown ()
   "Teardown testing environment."
   (org-roam-mode -1)
   (delete-file org-roam-db-location)

@@ -29,10 +29,10 @@
 
 (describe "vulpea-meta-get"
   (before-all
-    (test-vulpea--init))
+    (vulpea-test--init))
 
   (after-all
-    (test-vulpea--teardown))
+    (vulpea-test--teardown))
 
   (it "extracts string value by default"
     (let ((a (vulpea-meta-get "05907606-f836-45bf-bd36-a8444308eddd" "name" 'string))
@@ -62,10 +62,10 @@
 
 (describe "vulpea-meta-get-list"
   (before-all
-    (test-vulpea--init))
+    (vulpea-test--init))
 
   (after-all
-    (test-vulpea--teardown))
+    (vulpea-test--teardown))
 
   (it "extracts string value by default"
     (let ((a (vulpea-meta-get-list "05907606-f836-45bf-bd36-a8444308eddd" "name" 'string))
@@ -110,10 +110,10 @@
         (with-meta-id "05907606-f836-45bf-bd36-a8444308eddd")
         (reference-id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"))
   (before-all
-    (test-vulpea--init))
+    (vulpea-test--init))
 
   (after-all
-    (test-vulpea--teardown))
+    (vulpea-test--teardown))
 
   (it "sets a singe string value in a note without meta"
     (vulpea-meta-set without-meta-id "name" "some name")
@@ -149,10 +149,10 @@
   :var ((without-meta-id "444f94d7-61e0-4b7c-bb7e-100814c6b4bb")
         (with-meta-id "05907606-f836-45bf-bd36-a8444308eddd"))
   (before-all
-    (test-vulpea--init))
+    (vulpea-test--init))
 
   (after-all
-    (test-vulpea--teardown))
+    (vulpea-test--teardown))
 
   (it "has no effect on a note without meta"
     (vulpea-meta-remove without-meta-id "numbers")
@@ -178,10 +178,10 @@
   :var ((without-meta-id "444f94d7-61e0-4b7c-bb7e-100814c6b4bb")
         (with-meta-id "05907606-f836-45bf-bd36-a8444308eddd"))
   (before-all
-    (test-vulpea--init))
+    (vulpea-test--init))
 
   (after-all
-    (test-vulpea--teardown))
+    (vulpea-test--teardown))
 
   (it "has no effect on a note without meta"
     (expect (length (org-element-map
@@ -213,7 +213,7 @@
   (cl-destructuring-bind
       ((file-expr . file) (value-expr . value))
       (mapcar #'buttercup--expr-and-value (list file value))
-    (let* ((content (test-vulpea--map-file
+    (let* ((content (vulpea-test--map-file
                      (lambda (_)
                        (buffer-substring-no-properties (point-min)
                                                        (point-max)))
@@ -240,10 +240,10 @@
         (reference-id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")
         (reference-file "reference.org"))
   (before-each
-    (test-vulpea--init))
+    (vulpea-test--init))
 
   (after-each
-    (test-vulpea--teardown))
+    (vulpea-test--teardown))
 
   (describe "vulpea-meta-set"
     (it "formats single string value upon insertion to file without meta and without body"
