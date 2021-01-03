@@ -17,6 +17,7 @@
 ;;
 ;;; Code:
 
+;;;###autoload
 (defmacro vulpea-with-file (file &rest body)
   "Execute BODY in `org-mode' FILE."
   (declare (indent 1) (debug t))

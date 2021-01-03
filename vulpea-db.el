@@ -29,6 +29,7 @@
 ;;
 ;; Searching
 
+;;;###autoload
 (defun vulpea-db-search-by-title (title)
   "Return a list of notes with TITLE.
 
@@ -52,6 +53,7 @@ form: (:path :title :tags :id)."
 ;;
 ;; Exchanging ID to X
 
+;;;###autoload
 (defun vulpea-db-get-title-by-id (id)
   "Find a note by ID.
 
@@ -71,6 +73,7 @@ Supports headings in the note."
         (goto-char (cdr (org-id-find-id-in-file id file)))
         (org-entry-get (point) "ITEM")))))
 
+;;;###autoload
 (defun vulpea-db-get-file-by-id (id)
   "Get file of note with ID.
 
@@ -86,6 +89,7 @@ Supports headings in the note."
 ;;
 ;; Exchange FILE to X
 
+;;;###autoload
 (defun vulpea-db-get-file-id (file)
   "Get ID of note represented by FILE."
   (+seq-singleton

@@ -34,6 +34,7 @@
 (require 'vulpea-macs)
 (require 'vulpea-db)
 
+;;;###autoload
 (defun vulpea-meta (id)
   "Get metadata for note with ID.
 
@@ -81,6 +82,7 @@ Return plist (:file :buffer :pl :items)"
            items-all)))
     (plist-put meta :items items)))
 
+;;;###autoload
 (defun vulpea-meta-get-list (id prop &optional type)
   "Get all values of PROP for note with ID.
 
@@ -112,6 +114,7 @@ Each element value depends on TYPE:
                     (org-element-property :path el)))))))
      items)))
 
+;;;###autoload
 (defun vulpea-meta-get (id prop &optional type)
   "Get value of PROP for note with ID.
 
@@ -128,6 +131,7 @@ one is returned. In case all values are required, use
 `vulpea-meta-get-list'."
   (car (vulpea-meta-get-list id prop type)))
 
+;;;###autoload
 (defun vulpea-meta-set (id prop value)
   "Set VALUE of PROP for note with ID.
 
@@ -194,6 +198,7 @@ Please note that all occurrences of PROP are replaced by VALUE."
           (unless eob
             (insert "\n"))))))))
 
+;;;###autoload
 (defun vulpea-meta-remove (id prop)
   "Delete values of PROP for note with ID."
   (let* ((meta (vulpea-meta--get id prop))
@@ -213,6 +218,7 @@ Please note that all occurrences of PROP are replaced by VALUE."
                (delete-region begin end)))
            (seq-reverse items)))))))
 
+;;;###autoload
 (defun vulpea-meta-clean (id)
   "Delete all meta from note with ID."
   (when-let* ((meta (vulpea-meta id))

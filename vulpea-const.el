@@ -17,6 +17,7 @@
 ;;
 ;;; Code:
 
+;;;###autoload
 (defvar vulpea-uuid-regexp
   (concat
    "\\("
