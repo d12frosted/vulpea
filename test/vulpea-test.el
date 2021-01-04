@@ -5,7 +5,7 @@
 ;; Author: Boris Buliga <boris@d12frosted.io>
 ;; Maintainer: Boris Buliga <boris@d12frosted.io>
 ;; Package-Version: 1.0
-;; Package-Requires: ((emacs "27.1") (buttercup "1.23"))
+;; Package-Requires: ((emacs "27.1") (buttercup "1.23") (org "9.4.4") (org-plus-contrib "9.4.4"))
 ;;
 ;; Created: 29 Dec 2020
 ;;
@@ -20,14 +20,6 @@
 ;; Helpers for testing `vulpea'.
 ;;
 ;;; Code:
-
-;; install the latest version of org-mode
-(require 'package)
-(add-to-list 'package-archives '("org" . "https://orgmode.org/elpa/") t)
-(package-refresh-contents)
-(package-install 'org)
-(package-install 'org-plus-contrib)
-(package-initialize)
 
 (require 'buttercup)
 (require 'org)

@@ -1,13 +1,15 @@
 ;;; vulpea-deps-test.el --- Test for vulpea dependencies -*- lexical-binding: t; -*-
 ;;
-;; Copyright (c) 2021 Boris Buliga
+;; Copyright (c) 2020 Boris Buliga
 ;;
 ;; Author: Boris Buliga <boris@d12frosted.io>
 ;; Maintainer: Boris Buliga <boris@d12frosted.io>
+;; Package-Version: 1.0
+;; Package-Requires: ((emacs "27.1") (buttercup "1.23") (org "9.4.4"))
 ;;
-;; Created: 02 Jan 2021
+;; Created: 29 Dec 2020
 ;;
-;; URL:
+;; URL: https://github.com/d12frosted/vulpea
 ;;
 ;; License: GPLv3
 ;;
