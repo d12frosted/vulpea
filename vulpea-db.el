@@ -92,15 +92,20 @@ Supports headings in the note."
 
 ;;;###autoload
 (defun vulpea-db-get-id-by-file (file)
-  "Get ID of note represented by FILE."
+  "Get ID of note represented by FILE.
+
+If the FILE is relative, it is considered to be relative to
+`org-roam-directory'."
   (+seq-singleton
    (car
     (org-roam-db-query
      [:select id
-      :from ids
-      :where (and (= file $s1)
-                  (= level $s2))]
-     file
+              :from ids
+              :where (and (= file $s1)
+                          (= level $s2))]
+     (if (file-name-absolute-p file)
+         file
+       (expand-file-name file org-roam-directory))
      0))))
 
 (provide 'vulpea-db)

@@ -142,6 +142,11 @@
             :to-equal
             "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"))
 
+  (it "returns id of a relative file path"
+    (expect (vulpea-db-get-id-by-file "reference.org")
+            :to-equal
+            "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"))
+
   (it "returns top-level id of a file with subheading"
     (expect (vulpea-db-get-id-by-file
              (expand-file-name "big-note.org"
