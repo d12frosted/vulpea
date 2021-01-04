@@ -89,7 +89,7 @@
     (expect (vulpea-db-get-title-by-id "b77a4837-71d6-495e-98f1-b576464aacc1")
             :to-equal "Big note sub-heading"))
 
-  (it "returns sub-heading of a note by id"
+  (it "returns sub-sub-heading of a note by id"
     (expect (vulpea-db-get-title-by-id "cfc39858-351d-4f1e-8f98-10d16d71f49e")
             :to-equal "Big note sub-sub-heading")))
 
