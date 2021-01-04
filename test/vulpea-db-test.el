@@ -122,5 +122,32 @@
             (expand-file-name "big-note.org"
                               org-roam-directory))))
 
+(describe "vulpea-db-get-id-by-file"
+  (before-all
+    (vulpea-test--init))
+
+  (after-all
+    (vulpea-test--teardown))
+
+  (it "returns nil when passed unknown file"
+    (expect (vulpea-db-get-id-by-file
+             (expand-file-name "0000.org"
+                               org-roam-directory))
+            :to-be nil))
+
+  (it "returns id of an absolute file path"
+    (expect (vulpea-db-get-id-by-file
+             (expand-file-name "reference.org"
+                               org-roam-directory))
+            :to-equal
+            "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"))
+
+  (it "returns top-level id of a file with subheading"
+    (expect (vulpea-db-get-id-by-file
+             (expand-file-name "big-note.org"
+                               org-roam-directory))
+            :to-equal
+            "eeec8f05-927f-4c61-b39e-2fb8228cf484")))
+
 (provide 'vulpea-db-test)
 ;;; vulpea-db-test.el ends here
