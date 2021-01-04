@@ -254,6 +254,7 @@
 :ID:                     5093fc4e-8c63-4e60-a1da-83fc7ecd5db7
 :END:
 #+title: Reference
+#+roam_tags: tag1 tag2
 
 - name :: some name
 "))

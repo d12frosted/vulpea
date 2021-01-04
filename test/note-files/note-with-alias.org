@@ -1,0 +1,5 @@
+:PROPERTIES:
+:ID:                     72522ed2-9991-482e-a365-01155c172aa5
+:END:
+#+TITLE: Note with an alias
+#+roam_alias: "Alias of the note with alias"
