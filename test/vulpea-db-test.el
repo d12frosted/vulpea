@@ -93,5 +93,34 @@
     (expect (vulpea-db-get-title-by-id "cfc39858-351d-4f1e-8f98-10d16d71f49e")
             :to-equal "Big note sub-sub-heading")))
 
+(describe "vulpea-db-get-file-by-id"
+  (before-all
+    (vulpea-test--init))
+
+  (after-all
+    (vulpea-test--teardown))
+
+  (it "returns nil when passed unknown id"
+    (expect (vulpea-db-get-file-by-id "00000000-0000-0000-0000-000000000000")
+            :to-be nil))
+
+  (it "returns file of a note with id"
+    (expect (vulpea-db-get-file-by-id "72522ed2-9991-482e-a365-01155c172aa5")
+            :to-equal
+            (expand-file-name "note-with-alias.org"
+                              org-roam-directory)))
+
+  (it "returns file of sub-heading with id"
+    (expect (vulpea-db-get-file-by-id "b77a4837-71d6-495e-98f1-b576464aacc1")
+            :to-equal
+            (expand-file-name "big-note.org"
+                              org-roam-directory)))
+
+  (it "returns file of sub-sub-heading with id"
+    (expect (vulpea-db-get-file-by-id "cfc39858-351d-4f1e-8f98-10d16d71f49e")
+            :to-equal
+            (expand-file-name "big-note.org"
+                              org-roam-directory))))
+
 (provide 'vulpea-db-test)
 ;;; vulpea-db-test.el ends here
