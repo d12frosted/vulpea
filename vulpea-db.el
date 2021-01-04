@@ -36,7 +36,8 @@
 Each note is represented as a property list of the following
 form: (:path :title :tags :id)."
   (let ((files
-         (+seq-singleton
+         (seq-map
+          #'+seq-singleton
           (org-roam-db-query [:select file
                               :from titles
                               :where (= title $s1)]
