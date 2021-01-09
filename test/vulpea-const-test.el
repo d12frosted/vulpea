@@ -4,8 +4,6 @@
 ;;
 ;; Author: Boris Buliga <boris@d12frosted.io>
 ;; Maintainer: Boris Buliga <boris@d12frosted.io>
-;; Package-Version: 1.0
-;; Package-Requires: ((emacs "27.1") (buttercup "1.23") (org "9.4.4"))
 ;;
 ;; Created: 29 Dec 2020
 ;;
@@ -21,7 +19,7 @@
 ;;
 ;;; Code:
 
-(require 'vulpea-test)
+(require 'vulpea-test-helpers)
 (require 'buttercup)
 (require 'org-id)
 (require 'vulpea-const)

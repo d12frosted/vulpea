@@ -4,8 +4,6 @@
 ;;
 ;; Author: Boris Buliga <boris@d12frosted.io>
 ;; Maintainer: Boris Buliga <boris@d12frosted.io>
-;; Package-Version: 1.0
-;; Package-Requires: ((emacs "27.1") (buttercup "1.23"))
 ;;
 ;; Created: 29 Dec 2020
 ;;

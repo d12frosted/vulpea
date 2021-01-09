@@ -1,13 +1,11 @@
-;;; vulpea-test.el --- Helpers for testing Vulpea -*- lexical-binding: t; -*-
+;;; vulpea-test-helpers.el --- Helpers for testing Vulpea -*- lexical-binding: t; -*-
 ;;
-;; Copyright (c) 2020 Boris Buliga
+;; Copyright (c) 2021 Boris Buliga
 ;;
 ;; Author: Boris Buliga <boris@d12frosted.io>
 ;; Maintainer: Boris Buliga <boris@d12frosted.io>
-;; Package-Version: 1.0
-;; Package-Requires: ((emacs "27.1") (buttercup "1.23") (org "9.4.4"))
 ;;
-;; Created: 29 Dec 2020
+;; Created: 09 Jan 2021
 ;;
 ;; URL: https://github.com/d12frosted/vulpea
 ;;
@@ -16,8 +14,6 @@
 ;; This file is not part of GNU Emacs.
 ;;
 ;;; Commentary:
-;;
-;; Helpers for testing `vulpea'.
 ;;
 ;;; Code:
 
@@ -55,5 +51,5 @@
   (delete-file org-roam-db-location)
   (org-roam-db--close))
 
-(provide 'vulpea-test)
-;;; vulpea-test.el ends here
+(provide 'vulpea-test-helpers)
+;;; vulpea-test-helpers.el ends here
