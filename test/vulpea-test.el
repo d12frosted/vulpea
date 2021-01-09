@@ -30,7 +30,7 @@
   (after-all
     (vulpea-test--teardown))
 
-  (it "returns all information about note"
+  (it "returns all information about existing note"
     (spy-on 'org-roam-completion--completing-read
             :and-return-value "(tag1,tag2) Reference")
     (expect (vulpea-select "Note")
@@ -39,6 +39,13 @@
                   :title "Reference"
                   :tags '("tag1" "tag2")
                   :id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")))
+
+  (it "returns only title for non-existent note"
+    (spy-on 'org-roam-completion--completing-read
+            :and-return-value "Future")
+    (expect (vulpea-select "Note")
+            :to-equal
+            (list :title "Future")))
 
   (it "calls FILTER-FN on each item"
     (spy-on 'org-roam-completion--completing-read

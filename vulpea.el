@@ -31,6 +31,9 @@
 (defun vulpea-select (prompt &optional initial-prompt completions filter-fn)
   "Select a note.
 
+Returns a property list representing selected note or its subset
+without ID if selected note does not exist.
+
 PROMPT is a message to present.
 
 INITIAL-PROMPT is the initial title prompt.
@@ -49,11 +52,10 @@ which takes as its argument an alist of path-completions.  See
                         completions))
          (title-with-tags (org-roam-completion--completing-read (concat prompt ": ") completions
                                                                 :initial-input initial-prompt))
-         (res (cdr (assoc title-with-tags completions)))
-         (id (vulpea-db-get-id-by-file (plist-get res :path))))
-    (if id
-        (plist-put res :id id)
-      (plist-put res :title title-with-tags))))
+         (res (cdr (assoc title-with-tags completions))))
+    (if res
+        (plist-put res :id (vulpea-db-get-id-by-file (plist-get res :path)))
+      (list :title title-with-tags))))
 
 (defun vulpea--get-title-path-completions ()
   "Return an alist for completion.

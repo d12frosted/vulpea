@@ -23,6 +23,9 @@ A note is represented as a property list with the following properties:
 - =:tags= - tags extracted using =org-roam-tag-sources=;
 - =:id= - =ID= property of note (file-level or heading level).
 
+If =ID= is not present in the note structure, this note is treated as
+non-existent. For example, see =vulpea-select=.
+
 *** Mandatory =ID= property
 :PROPERTIES:
 :ID:                     4aa43ec9-b576-4adc-b4a7-b01958ec2e15
