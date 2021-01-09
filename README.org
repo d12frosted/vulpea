@@ -11,6 +11,44 @@ A collection of functions for note taking based on =org= and =org-roam=. This
 repository goal is to be a tested library for other applications around note
 taking. It started as an effort of organising my [[https://github.com/d12frosted/environment/][Emacs configurations]].
 
+** Data types
+:PROPERTIES:
+:ID:                     26af31d5-4fd4-40bb-9058-8543e7359c53
+:END:
+
+A note is represented as a property list with the following properties:
+
+- =:path= - absolute path to the note (even if the note is actually a heading);
+- =:title= - title of the note (it might be an alias);
+- =:tags= - tags extracted using =org-roam-tag-sources=;
+- =:id= - =ID= property of note (file-level or heading level).
+
+*** Mandatory =ID= property
+:PROPERTIES:
+:ID:                     4aa43ec9-b576-4adc-b4a7-b01958ec2e15
+:END:
+
+Please note, that each note (!) must contain an =ID= for Vulpea to be
+operational. One of the ways to always ensure existence of =ID= is to use the
+following code:
+
+#+begin_src emacs-lisp
+  (defun +org-auto-id-add-to-headlines-in-file ()
+    "Add ID property to the current file and all its headlines.
+
+  Only missing properties are added."
+    (when (and (or (eq major-mode 'org-mode)
+                   (eq major-mode 'org-journal-mode))
+               (eq buffer-read-only nil))
+      (save-excursion
+        (widen)
+        (goto-char (point-min))
+        (org-id-get-create)
+        (org-map-entries #'org-id-get-create))))
+
+  (add-hook 'before-save-hook #'+org-auto-id-add-to-headlines-in-file)
+#+end_src
+
 ** Modules
 :PROPERTIES:
 :ID:                     3bc76150-557b-471b-94e3-efa2d903167a
