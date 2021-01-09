@@ -16,6 +16,18 @@ taking. It started as an effort of organising my [[https://github.com/d12frosted
 :ID:                     3bc76150-557b-471b-94e3-efa2d903167a
 :END:
 
+*** =vulpea=
+:PROPERTIES:
+:ID:                     eafd127f-bf86-483f-a692-1bdda7d48659
+:END:
+
+This one-stop module contains some generic functions that didn't find their
+place in separate modules. It also imports every other module.
+
+Functions of interest:
+
+- =vulpea-select= - function to =completing-read= a note optional filter.
+
 *** =vulpea-db=
 :PROPERTIES:
 :ID:                     55717e59-d850-4659-8a02-8153fda52fef
