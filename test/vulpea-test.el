@@ -55,10 +55,5 @@
   (delete-file org-roam-db-location)
   (org-roam-db--close))
 
-(buttercup-define-matcher-for-binary-function
-    :to-be-version< version<
-  :expect-match-phrase "Expected `%A' < %b, but `%A' was %a."
-  :expect-mismatch-phrase "Expected `%A' >= %b, but `%A' was %a.")
-
 (provide 'vulpea-test)
 ;;; vulpea-test.el ends here
