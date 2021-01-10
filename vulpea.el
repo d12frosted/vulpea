@@ -81,6 +81,8 @@ contains all the funny stuff."
 (defun vulpea-create (title template)
   "Create a new note file with TITLE using TEMPLATE.
 
+Returns ID of created note.
+
 See `org-roam-capture-templates' for description of TEMPLATE.
 
 Available variables in the capture context are:
@@ -88,13 +90,15 @@ Available variables in the capture context are:
 - slug
 - title
 - id"
-  (let ((org-roam-capture--info (list
-                                 (cons 'title title)
-                                 (cons 'slug (funcall org-roam-title-to-slug-function title))
-                                 (cons 'id (org-id-new))))
-        (org-roam-capture--context 'title)
-        (org-roam-capture-templates (list template)))
-    (org-roam-capture--capture)))
+  (let* ((id (org-id-new))
+         (org-roam-capture--info (list
+                                  (cons 'title title)
+                                  (cons 'slug (funcall org-roam-title-to-slug-function title))
+                                  (cons 'id id)))
+         (org-roam-capture--context 'title)
+         (org-roam-capture-templates (list template)))
+    (org-roam-capture--capture)
+    id))
 
 (provide 'vulpea)
 ;;; vulpea.el ends here
