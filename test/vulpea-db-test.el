@@ -40,6 +40,7 @@
              (list :path (expand-file-name "note-with-alias.org" org-roam-directory)
                    :title "Alias of the note with alias"
                    :tags nil
+                   :level 0
                    :id "72522ed2-9991-482e-a365-01155c172aa5"))))
 
   (it "finds multiple notes sharing the same title"
@@ -49,10 +50,12 @@
              (list :path (expand-file-name "same-name-1.org" org-roam-directory)
                    :title "Duplicating Term"
                    :tags nil
+                   :level 0
                    :id "ff01962f-47c2-4a32-9bf4-990e41090a9b")
              (list :path (expand-file-name "same-name-2.org" org-roam-directory)
                    :title "Duplicating Term"
                    :tags nil
+                   :level 0
                    :id "68f11246-91e1-4d48-b3c6-801a2ef0160b"))))
 
   (it "returns all information about the note"
@@ -62,6 +65,7 @@
              (list :path (expand-file-name "reference.org" org-roam-directory)
                    :title "Reference"
                    :tags '("tag1" "tag2")
+                   :level 0
                    :id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"))))
 
   (it "should use case sensitive search"
@@ -85,6 +89,7 @@
             (list :path (expand-file-name "note-with-alias.org" org-roam-directory)
                   :title "Note with an alias"
                   :tags nil
+                  :level 0
                   :id "72522ed2-9991-482e-a365-01155c172aa5")))
 
   (it "returns note by sub-heading id"
@@ -93,6 +98,7 @@
             (list :path (expand-file-name "big-note.org" org-roam-directory)
                   :title "Big note sub-heading"
                   :tags nil
+                  :level 1
                   :id "b77a4837-71d6-495e-98f1-b576464aacc1")))
 
   (it "returns note by sub0sub-heading id"
@@ -101,6 +107,7 @@
             (list :path (expand-file-name "big-note.org" org-roam-directory)
                   :title "Big note sub-sub-heading"
                   :tags nil
+                  :level 2
                   :id "cfc39858-351d-4f1e-8f98-10d16d71f49e"))))
 
 (describe "vulpea-db-get-title-by-id"

@@ -21,6 +21,8 @@ A note is represented as a property list with the following properties:
 - =:path= - absolute path to the note (even if the note is actually a heading);
 - =:title= - title of the note (it might be an alias);
 - =:tags= - tags extracted using =org-roam-tag-sources=;
+- =:level= - level of the note inside =:path=, with =0= being a file-level note
+  and other numbers being a header;
 - =:id= - =ID= property of note (file-level or heading level).
 
 If =ID= is not present in the note structure, this note is treated as

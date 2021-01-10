@@ -31,8 +31,10 @@
 (defun vulpea-db-search-by-title (title)
   "Return a list of notes with TITLE.
 
+Does not support headings in the note.
+
 Each note is represented as a property list of the following
-form: (:path :title :tags :id)."
+form: (:path :title :tags :level :id)."
   (let ((files
          (seq-map
           #'+seq-singleton
@@ -46,6 +48,7 @@ form: (:path :title :tags :id)."
              :title title
              :tags (vulpea-with-file file
                      (org-roam--extract-tags file))
+             :level 0
              :id (vulpea-db-get-id-by-file file)))
      files)))
 
@@ -56,13 +59,29 @@ form: (:path :title :tags :id)."
 (defun vulpea-db-get-by-id (id)
   "Find a note by ID.
 
-Supports headings in the note."
-  (when-let ((file (vulpea-db-get-file-by-id id))
-             (title (vulpea-db-get-title-by-id id)))
+Supports headings in the note.
+
+Note is represented as a property list of the following
+form: (:path :title :tags :level :id)."
+  (when-let* ((fls
+               (org-roam-db-query
+                [:select [file level]
+                 :from ids
+                 :where (= id $s1)]
+                id))
+              (fl (+seq-singleton fls))
+              (file (car fl))
+              (level (nth 1 fl))
+              (title (if (= 0 level)
+                         (org-roam-db--get-title file)
+                       (vulpea-with-file file
+                         (goto-char (cdr (org-id-find-id-in-file id file)))
+                         (org-entry-get (point) "ITEM")))))
     (list :path file
           :title title
           :tags (vulpea-with-file file
                   (org-roam--extract-tags file))
+          :level level
           :id id)))
 
 ;;;###autoload
