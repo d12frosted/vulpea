@@ -232,7 +232,7 @@ Please note that all occurrences of PROP are replaced by VALUE."
    ((stringp value)
     (if (string-match-p vulpea-uuid-regexp value)
         (org-link-make-string (concat "id:" value)
-                              (vulpea-db-get-title-by-id value))
+                              (plist-get (vulpea-db-get-by-id value) :title))
       value))
    ((numberp value)
     (number-to-string value))

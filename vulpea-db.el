@@ -85,26 +85,6 @@ form: (:path :title :tags :level :id)."
           :id id)))
 
 ;;;###autoload
-(defun vulpea-db-get-title-by-id (id)
-  "Find a note title by ID.
-
-Supports headings in the note."
-  (when-let* ((fls
-               (org-roam-db-query
-                [:select [file level]
-                 :from ids
-                 :where (= id $s1)]
-                id))
-              (fl (+seq-singleton fls))
-              (file (car fl))
-              (level (nth 1 fl)))
-    (if (= 0 level)
-        (org-roam-db--get-title file)
-      (vulpea-with-file file
-        (goto-char (cdr (org-id-find-id-in-file id file)))
-        (org-entry-get (point) "ITEM")))))
-
-;;;###autoload
 (defun vulpea-db-get-file-by-id (id)
   "Get file of note with ID.
 

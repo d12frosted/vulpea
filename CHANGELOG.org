@@ -25,8 +25,6 @@ Features:
     headings of the note.
   - =vulpea-db-get-file-by-id= - function to get =FILE= of a note represented by
     =ID=. Supports headings of the note.
-  - =vulpea-db-get-title-by-id= - function to get =TITLE= of a note represented
-    by =ID=. Supports headings of the note.
   - =vulpea-db-search-by-title= - function to query notes with =TITLE=.
 - =vulpea-meta= module - for manipulating note metadata represented by
   description list:
