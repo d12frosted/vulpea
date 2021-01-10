@@ -68,6 +68,8 @@ place in separate modules. It also imports every other module.
 Functions of interest:
 
 - =vulpea-select= - function to =completing-read= a note optional filter.
+- =vulpea-create= - function to create a new note file with given =TITLE= and
+  =TEMPLATE=.
 
 *** =vulpea-db=
 :PROPERTIES:

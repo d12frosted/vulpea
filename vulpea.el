@@ -39,7 +39,7 @@ PROMPT is a message to present.
 INITIAL-PROMPT is the initial title prompt.
 
 COMPLETIONS is a list of completions to be used instead of
-`org-roam--get-title-path-completions`.
+`vulpea--get-title-path-completions`.
 
 FILTER-FN is the name of a function to apply on the candidates
 which takes as its argument an alist of path-completions.  See
@@ -77,6 +77,24 @@ contains all the funny stuff."
         (let ((k (org-roam--prepend-tag-string title tags))
               (v (list :path file-path :title title :tags tags)))
           (push (cons k v) completions))))))
+
+(defun vulpea-create (title template)
+  "Create a new note file with TITLE using TEMPLATE.
+
+See `org-roam-capture-templates' for description of TEMPLATE.
+
+Available variables in the capture context are:
+
+- slug
+- title
+- id"
+  (let ((org-roam-capture--info (list
+                                 (cons 'title title)
+                                 (cons 'slug (funcall org-roam-title-to-slug-function title))
+                                 (cons 'id (org-id-new))))
+        (org-roam-capture--context 'title)
+        (org-roam-capture-templates (list template)))
+    (org-roam-capture--capture)))
 
 (provide 'vulpea)
 ;;; vulpea.el ends here

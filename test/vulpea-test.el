@@ -19,8 +19,10 @@
 ;;
 ;;; Code:
 
+(require 'buttercup)
 (require 'vulpea-test-helpers)
 (require 'vulpea)
+(require 'vulpea-db)
 
 (describe "vulpea-select"
   :var ((filter-count 0))
@@ -58,6 +60,38 @@
             (caar (org-roam-db-query
                    [:select (funcall count *)
                     :from titles])))))
+
+(describe "vulpea-select"
+  :var (generated-id)
+  (before-all
+    (vulpea-test--init))
+
+  (after-all
+    (vulpea-test--teardown))
+
+  (it "creates new file with ID"
+    (setq generated-id (org-id-new))
+    (spy-on 'org-id-new
+            :and-return-value generated-id)
+    (vulpea-create "Slarina"
+                   `("d" "default" plain
+                     #'org-roam-capture--get-point
+                     "%?"
+                     :file-name "prefix-${slug}"
+                     :head ,(concat
+                             ":PROPERTIES:\n"
+                             ":ID:                     ${id}\n"
+                             ":END:\n"
+                             "#+TITLE: ${title}\n\n")
+                     :unnarrowed t
+                     :immediate-finish t))
+    (org-roam-db-build-cache)
+    (expect (vulpea-db-get-by-id generated-id)
+            :to-equal
+            (list :path (expand-file-name "prefix-slarina.org" org-roam-directory)
+                  :title "Slarina"
+                  :tags nil
+                  :id generated-id))))
 
 (provide 'vulpea-test)
 ;;; vulpea-test.el ends here

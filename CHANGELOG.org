@@ -16,6 +16,8 @@ Features:
 
 - =vulpea= module - one stop module, importing all others.
   - =vulpea-select= - function to =completing-read= a note with optional filter.
+  - =vulpea-create= - function to create a new note file with given =TITLE= and
+    =TEMPLATE=.
 - =vulpea-db= module - for querying notes data base.
   - =vulpea-db-get-id-by-file= - function to get =ID= of a note represented by
     =FILE=.
