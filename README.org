@@ -77,6 +77,8 @@ Functions of interest:
 This module contains functions to query notes data base. Functions of interest:
 
 - =vulpea-db-get-id-by-file= - function to get =ID= of a note represented by =FILE=.
+- =vulpea-db-get-by-id= - function to get note represented by =ID=. Supports
+  headings of the note.
 - =vulpea-db-get-file-by-id= - function to get =FILE= of a note represented by
   =ID=. Supports headings of the note.
 - =vulpea-db-get-title-by-id= - function to get =TITLE= of a note represented by

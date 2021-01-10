@@ -53,8 +53,21 @@ form: (:path :title :tags :id)."
 ;; Exchanging ID to X
 
 ;;;###autoload
-(defun vulpea-db-get-title-by-id (id)
+(defun vulpea-db-get-by-id (id)
   "Find a note by ID.
+
+Supports headings in the note."
+  (when-let ((file (vulpea-db-get-file-by-id id))
+             (title (vulpea-db-get-title-by-id id)))
+    (list :path file
+          :title title
+          :tags (vulpea-with-file file
+                  (org-roam--extract-tags file))
+          :id id)))
+
+;;;###autoload
+(defun vulpea-db-get-title-by-id (id)
+  "Find a note title by ID.
 
 Supports headings in the note."
   (when-let* ((fls

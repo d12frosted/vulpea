@@ -68,6 +68,41 @@
     (expect (vulpea-db-search-by-title "reference")
             :to-be nil)))
 
+(describe "vulpea-db-get-by-id"
+  (before-all
+    (vulpea-test--init))
+
+  (after-all
+    (vulpea-test--teardown))
+
+  (it "returns nil when passed unknown id"
+    (expect (vulpea-db-get-by-id "00000000-0000-0000-0000-000000000000")
+            :to-be nil))
+
+  (it "returns note by file id"
+    (expect (vulpea-db-get-by-id "72522ed2-9991-482e-a365-01155c172aa5")
+            :to-equal
+            (list :path (expand-file-name "note-with-alias.org" org-roam-directory)
+                  :title "Note with an alias"
+                  :tags nil
+                  :id "72522ed2-9991-482e-a365-01155c172aa5")))
+
+  (it "returns note by sub-heading id"
+    (expect (vulpea-db-get-by-id "b77a4837-71d6-495e-98f1-b576464aacc1")
+            :to-equal
+            (list :path (expand-file-name "big-note.org" org-roam-directory)
+                  :title "Big note sub-heading"
+                  :tags nil
+                  :id "b77a4837-71d6-495e-98f1-b576464aacc1")))
+
+  (it "returns note by sub0sub-heading id"
+    (expect (vulpea-db-get-by-id "cfc39858-351d-4f1e-8f98-10d16d71f49e")
+            :to-equal
+            (list :path (expand-file-name "big-note.org" org-roam-directory)
+                  :title "Big note sub-sub-heading"
+                  :tags nil
+                  :id "cfc39858-351d-4f1e-8f98-10d16d71f49e"))))
+
 (describe "vulpea-db-get-title-by-id"
   (before-all
     (vulpea-test--init))
