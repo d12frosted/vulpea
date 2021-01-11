@@ -376,6 +376,73 @@ Just some text to make sure that meta is inserted before.
 - age :: 42
 "))
 
+    (it "inserts values with respect to trailing new lines in file without body"
+      (vulpea-test--map-file (lambda (_)
+                               ;; first line after the header
+                               (goto-char 124)
+                               (insert "\n\n\n\n\n"))
+                             reference-file)
+      (vulpea-meta-set reference-id
+                       "references"
+                       '("5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"
+                         "05907606-f836-45bf-bd36-a8444308eddd")
+                       'append)
+      (vulpea-meta-set reference-id "age" 42 'append)
+      (expect reference-file
+              :to-contain-exactly
+              ":PROPERTIES:
+:ID:                     5093fc4e-8c63-4e60-a1da-83fc7ecd5db7
+:END:
+#+title: Reference
+#+roam_tags: tag1 tag2
+
+- references :: [[id:5093fc4e-8c63-4e60-a1da-83fc7ecd5db7][Reference]]
+- references :: [[id:05907606-f836-45bf-bd36-a8444308eddd][Note with META]]
+- age :: 42
+
+
+
+
+
+"))
+
+    (it "inserts values with respect to trailing new lines in file with body"
+      (vulpea-test--map-file (lambda (_)
+                               ;; first line after the body
+                               (goto-char 168)
+                               (insert "\n\n\n")
+                               ;; first line after the header
+                               (goto-char 109)
+                               (insert "\n\n\n\n\n"))
+                             without-meta-file)
+      (vulpea-meta-set without-meta-id
+                       "references"
+                       '("5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"
+                         "05907606-f836-45bf-bd36-a8444308eddd")
+                       'append)
+      (vulpea-meta-set without-meta-id "age" 42 'append)
+      (expect without-meta-file
+              :to-contain-exactly
+              ":PROPERTIES:
+:ID:                     444f94d7-61e0-4b7c-bb7e-100814c6b4bb
+:END:
+#+title: Note without META
+
+- references :: [[id:5093fc4e-8c63-4e60-a1da-83fc7ecd5db7][Reference]]
+- references :: [[id:05907606-f836-45bf-bd36-a8444308eddd][Note with META]]
+- age :: 42
+
+
+
+
+
+
+Just some text to make sure that meta is inserted before.
+
+
+
+"))
+
     (it "cleans meta from a note with body"
       (vulpea-meta-clean with-meta-id)
       (expect with-meta-file

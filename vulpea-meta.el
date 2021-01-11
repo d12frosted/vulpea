@@ -176,14 +176,13 @@ which case VALUE is added at the end of the meta."
                  ;; :bullet and other properties
                  (img (org-element-copy (car items-all)))
                  (point (if append
-                            (org-element-property :end pl)
+                            (- (org-element-property :end pl)
+                               (org-element-property :post-blank pl))
                           (org-element-property :begin pl)))
-                 (eob (eq point (point-max))))
+                 eob)
             ;; when APPEND and body is present, insert new item on the next line
             ;; after the last item
-            (if (and append (not eob))
-                (goto-char (- point 1))
-              (goto-char point))
+            (goto-char point)
             (seq-do
              (lambda (val)
                (insert
@@ -200,19 +199,17 @@ which case VALUE is added at the end of the meta."
         ;; line
         (let* ((element (or (car (last (org-element-map buffer 'keyword #'identity)))
                             (car (org-element-map buffer 'property-drawer #'identity))))
-               (point (if element (org-element-property :end element) 1))
-               (eob (eq point (point-max))))
+               (point (if element (- (org-element-property :end element)
+                                     (org-element-property :post-blank element))
+                        (point-min))))
           (goto-char point)
-          (when eob
-            (insert "\n"))
+          (insert "\n")
           (seq-do
            (lambda (val)
              (insert "- " prop " :: "
                      (vulpea-meta--format val)
                      "\n"))
-           values)
-          (unless eob
-            (insert "\n"))))))))
+           values)))))))
 
 ;;;###autoload
 (defun vulpea-meta-remove (id prop)
