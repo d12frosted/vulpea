@@ -174,10 +174,16 @@ which case VALUE is added at the end of the meta."
           (let* ((items-all (org-element-map pl 'item #'identity))
                  ;; we copy any item from the list so we don't need to deal with
                  ;; :bullet and other properties
-                 (img (org-element-copy (car items-all))))
-            (goto-char (if append
-                           (- (org-element-property :end pl) 1)
-                         (org-element-property :begin pl)))
+                 (img (org-element-copy (car items-all)))
+                 (point (if append
+                            (org-element-property :end pl)
+                          (org-element-property :begin pl)))
+                 (eob (eq point (point-max))))
+            ;; when APPEND and body is present, insert new item on the next line
+            ;; after the last item
+            (if (and append (not eob))
+                (goto-char (- point 1))
+              (goto-char point))
             (seq-do
              (lambda (val)
                (insert

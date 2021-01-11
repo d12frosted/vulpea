@@ -335,7 +335,7 @@ Just some text to make sure that meta is inserted before.
 Just some text to make sure that meta is inserted before.
 "))
 
-    (it "appends to the end of the list when APPEND is non-nil"
+    (it "appends to the end of the list when APPEND is non-nil (when body is present)"
       (vulpea-meta-set without-meta-id
                        "references"
                        '("5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"
@@ -354,6 +354,26 @@ Just some text to make sure that meta is inserted before.
 - age :: 42
 
 Just some text to make sure that meta is inserted before.
+"))
+
+    (it "appends to the end of the list when APPEND is non-nil (when body is missing)"
+      (vulpea-meta-set reference-id
+                       "references"
+                       '("5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"
+                         "05907606-f836-45bf-bd36-a8444308eddd")
+                       'append)
+      (vulpea-meta-set reference-id "age" 42 'append)
+      (expect reference-file
+              :to-contain-exactly
+              ":PROPERTIES:
+:ID:                     5093fc4e-8c63-4e60-a1da-83fc7ecd5db7
+:END:
+#+title: Reference
+#+roam_tags: tag1 tag2
+
+- references :: [[id:5093fc4e-8c63-4e60-a1da-83fc7ecd5db7][Reference]]
+- references :: [[id:05907606-f836-45bf-bd36-a8444308eddd][Note with META]]
+- age :: 42
 "))
 
     (it "cleans meta from a note with body"
