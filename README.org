@@ -7,6 +7,9 @@
 :ID:                     c97abc5d-b39f-4356-bc93-8f591a0a6ac8
 :END:
 
+*WARNING* This library is in very early stages of development, functions come
+and functions go. See [[https://github.com/d12frosted/vulpea/milestone/1][v0.1 milestone]] for some kind of progress tracking.
+
 A collection of functions for note taking based on =org= and =org-roam=. This
 repository goal is to be a tested library for other applications around note
 taking. It started as an effort of organising my [[https://github.com/d12frosted/environment/][Emacs configurations]].
