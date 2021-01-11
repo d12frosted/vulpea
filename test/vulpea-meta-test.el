@@ -315,6 +315,47 @@ Just some text to make sure that meta is inserted before.
 Just some text to make sure that meta is inserted before.
 "))
 
+    (it "appends to the beginning of the list when APPEND is nil"
+      (vulpea-meta-set without-meta-id
+                       "references"
+                       '("5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"
+                         "05907606-f836-45bf-bd36-a8444308eddd"))
+      (vulpea-meta-set without-meta-id "age" 42)
+      (expect without-meta-file
+              :to-contain-exactly
+              ":PROPERTIES:
+:ID:                     444f94d7-61e0-4b7c-bb7e-100814c6b4bb
+:END:
+#+title: Note without META
+
+- age :: 42
+- references :: [[id:5093fc4e-8c63-4e60-a1da-83fc7ecd5db7][Reference]]
+- references :: [[id:05907606-f836-45bf-bd36-a8444308eddd][Note with META]]
+
+Just some text to make sure that meta is inserted before.
+"))
+
+    (it "appends to the end of the list when APPEND is non-nil"
+      (vulpea-meta-set without-meta-id
+                       "references"
+                       '("5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"
+                         "05907606-f836-45bf-bd36-a8444308eddd")
+                       'append)
+      (vulpea-meta-set without-meta-id "age" 42 'append)
+      (expect without-meta-file
+              :to-contain-exactly
+              ":PROPERTIES:
+:ID:                     444f94d7-61e0-4b7c-bb7e-100814c6b4bb
+:END:
+#+title: Note without META
+
+- references :: [[id:5093fc4e-8c63-4e60-a1da-83fc7ecd5db7][Reference]]
+- references :: [[id:05907606-f836-45bf-bd36-a8444308eddd][Note with META]]
+- age :: 42
+
+Just some text to make sure that meta is inserted before.
+"))
+
     (it "cleans meta from a note with body"
       (vulpea-meta-clean with-meta-id)
       (expect with-meta-file

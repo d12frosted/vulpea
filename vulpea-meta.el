@@ -130,13 +130,17 @@ one is returned. In case all values are required, use
   (car (vulpea-meta-get-list id prop type)))
 
 ;;;###autoload
-(defun vulpea-meta-set (id prop value)
+(defun vulpea-meta-set (id prop value &optional append)
   "Set VALUE of PROP for note with ID.
 
 If the VALUE is a list, then each element is inserted
 separately.
 
-Please note that all occurrences of PROP are replaced by VALUE."
+Please note that all occurrences of PROP are replaced by VALUE.
+
+When PROP is not yet set, VALUE is inserted at the beginning of
+the meta, unless the optional argument APPEND is non-nil, in
+which case VALUE is added at the end of the meta."
   (let* ((values (if (listp value) value (list value)))
          (meta (vulpea-meta--get id prop))
          (file (plist-get meta :file))
@@ -146,10 +150,12 @@ Please note that all occurrences of PROP are replaced by VALUE."
          (img (org-element-copy (car items))))
     (vulpea-with-file file
       (cond
+       ;; descriptive plain list exists, update it
        (pl
         ;; TODO: inline
         (vulpea-meta-remove id prop)
         (cond
+         ;; property already set, remove it and set again
          (img
           (goto-char (org-element-property :begin img))
           (seq-do
@@ -162,12 +168,16 @@ Please note that all occurrences of PROP are replaced by VALUE."
           (when (equal (length items)
                        (length (org-element-contents pl)))
             (insert "\n")))
+
+         ;; property is not yet set, simply set it
          (t
           (let* ((items-all (org-element-map pl 'item #'identity))
                  ;; we copy any item from the list so we don't need to deal with
                  ;; :bullet and other properties
                  (img (org-element-copy (car items-all))))
-            (goto-char (org-element-property :begin pl))
+            (goto-char (if append
+                           (- (org-element-property :end pl) 1)
+                         (org-element-property :begin pl)))
             (seq-do
              (lambda (val)
                (insert
@@ -176,6 +186,8 @@ Please note that all occurrences of PROP are replaced by VALUE."
                   (org-element-put-property (org-element-copy img) :tag prop)
                   (vulpea-meta--format val)))))
              values)))))
+
+       ;; descriptive plain list does not exist, create one
        (t
         ;; insert either after the last keyword in the buffer, or after the
         ;; property drawer if it is present on the first line or on the fist
