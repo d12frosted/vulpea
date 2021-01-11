@@ -178,8 +178,7 @@ which case VALUE is added at the end of the meta."
                  (point (if append
                             (- (org-element-property :end pl)
                                (org-element-property :post-blank pl))
-                          (org-element-property :begin pl)))
-                 eob)
+                          (org-element-property :begin pl))))
             ;; when APPEND and body is present, insert new item on the next line
             ;; after the last item
             (goto-char point)
