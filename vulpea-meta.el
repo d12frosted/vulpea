@@ -90,7 +90,7 @@ Each element value depends on TYPE:
 - string (default) - an interpreted object (without trailing
   newline)
 - number - an interpreted number
-- id - id of the linked note."
+- link - path of the link (either ID of the linked note or raw link)."
   (setq type (or type 'string))
   (let* ((meta (vulpea-meta--get id prop))
          (items (plist-get meta :items)))
@@ -106,10 +106,12 @@ Each element value depends on TYPE:
                      (s-trim-right
                       (substring-no-properties
                        (org-element-interpret-data (org-element-contents val))))))
-           (`id (let ((el (car (org-element-contents val))))
-                  (when (equal 'link
-                               (org-element-type el))
-                    (org-element-property :path el)))))))
+           (`link (let ((el (car (org-element-contents val))))
+                    (when (equal 'link
+                                 (org-element-type el))
+                      (pcase (org-element-property :type el)
+                        ("id" (org-element-property :path el))
+                        (_ (org-element-property :raw-link el)))))))))
      items)))
 
 ;;;###autoload
@@ -122,7 +124,7 @@ Result depends on TYPE:
 - string (default) - an interpreted object (without trailing
   newline)
 - number - an interpreted number
-- id - id of the linked note.
+- link - path of the link (either ID of the linked note or raw link).
 
 If the note contains multiple values for a given PROP, the first
 one is returned. In case all values are required, use
@@ -243,14 +245,20 @@ which case VALUE is added at the end of the meta."
 (defun vulpea-meta--format (value)
   "Format a VALUE depending on it's type."
   (cond
+   ((and (stringp value)
+         (string-match-p vulpea-uuid-regexp value))
+    (if-let* ((note (vulpea-db-get-by-id value))
+              (title (plist-get note :title)))
+        (org-link-make-string (concat "id:" value) title)
+      (user-error "Note with id \"%s\" does not exist" value)))
    ((stringp value)
-    (if (string-match-p vulpea-uuid-regexp value)
-        (org-link-make-string (concat "id:" value)
-                              (plist-get (vulpea-db-get-by-id value) :title))
-      value))
+    (let ((domain (ignore-errors (url-domain (url-generic-parse-url value)))))
+      (if domain
+          (org-link-make-string value domain)
+        value)))
    ((numberp value)
     (number-to-string value))
-   (t (user-error "Unsupported type of '%s'" value))))
+   (t (user-error "Unsupported type of \"%s\"" value))))
 
 (provide 'vulpea-meta)
 ;;; vulpea-meta.el ends here

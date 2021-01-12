@@ -11,6 +11,7 @@
 - numbers :: 18
 - numbers :: 24
 - singleton :: only value
+- url :: [[https://en.wikipedia.org/wiki/Frappato][wikipedia.org]]
 - link :: [[id:444f94d7-61e0-4b7c-bb7e-100814c6b4bb][Note without META]]
 - references :: [[id:444f94d7-61e0-4b7c-bb7e-100814c6b4bb][Note without META]]
 - references :: [[id:5093fc4e-8c63-4e60-a1da-83fc7ecd5db7][Reference]]

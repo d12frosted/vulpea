@@ -51,8 +51,12 @@
             :to-equal 42))
 
   (it "extracts link value"
-    (expect (vulpea-meta-get "05907606-f836-45bf-bd36-a8444308eddd" "link" 'id)
+    (expect (vulpea-meta-get "05907606-f836-45bf-bd36-a8444308eddd" "link" 'link)
             :to-equal "444f94d7-61e0-4b7c-bb7e-100814c6b4bb"))
+
+  (it "extracts URL value"
+    (expect (vulpea-meta-get "05907606-f836-45bf-bd36-a8444308eddd" "url" 'link)
+            :to-equal "https://en.wikipedia.org/wiki/Frappato"))
 
   (it "extracts first element of the list"
     (expect (vulpea-meta-get "05907606-f836-45bf-bd36-a8444308eddd" "tags" 'string)
@@ -85,7 +89,10 @@
             :to-equal '(42)))
 
   (it "extracts link value"
-    (expect (vulpea-meta-get-list "05907606-f836-45bf-bd36-a8444308eddd" "link" 'id)
+    (expect (vulpea-meta-get-list "05907606-f836-45bf-bd36-a8444308eddd" "link" 'link)
+            :to-equal '("444f94d7-61e0-4b7c-bb7e-100814c6b4bb")))
+  (it "extracts link value"
+    (expect (vulpea-meta-get-list "05907606-f836-45bf-bd36-a8444308eddd" "link" 'link)
             :to-equal '("444f94d7-61e0-4b7c-bb7e-100814c6b4bb")))
 
   (it "extracts list of strings"
@@ -99,7 +106,7 @@
             :to-equal '(12 18 24)))
 
   (it "extracts list of links"
-    (expect (vulpea-meta-get-list "05907606-f836-45bf-bd36-a8444308eddd" "references" 'id)
+    (expect (vulpea-meta-get-list "05907606-f836-45bf-bd36-a8444308eddd" "references" 'link)
             :to-equal '("444f94d7-61e0-4b7c-bb7e-100814c6b4bb"
                         "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"))))
 
@@ -125,7 +132,7 @@
 
   (it "sets a singe link value in a note without meta"
     (vulpea-meta-set without-meta-id "references" reference-id)
-    (expect (vulpea-meta-get without-meta-id "references" 'id)
+    (expect (vulpea-meta-get without-meta-id "references" 'link)
             :to-equal reference-id))
 
   (it "sets multiple values in a note without meta"
@@ -199,7 +206,7 @@
                         (plist-get (vulpea-meta with-meta-id)
                                    :pl)
                         'item #'identity))
-            :to-equal 12)
+            :to-equal 13)
     (vulpea-meta-clean with-meta-id)
     (expect (length (org-element-map
                         (plist-get (vulpea-meta with-meta-id)
@@ -229,6 +236,33 @@
         (cons nil (buttercup-format-spec
                    "Expected `%F' to have content equal to `%v', but instead `%F' has content equal to `%c'"
                    spec))))))
+
+(describe "vulpea-meta--format"
+  (before-all
+    (vulpea-test--init))
+
+  (after-all
+    (vulpea-test--teardown))
+
+  (it "formats an URL"
+    (expect (vulpea-meta--format "https://www.wikipedia.org/")
+            :to-equal "[[https://www.wikipedia.org/][wikipedia.org]]"))
+
+  (it "formats a note ID"
+    (expect (vulpea-meta--format "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")
+            :to-equal "[[id:5093fc4e-8c63-4e60-a1da-83fc7ecd5db7][Reference]]"))
+
+  (it "formats regular string"
+    (expect (vulpea-meta--format "hello")
+            :to-equal "hello"))
+
+  (it "throw user-error for unknown note"
+    (expect (vulpea-meta--format "d36125b3-39e1-4bc3-8f7d-126159d8d60e")
+            :to-throw 'user-error '("Note with id \"d36125b3-39e1-4bc3-8f7d-126159d8d60e\" does not exist")))
+
+  (it "throw user-error for unsupported resource type"
+    (expect (vulpea-meta--format '(1 2 3))
+            :to-throw 'user-error '("Unsupported type of \"(1 2 3)\""))))
 
 (describe "vulpea-meta formatting"
   :var ((without-meta-id "444f94d7-61e0-4b7c-bb7e-100814c6b4bb")
@@ -301,7 +335,9 @@ Just some text to make sure that meta is inserted before.
 
     (it "formats multiple values upon insertion to file without meta"
       (vulpea-meta-set without-meta-id "references" '("5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"
-                                                      "05907606-f836-45bf-bd36-a8444308eddd"))
+                                                      "05907606-f836-45bf-bd36-a8444308eddd"
+                                                      "https://en.wikipedia.org/wiki/Frappato"
+                                                      "trust me™"))
       (expect without-meta-file
               :to-contain-exactly
               ":PROPERTIES:
@@ -311,6 +347,8 @@ Just some text to make sure that meta is inserted before.
 
 - references :: [[id:5093fc4e-8c63-4e60-a1da-83fc7ecd5db7][Reference]]
 - references :: [[id:05907606-f836-45bf-bd36-a8444308eddd][Note with META]]
+- references :: [[https://en.wikipedia.org/wiki/Frappato][wikipedia.org]]
+- references :: trust me™
 
 Just some text to make sure that meta is inserted before.
 "))
