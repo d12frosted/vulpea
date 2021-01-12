@@ -19,14 +19,15 @@ taking. It started as an effort of organising my [[https://github.com/d12frosted
 :ID:                     26af31d5-4fd4-40bb-9058-8543e7359c53
 :END:
 
-A note is represented as a property list with the following properties:
+A note is represented as a =vulpea-note= structure with the following
+slots/fields:
 
-- =:path= - absolute path to the note (even if the note is actually a heading);
-- =:title= - title of the note (it might be an alias);
-- =:tags= - tags extracted using =org-roam-tag-sources=;
-- =:level= - level of the note inside =:path=, with =0= being a file-level note
+- =vulpea-note-path= - absolute path to the note (even if the note is actually a heading);
+- =vulpea-note-title= - title of the note (it might be an alias);
+- =vulpea-note-tags= - tags extracted using =org-roam-tag-sources=;
+- =vulpea-note-level= - level of the note inside =:path=, with =0= being a file-level note
   and other numbers being a header;
-- =:id= - =ID= property of note (file-level or heading level).
+- =vulpea-note-id= - =ID= property of note (file-level or heading level).
 
 If =ID= is not present in the note structure, this note is treated as
 non-existent. For example, see =vulpea-select=.
@@ -36,15 +37,13 @@ non-existent. For example, see =vulpea-select=.
 :ID:                     4aa43ec9-b576-4adc-b4a7-b01958ec2e15
 :END:
 
-Please note, that each note (!) must contain an =ID= for Vulpea to be
+Please note, that each =vulpea-note= (!) must contain an =ID= for Vulpea to be
 operational. One of the ways to always ensure existence of =ID= is to use the
 following code:
 
 #+begin_src emacs-lisp
   (defun +org-auto-id-add-to-headlines-in-file ()
-    "Add ID property to the current file and all its headlines.
-
-  Only missing properties are added."
+    "Add ID property to the current file and all its headlines."
     (when (and (or (eq major-mode 'org-mode)
                    (eq major-mode 'org-journal-mode))
                (eq buffer-read-only nil))

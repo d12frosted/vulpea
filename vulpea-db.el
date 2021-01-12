@@ -30,12 +30,9 @@
 
 ;;;###autoload
 (defun vulpea-db-search-by-title (title)
-  "Return a list of notes with TITLE.
+  "Return a list of `vulpea-note' that has TITLE.
 
-Does not support headings in the note.
-
-Each note is represented as a property list of the following
-form: (:path :title :tags :level :id)."
+Does not support headings in the note."
   (let ((files
          (seq-map
           #'car
@@ -46,12 +43,13 @@ form: (:path :title :tags :level :id)."
            title))))
     (seq-map
      (lambda (file)
-       (list :path file
-             :title title
-             :tags (vulpea-utils-with-file file
-                     (org-roam--extract-tags file))
-             :level 0
-             :id (vulpea-db-get-id-by-file file)))
+       (make-vulpea-note
+        :path file
+        :title title
+        :tags (vulpea-utils-with-file file
+                (org-roam--extract-tags file))
+        :level 0
+        :id (vulpea-db-get-id-by-file file)))
      files)))
 
 ;;
@@ -59,12 +57,9 @@ form: (:path :title :tags :level :id)."
 
 ;;;###autoload
 (defun vulpea-db-get-by-id (id)
-  "Find a note by ID.
+  "Find a `vulpea-note' by ID.
 
-Supports headings in the note.
-
-Note is represented as a property list of the following
-form: (:path :title :tags :level :id)."
+Supports headings in the note."
   (when-let*
       ((fls
         (org-roam-db-query
@@ -80,16 +75,17 @@ form: (:path :title :tags :level :id)."
                 (vulpea-utils-with-file file
                   (goto-char (cdr (org-id-find-id-in-file id file)))
                   (org-entry-get (point) "ITEM")))))
-    (list :path file
-          :title title
-          :tags (vulpea-utils-with-file file
-                  (org-roam--extract-tags file))
-          :level level
-          :id id)))
+    (make-vulpea-note
+     :path file
+     :title title
+     :tags (vulpea-utils-with-file file
+             (org-roam--extract-tags file))
+     :level level
+     :id id)))
 
 ;;;###autoload
 (defun vulpea-db-get-file-by-id (id)
-  "Get file of note with ID.
+  "Get file of `vulpea-note' with ID.
 
 Supports headings in the note."
   (caar
@@ -104,7 +100,7 @@ Supports headings in the note."
 
 ;;;###autoload
 (defun vulpea-db-get-id-by-file (file)
-  "Get ID of note represented by FILE.
+  "Get ID of `vulpea-note' represented by FILE.
 
 If the FILE is relative, it is considered to be relative to
 `org-roam-directory'."

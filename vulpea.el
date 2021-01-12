@@ -25,6 +25,7 @@
 ;;; Code:
 
 (require 'org-roam)
+(require 'vulpea-utils)
 (require 'vulpea-meta)
 (require 'vulpea-db)
 
@@ -34,8 +35,8 @@
                              filter-fn)
   "Select a note.
 
-Returns a property list representing selected note or its subset
-without ID if selected note does not exist.
+Returns a selected `vulpea-note'. If `vulpea-note-id' is nil, it
+means that user selected non-existing note.
 
 PROMPT is a message to present.
 
@@ -59,10 +60,13 @@ which takes as its argument an alist of path-completions. See
                            :initial-input initial-prompt))
          (res (cdr (assoc title-with-tags completions))))
     (if res
-        (plist-put res :id
-                   (vulpea-db-get-id-by-file (plist-get res :path)))
-      (list :title title-with-tags
-            :level 0))))
+        (progn
+          (setf (vulpea-note-id res)
+                (vulpea-db-get-id-by-file (vulpea-note-path res)))
+          res)
+      (make-vulpea-note
+       :title title-with-tags
+       :level 0))))
 
 (defun vulpea--get-title-path-completions ()
   "Return an alist for completion.
@@ -85,10 +89,11 @@ contains all the funny stuff."
     (dolist (row rows completions)
       (pcase-let ((`(,file-path ,title ,tags) row))
         (let ((k (org-roam--prepend-tag-string title tags))
-              (v (list :path file-path
-                       :title title
-                       :tags tags
-                       :level 0)))
+              (v (make-vulpea-note
+                  :path file-path
+                  :title title
+                  :tags tags
+                  :level 0)))
           (push (cons k v) completions))))))
 
 (defun vulpea-create (title template)

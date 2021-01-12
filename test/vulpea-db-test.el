@@ -20,6 +20,7 @@
 ;;; Code:
 
 (require 'vulpea-test-utils)
+(require 'vulpea-utils)
 (require 'vulpea-db)
 
 (describe "vulpea-db-search-by-title"
@@ -37,36 +38,40 @@
     (expect (vulpea-db-search-by-title "Alias of the note with alias")
             :to-equal
             (list
-             (list :path (expand-file-name "note-with-alias.org" org-roam-directory)
-                   :title "Alias of the note with alias"
-                   :tags nil
-                   :level 0
-                   :id "72522ed2-9991-482e-a365-01155c172aa5"))))
+             (make-vulpea-note
+              :path (expand-file-name "note-with-alias.org" org-roam-directory)
+              :title "Alias of the note with alias"
+              :tags nil
+              :level 0
+              :id "72522ed2-9991-482e-a365-01155c172aa5"))))
 
   (it "finds multiple notes sharing the same title"
     (expect (vulpea-db-search-by-title "Duplicating Term")
             :to-have-same-items-as
             (list
-             (list :path (expand-file-name "same-name-1.org" org-roam-directory)
-                   :title "Duplicating Term"
-                   :tags nil
-                   :level 0
-                   :id "ff01962f-47c2-4a32-9bf4-990e41090a9b")
-             (list :path (expand-file-name "same-name-2.org" org-roam-directory)
-                   :title "Duplicating Term"
-                   :tags nil
-                   :level 0
-                   :id "68f11246-91e1-4d48-b3c6-801a2ef0160b"))))
+             (make-vulpea-note
+              :path (expand-file-name "same-name-1.org" org-roam-directory)
+              :title "Duplicating Term"
+              :tags nil
+              :level 0
+              :id "ff01962f-47c2-4a32-9bf4-990e41090a9b")
+             (make-vulpea-note
+              :path (expand-file-name "same-name-2.org" org-roam-directory)
+              :title "Duplicating Term"
+              :tags nil
+              :level 0
+              :id "68f11246-91e1-4d48-b3c6-801a2ef0160b"))))
 
   (it "returns all information about the note"
     (expect (vulpea-db-search-by-title "Reference")
             :to-equal
             (list
-             (list :path (expand-file-name "reference.org" org-roam-directory)
-                   :title "Reference"
-                   :tags '("tag1" "tag2")
-                   :level 0
-                   :id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"))))
+             (make-vulpea-note
+              :path (expand-file-name "reference.org" org-roam-directory)
+              :title "Reference"
+              :tags '("tag1" "tag2")
+              :level 0
+              :id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"))))
 
   (it "should use case sensitive search"
     (expect (vulpea-db-search-by-title "reference")
@@ -86,29 +91,32 @@
   (it "returns note by file id"
     (expect (vulpea-db-get-by-id "72522ed2-9991-482e-a365-01155c172aa5")
             :to-equal
-            (list :path (expand-file-name "note-with-alias.org" org-roam-directory)
-                  :title "Note with an alias"
-                  :tags nil
-                  :level 0
-                  :id "72522ed2-9991-482e-a365-01155c172aa5")))
+            (make-vulpea-note
+             :path (expand-file-name "note-with-alias.org" org-roam-directory)
+             :title "Note with an alias"
+             :tags nil
+             :level 0
+             :id "72522ed2-9991-482e-a365-01155c172aa5")))
 
   (it "returns note by sub-heading id"
     (expect (vulpea-db-get-by-id "b77a4837-71d6-495e-98f1-b576464aacc1")
             :to-equal
-            (list :path (expand-file-name "big-note.org" org-roam-directory)
-                  :title "Big note sub-heading"
-                  :tags nil
-                  :level 1
-                  :id "b77a4837-71d6-495e-98f1-b576464aacc1")))
+            (make-vulpea-note
+             :path (expand-file-name "big-note.org" org-roam-directory)
+             :title "Big note sub-heading"
+             :tags nil
+             :level 1
+             :id "b77a4837-71d6-495e-98f1-b576464aacc1")))
 
   (it "returns note by sub0sub-heading id"
     (expect (vulpea-db-get-by-id "cfc39858-351d-4f1e-8f98-10d16d71f49e")
             :to-equal
-            (list :path (expand-file-name "big-note.org" org-roam-directory)
-                  :title "Big note sub-sub-heading"
-                  :tags nil
-                  :level 2
-                  :id "cfc39858-351d-4f1e-8f98-10d16d71f49e"))))
+            (make-vulpea-note
+             :path (expand-file-name "big-note.org" org-roam-directory)
+             :title "Big note sub-sub-heading"
+             :tags nil
+             :level 2
+             :id "cfc39858-351d-4f1e-8f98-10d16d71f49e"))))
 
 (describe "vulpea-db-get-file-by-id"
   (before-all
