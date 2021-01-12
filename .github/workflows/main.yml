@@ -30,10 +30,10 @@ jobs:
         run: curl -fsSL https://raw.github.com/doublep/eldev/master/webinstall/github-eldev | sh
 
       - name: Install dependencies
-        run: eldev --unstable -C -p -dtT prepare
+        run: make prepare
 
       - name: Lint
-        run: eldev --unstable -C -p -dtT lint
+        run: make lint
 
       - name: Test
-        run: eldev --unstable -C -p -dtT test
+        run: make test
