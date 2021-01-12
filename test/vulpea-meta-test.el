@@ -493,5 +493,13 @@ Just some text to make sure that meta is inserted before.
 Don't mind me. I am a content of this note.
 "))))
 
+(describe "vulpea-meta--uuid-regexp"
+  (it "matches some UUID"
+    (expect (string-match vulpea-meta--uuid-regexp (org-id-new))
+            :to-be 0))
+  (it "doesn't match non-UUID"
+    (expect (string-match vulpea-meta--uuid-regexp "not UUID")
+            :to-be nil)))
+
 (provide 'vulpea-meta-test)
 ;;; vulpea-meta-test.el ends here

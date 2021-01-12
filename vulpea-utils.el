@@ -1,9 +1,11 @@
-;;; vulpea-macs.el --- all things macros -*- lexical-binding: t; -*-
+;;; vulpea-utils.el --- Vulpea utilities   -*- lexical-binding: t; -*-
 ;;
 ;; Copyright (c) 2020 Boris Buliga
 ;;
 ;; Author: Boris Buliga <boris@d12frosted.io>
 ;; Maintainer: Boris Buliga <boris@d12frosted.io>
+;; Package-Version: 0.0.1
+;; Package-Requires: ((emacs "27.1"))
 ;;
 ;; Created: 29 Dec 2020
 ;;
@@ -20,11 +22,11 @@
 ;;; Code:
 
 ;;;###autoload
-(defmacro vulpea-with-file (file &rest body)
+(defmacro vulpea-utils-with-file (file &rest body)
   "Execute BODY in `org-mode' FILE."
   (declare (indent 1) (debug t))
   `(with-current-buffer (find-file-noselect ,file)
      ,@body))
 
-(provide 'vulpea-macs)
-;;; vulpea-macs.el ends here
+(provide 'vulpea-utils)
+;;; vulpea-utils.el ends here

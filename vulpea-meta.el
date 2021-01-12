@@ -4,6 +4,8 @@
 ;;
 ;; Author: Boris Buliga <boris@d12frosted.io>
 ;; Maintainer: Boris Buliga <boris@d12frosted.io>
+;; Package-Version: 0.0.1
+;; Package-Requires: ((emacs "27.1") (org "9.4.4") (org-roam "1.2.3"))
 ;;
 ;; Created: 29 Dec 2020
 ;;
@@ -15,8 +17,8 @@
 ;;
 ;;; Commentary:
 ;;
-;; Functionality for metadata manipulation. Metadata is defined by the first
-;; description list in the note, e.g. list like:
+;; Functionality for metadata manipulation. Metadata is defined by the
+;; first description list in the note, e.g. list like:
 ;;
 ;; - key1 :: value1
 ;; - key2 :: value21
@@ -28,9 +30,23 @@
 (require 'org-element)
 (require 'seq)
 (require 's)
-(require 'vulpea-const)
-(require 'vulpea-macs)
+(require 'vulpea-utils)
 (require 'vulpea-db)
+
+(defvar vulpea-meta--uuid-regexp
+  (concat
+   "\\("
+   "[a-zA-Z0-9]\\{8\\}"
+   "-"
+   "[a-zA-Z0-9]\\{4\\}"
+   "-"
+   "[a-zA-Z0-9]\\{4\\}"
+   "-"
+   "[a-zA-Z0-9]\\{4\\}"
+   "-"
+   "[a-zA-Z0-9]\\{12\\}"
+   "\\)")
+  "UUID regexp.")
 
 ;;;###autoload
 (defun vulpea-meta (id)
@@ -51,7 +67,7 @@ retrieve a single value for a given key or
 `vulpea-meta-get-list' to retrieve all values for a given
 key."
   (when-let ((file (vulpea-db-get-file-by-id id)))
-    (vulpea-with-file file
+    (vulpea-utils-with-file file
       (let* ((buf (org-element-parse-buffer))
              (pls (org-element-map buf 'plain-list #'identity))
              (pl (seq-find
@@ -76,7 +92,8 @@ Return plist (:file :buffer :pl :items)"
              (string-equal
               prop
               (org-element-interpret-data
-               (org-element-contents (org-element-property :tag item)))))
+               (org-element-contents
+                (org-element-property :tag item)))))
            items-all)))
     (plist-put meta :items items)))
 
@@ -99,19 +116,24 @@ Each element value depends on TYPE:
        (let ((val (car (org-element-contents item))))
          (pcase type
            (`raw val)
-           (`string (s-trim-right
-                     (substring-no-properties
-                      (org-element-interpret-data (org-element-contents val)))))
-           (`number (string-to-number
-                     (s-trim-right
-                      (substring-no-properties
-                       (org-element-interpret-data (org-element-contents val))))))
-           (`link (let ((el (car (org-element-contents val))))
-                    (when (equal 'link
-                                 (org-element-type el))
-                      (pcase (org-element-property :type el)
-                        ("id" (org-element-property :path el))
-                        (_ (org-element-property :raw-link el)))))))))
+           (`string
+            (s-trim-right
+             (substring-no-properties
+              (org-element-interpret-data
+               (org-element-contents val)))))
+           (`number
+            (string-to-number
+             (s-trim-right
+              (substring-no-properties
+               (org-element-interpret-data
+                (org-element-contents val))))))
+           (`link
+            (let ((el (car (org-element-contents val))))
+              (when (equal 'link
+                           (org-element-type el))
+                (pcase (org-element-property :type el)
+                  ("id" (org-element-property :path el))
+                  (_ (org-element-property :raw-link el)))))))))
      items)))
 
 ;;;###autoload
@@ -150,7 +172,7 @@ which case VALUE is added at the end of the meta."
          (pl (plist-get meta :pl))
          (items (plist-get meta :items))
          (img (org-element-copy (car items))))
-    (vulpea-with-file file
+    (vulpea-utils-with-file file
       (cond
        ;; descriptive plain list exists, update it
        (pl
@@ -174,35 +196,45 @@ which case VALUE is added at the end of the meta."
          ;; property is not yet set, simply set it
          (t
           (let* ((items-all (org-element-map pl 'item #'identity))
-                 ;; we copy any item from the list so we don't need to deal with
-                 ;; :bullet and other properties
+                 ;; we copy any item from the list so we don't need to
+                 ;; deal with :bullet and other properties
                  (img (org-element-copy (car items-all)))
                  (point (if append
                             (- (org-element-property :end pl)
                                (org-element-property :post-blank pl))
                           (org-element-property :begin pl))))
-            ;; when APPEND and body is present, insert new item on the next line
-            ;; after the last item
+            ;; when APPEND and body is present, insert new item on the
+            ;; next line after the last item
             (goto-char point)
             (seq-do
              (lambda (val)
                (insert
                 (org-element-interpret-data
                  (org-element-set-contents
-                  (org-element-put-property (org-element-copy img) :tag prop)
+                  (org-element-put-property
+                   (org-element-copy img)
+                   :tag
+                   prop)
                   (vulpea-meta-format val)))))
              values)))))
 
        ;; descriptive plain list does not exist, create one
        (t
-        ;; insert either after the last keyword in the buffer, or after the
-        ;; property drawer if it is present on the first line or on the fist
-        ;; line
-        (let* ((element (or (car (last (org-element-map buffer 'keyword #'identity)))
-                            (car (org-element-map buffer 'property-drawer #'identity))))
-               (point (if element (- (org-element-property :end element)
-                                     (org-element-property :post-blank element))
-                        (point-min))))
+        ;; insert either after the last keyword in the buffer, or
+        ;; after the property drawer if it is present on the first
+        ;; line or on the fist line
+        (let*
+            ((element
+              (or
+               (car (last (org-element-map
+                           buffer 'keyword #'identity)))
+               (car (org-element-map
+                     buffer 'property-drawer #'identity))))
+             (point
+              (if element
+                  (- (org-element-property :end element)
+                     (org-element-property :post-blank element))
+                (point-min))))
           (goto-char point)
           (insert "\n")
           (seq-do
@@ -220,7 +252,7 @@ which case VALUE is added at the end of the meta."
          (pl (plist-get meta :pl))
          (file (plist-get meta :file)))
     (when (car items)
-      (vulpea-with-file file
+      (vulpea-utils-with-file file
         (if (equal (length items)
                    (length (org-element-contents pl)))
             (delete-region (org-element-property :begin pl)
@@ -238,7 +270,7 @@ which case VALUE is added at the end of the meta."
   (when-let* ((meta (vulpea-meta id))
               (pl (plist-get meta :pl))
               (file (plist-get meta :file)))
-    (vulpea-with-file file
+    (vulpea-utils-with-file file
       (delete-region (org-element-property :begin pl)
                      (org-element-property :end pl)))))
 
@@ -246,13 +278,14 @@ which case VALUE is added at the end of the meta."
   "Format a VALUE depending on it's type."
   (cond
    ((and (stringp value)
-         (string-match-p vulpea-uuid-regexp value))
+         (string-match-p vulpea-meta--uuid-regexp value))
     (if-let* ((note (vulpea-db-get-by-id value))
               (title (plist-get note :title)))
         (org-link-make-string (concat "id:" value) title)
       (user-error "Note with id \"%s\" does not exist" value)))
    ((stringp value)
-    (let ((domain (ignore-errors (url-domain (url-generic-parse-url value)))))
+    (let ((domain (ignore-errors
+                    (url-domain (url-generic-parse-url value)))))
       (if domain
           (org-link-make-string value domain)
         value)))

@@ -4,6 +4,8 @@
 ;;
 ;; Author: Boris Buliga <boris@d12frosted.io>
 ;; Maintainer: Boris Buliga <boris@d12frosted.io>
+;; Package-Version: 0.0.1
+;; Package-Requires: ((emacs "27.1") (org "9.4.4") (org-roam "1.2.3"))
 ;;
 ;; Created: 29 Dec 2020
 ;;
@@ -21,8 +23,7 @@
 
 (require 'org-roam)
 (require 'org-roam-db)
-(require '+seq)
-(require 'vulpea-macs)
+(require 'vulpea-utils)
 
 ;;
 ;; Searching
@@ -37,16 +38,17 @@ Each note is represented as a property list of the following
 form: (:path :title :tags :level :id)."
   (let ((files
          (seq-map
-          #'+seq-singleton
-          (org-roam-db-query [:select file
-                              :from titles
-                              :where (= title $s1)]
-                             title))))
+          #'car
+          (org-roam-db-query
+           [:select file
+            :from titles
+            :where (= title $s1)]
+           title))))
     (seq-map
      (lambda (file)
        (list :path file
              :title title
-             :tags (vulpea-with-file file
+             :tags (vulpea-utils-with-file file
                      (org-roam--extract-tags file))
              :level 0
              :id (vulpea-db-get-id-by-file file)))
@@ -63,23 +65,24 @@ Supports headings in the note.
 
 Note is represented as a property list of the following
 form: (:path :title :tags :level :id)."
-  (when-let* ((fls
-               (org-roam-db-query
-                [:select [file level]
-                 :from ids
-                 :where (= id $s1)]
-                id))
-              (fl (+seq-singleton fls))
-              (file (car fl))
-              (level (nth 1 fl))
-              (title (if (= 0 level)
-                         (org-roam-db--get-title file)
-                       (vulpea-with-file file
-                         (goto-char (cdr (org-id-find-id-in-file id file)))
-                         (org-entry-get (point) "ITEM")))))
+  (when-let*
+      ((fls
+        (org-roam-db-query
+         [:select [file level]
+          :from ids
+          :where (= id $s1)]
+         id))
+       (fl (car fls))
+       (file (car fl))
+       (level (nth 1 fl))
+       (title (if (= 0 level)
+                  (org-roam-db--get-title file)
+                (vulpea-utils-with-file file
+                  (goto-char (cdr (org-id-find-id-in-file id file)))
+                  (org-entry-get (point) "ITEM")))))
     (list :path file
           :title title
-          :tags (vulpea-with-file file
+          :tags (vulpea-utils-with-file file
                   (org-roam--extract-tags file))
           :level level
           :id id)))
@@ -89,13 +92,12 @@ form: (:path :title :tags :level :id)."
   "Get file of note with ID.
 
 Supports headings in the note."
-  (+seq-singleton
-   (car
-    (org-roam-db-query
-     [:select file
-      :from ids
-      :where (= id $s1)]
-     id))))
+  (caar
+   (org-roam-db-query
+    [:select file
+     :from ids
+     :where (= id $s1)]
+    id)))
 
 ;;
 ;; Exchange FILE to X
@@ -106,17 +108,16 @@ Supports headings in the note."
 
 If the FILE is relative, it is considered to be relative to
 `org-roam-directory'."
-  (+seq-singleton
-   (car
-    (org-roam-db-query
-     [:select id
-              :from ids
-              :where (and (= file $s1)
-                          (= level $s2))]
-     (if (file-name-absolute-p file)
-         file
-       (expand-file-name file org-roam-directory))
-     0))))
+  (caar
+   (org-roam-db-query
+    [:select id
+     :from ids
+     :where (and (= file $s1)
+                 (= level $s2))]
+    (if (file-name-absolute-p file)
+        file
+      (expand-file-name file org-roam-directory))
+    0)))
 
 (provide 'vulpea-db)
 ;;; vulpea-db.el ends here

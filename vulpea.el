@@ -28,7 +28,10 @@
 (require 'vulpea-meta)
 (require 'vulpea-db)
 
-(defun vulpea-select (prompt &optional initial-prompt completions filter-fn)
+(defun vulpea-select (prompt &optional
+                             initial-prompt
+                             completions
+                             filter-fn)
   "Select a note.
 
 Returns a property list representing selected note or its subset
@@ -42,7 +45,7 @@ COMPLETIONS is a list of completions to be used instead of
 `vulpea--get-title-path-completions`.
 
 FILTER-FN is the name of a function to apply on the candidates
-which takes as its argument an alist of path-completions.  See
+which takes as its argument an alist of path-completions. See
 `vulpea--get-title-path-completions' for details."
   (unless org-roam-mode (org-roam-mode))
   (let* ((completions (or completions
@@ -50,11 +53,14 @@ which takes as its argument an alist of path-completions.  See
          (completions (if filter-fn
                           (seq-filter filter-fn completions)
                         completions))
-         (title-with-tags (org-roam-completion--completing-read (concat prompt ": ") completions
-                                                                :initial-input initial-prompt))
+         (title-with-tags (org-roam-completion--completing-read
+                           (concat prompt ": ")
+                           completions
+                           :initial-input initial-prompt))
          (res (cdr (assoc title-with-tags completions))))
     (if res
-        (plist-put res :id (vulpea-db-get-id-by-file (plist-get res :path)))
+        (plist-put res :id
+                   (vulpea-db-get-id-by-file (plist-get res :path)))
       (list :title title-with-tags
             :level 0))))
 
@@ -63,12 +69,15 @@ which takes as its argument an alist of path-completions.  See
 
 The car is the displayed title for completion, and the cdr
 contains all the funny stuff."
-  (let* ((rows (org-roam-db-query [:select [files:file titles:title tags:tags files:meta] :from titles
-                                   :left :join tags
-                                   :on (= titles:file tags:file)
-                                   :left :join files
-                                   :on (= titles:file files:file)]))
-         completions)
+  (let*
+      ((rows (org-roam-db-query
+              [:select [files:file titles:title tags:tags files:meta]
+               :from titles
+               :left :join tags
+               :on (= titles:file tags:file)
+               :left :join files
+               :on (= titles:file files:file)]))
+       completions)
     (setq rows (seq-sort-by (lambda (x)
                               (plist-get (nth 3 x) :mtime))
                             #'time-less-p
@@ -76,7 +85,10 @@ contains all the funny stuff."
     (dolist (row rows completions)
       (pcase-let ((`(,file-path ,title ,tags) row))
         (let ((k (org-roam--prepend-tag-string title tags))
-              (v (list :path file-path :title title :tags tags :level 0)))
+              (v (list :path file-path
+                       :title title
+                       :tags tags
+                       :level 0)))
           (push (cons k v) completions))))))
 
 (defun vulpea-create (title template)
@@ -92,10 +104,12 @@ Available variables in the capture context are:
 - title
 - id"
   (let* ((id (org-id-new))
-         (org-roam-capture--info (list
-                                  (cons 'title title)
-                                  (cons 'slug (funcall org-roam-title-to-slug-function title))
-                                  (cons 'id id)))
+         (org-roam-capture--info
+          (list
+           (cons 'title title)
+           (cons 'slug (funcall org-roam-title-to-slug-function
+                                title))
+           (cons 'id id)))
          (org-roam-capture--context 'title)
          (org-roam-capture-templates (list template)))
     (org-roam-capture--capture)
