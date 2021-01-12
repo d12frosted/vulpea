@@ -237,7 +237,7 @@
                    "Expected `%F' to have content equal to `%v', but instead `%F' has content equal to `%c'"
                    spec))))))
 
-(describe "vulpea-meta--format"
+(describe "vulpea-meta-format"
   (before-all
     (vulpea-test--init))
 
@@ -245,23 +245,23 @@
     (vulpea-test--teardown))
 
   (it "formats an URL"
-    (expect (vulpea-meta--format "https://www.wikipedia.org/")
+    (expect (vulpea-meta-format "https://www.wikipedia.org/")
             :to-equal "[[https://www.wikipedia.org/][wikipedia.org]]"))
 
   (it "formats a note ID"
-    (expect (vulpea-meta--format "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")
+    (expect (vulpea-meta-format "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")
             :to-equal "[[id:5093fc4e-8c63-4e60-a1da-83fc7ecd5db7][Reference]]"))
 
   (it "formats regular string"
-    (expect (vulpea-meta--format "hello")
+    (expect (vulpea-meta-format "hello")
             :to-equal "hello"))
 
   (it "throw user-error for unknown note"
-    (expect (vulpea-meta--format "d36125b3-39e1-4bc3-8f7d-126159d8d60e")
+    (expect (vulpea-meta-format "d36125b3-39e1-4bc3-8f7d-126159d8d60e")
             :to-throw 'user-error '("Note with id \"d36125b3-39e1-4bc3-8f7d-126159d8d60e\" does not exist")))
 
   (it "throw user-error for unsupported resource type"
-    (expect (vulpea-meta--format '(1 2 3))
+    (expect (vulpea-meta-format '(1 2 3))
             :to-throw 'user-error '("Unsupported type of \"(1 2 3)\""))))
 
 (describe "vulpea-meta formatting"

@@ -165,7 +165,7 @@ which case VALUE is added at the end of the meta."
              (insert
               (org-element-interpret-data
                (org-element-set-contents (org-element-copy img)
-                                         (vulpea-meta--format val)))))
+                                         (vulpea-meta-format val)))))
            values)
           (when (equal (length items)
                        (length (org-element-contents pl)))
@@ -190,7 +190,7 @@ which case VALUE is added at the end of the meta."
                 (org-element-interpret-data
                  (org-element-set-contents
                   (org-element-put-property (org-element-copy img) :tag prop)
-                  (vulpea-meta--format val)))))
+                  (vulpea-meta-format val)))))
              values)))))
 
        ;; descriptive plain list does not exist, create one
@@ -208,7 +208,7 @@ which case VALUE is added at the end of the meta."
           (seq-do
            (lambda (val)
              (insert "- " prop " :: "
-                     (vulpea-meta--format val)
+                     (vulpea-meta-format val)
                      "\n"))
            values)))))))
 
@@ -242,7 +242,7 @@ which case VALUE is added at the end of the meta."
       (delete-region (org-element-property :begin pl)
                      (org-element-property :end pl)))))
 
-(defun vulpea-meta--format (value)
+(defun vulpea-meta-format (value)
   "Format a VALUE depending on it's type."
   (cond
    ((and (stringp value)

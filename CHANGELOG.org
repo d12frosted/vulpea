@@ -37,3 +37,4 @@ Features:
     Supports multi-value properties.
   - =vulpea-meta-remove= - function to remove a =PROP= for note with =ID=.
   - =vulpea-meta-remove= - function to remove all meta for note with =ID=.
+  - =vulpea-meta-format= - function to format a =VALUE=.
