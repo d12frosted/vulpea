@@ -66,7 +66,7 @@
                     :from titles])))))
 
 (describe "vulpea-select"
-  :var (generated-id)
+  :var (id)
   (before-all
     (vulpea-test--init))
 
@@ -74,30 +74,29 @@
     (vulpea-test--teardown))
 
   (it "creates new file with ID"
-    (setq generated-id (org-id-new))
-    (spy-on 'org-id-new
-            :and-return-value generated-id)
-    (vulpea-create "Slarina"
-                   `("d" "default" plain
-                     #'org-roam-capture--get-point
-                     "%?"
-                     :file-name "prefix-${slug}"
-                     :head ,(concat
-                             ":PROPERTIES:\n"
-                             ":ID:                     ${id}\n"
-                             ":END:\n"
-                             "#+TITLE: ${title}\n\n")
-                     :unnarrowed t
-                     :immediate-finish t))
+    (setq id
+          (vulpea-create
+           "Slarina"
+           `("d" "default" plain
+             #'org-roam-capture--get-point
+             "%?"
+             :file-name "prefix-${slug}"
+             :head ,(concat
+                     ":PROPERTIES:\n"
+                     ":ID:                     ${id}\n"
+                     ":END:\n"
+                     "#+TITLE: ${title}\n\n")
+             :unnarrowed t
+             :immediate-finish t)))
     (org-roam-db-build-cache)
-    (expect (vulpea-db-get-by-id generated-id)
+    (expect (vulpea-db-get-by-id id)
             :to-equal
             (make-vulpea-note
              :path (expand-file-name "prefix-slarina.org" org-roam-directory)
              :title "Slarina"
              :tags nil
              :level 0
-             :id generated-id))))
+             :id id))))
 
 (provide 'vulpea-test)
 ;;; vulpea-test.el ends here
