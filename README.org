@@ -127,5 +127,12 @@ run them both locally and on CI. In order to run the tests locally, first
 [[https://github.com/doublep/eldev/#installation][install]] =eldev= and then run:
 
 #+begin_src bash
-  $ eldev test
+  $ make test
+#+end_src
+
+Please note, that the linter is used in this project, so you might want to run
+it as well:
+
+#+begin_src bash
+  $ make lint
 #+end_src
