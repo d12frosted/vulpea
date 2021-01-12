@@ -20,7 +20,7 @@
 ;;; Code:
 
 (require 'buttercup)
-(require 'vulpea-test-helpers)
+(require 'vulpea-test-utils)
 (require 'vulpea)
 (require 'vulpea-db)
 

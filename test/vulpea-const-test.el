@@ -19,7 +19,7 @@
 ;;
 ;;; Code:
 
-(require 'vulpea-test-helpers)
+(require 'vulpea-test-utils)
 (require 'buttercup)
 (require 'org-id)
 (require 'vulpea-const)

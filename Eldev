@@ -3,6 +3,6 @@
 (eldev-use-package-archive 'gnu)
 (eldev-use-package-archive 'melpa-unstable)
 
-;; (eldev-use-plugin 'autoloads)
+;; allow to load test helpers
+(eldev-add-loading-roots 'test "test/utils")
 
-(eldev-add-loading-roots 'test "test")

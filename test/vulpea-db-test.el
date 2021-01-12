@@ -19,7 +19,7 @@
 ;;
 ;;; Code:
 
-(require 'vulpea-test-helpers)
+(require 'vulpea-test-utils)
 (require 'vulpea-db)
 
 (describe "vulpea-db-search-by-title"

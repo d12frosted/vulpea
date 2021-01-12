@@ -1,4 +1,4 @@
-;;; vulpea-test-helpers.el --- Helpers for testing Vulpea -*- lexical-binding: t; -*-
+;;; vulpea-test-utils.el --- Helpers for testing Vulpea -*- lexical-binding: t; -*-
 ;;
 ;; Copyright (c) 2021 Boris Buliga
 ;;
@@ -51,5 +51,5 @@
   (delete-file org-roam-db-location)
   (org-roam-db--close))
 
-(provide 'vulpea-test-helpers)
-;;; vulpea-test-helpers.el ends here
+(provide 'vulpea-test-utils)
+;;; vulpea-test-utils.el ends here
