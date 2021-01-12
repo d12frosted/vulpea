@@ -91,9 +91,10 @@
   (it "extracts link value"
     (expect (vulpea-meta-get-list "05907606-f836-45bf-bd36-a8444308eddd" "link" 'link)
             :to-equal '("444f94d7-61e0-4b7c-bb7e-100814c6b4bb")))
-  (it "extracts link value"
-    (expect (vulpea-meta-get-list "05907606-f836-45bf-bd36-a8444308eddd" "link" 'link)
-            :to-equal '("444f94d7-61e0-4b7c-bb7e-100814c6b4bb")))
+
+  (it "extracts URL value"
+    (expect (vulpea-meta-get-list "05907606-f836-45bf-bd36-a8444308eddd" "url" 'link)
+            :to-equal '("https://en.wikipedia.org/wiki/Frappato")))
 
   (it "extracts list of strings"
     (expect (vulpea-meta-get-list "05907606-f836-45bf-bd36-a8444308eddd" "tags" 'string)
