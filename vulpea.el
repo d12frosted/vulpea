@@ -45,14 +45,15 @@ INITIAL-PROMPT is the initial title prompt.
 COMPLETIONS is a list of completions to be used instead of
 `vulpea--get-title-path-completions`.
 
-FILTER-FN is the name of a function to apply on the candidates
-which takes as its argument an alist of path-completions. See
-`vulpea--get-title-path-completions' for details."
+FILTER-FN is the function to apply on the candidates, which takes
+as its argument a `vulpea-note'."
   (unless org-roam-mode (org-roam-mode))
   (let* ((completions (or completions
                           (vulpea--get-title-path-completions)))
          (completions (if filter-fn
-                          (seq-filter filter-fn completions)
+                          (seq-filter (lambda (kvp)
+                                        (funcall filter-fn (cdr kvp)))
+                                      completions)
                         completions))
          (title-with-tags (org-roam-completion--completing-read
                            (concat prompt ": ")

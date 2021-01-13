@@ -58,12 +58,12 @@
             :and-return-value "(tag1,tag2) Reference")
 
     (vulpea-select "Note" nil nil
-                   (lambda (note)
+                   (lambda (_)
                      (setq filter-count (+ 1 filter-count))))
     (expect filter-count :to-equal
             (caar (org-roam-db-query
                    [:select (funcall count *)
-                    :from titles])))))
+                            :from titles])))))
 
 (describe "vulpea-select"
   :var (id)
