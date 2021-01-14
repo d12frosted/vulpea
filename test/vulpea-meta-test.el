@@ -58,6 +58,10 @@
     (expect (vulpea-meta-get "05907606-f836-45bf-bd36-a8444308eddd" "url" 'link)
             :to-equal "https://en.wikipedia.org/wiki/Frappato"))
 
+  (it "extracts symbol value"
+    (expect (vulpea-meta-get "05907606-f836-45bf-bd36-a8444308eddd" "symbol" 'symbol)
+            :to-equal 'red))
+
   (it "extracts first element of the list"
     (expect (vulpea-meta-get "05907606-f836-45bf-bd36-a8444308eddd" "tags" 'string)
             :to-equal "tag 1")))
@@ -95,6 +99,10 @@
   (it "extracts URL value"
     (expect (vulpea-meta-get-list "05907606-f836-45bf-bd36-a8444308eddd" "url" 'link)
             :to-equal '("https://en.wikipedia.org/wiki/Frappato")))
+
+  (it "extracts symbol value"
+    (expect (vulpea-meta-get-list "05907606-f836-45bf-bd36-a8444308eddd" "symbol" 'symbol)
+            :to-equal '(red)))
 
   (it "extracts list of strings"
     (expect (vulpea-meta-get-list "05907606-f836-45bf-bd36-a8444308eddd" "tags" 'string)
@@ -135,6 +143,11 @@
     (vulpea-meta-set without-meta-id "references" reference-id)
     (expect (vulpea-meta-get without-meta-id "references" 'link)
             :to-equal reference-id))
+
+  (it "sets a singe symbol value in a note without meta"
+    (vulpea-meta-set without-meta-id "symbol" 'red)
+    (expect (vulpea-meta-get without-meta-id "symbol" 'symbol)
+            :to-equal 'red))
 
   (it "sets multiple values in a note without meta"
     (vulpea-meta-set without-meta-id "tags" '("tag 1" "tag 2" "tag 3"))
@@ -207,7 +220,7 @@
                         (plist-get (vulpea-meta with-meta-id)
                                    :pl)
                         'item #'identity))
-            :to-equal 13)
+            :to-equal 14)
     (vulpea-meta-clean with-meta-id)
     (expect (length (org-element-map
                         (plist-get (vulpea-meta with-meta-id)
@@ -330,6 +343,20 @@ Just some text to make sure that meta is inserted before.
 #+title: Note without META
 
 - references :: [[id:5093fc4e-8c63-4e60-a1da-83fc7ecd5db7][Reference]]
+
+Just some text to make sure that meta is inserted before.
+"))
+
+    (it "formats single symbol value upon insertion to file without meta"
+      (vulpea-meta-set without-meta-id "symbol" 'red)
+      (expect without-meta-file
+              :to-contain-exactly
+              ":PROPERTIES:
+:ID:                     444f94d7-61e0-4b7c-bb7e-100814c6b4bb
+:END:
+#+title: Note without META
+
+- symbol :: red
 
 Just some text to make sure that meta is inserted before.
 "))

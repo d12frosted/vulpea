@@ -107,7 +107,8 @@ Each element value depends on TYPE:
 - string (default) - an interpreted object (without trailing
   newline)
 - number - an interpreted number
-- link - path of the link (either ID of the linked note or raw link)."
+- link - path of the link (either ID of the linked note or raw link)
+- symbol - an interned symbol."
   (setq type (or type 'string))
   (let* ((meta (vulpea-meta--get id prop))
          (items (plist-get meta :items)))
@@ -116,6 +117,12 @@ Each element value depends on TYPE:
        (let ((val (car (org-element-contents item))))
          (pcase type
            (`raw val)
+           (`symbol
+            (intern
+             (s-trim-right
+              (substring-no-properties
+               (org-element-interpret-data
+                (org-element-contents val))))))
            (`string
             (s-trim-right
              (substring-no-properties
@@ -146,7 +153,8 @@ Result depends on TYPE:
 - string (default) - an interpreted object (without trailing
   newline)
 - number - an interpreted number
-- link - path of the link (either ID of the linked note or raw link).
+- link - path of the link (either ID of the linked note or raw link)
+- symbol - an interned symbol.
 
 If the note contains multiple values for a given PROP, the first
 one is returned. In case all values are required, use
@@ -291,6 +299,8 @@ which case VALUE is added at the end of the meta."
         value)))
    ((numberp value)
     (number-to-string value))
+   ((symbolp value)
+    (symbol-name value))
    (t (user-error "Unsupported type of \"%s\"" value))))
 
 (provide 'vulpea-meta)
