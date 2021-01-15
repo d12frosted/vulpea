@@ -4,12 +4,12 @@ clean:
 
 .PHONY: prepare
 prepare:
-	eldev --unstable -p -dtT prepare
+	eldev -C --unstable -p -dtT prepare
 
 .PHONY: lint
 lint:
-	eldev --unstable -p -dtT lint
+	eldev -C --unstable -p -dtT lint
 
 .PHONY: test
 test:
-	eldev --unstable -p -dtT test
+	eldev -C --unstable -p -dtT test
