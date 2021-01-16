@@ -285,6 +285,9 @@ which case VALUE is added at the end of the meta."
 (defun vulpea-meta-format (value)
   "Format a VALUE depending on it's type."
   (cond
+   ((vulpea-note-p value)
+    (org-link-make-string (concat "id:" (vulpea-note-id value))
+                          (vulpea-note-title value)))
    ((and (stringp value)
          (string-match-p vulpea-meta--uuid-regexp value))
     (if-let* ((note (vulpea-db-get-by-id value))

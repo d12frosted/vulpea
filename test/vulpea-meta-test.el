@@ -144,6 +144,11 @@
     (expect (vulpea-meta-get without-meta-id "references" 'link)
             :to-equal reference-id))
 
+  (it "sets a singe note value in a note without meta"
+    (vulpea-meta-set without-meta-id "references" (vulpea-db-get-by-id reference-id))
+    (expect (vulpea-meta-get without-meta-id "references" 'link)
+            :to-equal reference-id))
+
   (it "sets a singe symbol value in a note without meta"
     (vulpea-meta-set without-meta-id "symbol" 'red)
     (expect (vulpea-meta-get without-meta-id "symbol" 'symbol)
