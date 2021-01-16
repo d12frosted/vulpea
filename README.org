@@ -12,7 +12,12 @@ and functions go. See [[https://github.com/d12frosted/vulpea/milestone/1][v0.1 m
 
 A collection of functions for note taking based on =org= and =org-roam=. This
 repository goal is to be a tested library for other applications around note
-taking. It started as an effort of organising my [[https://github.com/d12frosted/environment/][Emacs configurations]].
+taking.
+
+Notable users:
+
+- [[https://github.com/d12frosted/environment][d12frosted/environment]] - Emacs configurations;
+- [[https://github.com/d12frosted/vino][d12frosted/vino]] - collection of functions for cellar tracking and wine rating.
 
 ** Data types
 :PROPERTIES:
