@@ -97,7 +97,7 @@ contains all the funny stuff."
                   :level 0)))
           (push (cons k v) completions))))))
 
-(defun vulpea-create (title template)
+(defun vulpea-create (title template &optional id)
   "Create a new note file with TITLE using TEMPLATE.
 
 Returns ID of created note.
@@ -108,8 +108,8 @@ Available variables in the capture context are:
 
 - slug
 - title
-- id"
-  (let* ((id (org-id-new))
+- ID (passed or generated)"
+  (let* ((id (or id (org-id-new)))
          (org-roam-capture--info
           (list
            (cons 'title title)
