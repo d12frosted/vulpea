@@ -49,8 +49,8 @@
   "UUID regexp.")
 
 ;;;###autoload
-(defun vulpea-meta (id)
-  "Get metadata for note with ID.
+(defun vulpea-meta (note-or-id)
+  "Get metadata for NOTE-OR-ID.
 
 Return plist (:file :buffer :pl)
 
@@ -66,7 +66,9 @@ In most cases, it's better to use either `vulpea-meta-get' to
 retrieve a single value for a given key or
 `vulpea-meta-get-list' to retrieve all values for a given
 key."
-  (when-let ((file (vulpea-db-get-file-by-id id)))
+  (when-let ((file (if (vulpea-note-p note-or-id)
+                       (vulpea-note-path note-or-id)
+                     (vulpea-db-get-file-by-id note-or-id))))
     (vulpea-utils-with-file file
       (let* ((buf (org-element-parse-buffer))
              (pls (org-element-map buf 'plain-list #'identity))
@@ -79,11 +81,11 @@ key."
               :buffer buf
               :pl pl)))))
 
-(defun vulpea-meta--get (id prop)
-  "Get all values of PROP for note with ID.
+(defun vulpea-meta--get (note-or-id prop)
+  "Get all values of PROP for NOTE-OR-ID.
 
 Return plist (:file :buffer :pl :items)"
-  (let* ((meta (vulpea-meta id))
+  (let* ((meta (vulpea-meta note-or-id))
          (pl (plist-get meta :pl))
          (items-all (org-element-map pl 'item #'identity))
          (items
@@ -98,8 +100,8 @@ Return plist (:file :buffer :pl :items)"
     (plist-put meta :items items)))
 
 ;;;###autoload
-(defun vulpea-meta-get-list (id prop &optional type)
-  "Get all values of PROP for note with ID.
+(defun vulpea-meta-get-list (note-or-id prop &optional type)
+  "Get all values of PROP for NOTE-OR-ID.
 
 Each element value depends on TYPE:
 
@@ -110,7 +112,7 @@ Each element value depends on TYPE:
 - link - path of the link (either ID of the linked note or raw link)
 - symbol - an interned symbol."
   (setq type (or type 'string))
-  (let* ((meta (vulpea-meta--get id prop))
+  (let* ((meta (vulpea-meta--get note-or-id prop))
          (items (plist-get meta :items)))
     (seq-map
      (lambda (item)
@@ -144,8 +146,8 @@ Each element value depends on TYPE:
      items)))
 
 ;;;###autoload
-(defun vulpea-meta-get (id prop &optional type)
-  "Get value of PROP for note with ID.
+(defun vulpea-meta-get (note-or-id prop &optional type)
+  "Get value of PROP for NOTE-OR-ID.
 
 Result depends on TYPE:
 
@@ -159,11 +161,11 @@ Result depends on TYPE:
 If the note contains multiple values for a given PROP, the first
 one is returned. In case all values are required, use
 `vulpea-meta-get-list'."
-  (car (vulpea-meta-get-list id prop type)))
+  (car (vulpea-meta-get-list note-or-id prop type)))
 
 ;;;###autoload
-(defun vulpea-meta-set (id prop value &optional append)
-  "Set VALUE of PROP for note with ID.
+(defun vulpea-meta-set (note-or-id prop value &optional append)
+  "Set VALUE of PROP for NOTE-OR-ID.
 
 If the VALUE is a list, then each element is inserted
 separately.
@@ -174,7 +176,7 @@ When PROP is not yet set, VALUE is inserted at the beginning of
 the meta, unless the optional argument APPEND is non-nil, in
 which case VALUE is added at the end of the meta."
   (let* ((values (if (listp value) value (list value)))
-         (meta (vulpea-meta--get id prop))
+         (meta (vulpea-meta--get note-or-id prop))
          (file (plist-get meta :file))
          (buffer (plist-get meta :buffer))
          (pl (plist-get meta :pl))
@@ -185,7 +187,7 @@ which case VALUE is added at the end of the meta."
        ;; descriptive plain list exists, update it
        (pl
         ;; TODO: inline
-        (vulpea-meta-remove id prop)
+        (vulpea-meta-remove note-or-id prop)
         (cond
          ;; property already set, remove it and set again
          (img
@@ -253,9 +255,9 @@ which case VALUE is added at the end of the meta."
            values)))))))
 
 ;;;###autoload
-(defun vulpea-meta-remove (id prop)
-  "Delete values of PROP for note with ID."
-  (let* ((meta (vulpea-meta--get id prop))
+(defun vulpea-meta-remove (note-or-id prop)
+  "Delete values of PROP for NOTE-OR-ID."
+  (let* ((meta (vulpea-meta--get note-or-id prop))
          (items (plist-get meta :items))
          (pl (plist-get meta :pl))
          (file (plist-get meta :file)))
@@ -273,9 +275,9 @@ which case VALUE is added at the end of the meta."
            (seq-reverse items)))))))
 
 ;;;###autoload
-(defun vulpea-meta-clean (id)
-  "Delete all meta from note with ID."
-  (when-let* ((meta (vulpea-meta id))
+(defun vulpea-meta-clean (note-or-id)
+  "Delete all meta from NOTE-OR-ID."
+  (when-let* ((meta (vulpea-meta note-or-id))
               (pl (plist-get meta :pl))
               (file (plist-get meta :file)))
     (vulpea-utils-with-file file

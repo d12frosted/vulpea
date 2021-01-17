@@ -111,15 +111,14 @@ first description list in the note, e.g. list like:
 
 Functions of interest:
 
-- =vulpea-meta-get= - function to get a value of =PROP= for note with =ID=.
-  Value is parsed based on the passed =TYPE= or as a string if omitted.
+- =vulpea-meta-get= - function to get a value of =PROP= for =NOTE-OR-ID=. Value
+  is parsed based on the passed =TYPE= or as a string if omitted.
 - =vulpea-meta-get-list= - function to get all values of =PROP= for note with
-  =ID=. Values are parsed based on the passed =TYPE= or as a string if
-  omitted.
-- =vulpea-meta-set= - function to set =VALUE= of =PROP= for note with =ID=.
+  =ID=. Values are parsed based on the passed =TYPE= or as a string if omitted.
+- =vulpea-meta-set= - function to set =VALUE= of =PROP= for =NOTE-OR-ID=.
   Supports multi-value properties.
-- =vulpea-meta-remove= - function to remove a =PROP= for note with =ID=.
-- =vulpea-meta-remove= - function to remove all meta for note with =ID=.
+- =vulpea-meta-remove= - function to remove a =PROP= for =NOTE-OR-ID=.
+- =vulpea-meta-remove= - function to remove all meta for =NOTE-OR-ID=.
 - =vulpea-meta-format= - function to format a =VALUE=.
 
 ** Building and testing
