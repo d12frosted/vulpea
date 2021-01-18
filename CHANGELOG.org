@@ -28,11 +28,20 @@ Features:
   - =vulpea-db-search-by-title= - function to query notes with =TITLE=.
 - =vulpea-meta= module - for manipulating note metadata represented by
   description list:
-  - =vulpea-meta-get= - function to get a value of =PROP= for =NOTE-OR-ID=.
+  - =vulpea-meta= - function to get metadata from =NOTE-OR-ID=. In most cases
+    you should not use this function unless performance is important. In this
+    case, take a look at bang functions, e.g. =vulpea-meta-get!=.
+  - =vulpea-meta-get= - function to get a value of =PROP= for note with =ID=.
     Value is parsed based on the passed =TYPE= or as a string if omitted.
+  - =vulpea-meta-get!= - function to get a value of =PROP= from =META= (result
+    of =vulpea-meta=). Value is parsed based on the passed =TYPE= or as a string
+    if omitted. Use it performing multiple read operations in a row.
   - =vulpea-meta-get-list= - function to get all values of =PROP= for note with
     =ID=. Values are parsed based on the passed =TYPE= or as a string if
     omitted.
+  - =vulpea-meta-get-list!= - function to get all values of =PROP= from =META=
+    (result of =vulpea-meta=). Values are parsed based on the passed =TYPE= or
+    as a string if omitted. Use it performing multiple read operations in a row.
   - =vulpea-meta-set= - function to set =VALUE= of =PROP= for =NOTE-OR-ID=.
     Supports multi-value properties.
   - =vulpea-meta-remove= - function to remove a =PROP= for =NOTE-OR-ID=.

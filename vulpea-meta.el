@@ -79,10 +79,14 @@ e.g. list like:
 In most cases, it's better to use either `vulpea-meta-get' to
 retrieve a single value for a given key or
 `vulpea-meta-get-list' to retrieve all values for a given
-key."
-  (when-let ((file (if (vulpea-note-p note-or-id)
-                       (vulpea-note-path note-or-id)
-                     (vulpea-db-get-file-by-id note-or-id))))
+key.
+
+In case you are doing multiple calls to meta API, it's better to
+get metadata using this function and use bang version of
+functions, e.g. `vulpea-meta-get!'."
+  (when-let ((file (if (stringp note-or-id)
+                       (vulpea-db-get-file-by-id note-or-id)
+                     (vulpea-note-path note-or-id))))
     (vulpea-utils-with-file file
       (let* ((buf (org-element-parse-buffer))
              (pls (org-element-map buf 'plain-list #'identity))
@@ -95,12 +99,11 @@ key."
               :buffer buf
               :pl pl)))))
 
-(defun vulpea-meta--get (note-or-id prop)
-  "Get all values of PROP for NOTE-OR-ID.
+(defun vulpea-meta--get (meta prop)
+  "Get all values of PROP from META.
 
 Return plist (:file :buffer :pl :items)"
-  (let* ((meta (vulpea-meta note-or-id))
-         (pl (plist-get meta :pl))
+  (let* ((pl (plist-get meta :pl))
          (items-all (org-element-map pl 'item #'identity))
          (items
           (seq-filter
@@ -114,8 +117,8 @@ Return plist (:file :buffer :pl :items)"
     (plist-put meta :items items)))
 
 ;;;###autoload
-(defun vulpea-meta-get-list (note-or-id prop &optional type)
-  "Get all values of PROP for NOTE-OR-ID.
+(defun vulpea-meta-get-list! (meta prop &optional type)
+  "Get all values of PROP from META.
 
 Each element value depends on TYPE:
 
@@ -126,7 +129,7 @@ Each element value depends on TYPE:
 - link - path of the link (either ID of the linked note or raw link)
 - symbol - an interned symbol."
   (setq type (or type 'string))
-  (let* ((meta (vulpea-meta--get note-or-id prop))
+  (let* ((meta (vulpea-meta--get meta prop))
          (items (plist-get meta :items)))
     (seq-map
      (lambda (item)
@@ -159,6 +162,37 @@ Each element value depends on TYPE:
                   (_ (org-element-property :raw-link el)))))))))
      items)))
 
+(defun vulpea-meta-get-list (note-or-id prop &optional type)
+  "Get all values of PROP from NOTE-OR-ID.
+
+Each element value depends on TYPE:
+
+- raw - org element object
+- string (default) - an interpreted object (without trailing
+  newline)
+- number - an interpreted number
+- link - path of the link (either ID of the linked note or raw link)
+- symbol - an interned symbol."
+  (vulpea-meta-get-list! (vulpea-meta note-or-id) prop type))
+
+;;;###autoload
+(defun vulpea-meta-get! (meta prop &optional type)
+  "Get value of PROP from META.
+
+Result depends on TYPE:
+
+- raw - org element object
+- string (default) - an interpreted object (without trailing
+  newline)
+- number - an interpreted number
+- link - path of the link (either ID of the linked note or raw link)
+- symbol - an interned symbol.
+
+If the note contains multiple values for a given PROP, the first
+one is returned. In case all values are required, use
+`vulpea-meta-get-list'."
+  (car (vulpea-meta-get-list! meta prop type)))
+
 ;;;###autoload
 (defun vulpea-meta-get (note-or-id prop &optional type)
   "Get value of PROP for NOTE-OR-ID.
@@ -175,7 +209,7 @@ Result depends on TYPE:
 If the note contains multiple values for a given PROP, the first
 one is returned. In case all values are required, use
 `vulpea-meta-get-list'."
-  (car (vulpea-meta-get-list note-or-id prop type)))
+  (vulpea-meta-get! (vulpea-meta note-or-id) prop type))
 
 ;;;###autoload
 (defun vulpea-meta-set (note-or-id prop value &optional append)
@@ -190,7 +224,7 @@ When PROP is not yet set, VALUE is inserted at the beginning of
 the meta, unless the optional argument APPEND is non-nil, in
 which case VALUE is added at the end of the meta."
   (let* ((values (if (listp value) value (list value)))
-         (meta (vulpea-meta--get note-or-id prop))
+         (meta (vulpea-meta--get (vulpea-meta note-or-id) prop))
          (file (plist-get meta :file))
          (buffer (plist-get meta :buffer))
          (pl (plist-get meta :pl))
@@ -271,7 +305,7 @@ which case VALUE is added at the end of the meta."
 ;;;###autoload
 (defun vulpea-meta-remove (note-or-id prop)
   "Delete values of PROP for NOTE-OR-ID."
-  (let* ((meta (vulpea-meta--get note-or-id prop))
+  (let* ((meta (vulpea-meta--get (vulpea-meta note-or-id) prop))
          (items (plist-get meta :items))
          (pl (plist-get meta :pl))
          (file (plist-get meta :file)))
