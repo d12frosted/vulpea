@@ -66,7 +66,7 @@
                             :from titles])))))
 
 (describe "vulpea-select"
-  :var (id)
+  :var (note)
   (before-all
     (vulpea-test--init))
 
@@ -74,7 +74,7 @@
     (vulpea-test--teardown))
 
   (it "creates new file with ID"
-    (setq id
+    (setq note
           (vulpea-create
            "Slarina"
            `("d" "default" plain
@@ -89,14 +89,17 @@
              :unnarrowed t
              :immediate-finish t)))
     (expect vulpea--capture-file-path :to-be nil)
-    (expect (vulpea-db-get-by-id id)
+    (expect note
             :to-equal
             (make-vulpea-note
              :path (expand-file-name "prefix-slarina.org" org-roam-directory)
              :title "Slarina"
              :tags nil
              :level 0
-             :id id))))
+             :id (vulpea-note-id note)))
+    (expect (vulpea-db-get-by-id (vulpea-note-id note))
+            :to-equal
+            note)))
 
 (provide 'vulpea-test)
 ;;; vulpea-test.el ends here

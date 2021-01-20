@@ -157,7 +157,7 @@ Available variables in the capture context are:
     (when vulpea--capture-file-path
       (org-roam-db-update-file vulpea--capture-file-path)
       (setq vulpea--capture-file-path nil))
-    id))
+    (vulpea-db-get-by-id id)))
 
 (provide 'vulpea)
 ;;; vulpea.el ends here
