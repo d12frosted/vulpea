@@ -88,7 +88,7 @@
                      "#+TITLE: ${title}\n\n")
              :unnarrowed t
              :immediate-finish t)))
-    (org-roam-db-build-cache)
+    (expect vulpea--capture-file-path :to-be nil)
     (expect (vulpea-db-get-by-id id)
             :to-equal
             (make-vulpea-note

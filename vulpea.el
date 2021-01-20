@@ -111,6 +111,27 @@ contains all the funny stuff."
                   :level 0)))
           (push (cons k v) completions))))))
 
+(defvar vulpea--capture-file-path nil
+  "Path to file created during `vulpea-create'.")
+
+(defun vulpea--capture-new-file (orig-func &optional
+                                           allow-existing-file-p)
+  "Advice around `org-roam-capture--new-file'.
+
+The only purpose of this advice is to set the value of
+`vulpea--capture-file-path' to file path returned by
+`org-roam-capture--new-file', so `vulpea-create' may update
+`org-roam-db' efficiently.
+
+Calls ORIG-FUNC with ALLOW-EXISTING-FILE-P."
+  (let ((file-path (apply orig-func allow-existing-file-p)))
+    (setq vulpea--capture-file-path file-path)
+    file-path))
+
+(advice-add 'org-roam-capture--new-file
+            :around
+            #'vulpea--capture-new-file)
+
 (defun vulpea-create (title template &optional id)
   "Create a new note file with TITLE using TEMPLATE.
 
@@ -133,6 +154,9 @@ Available variables in the capture context are:
          (org-roam-capture--context 'title)
          (org-roam-capture-templates (list template)))
     (org-roam-capture--capture)
+    (when vulpea--capture-file-path
+      (org-roam-db-update-file vulpea--capture-file-path)
+      (setq vulpea--capture-file-path nil))
     id))
 
 (provide 'vulpea)
