@@ -129,5 +129,16 @@ If the FILE is relative, it is considered to be relative to
       (expand-file-name file org-roam-directory))
     0)))
 
+;;
+;; Update
+
+;;;###autoload
+(defun vulpea-db-update (note-or-id)
+  "Update db for NOTE-OR-ID."
+  (let ((file (if (stringp note-or-id)
+                  (vulpea-db-get-file-by-id note-or-id)
+                (vulpea-note-path note-or-id))))
+    (org-roam-db-update-file file)))
+
 (provide 'vulpea-db)
 ;;; vulpea-db.el ends here

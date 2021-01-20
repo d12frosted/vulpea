@@ -26,6 +26,7 @@ Features:
   - =vulpea-db-get-file-by-id= - function to get =FILE= of a note represented by
     =ID=. Supports headings of the note.
   - =vulpea-db-search-by-title= - function to query notes with =TITLE=.
+  - =vulpea-db-update= - function to update db with =NOTE-OR-ID=.
 - =vulpea-meta= module - for manipulating note metadata represented by
   description list:
   - =vulpea-meta= - function to get metadata from =NOTE-OR-ID=. In most cases
