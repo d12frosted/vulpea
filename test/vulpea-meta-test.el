@@ -58,6 +58,10 @@
     (expect (vulpea-meta-get "05907606-f836-45bf-bd36-a8444308eddd" "url" 'link)
             :to-equal "https://en.wikipedia.org/wiki/Frappato"))
 
+  (it "extracts note value"
+    (expect (vulpea-meta-get "05907606-f836-45bf-bd36-a8444308eddd" "link" 'note)
+            :to-equal (vulpea-db-get-by-id "444f94d7-61e0-4b7c-bb7e-100814c6b4bb")))
+
   (it "extracts symbol value"
     (expect (vulpea-meta-get "05907606-f836-45bf-bd36-a8444308eddd" "symbol" 'symbol)
             :to-equal 'red))
@@ -100,6 +104,10 @@
     (expect (vulpea-meta-get-list "05907606-f836-45bf-bd36-a8444308eddd" "url" 'link)
             :to-equal '("https://en.wikipedia.org/wiki/Frappato")))
 
+  (it "extracts note value"
+    (expect (vulpea-meta-get-list "05907606-f836-45bf-bd36-a8444308eddd" "link" 'note)
+            :to-equal (list (vulpea-db-get-by-id "444f94d7-61e0-4b7c-bb7e-100814c6b4bb"))))
+
   (it "extracts symbol value"
     (expect (vulpea-meta-get-list "05907606-f836-45bf-bd36-a8444308eddd" "symbol" 'symbol)
             :to-equal '(red)))
@@ -117,7 +125,12 @@
   (it "extracts list of links"
     (expect (vulpea-meta-get-list "05907606-f836-45bf-bd36-a8444308eddd" "references" 'link)
             :to-equal '("444f94d7-61e0-4b7c-bb7e-100814c6b4bb"
-                        "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"))))
+                        "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")))
+
+  (it "extracts list of notes"
+    (expect (vulpea-meta-get-list "05907606-f836-45bf-bd36-a8444308eddd" "references" 'note)
+            :to-equal (list (vulpea-db-get-by-id "444f94d7-61e0-4b7c-bb7e-100814c6b4bb")
+                            (vulpea-db-get-by-id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")))))
 
 (describe "vulpea-meta-set"
   :var ((without-meta-id "444f94d7-61e0-4b7c-bb7e-100814c6b4bb")

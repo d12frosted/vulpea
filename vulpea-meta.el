@@ -127,6 +127,7 @@ Each element value depends on TYPE:
   newline)
 - number - an interpreted number
 - link - path of the link (either ID of the linked note or raw link)
+- note - linked `vulpea-note'
 - symbol - an interned symbol."
   (setq type (or type 'string))
   (let* ((meta (vulpea-meta--get meta prop))
@@ -153,6 +154,13 @@ Each element value depends on TYPE:
               (substring-no-properties
                (org-element-interpret-data
                 (org-element-contents val))))))
+           (`note
+            (let ((el (car (org-element-contents val))))
+              (when (equal 'link
+                           (org-element-type el))
+                (pcase (org-element-property :type el)
+                  ("id" (vulpea-db-get-by-id
+                         (org-element-property :path el)))))))
            (`link
             (let ((el (car (org-element-contents val))))
               (when (equal 'link
@@ -172,6 +180,7 @@ Each element value depends on TYPE:
   newline)
 - number - an interpreted number
 - link - path of the link (either ID of the linked note or raw link)
+- note - linked `vulpea-note'
 - symbol - an interned symbol."
   (vulpea-meta-get-list! (vulpea-meta note-or-id) prop type))
 
@@ -186,6 +195,7 @@ Result depends on TYPE:
   newline)
 - number - an interpreted number
 - link - path of the link (either ID of the linked note or raw link)
+- note - linked `vulpea-note'
 - symbol - an interned symbol.
 
 If the note contains multiple values for a given PROP, the first
@@ -204,6 +214,7 @@ Result depends on TYPE:
   newline)
 - number - an interpreted number
 - link - path of the link (either ID of the linked note or raw link)
+- note - linked `vulpea-note'
 - symbol - an interned symbol.
 
 If the note contains multiple values for a given PROP, the first
