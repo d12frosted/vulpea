@@ -72,16 +72,11 @@ as its argument a `vulpea-note'."
          (title-with-tags (org-roam-completion--completing-read
                            (concat prompt ": ")
                            completions
-                           :initial-input initial-prompt))
-         (res (cdr (assoc title-with-tags completions))))
-    (if res
-        (progn
-          (setf (vulpea-note-id res)
-                (vulpea-db-get-id-by-file (vulpea-note-path res)))
-          res)
-      (make-vulpea-note
-       :title title-with-tags
-       :level 0))))
+                           :initial-input initial-prompt)))
+    (or (cdr (assoc title-with-tags completions))
+        (make-vulpea-note
+         :title title-with-tags
+         :level 0))))
 
 (defun vulpea--get-title-path-completions ()
   "Return an alist for completion.
@@ -90,24 +85,32 @@ The car is the displayed title for completion, and the cdr
 contains all the funny stuff."
   (let*
       ((rows (org-roam-db-query
-              [:select [files:file titles:title tags:tags files:meta]
+              [:select [files:file
+                        titles:title
+                        tags:tags
+                        ids:id
+                        files:meta]
                :from titles
                :left :join tags
                :on (= titles:file tags:file)
                :left :join files
-               :on (= titles:file files:file)]))
+               :on (= titles:file files:file)
+               :left :join ids
+               :on (and (= titles:file ids:file)
+                        (= ids:level 0))]))
        completions)
     (setq rows (seq-sort-by (lambda (x)
                               (plist-get (nth 3 x) :mtime))
                             #'time-less-p
                             rows))
     (dolist (row rows completions)
-      (pcase-let ((`(,file-path ,title ,tags) row))
+      (pcase-let ((`(,file-path ,title ,tags ,id) row))
         (let ((k (org-roam--prepend-tag-string title tags))
               (v (make-vulpea-note
                   :path file-path
                   :title title
                   :tags tags
+                  :id id
                   :level 0)))
           (push (cons k v) completions))))))
 

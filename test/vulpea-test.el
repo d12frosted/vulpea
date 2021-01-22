@@ -63,7 +63,7 @@
     (expect filter-count :to-equal
             (caar (org-roam-db-query
                    [:select (funcall count *)
-                            :from titles])))))
+                    :from titles])))))
 
 (describe "vulpea-select"
   :var (note)
