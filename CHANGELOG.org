@@ -52,3 +52,4 @@ Features:
   - =vulpea-note= type definition.
   - =vulpea-utils-with-note= - function to execute =BODY= with point at =NOTE=.
     Supports file-level notes as well as heading notes.
+  - =vulpea-utils-link-make-string= - make a bracket link to =NOTE=.

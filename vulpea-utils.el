@@ -67,5 +67,12 @@ beginning of the buffer. Otherwise at the heading with note id."
        (goto-char (org-find-entry-with-id (vulpea-note-id ,note))))
      ,@body))
 
+;;;###autoload
+(defun vulpea-utils-link-make-string (note)
+  "Make a bracket link to NOTE."
+  (org-link-make-string
+   (concat "id:" (vulpea-note-id note))
+   (vulpea-note-title note)))
+
 (provide 'vulpea-utils)
 ;;; vulpea-utils.el ends here
