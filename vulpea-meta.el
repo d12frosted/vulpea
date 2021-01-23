@@ -347,13 +347,11 @@ which case VALUE is added at the end of the meta."
   "Format a VALUE depending on it's type."
   (cond
    ((vulpea-note-p value)
-    (org-link-make-string (concat "id:" (vulpea-note-id value))
-                          (vulpea-note-title value)))
+    (vulpea-utils-link-make-string value))
    ((and (stringp value)
          (string-match-p vulpea-meta--uuid-regexp value))
-    (if-let* ((note (vulpea-db-get-by-id value))
-              (title (vulpea-note-title note)))
-        (org-link-make-string (concat "id:" value) title)
+    (if-let* ((note (vulpea-db-get-by-id value)))
+        (vulpea-utils-link-make-string note)
       (user-error "Note with id \"%s\" does not exist" value)))
    ((stringp value)
     (let ((domain (ignore-errors
