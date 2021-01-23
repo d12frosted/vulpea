@@ -35,6 +35,8 @@
 ;;
 ;;; Code:
 
+(require 'org)
+
 ;;;###autoload
 (cl-defstruct vulpea-note
   id
@@ -45,9 +47,24 @@
 
 ;;;###autoload
 (defmacro vulpea-utils-with-file (file &rest body)
-  "Execute BODY in `org-mode' FILE."
+  "Execute BODY in `org-mode' FILE.
+
+In most cases you should use `vulpea-utils-with-note', because
+that macro properly handles notes with level greater than 0."
   (declare (indent 1) (debug t))
   `(with-current-buffer (find-file-noselect ,file)
+     ,@body))
+
+;;;###autoload
+(defmacro vulpea-utils-with-note (note &rest body)
+  "Execute BODY in with buffer visiting NOTE.
+
+If note level is equal to 0, then the point is placed at the
+beginning of the buffer. Otherwise at the heading with note id."
+  (declare (indent 1) (debug t))
+  `(with-current-buffer (find-file-noselect (vulpea-note-path ,note))
+     (when (> (vulpea-note-level ,note) 0)
+       (goto-char (org-find-entry-with-id (vulpea-note-id ,note))))
      ,@body))
 
 (provide 'vulpea-utils)

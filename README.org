@@ -80,6 +80,17 @@ Functions of interest:
 - =vulpea-create= - function to create a new note file with given =TITLE= and
   =TEMPLATE=.
 
+*** =vulpea-utils=
+:PROPERTIES:
+:ID:                     92508fc8-5500-489c-b534-659ebfdb8e9a
+:END:
+
+This module contains =vulpea-note= definition and various utilities. Functions
+of interest:
+
+- =vulpea-utils-with-note= - function to execute =BODY= with point at =NOTE=.
+  Supports file-level notes as well as heading notes.
+
 *** =vulpea-db=
 :PROPERTIES:
 :ID:                     55717e59-d850-4659-8a02-8153fda52fef

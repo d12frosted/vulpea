@@ -15,7 +15,7 @@
 ;;
 ;;; Commentary:
 ;;
-;; Helpers for testing `vulpea-module'.
+;; Test `vulpea-db' module.
 ;;
 ;;; Code:
 
