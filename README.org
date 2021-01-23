@@ -2,24 +2,28 @@
 :ID:                     8fc370e3-29ae-47ab-bb2e-02e572e54599
 :END:
 
-* Vulpea
-:PROPERTIES:
-:ID:                     c97abc5d-b39f-4356-bc93-8f591a0a6ac8
-:END:
-
-*WARNING* This library is in very early stages of development, functions come
-and functions go. See [[https://github.com/d12frosted/vulpea/milestone/1][v0.1 milestone]] for some kind of progress tracking.
+#+begin_html
+<h1 align="center">Vino</h1>
+<p align="center">
+  <a href="https://github.com/d12frosted/vulpea/releases">
+    <img alt="GitHub tag (latest by date)" src="https://img.shields.io/github/v/tag/d12frosted/vulpea">
+  </a>
+  <a href="https://github.com/d12frosted/vulpea/actions?query=workflow%3ACI">
+    <img src="https://github.com/d12frosted/vulpea/workflows/CI/badge.svg" alt="CI Status Badge">
+  </a>
+</p>
+#+end_html
 
 A collection of functions for note taking based on =org= and =org-roam=. This
 repository goal is to be a tested library for other applications around note
 taking.
 
-Notable users:
+Users of this library:
 
 - [[https://github.com/d12frosted/environment][d12frosted/environment]] - Emacs configurations;
 - [[https://github.com/d12frosted/vino][d12frosted/vino]] - collection of functions for cellar tracking and wine rating.
 
-** Data types
+* Data types
 :PROPERTIES:
 :ID:                     26af31d5-4fd4-40bb-9058-8543e7359c53
 :END:
@@ -37,7 +41,7 @@ slots/fields:
 If =ID= is not present in the note structure, this note is treated as
 non-existent. For example, see =vulpea-select=.
 
-*** Mandatory =ID= property
+** Mandatory =ID= property
 :PROPERTIES:
 :ID:                     4aa43ec9-b576-4adc-b4a7-b01958ec2e15
 :END:
@@ -61,12 +65,12 @@ following code:
   (add-hook 'before-save-hook #'+org-auto-id-add-to-headlines-in-file)
 #+end_src
 
-** Modules
+* Modules
 :PROPERTIES:
 :ID:                     3bc76150-557b-471b-94e3-efa2d903167a
 :END:
 
-*** =vulpea=
+** =vulpea=
 :PROPERTIES:
 :ID:                     eafd127f-bf86-483f-a692-1bdda7d48659
 :END:
@@ -80,7 +84,7 @@ Functions of interest:
 - =vulpea-create= - function to create a new note file with given =TITLE= and
   =TEMPLATE=.
 
-*** =vulpea-utils=
+** =vulpea-utils=
 :PROPERTIES:
 :ID:                     92508fc8-5500-489c-b534-659ebfdb8e9a
 :END:
@@ -92,7 +96,7 @@ of interest:
   Supports file-level notes as well as heading notes.
 - =vulpea-utils-link-make-string= - make a bracket link to =NOTE=.
 
-*** =vulpea-db=
+** =vulpea-db=
 :PROPERTIES:
 :ID:                     55717e59-d850-4659-8a02-8153fda52fef
 :END:
@@ -106,7 +110,7 @@ This module contains functions to query notes data base. Functions of interest:
   =ID=. Supports headings of the note.
 - =vulpea-db-search-by-title= - function to query notes with =TITLE=.
 
-*** =vulpea-meta=
+** =vulpea-meta=
 :PROPERTIES:
 :ID:                     c1f820af-1940-46cb-a6bb-752146eec52b
 :END:
@@ -142,7 +146,7 @@ Functions of interest:
 - =vulpea-meta-remove= - function to remove all meta for =NOTE-OR-ID=.
 - =vulpea-meta-format= - function to format a =VALUE=.
 
-** Building and testing
+* Building and testing
 :PROPERTIES:
 :ID:                     69263cd2-927a-4a38-9ca0-e2dc8848e285
 :END:

@@ -1,6 +1,6 @@
 ;;; vulpea-test-utils.el --- Helpers for testing Vulpea -*- lexical-binding: t; -*-
 ;;
-;; Copyright (c) 2021 Boris Buliga
+;; Copyright (c) 2020-2021 Boris Buliga
 ;;
 ;; Author: Boris Buliga <boris@d12frosted.io>
 ;; Maintainer: Boris Buliga <boris@d12frosted.io>

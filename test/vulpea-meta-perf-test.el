@@ -1,6 +1,6 @@
 ;;; vulpea-meta-perf-test.el --- Performance test of `vulpea-meta' module -*- lexical-binding: t; -*-
 ;;
-;; Copyright (c) 2021 Boris Buliga
+;; Copyright (c) 2020-2021 Boris Buliga
 ;;
 ;; Author: Boris Buliga <boris@d12frosted.io>
 ;; Maintainer: Boris Buliga <boris@d12frosted.io>
