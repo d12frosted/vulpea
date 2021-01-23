@@ -106,7 +106,7 @@ contains all the funny stuff."
                             rows))
     (dolist (row rows completions)
       (pcase-let ((`(,file-path ,title ,tags ,id) row))
-        (let ((k (org-roam--prepend-tag-string title tags))
+        (let ((k (org-roam--add-tag-string title tags))
               (v (make-vulpea-note
                   :path file-path
                   :title title
