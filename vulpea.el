@@ -128,7 +128,7 @@ The only purpose of this advice is to set the value of
 `org-roam-db' efficiently.
 
 Calls ORIG-FUNC with ALLOW-EXISTING-FILE-P."
-  (let ((file-path (apply orig-func allow-existing-file-p)))
+  (let ((file-path (funcall orig-func allow-existing-file-p)))
     (setq vulpea--capture-file-path file-path)
     file-path))
 
