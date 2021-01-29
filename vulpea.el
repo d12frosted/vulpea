@@ -25,9 +25,6 @@
 ;;
 ;; URL: https://github.com/d12frosted/vulpea
 ;;
-;;
-;; URL:
-;;
 ;; License: GPLv3
 ;;
 ;; This file is not part of GNU Emacs.
