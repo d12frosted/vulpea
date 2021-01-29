@@ -62,7 +62,6 @@
    "\\)")
   "UUID regexp.")
 
-;;;###autoload
 (defun vulpea-meta (note-or-id)
   "Get metadata for NOTE-OR-ID.
 
@@ -116,7 +115,6 @@ Return plist (:file :buffer :pl :items)"
            items-all)))
     (plist-put meta :items items)))
 
-;;;###autoload
 (defun vulpea-meta-get-list! (meta prop &optional type)
   "Get all values of PROP from META.
 
@@ -184,7 +182,6 @@ Each element value depends on TYPE:
 - symbol - an interned symbol."
   (vulpea-meta-get-list! (vulpea-meta note-or-id) prop type))
 
-;;;###autoload
 (defun vulpea-meta-get! (meta prop &optional type)
   "Get value of PROP from META.
 
@@ -203,7 +200,6 @@ one is returned. In case all values are required, use
 `vulpea-meta-get-list'."
   (car (vulpea-meta-get-list! meta prop type)))
 
-;;;###autoload
 (defun vulpea-meta-get (note-or-id prop &optional type)
   "Get value of PROP for NOTE-OR-ID.
 
@@ -222,7 +218,6 @@ one is returned. In case all values are required, use
 `vulpea-meta-get-list'."
   (vulpea-meta-get! (vulpea-meta note-or-id) prop type))
 
-;;;###autoload
 (defun vulpea-meta-set (note-or-id prop value &optional append)
   "Set VALUE of PROP for NOTE-OR-ID.
 
@@ -313,7 +308,6 @@ which case VALUE is added at the end of the meta."
                      "\n"))
            values)))))))
 
-;;;###autoload
 (defun vulpea-meta-remove (note-or-id prop)
   "Delete values of PROP for NOTE-OR-ID."
   (let* ((meta (vulpea-meta--get (vulpea-meta note-or-id) prop))
@@ -333,7 +327,6 @@ which case VALUE is added at the end of the meta."
                (delete-region begin end)))
            (seq-reverse items)))))))
 
-;;;###autoload
 (defun vulpea-meta-clean (note-or-id)
   "Delete all meta from NOTE-OR-ID."
   (when-let* ((meta (vulpea-meta note-or-id))

@@ -56,7 +56,6 @@
 (require 'vulpea-meta)
 (require 'vulpea-db)
 
-;;;###autoload
 (defun vulpea-select (prompt &optional
                              initial-prompt
                              completions
@@ -149,7 +148,6 @@ Calls ORIG-FUNC with ALLOW-EXISTING-FILE-P."
             :around
             #'vulpea--capture-new-file)
 
-;;;###autoload
 (defun vulpea-create (title template &optional id)
   "Create a new note file with TITLE using TEMPLATE.
 

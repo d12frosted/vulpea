@@ -37,7 +37,6 @@
 
 (require 'org)
 
-;;;###autoload
 (cl-defstruct vulpea-note
   id
   title
@@ -45,7 +44,6 @@
   tags
   level)
 
-;;;###autoload
 (defmacro vulpea-utils-with-file (file &rest body)
   "Execute BODY in `org-mode' FILE.
 
@@ -55,7 +53,6 @@ that macro properly handles notes with level greater than 0."
   `(with-current-buffer (find-file-noselect ,file)
      ,@body))
 
-;;;###autoload
 (defmacro vulpea-utils-with-note (note &rest body)
   "Execute BODY in with buffer visiting NOTE.
 
@@ -67,7 +64,6 @@ beginning of the buffer. Otherwise at the heading with note id."
        (goto-char (org-find-entry-with-id (vulpea-note-id ,note))))
      ,@body))
 
-;;;###autoload
 (defun vulpea-utils-link-make-string (note)
   "Make a bracket link to NOTE."
   (org-link-make-string

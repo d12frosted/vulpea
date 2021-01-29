@@ -42,7 +42,6 @@
 ;;
 ;; Searching
 
-;;;###autoload
 (defun vulpea-db-search-by-title (title)
   "Return a list of `vulpea-note' that has TITLE.
 
@@ -69,7 +68,6 @@ Does not support headings in the note."
 ;;
 ;; Exchanging ID to X
 
-;;;###autoload
 (defun vulpea-db-get-by-id (id)
   "Find a `vulpea-note' by ID.
 
@@ -97,7 +95,6 @@ Supports headings in the note."
      :level level
      :id id)))
 
-;;;###autoload
 (defun vulpea-db-get-file-by-id (id)
   "Get file of `vulpea-note' with ID.
 
@@ -112,7 +109,6 @@ Supports headings in the note."
 ;;
 ;; Exchange FILE to X
 
-;;;###autoload
 (defun vulpea-db-get-id-by-file (file)
   "Get ID of `vulpea-note' represented by FILE.
 
@@ -132,7 +128,6 @@ If the FILE is relative, it is considered to be relative to
 ;;
 ;; Update
 
-;;;###autoload
 (defun vulpea-db-update (note-or-id)
   "Update db for NOTE-OR-ID."
   (let ((file (if (stringp note-or-id)
