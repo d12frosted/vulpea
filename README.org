@@ -160,6 +160,15 @@ Functions of interest:
 - =vulpea-meta-remove= - function to remove all meta for =NOTE-OR-ID=.
 - =vulpea-meta-format= - function to format a =VALUE=.
 
+* Coding
+:PROPERTIES:
+:ID:                     fe0386d0-08d2-4eea-8c78-6a43fe97f318
+:END:
+
+Vulpea is developed using [[https://github.com/doublep/eldev/][eldev]]. If you are using =flycheck=, it is advised to
+also use [[https://github.com/flycheck/flycheck-eldev][flycheck-eldev]], as it makes dependencies and project files available
+thus mitigating false negative results from default Emacs Lisp checker.
+
 * Building and testing
 :PROPERTIES:
 :ID:                     69263cd2-927a-4a38-9ca0-e2dc8848e285
