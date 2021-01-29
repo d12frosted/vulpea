@@ -84,6 +84,20 @@ Functions of interest:
 - =vulpea-create= - function to create a new note file with given =TITLE= and
   =TEMPLATE=.
 
+Please note that loading this module automatically advices
+=org-roam-capture--new-file= in order to automatically update =org-roam=
+database in an efficient manner during =vulpea-create= (e.g. instead of building
+cache for all changed files, only created file is updated). In case you don't
+want it to happen, use the following code after loading =vulpea= module:
+
+#+begin_src emacs-lisp
+  (advice-remove 'org-roam-capture--new-file #'vulpea--capture-new-file)
+#+end_src
+
+Keep in mind that in such case you will need to manually update
+=org-roam= database after using =vulpea-create= using =org-roam-db-update-file=
+or =org-roam-db-build-cache=.
+
 ** =vulpea-utils=
 :PROPERTIES:
 :ID:                     92508fc8-5500-489c-b534-659ebfdb8e9a
