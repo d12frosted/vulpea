@@ -18,6 +18,10 @@ Primarily a stabilization and bug-fix release.
 
 - [[https://github.com/d12frosted/vulpea/pull/80][vulpea#80]] Fix how =org-roam-capture--new-file= is called from advice.
 
+*Breaking changes*
+
+- [[https://github.com/d12frosted/vulpea/pull/82][vulpea#82]] Remove all autoloads.
+
 ** v0.1
 :PROPERTIES:
 :ID:                     2649dad1-485a-4082-986a-5d67698604db
