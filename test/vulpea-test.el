@@ -65,7 +65,7 @@
                    [:select (funcall count *)
                     :from titles])))))
 
-(describe "vulpea-select"
+(describe "vulpea-create"
   :var (note)
   (before-all
     (vulpea-test--init))
@@ -73,7 +73,7 @@
   (after-all
     (vulpea-test--teardown))
 
-  (it "creates new file with ID"
+  (it "creates new file with ID and syncs database"
     (setq note
           (vulpea-create
            "Slarina"
