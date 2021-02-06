@@ -57,7 +57,8 @@
     (spy-on 'org-roam-completion--completing-read
             :and-return-value "(tag1,tag2) Reference")
 
-    (vulpea-select "Note" nil nil
+    (vulpea-select "Note"
+                   :filter-fn
                    (lambda (_)
                      (setq filter-count (+ 1 filter-count))))
     (expect filter-count :to-equal

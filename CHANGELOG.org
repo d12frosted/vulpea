@@ -17,8 +17,13 @@ Primarily a stabilization and bug-fix release.
 *Features*
 
 - [[https://github.com/d12frosted/vulpea/pull/84][vulpea#84]] Support passing extra context for templates to =vulpea-create=. This
-  is a breaking change, now instead of passing =id= argument, you should pass
+  is a /breaking change/, now instead of passing =id= argument, you should pass
   =(list (cons 'id id))=. While being more verbose it gives much more power.
+- [[https://github.com/d12frosted/vulpea/pull/85][vulpea#85]] Support require match in =vulpea-select=. This is a /breaking
+  change/, as arguments to =vulpea-select= are passed as keys. In my experience,
+  most of the times first two arguments are =nil= and they are rarely needed. In
+  this way, API of this function is cleaner and opens a way to add new
+  functionality there.
 
 *Fixes*
 

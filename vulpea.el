@@ -56,14 +56,18 @@
 (require 'vulpea-meta)
 (require 'vulpea-db)
 
-(defun vulpea-select (prompt &optional
-                             initial-prompt
-                             completions
-                             filter-fn)
+(cl-defun vulpea-select (prompt
+                         &key
+                         require-match
+                         initial-prompt
+                         completions
+                         filter-fn)
   "Select a note.
 
 Returns a selected `vulpea-note'. If `vulpea-note-id' is nil, it
 means that user selected non-existing note.
+
+When REQUIRE-MATCH is non-nil, use may select only existing note.
 
 PROMPT is a message to present.
 
@@ -85,6 +89,7 @@ as its argument a `vulpea-note'."
          (title-with-tags (org-roam-completion--completing-read
                            (concat prompt ": ")
                            completions
+                           :require-match require-match
                            :initial-input initial-prompt)))
     (or (cdr (assoc title-with-tags completions))
         (make-vulpea-note
