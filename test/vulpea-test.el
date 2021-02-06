@@ -73,7 +73,7 @@
   (after-all
     (vulpea-test--teardown))
 
-  (it "creates new file with ID and syncs database"
+  (it "creates new file and syncs database"
     (setq note
           (vulpea-create
            "Slarina"
@@ -99,7 +99,105 @@
              :id (vulpea-note-id note)))
     (expect (vulpea-db-get-by-id (vulpea-note-id note))
             :to-equal
-            note)))
+            note))
+
+  (it "creates new file with passed id"
+    (setq note
+          (vulpea-create
+           "Frappato"
+           `("d" "default" plain
+             #'org-roam-capture--get-point
+             "%?"
+             :file-name "prefix-${slug}"
+             :head ,(concat
+                     ":PROPERTIES:\n"
+                     ":ID:                     ${id}\n"
+                     ":END:\n"
+                     "#+TITLE: ${title}\n\n")
+             :unnarrowed t
+             :immediate-finish t)
+           (list (cons 'id "xyz"))))
+    (expect note
+            :to-equal
+            (make-vulpea-note
+             :path (expand-file-name "prefix-frappato.org" org-roam-directory)
+             :title "Frappato"
+             :tags nil
+             :level 0
+             :id "xyz"))
+    (expect (vulpea-db-get-by-id "xyz")
+            :to-equal
+            note))
+
+  (it "creates new file without taking title or slug from passed context"
+    (setq note
+          (vulpea-create
+           "Nerello Mascalese"
+           `("d" "default" plain
+             #'org-roam-capture--get-point
+             "%?"
+             :file-name "prefix-${slug}"
+             :head ,(concat
+                     ":PROPERTIES:\n"
+                     ":ID:                     ${id}\n"
+                     ":END:\n"
+                     "#+TITLE: ${title}\n\n")
+             :unnarrowed t
+             :immediate-finish t)
+           (list (cons 'title "hehe")
+                 (cons 'slug "xoxo"))))
+    (expect note
+            :to-equal
+            (make-vulpea-note
+             :path (expand-file-name "prefix-nerello_mascalese.org" org-roam-directory)
+             :title "Nerello Mascalese"
+             :tags nil
+             :level 0
+             :id (vulpea-note-id note)))
+    (expect (vulpea-db-get-by-id (vulpea-note-id note))
+            :to-equal
+            note))
+
+  (it "creates new file with additional context"
+    (setq note
+          (vulpea-create
+           "Aglianico"
+           `("d" "default" plain
+             #'org-roam-capture--get-point
+             "%?"
+             :file-name "prefix-${slug}"
+             :head ,(concat
+                     ":PROPERTIES:\n"
+                     ":ID:                     ${id}\n"
+                     ":END:\n"
+                     "#+TITLE: ${title}\n"
+                     "#+ROAM_KEY: ${url}"
+                     "\n")
+             :unnarrowed t
+             :immediate-finish t)
+           (list (cons 'url "https://d12frosted.io"))))
+    (expect note
+            :to-equal
+            (make-vulpea-note
+             :path (expand-file-name "prefix-aglianico.org" org-roam-directory)
+             :title "Aglianico"
+             :tags nil
+             :level 0
+             :id (vulpea-note-id note)))
+    (expect (vulpea-db-get-by-id (vulpea-note-id note))
+            :to-equal
+            note)
+    (expect (vulpea-note-path note)
+            :to-contain-exactly
+            (format
+             ":PROPERTIES:
+:ID:                     %s
+:END:
+#+TITLE: Aglianico
+#+ROAM_KEY: https://d12frosted.io
+
+"
+             (vulpea-note-id note)))))
 
 (provide 'vulpea-test)
 ;;; vulpea-test.el ends here

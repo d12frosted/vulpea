@@ -246,29 +246,6 @@
                         'item #'identity))
             :to-equal 0)))
 
-(buttercup-define-matcher :to-contain-exactly (file value)
-  (cl-destructuring-bind
-      ((file-expr . file) (value-expr . value))
-      (mapcar #'buttercup--expr-and-value (list file value))
-    (let* ((content (vulpea-test--map-file
-                     (lambda (_)
-                       (buffer-substring-no-properties (point-min)
-                                                       (point-max)))
-                     file))
-           (spec (format-spec-make
-                  ?F (format "%S" file-expr)
-                  ?f (format "%S" file)
-                  ?V (format "%S" value-expr)
-                  ?v (format "%S" value)
-                  ?c (format "%S" content))))
-      (if (string-equal content value)
-          (cons t (buttercup-format-spec
-                   "Expected `%F' not to have content equal to `%v'"
-                   spec))
-        (cons nil (buttercup-format-spec
-                   "Expected `%F' to have content equal to `%v', but instead `%F' has content equal to `%c'"
-                   spec))))))
-
 (describe "vulpea-meta-format"
   (before-all
     (vulpea-test--init))

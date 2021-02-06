@@ -148,10 +148,10 @@ Calls ORIG-FUNC with ALLOW-EXISTING-FILE-P."
             :around
             #'vulpea--capture-new-file)
 
-(defun vulpea-create (title template &optional id)
+(defun vulpea-create (title template &optional context)
   "Create a new note file with TITLE using TEMPLATE.
 
-Returns ID of created note.
+Returns id of created note.
 
 See `org-roam-capture-templates' for description of TEMPLATE.
 
@@ -159,14 +159,20 @@ Available variables in the capture context are:
 
 - slug
 - title
-- ID (passed or generated)"
-  (let* ((id (or id (org-id-new)))
+- id (passed via CONTEXT or generated)
+- all other values from CONTEXT"
+  (let* ((id (or (and context
+                      (alist-get 'id context))
+                 (org-id-new)))
          (org-roam-capture--info
-          (list
-           (cons 'title title)
-           (cons 'slug (funcall org-roam-title-to-slug-function
-                                title))
-           (cons 'id id)))
+          (append
+           (list
+            (cons 'title title)
+            (cons 'slug (funcall org-roam-title-to-slug-function
+                                 title)))
+           context
+           (list
+            (cons 'id id))))
          (org-roam-capture--context 'title)
          (org-roam-capture-templates (list template)))
     (org-roam-capture--capture)

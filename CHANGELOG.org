@@ -14,6 +14,12 @@
 
 Primarily a stabilization and bug-fix release.
 
+*Features*
+
+- [[https://github.com/d12frosted/vulpea/pull/84][vulpea#84]] Support passing extra context for templates to =vulpea-create=. This
+  is a breaking change, now instead of passing =id= argument, you should pass
+  =(list (cons 'id id))=. While being more verbose it gives much more power.
+
 *Fixes*
 
 - [[https://github.com/d12frosted/vulpea/pull/80][vulpea#80]] Fix how =org-roam-capture--new-file= is called from advice.
