@@ -3,7 +3,7 @@
 :END:
 
 #+begin_html
-<h1 align="center">Vino</h1>
+<h1 align="center">Vulpea</h1>
 <p align="center">
   <a href="https://github.com/d12frosted/vulpea/releases">
     <img alt="GitHub tag (latest by date)" src="https://img.shields.io/github/v/tag/d12frosted/vulpea">
