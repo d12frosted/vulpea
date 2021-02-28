@@ -77,6 +77,39 @@
     (expect (vulpea-db-search-by-title "reference")
             :to-be nil)))
 
+(describe "vulpea-db-query"
+  (before-all
+    (vulpea-test--init))
+
+  (after-all
+    (vulpea-test--teardown))
+
+  (it "returns all notes when filter function is not passed"
+    (expect (length (vulpea-db-query))
+            :to-equal
+            (caar (org-roam-db-query
+                   [:select (funcall count *)
+                    :from titles]))))
+
+  (it "applies filter function when passed"
+    (expect (vulpea-db-query (lambda (n)
+                               (string-equal (vulpea-note-title n)
+                                             "Duplicating Term")))
+            :to-have-same-items-as
+            (list
+             (make-vulpea-note
+              :path (expand-file-name "same-name-1.org" org-roam-directory)
+              :title "Duplicating Term"
+              :tags nil
+              :level 0
+              :id "ff01962f-47c2-4a32-9bf4-990e41090a9b")
+             (make-vulpea-note
+              :path (expand-file-name "same-name-2.org" org-roam-directory)
+              :title "Duplicating Term"
+              :tags nil
+              :level 0
+              :id "68f11246-91e1-4d48-b3c6-801a2ef0160b")))))
+
 (describe "vulpea-db-get-by-id"
   (before-all
     (vulpea-test--init))

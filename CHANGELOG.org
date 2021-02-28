@@ -24,6 +24,7 @@ Primarily a stabilization and bug-fix release.
   most of the times first two arguments are =nil= and they are rarely needed. In
   this way, API of this function is cleaner and opens a way to add new
   functionality there.
+- [[https://github.com/d12frosted/vulpea/pull/86][vulpea#86]] New function =vulpea-db-query= to query notes with generic predicate.
 
 *Fixes*
 

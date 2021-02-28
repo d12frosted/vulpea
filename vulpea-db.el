@@ -66,6 +66,41 @@ Does not support headings in the note."
      files)))
 
 ;;
+;; Querying
+
+(defun vulpea-db-query (&optional filter-fn)
+  "Query list of `vulpea-note' from database.
+
+When FILTER-FN is non-nil, only notes that satisfy it are
+returned."
+  (let*
+      ((rows (org-roam-db-query
+              [:select [files:file
+                        titles:title
+                        tags:tags
+                        ids:id]
+               :from titles
+               :left :join tags
+               :on (= titles:file tags:file)
+               :left :join files
+               :on (= titles:file files:file)
+               :left :join ids
+               :on (and (= titles:file ids:file)
+                        (= ids:level 0))]))
+       notes)
+    (dolist (row rows notes)
+      (pcase-let ((`(,file-path ,title ,tags ,id) row))
+        (let ((note (make-vulpea-note
+                     :path file-path
+                     :title title
+                     :tags tags
+                     :id id
+                     :level 0)))
+          (when (or (null filter-fn)
+                    (funcall filter-fn note))
+            (push note notes)))))))
+
+;;
 ;; Exchanging ID to X
 
 (defun vulpea-db-get-by-id (id)
