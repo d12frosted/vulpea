@@ -60,7 +60,6 @@
                          &key
                          require-match
                          initial-prompt
-                         completions
                          filter-fn)
   "Select a note.
 
@@ -73,19 +72,23 @@ PROMPT is a message to present.
 
 INITIAL-PROMPT is the initial title prompt.
 
-COMPLETIONS is a list of completions to be used instead of
-`vulpea--get-title-path-completions`.
-
 FILTER-FN is the function to apply on the candidates, which takes
 as its argument a `vulpea-note'."
   (unless org-roam-mode (org-roam-mode))
-  (let* ((completions (or completions
-                          (vulpea--get-title-path-completions)))
-         (completions (if filter-fn
-                          (seq-filter (lambda (kvp)
-                                        (funcall filter-fn (cdr kvp)))
-                                      completions)
-                        completions))
+  (let* ((notes (seq-sort-by
+                 (lambda (n)
+                   (vulpea-note-meta-mtime
+                    (vulpea-note-meta n)))
+                 #'time-less-p
+                 (vulpea-db-query filter-fn)))
+         (completions (seq-map
+                       (lambda (n)
+                         (cons
+                          (org-roam--add-tag-string
+                           (vulpea-note-title n)
+                           (vulpea-note-tags n))
+                          n))
+                       notes))
          (title-with-tags (org-roam-completion--completing-read
                            (concat prompt ": ")
                            completions
@@ -95,42 +98,6 @@ as its argument a `vulpea-note'."
         (make-vulpea-note
          :title title-with-tags
          :level 0))))
-
-(defun vulpea--get-title-path-completions ()
-  "Return an alist for completion.
-
-The car is the displayed title for completion, and the cdr
-contains all the funny stuff."
-  (let*
-      ((rows (org-roam-db-query
-              [:select [files:file
-                        titles:title
-                        tags:tags
-                        ids:id
-                        files:meta]
-               :from titles
-               :left :join tags
-               :on (= titles:file tags:file)
-               :left :join files
-               :on (= titles:file files:file)
-               :left :join ids
-               :on (and (= titles:file ids:file)
-                        (= ids:level 0))]))
-       completions)
-    (setq rows (seq-sort-by (lambda (x)
-                              (plist-get (nth 3 x) :mtime))
-                            #'time-less-p
-                            rows))
-    (dolist (row rows completions)
-      (pcase-let ((`(,file-path ,title ,tags ,id) row))
-        (let ((k (org-roam--add-tag-string title tags))
-              (v (make-vulpea-note
-                  :path file-path
-                  :title title
-                  :tags tags
-                  :id id
-                  :level 0)))
-          (push (cons k v) completions))))))
 
 (defvar vulpea--capture-file-path nil
   "Path to file created during `vulpea-create'.")

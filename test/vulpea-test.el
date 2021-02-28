@@ -42,7 +42,8 @@
              :title "Reference"
              :tags '("tag1" "tag2")
              :level 0
-             :id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")))
+             :id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"
+             :meta (vulpea-test-meta "reference.org"))))
 
   (it "returns only title for non-existent note"
     (spy-on 'org-roam-completion--completing-read

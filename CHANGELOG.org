@@ -27,6 +27,8 @@ Primarily a stabilization and bug-fix release.
 - [[https://github.com/d12frosted/vulpea/pull/86][vulpea#86]] New function =vulpea-db-query= to query notes with generic predicate.
 - [[https://github.com/d12frosted/vulpea/pull/86][vulpea#86]] Add metadata to =vulpea-note= consisting of access time and
   modification time.
+- [[https://github.com/d12frosted/vulpea/pull/86][vulpea#86]] Use =vulpea-db-query= in =vulpea-select= instead of heavy
+  =org-roam-db-query=.
 
 *Fixes*
 
@@ -35,6 +37,7 @@ Primarily a stabilization and bug-fix release.
 *Breaking changes*
 
 - [[https://github.com/d12frosted/vulpea/pull/82][vulpea#82]] Remove all autoloads.
+- [[https://github.com/d12frosted/vulpea/pull/86][vulpea#86]] =vulpea-select= does not allow to pass =completions= anymore.
 
 ** v0.1
 :PROPERTIES:
