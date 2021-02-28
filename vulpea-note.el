@@ -43,5 +43,9 @@
   level
   meta)
 
+(cl-defstruct vulpea-note-meta
+  atime
+  mtime)
+
 (provide 'vulpea-note)
 ;;; vulpea-note.el ends here

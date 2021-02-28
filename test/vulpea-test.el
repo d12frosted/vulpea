@@ -97,7 +97,8 @@
              :title "Slarina"
              :tags nil
              :level 0
-             :id (vulpea-note-id note)))
+             :id (vulpea-note-id note)
+             :meta (vulpea-note-meta note)))
     (expect (vulpea-db-get-by-id (vulpea-note-id note))
             :to-equal
             note))
@@ -125,7 +126,8 @@
              :title "Frappato"
              :tags nil
              :level 0
-             :id "xyz"))
+             :id "xyz"
+             :meta (vulpea-note-meta note)))
     (expect (vulpea-db-get-by-id "xyz")
             :to-equal
             note))
@@ -154,7 +156,8 @@
              :title "Nerello Mascalese"
              :tags nil
              :level 0
-             :id (vulpea-note-id note)))
+             :id (vulpea-note-id note)
+             :meta (vulpea-note-meta note)))
     (expect (vulpea-db-get-by-id (vulpea-note-id note))
             :to-equal
             note))
@@ -184,7 +187,8 @@
              :title "Aglianico"
              :tags nil
              :level 0
-             :id (vulpea-note-id note)))
+             :id (vulpea-note-id note)
+             :meta (vulpea-note-meta note)))
     (expect (vulpea-db-get-by-id (vulpea-note-id note))
             :to-equal
             note)

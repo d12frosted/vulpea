@@ -62,7 +62,8 @@ Does not support headings in the note."
         :tags (vulpea-utils-with-file file
                 (org-roam--extract-tags file))
         :level 0
-        :id (vulpea-db-get-id-by-file file)))
+        :id (vulpea-db-get-id-by-file file)
+        :meta (vulpea-db-get-meta-by-file file)))
      files)))
 
 ;;
@@ -78,7 +79,8 @@ returned."
               [:select [files:file
                         titles:title
                         tags:tags
-                        ids:id]
+                        ids:id
+                        files:meta]
                :from titles
                :left :join tags
                :on (= titles:file tags:file)
@@ -89,13 +91,16 @@ returned."
                         (= ids:level 0))]))
        notes)
     (dolist (row rows notes)
-      (pcase-let ((`(,file-path ,title ,tags ,id) row))
+      (pcase-let ((`(,file-path ,title ,tags ,id ,meta) row))
         (let ((note (make-vulpea-note
                      :path file-path
                      :title title
                      :tags tags
                      :id id
-                     :level 0)))
+                     :level 0
+                     :meta (make-vulpea-note-meta
+                            :atime (plist-get meta :atime)
+                            :mtime (plist-get meta :mtime)))))
           (when (or (null filter-fn)
                     (funcall filter-fn note))
             (push note notes)))))))
@@ -128,7 +133,8 @@ Supports headings in the note."
      :tags (vulpea-utils-with-file file
              (org-roam--extract-tags file))
      :level level
-     :id id)))
+     :id id
+     :meta (vulpea-db-get-meta-by-file file))))
 
 (defun vulpea-db-get-file-by-id (id)
   "Get file of `vulpea-note' with ID.
@@ -159,6 +165,24 @@ If the FILE is relative, it is considered to be relative to
         file
       (expand-file-name file org-roam-directory))
     0)))
+
+(defun vulpea-db-get-meta-by-file (file)
+  "Get `vulpea-note-meta' of `vulpea-note' represented by FILE.
+
+If the FILE is relative, it is considered to be relative to
+`org-roam-directory'."
+  (when-let ((meta
+              (caar
+               (org-roam-db-query
+                [:select meta
+                 :from files
+                 :where (= file $s1)]
+                (if (file-name-absolute-p file)
+                    file
+                  (expand-file-name file org-roam-directory))))))
+    (make-vulpea-note-meta
+     :atime (plist-get meta :atime)
+     :mtime (plist-get meta :mtime))))
 
 ;;
 ;; Update
