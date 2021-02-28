@@ -43,7 +43,7 @@
     (copy-directory original-dir new-dir)
     (setq org-roam-directory new-dir)
     (org-roam-mode +1)
-    (sleep-for 2)))
+    (org-roam-db-build-cache)))
 
 (defun vulpea-test--teardown ()
   "Teardown testing environment."
