@@ -36,13 +36,7 @@
 ;;; Code:
 
 (require 'org)
-
-(cl-defstruct vulpea-note
-  id
-  title
-  path
-  tags
-  level)
+(require 'vulpea-note)
 
 (defmacro vulpea-utils-with-file (file &rest body)
   "Execute BODY in `org-mode' FILE.
