@@ -23,6 +23,34 @@ Users of this library:
 - [[https://github.com/d12frosted/environment][d12frosted/environment]] - Emacs configurations;
 - [[https://github.com/d12frosted/vino][d12frosted/vino]] - collection of functions for cellar tracking and wine rating.
 
+* Install
+:PROPERTIES:
+:ID:                     a021b872-2704-4d5a-adf1-0eb5a3a06ee0
+:END:
+
+=vulpea= is not available via MELPA, so you can install it manually, using
+[[https://github.com/raxod502/straight][straight]], [[https://github.com/quelpa/quelpa][quelpa]], or any other tool.
+
+*** straight.el
+:PROPERTIES:
+:ID:                     2beccee5-417a-4053-8275-217f41dedcca
+:END:
+
+#+begin_src emacs-lisp
+  (straight-use-package
+   '(vulpea :type git :host github :repo "d12frosted/vulpea"))
+#+end_src
+
+In case you have [[https://github.com/raxod502/straight.el/#integration-with-use-package][integration]] with [[https://github.com/jwiegley/use-package][use-package]]:
+
+#+begin_src emacs-lisp
+  (use-package vulpea
+    :straight (vulpea
+               :type git
+               :host github
+               :repo "d12frosted/vulpea"))
+#+end_src
+
 * Data types
 :PROPERTIES:
 :ID:                     26af31d5-4fd4-40bb-9058-8543e7359c53
