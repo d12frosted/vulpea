@@ -116,10 +116,6 @@ Calls ORIG-FUNC with ALLOW-EXISTING-FILE-P."
     (setq vulpea--capture-file-path file-path)
     file-path))
 
-(advice-add 'org-roam-capture--new-file
-            :around
-            #'vulpea--capture-new-file)
-
 (defun vulpea-create (title template &optional context)
   "Create a new note file with TITLE using TEMPLATE.
 
@@ -152,6 +148,13 @@ Available variables in the capture context are:
       (org-roam-db-update-file vulpea--capture-file-path)
       (setq vulpea--capture-file-path nil))
     (vulpea-db-get-by-id id)))
+
+;;;###autoload
+(defun vulpea-setup ()
+  "Setup `vulpea' library."
+  (advice-add 'org-roam-capture--new-file
+              :around
+              #'vulpea--capture-new-file))
 
 (provide 'vulpea)
 ;;; vulpea.el ends here

@@ -31,7 +31,9 @@ Users of this library:
 =vulpea= is not available via MELPA, so you can install it manually, using
 [[https://github.com/raxod502/straight][straight]], [[https://github.com/quelpa/quelpa][quelpa]], or any other tool.
 
-*** straight.el
+Once installed, you need to call =vulpea-setup= once.
+
+** straight.el
 :PROPERTIES:
 :ID:                     2beccee5-417a-4053-8275-217f41dedcca
 :END:
@@ -39,6 +41,8 @@ Users of this library:
 #+begin_src emacs-lisp
   (straight-use-package
    '(vulpea :type git :host github :repo "d12frosted/vulpea"))
+
+  (vulpea-setup)
 #+end_src
 
 In case you have [[https://github.com/raxod502/straight.el/#integration-with-use-package][integration]] with [[https://github.com/jwiegley/use-package][use-package]]:
@@ -48,7 +52,9 @@ In case you have [[https://github.com/raxod502/straight.el/#integration-with-use
     :straight (vulpea
                :type git
                :host github
-               :repo "d12frosted/vulpea"))
+               :repo "d12frosted/vulpea")
+    :hook
+    (after-init . vulpea-setup))
 #+end_src
 
 * Data types
@@ -111,23 +117,17 @@ place in separate modules. It also imports every other module.
 
 Functions of interest:
 
+- =vulpea-setup= - ties all the knots and setups all the cogs for =vulpea= to
+  function properly. You should call it once. Currently it only advices
+  =org-roam-capture--new-file= in order to automatically update =org-roam=
+  database in an efficient manner during =vulpea-create= (e.g. instead of
+  building cache for all changed files, only created file is updated). In case
+  you don't want to advice =org-roam-capture--new-file= you need to manually
+  update =org-roam= database after using =vulpea-create= with
+  =org-roam-db-update-file= or =org-roam-db-build-cache=.
 - =vulpea-select= - function to =completing-read= a note optional filter.
 - =vulpea-create= - function to create a new note file with given =TITLE= and
-  =TEMPLATE=.
-
-Please note that loading this module automatically advices
-=org-roam-capture--new-file= in order to automatically update =org-roam=
-database in an efficient manner during =vulpea-create= (e.g. instead of building
-cache for all changed files, only created file is updated). In case you don't
-want it to happen, use the following code after loading =vulpea= module:
-
-#+begin_src emacs-lisp
-  (advice-remove 'org-roam-capture--new-file #'vulpea--capture-new-file)
-#+end_src
-
-Keep in mind that in such case you will need to manually update
-=org-roam= database after using =vulpea-create= using =org-roam-db-update-file=
-or =org-roam-db-build-cache=.
+  =TEMPLATE=. This function requires =vulpea-setup= to be called upfront.
 
 ** =vulpea-utils=
 :PROPERTIES:

@@ -38,6 +38,8 @@ Primarily a stabilization and bug-fix release.
 
 - [[https://github.com/d12frosted/vulpea/pull/82][vulpea#82]] Remove all autoloads.
 - [[https://github.com/d12frosted/vulpea/pull/86][vulpea#86]] =vulpea-select= does not allow to pass =completions= anymore.
+- [[https://github.com/d12frosted/vulpea/pull/87][vulpea#87]] =org-roam-capture--new-file= is not being adviced by default anymore. Instead
+  you should call =vulpea-setup=.
 
 ** v0.1
 :PROPERTIES:

@@ -20,7 +20,7 @@
 (require 'buttercup)
 (require 'org)
 (require 'org-roam)
-(require 'vulpea-db)
+(require 'vulpea)
 
 (defvar vulpea-test-directory (expand-file-name "test/note-files")
   "Directory containing test notes.")
@@ -42,6 +42,7 @@
         (new-dir (expand-file-name (make-temp-name "note-files") temporary-file-directory)))
     (copy-directory original-dir new-dir)
     (setq org-roam-directory new-dir)
+    (vulpea-setup)
     (org-roam-mode +1)
     (org-roam-db-build-cache)))
 
