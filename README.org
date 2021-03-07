@@ -11,6 +11,8 @@
   <a href="https://github.com/d12frosted/vulpea/actions?query=workflow%3ACI">
     <img src="https://github.com/d12frosted/vulpea/workflows/CI/badge.svg" alt="CI Status Badge">
   </a>
+  <a href="https://melpa.org/#/vulpea"><img alt="MELPA" src="https://melpa.org/packages/vulpea-badge.svg"/></a>
+  <a href="https://stable.melpa.org/#/vulpea"><img alt="MELPA Stable" src="https://stable.melpa.org/packages/vulpea-badge.svg"/></a>
 </p>
 #+end_html
 
@@ -28,10 +30,22 @@ Users of this library:
 :ID:                     a021b872-2704-4d5a-adf1-0eb5a3a06ee0
 :END:
 
-=vulpea= is not available via MELPA, so you can install it manually, using
+=vulpea= is available via [[https://melpa.org/#/vulpea][MELPA]], but you can still install it manually, using
 [[https://github.com/raxod502/straight][straight]], [[https://github.com/quelpa/quelpa][quelpa]], or any other tool.
 
 Once installed, you need to call =vulpea-setup= once.
+
+** use-package
+:PROPERTIES:
+:ID:                     efb94478-a55d-4f98-8dd3-88f032585add
+:END:
+
+#+begin_src emacs-lisp
+  (use-package vulpea
+    :ensure t
+    :hook
+    (after-init . vulpea-setup))
+#+end_src
 
 ** straight.el
 :PROPERTIES:
