@@ -64,5 +64,12 @@ beginning of the buffer. Otherwise at the heading with note id."
    (concat "id:" (vulpea-note-id note))
    (vulpea-note-title note)))
 
+(defun vulpea-utils-note-hash (note)
+  "Compute the hash of NOTE."
+  (with-temp-buffer
+    (set-buffer-multibyte nil)
+    (insert-file-contents-literally (vulpea-note-path note))
+    (secure-hash 'sha1 (current-buffer))))
+
 (provide 'vulpea-utils)
 ;;; vulpea-utils.el ends here

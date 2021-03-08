@@ -29,6 +29,8 @@ Primarily a stabilization and bug-fix release.
   modification time.
 - [[https://github.com/d12frosted/vulpea/pull/86][vulpea#86]] Use =vulpea-db-query= in =vulpea-select= instead of heavy
   =org-roam-db-query=.
+- [[https://github.com/d12frosted/vulpea/pull/89][vulpea#89]] =vulpea-utils-note-hash= function to calculate =sha1= of a given
+  =NOTE=.
 
 *Fixes*
 

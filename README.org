@@ -154,10 +154,11 @@ of interest:
 - =vulpea-utils-with-note= - function to execute =BODY= with point at =NOTE=.
   Supports file-level notes as well as heading notes.
 - =vulpea-utils-link-make-string= - make a bracket link to =NOTE=.
+- =vulpea-utils-note-hash= function to calculate =sha1= of a given =NOTE=.
 
 ** =vulpea-db=
 :PROPERTIES:
-:ID:                     55717e59-d850-4659-8a02-8153fda52fef
+:ID: 55717e59-d850-4659-8a02-8153fda52fef
 :END:
 
 This module contains functions to query notes data base. Functions of interest:
