@@ -23,7 +23,7 @@
 (require 'vulpea-meta)
 (require 'vulpea-db)
 
-(describe "vulpea-meta-get"
+(xdescribe "vulpea-meta-get"
   :var ((id "05907606-f836-45bf-bd36-a8444308eddd"))
   (before-all
     (vulpea-test--init))
@@ -43,7 +43,7 @@
       (message "res-meta = %s" res-meta)
       (expect (car res-meta) :to-be-less-than (car res-id)))))
 
-(describe "vulpea-meta-get-list"
+(xdescribe "vulpea-meta-get-list"
   :var ((id "05907606-f836-45bf-bd36-a8444308eddd"))
   (before-all
     (vulpea-test--init))
