@@ -135,13 +135,11 @@ Functions of interest:
   function properly. You should call it once. Currently it only advices
   =org-roam-capture--new-file= in order to automatically update =org-roam=
   database in an efficient manner during =vulpea-create= (e.g. instead of
-  building cache for all changed files, only created file is updated). In case
-  you don't want to advice =org-roam-capture--new-file= you need to manually
-  update =org-roam= database after using =vulpea-create= with
-  =org-roam-db-update-file= or =org-roam-db-build-cache=.
+  building cache for all changed files, only created file is updated).
 - =vulpea-select= - function to =completing-read= a note optional filter.
 - =vulpea-create= - function to create a new note file with given =TITLE= and
-  =TEMPLATE=. This function requires =vulpea-setup= to be called upfront.
+  =TEMPLATE=. Returns newly created note. This function requires =vulpea-setup=
+  to be called upfront.
 
 ** =vulpea-utils=
 :PROPERTIES:

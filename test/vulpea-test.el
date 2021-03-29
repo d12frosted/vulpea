@@ -79,17 +79,10 @@
     (setq note
           (vulpea-create
            "Slarina"
-           `("d" "default" plain
-             #'org-roam-capture--get-point
-             "%?"
-             :file-name "prefix-${slug}"
-             :head ,(concat
-                     ":PROPERTIES:\n"
-                     ":ID:                     ${id}\n"
-                     ":END:\n"
-                     "#+TITLE: ${title}\n\n")
-             :unnarrowed t
-             :immediate-finish t)))
+           (list :file-name "prefix-${slug}"
+                 :head "#+TITLE: ${title}\n\n"
+                 :unnarrowed t
+                 :immediate-finish t)))
     (expect vulpea--capture-file-path :to-be nil)
     (expect note
             :to-equal
@@ -108,17 +101,10 @@
     (setq note
           (vulpea-create
            "Frappato"
-           `("d" "default" plain
-             #'org-roam-capture--get-point
-             "%?"
-             :file-name "prefix-${slug}"
-             :head ,(concat
-                     ":PROPERTIES:\n"
-                     ":ID:                     ${id}\n"
-                     ":END:\n"
-                     "#+TITLE: ${title}\n\n")
-             :unnarrowed t
-             :immediate-finish t)
+           (list :file-name "prefix-${slug}"
+                 :head "#+TITLE: ${title}\n\n"
+                 :unnarrowed t
+                 :immediate-finish t)
            (list (cons 'id "xyz"))))
     (expect note
             :to-equal
@@ -137,17 +123,10 @@
     (setq note
           (vulpea-create
            "Nerello Mascalese"
-           `("d" "default" plain
-             #'org-roam-capture--get-point
-             "%?"
-             :file-name "prefix-${slug}"
-             :head ,(concat
-                     ":PROPERTIES:\n"
-                     ":ID:                     ${id}\n"
-                     ":END:\n"
-                     "#+TITLE: ${title}\n\n")
-             :unnarrowed t
-             :immediate-finish t)
+           (list :file-name "prefix-${slug}"
+                 :head "#+TITLE: ${title}\n\n"
+                 :unnarrowed t
+                 :immediate-finish t)
            (list (cons 'title "hehe")
                  (cons 'slug "xoxo"))))
     (expect note
@@ -167,19 +146,12 @@
     (setq note
           (vulpea-create
            "Aglianico"
-           `("d" "default" plain
-             #'org-roam-capture--get-point
-             "%?"
-             :file-name "prefix-${slug}"
-             :head ,(concat
-                     ":PROPERTIES:\n"
-                     ":ID:                     ${id}\n"
-                     ":END:\n"
-                     "#+TITLE: ${title}\n"
-                     "#+ROAM_KEY: ${url}"
-                     "\n")
-             :unnarrowed t
-             :immediate-finish t)
+           (list :file-name "prefix-${slug}"
+                 :head (concat
+                        "#+TITLE: ${title}\n"
+                        "#+ROAM_KEY: ${url}\n")
+                 :unnarrowed t
+                 :immediate-finish t)
            (list (cons 'url "https://d12frosted.io"))))
     (expect note
             :to-equal
@@ -197,7 +169,7 @@
             :to-contain-exactly
             (format
              ":PROPERTIES:
-:ID:                     %s
+:ID:       %s
 :END:
 #+TITLE: Aglianico
 #+ROAM_KEY: https://d12frosted.io

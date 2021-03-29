@@ -105,9 +105,17 @@ Calls ORIG-FUNC with ALLOW-EXISTING-FILE-P."
 (defun vulpea-create (title template &optional context)
   "Create a new note file with TITLE using TEMPLATE.
 
-Returns id of created note.
+Returns created `vulpea-note'.
 
-See `org-roam-capture-templates' for description of TEMPLATE.
+TEMPLATE is a property list of the following format
+
+  (:body :file-name :head :unnarrowed :immediate-finish)
+
+The only mandatory value is :file-name. This property list is
+converted into proper `org-roam-capture-templates'.
+
+Please note that generated file will contain PROPERTIES block
+with an ID.
 
 Available variables in the capture context are:
 
@@ -128,11 +136,29 @@ Available variables in the capture context are:
            (list
             (cons 'id id))))
          (org-roam-capture--context 'title)
-         (org-roam-capture-templates (list template)))
+         (roam-template
+          `("d" "default" plain
+            #'org-roam-capture--get-point
+            ,(or (plist-get template :body)
+                 "%?")
+            :file-name
+            ,(plist-get template :file-name)
+            :head
+            ,(concat
+              ":PROPERTIES:\n"
+              (format org-property-format ":ID:" id)
+              "\n:END:\n"
+              (plist-get template :head))
+            :unnarrowed
+            ,(plist-get template :unnarrowed)
+            :immediate-finish
+            ,(plist-get template :immediate-finish)))
+         (org-roam-capture-templates (list roam-template)))
     (org-roam-capture--capture)
-    (when vulpea--capture-file-path
-      (org-roam-db-update-file vulpea--capture-file-path)
-      (setq vulpea--capture-file-path nil))
+    (unless vulpea--capture-file-path
+      (error "Could not capture created file, use `vulpea-setup'"))
+    (org-roam-db-update-file vulpea--capture-file-path)
+    (setq vulpea--capture-file-path nil)
     (vulpea-db-get-by-id id)))
 
 ;;;###autoload

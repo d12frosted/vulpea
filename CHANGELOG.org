@@ -31,6 +31,9 @@ Primarily a stabilization and bug-fix release.
   =org-roam-db-query=.
 - [[https://github.com/d12frosted/vulpea/pull/89][vulpea#89]] =vulpea-utils-note-hash= function to calculate =sha1= of a given
   =NOTE=.
+- [[https://github.com/d12frosted/vulpea/issues/90][vulpea#90]] =vulpea-create= automatically adds a property block with id into
+  created file (formatted according to =org-property-format=). This also breaks
+  API, see breaking changes section for more information.
 
 *Fixes*
 
@@ -42,6 +45,10 @@ Primarily a stabilization and bug-fix release.
 - [[https://github.com/d12frosted/vulpea/pull/86][vulpea#86]] =vulpea-select= does not allow to pass =completions= anymore.
 - [[https://github.com/d12frosted/vulpea/pull/87][vulpea#87]] =org-roam-capture--new-file= is not being adviced by default anymore. Instead
   you should call =vulpea-setup=.
+- [[https://github.com/d12frosted/vulpea/issues/90][vulpea#90]] =vulpea-create= does not accept =org-roam-template= (whatever that
+  means), instead it accepts a structured property list =(:file-name :head
+  :unnarrowed :immediate-finish)= which is converted into something supported by
+  =org-roam=. Migration is simple - just remove irrelevant parts.
 
 ** v0.1
 :PROPERTIES:
