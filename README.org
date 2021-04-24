@@ -236,3 +236,10 @@ it as well:
 #+begin_src bash
   $ make lint
 #+end_src
+
+* Acknowledgements
+:PROPERTIES:
+:ID:                     41c3498f-3f20-440f-9c50-fdade1340b14
+:END:
+
+[[images/logo.png][Logo]] was created by [[https://www.behance.net/irynarutylo][Iryna Rutylo]].
