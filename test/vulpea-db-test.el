@@ -43,8 +43,7 @@
               :title "Alias of the note with alias"
               :tags nil
               :level 0
-              :id "72522ed2-9991-482e-a365-01155c172aa5"
-              :meta (vulpea-test-meta "note-with-alias.org")))))
+              :id "72522ed2-9991-482e-a365-01155c172aa5"))))
 
   (it "finds multiple notes sharing the same title"
     (expect (vulpea-db-search-by-title "Duplicating Term")
@@ -53,17 +52,15 @@
              (make-vulpea-note
               :path (expand-file-name "same-name-1.org" org-roam-directory)
               :title "Duplicating Term"
-              :tags nil
+              :tags '("tag1" "tag2")
               :level 0
-              :id "ff01962f-47c2-4a32-9bf4-990e41090a9b"
-              :meta (vulpea-test-meta "same-name-1.org"))
+              :id "ff01962f-47c2-4a32-9bf4-990e41090a9b")
              (make-vulpea-note
               :path (expand-file-name "same-name-2.org" org-roam-directory)
               :title "Duplicating Term"
-              :tags nil
+              :tags '("tag3")
               :level 0
-              :id "68f11246-91e1-4d48-b3c6-801a2ef0160b"
-              :meta (vulpea-test-meta "same-name-2.org")))))
+              :id "68f11246-91e1-4d48-b3c6-801a2ef0160b"))))
 
   (it "returns all information about the note"
     (expect (vulpea-db-search-by-title "Reference")
@@ -74,8 +71,7 @@
               :title "Reference"
               :tags '("tag1" "tag2")
               :level 0
-              :id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"
-              :meta (vulpea-test-meta "reference.org")))))
+              :id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"))))
 
   (it "should use case sensitive search"
     (expect (vulpea-db-search-by-title "reference")
@@ -93,7 +89,7 @@
             :to-equal
             (caar (org-roam-db-query
                    [:select (funcall count *)
-                    :from titles]))))
+                    :from nodes]))))
 
   (it "applies filter function when passed"
     (expect (vulpea-db-query (lambda (n)
@@ -104,17 +100,15 @@
              (make-vulpea-note
               :path (expand-file-name "same-name-1.org" org-roam-directory)
               :title "Duplicating Term"
-              :tags nil
+              :tags '("tag1" "tag2")
               :level 0
-              :id "ff01962f-47c2-4a32-9bf4-990e41090a9b"
-              :meta (vulpea-test-meta "same-name-1.org"))
+              :id "ff01962f-47c2-4a32-9bf4-990e41090a9b")
              (make-vulpea-note
               :path (expand-file-name "same-name-2.org" org-roam-directory)
               :title "Duplicating Term"
-              :tags nil
+              :tags '("tag3")
               :level 0
-              :id "68f11246-91e1-4d48-b3c6-801a2ef0160b"
-              :meta (vulpea-test-meta "same-name-2.org"))))))
+              :id "68f11246-91e1-4d48-b3c6-801a2ef0160b")))))
 
 (describe "vulpea-db-get-by-id"
   (before-all
@@ -135,8 +129,7 @@
              :title "Note with an alias"
              :tags nil
              :level 0
-             :id "72522ed2-9991-482e-a365-01155c172aa5"
-             :meta (vulpea-test-meta "note-with-alias.org"))))
+             :id "72522ed2-9991-482e-a365-01155c172aa5")))
 
   (it "returns note by sub-heading id"
     (expect (vulpea-db-get-by-id "b77a4837-71d6-495e-98f1-b576464aacc1")
@@ -146,8 +139,7 @@
              :title "Big note sub-heading"
              :tags nil
              :level 1
-             :id "b77a4837-71d6-495e-98f1-b576464aacc1"
-             :meta (vulpea-test-meta "big-note.org"))))
+             :id "b77a4837-71d6-495e-98f1-b576464aacc1")))
 
   (it "returns note by sub0sub-heading id"
     (expect (vulpea-db-get-by-id "cfc39858-351d-4f1e-8f98-10d16d71f49e")
@@ -157,8 +149,7 @@
              :title "Big note sub-sub-heading"
              :tags nil
              :level 2
-             :id "cfc39858-351d-4f1e-8f98-10d16d71f49e"
-             :meta (vulpea-test-meta "big-note.org")))))
+             :id "cfc39858-351d-4f1e-8f98-10d16d71f49e"))))
 
 (describe "vulpea-db-get-file-by-id"
   (before-all

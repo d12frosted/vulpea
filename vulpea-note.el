@@ -35,17 +35,24 @@
 ;;
 ;;; Code:
 
+(require 'org-roam)
+
 (cl-defstruct vulpea-note
   id
   title
   path
   tags
-  level
-  meta)
+  level)
 
-(cl-defstruct vulpea-note-meta
-  atime
-  mtime)
+(defun vulpea-note-from-node (node)
+  "Convert NODE represented as `org-roam-node' to `vulpea-note'."
+  (when (org-roam-node-title node)
+    (make-vulpea-note
+     :path (org-roam-node-file node)
+     :title (org-roam-node-title node)
+     :tags (org-roam-node-tags node)
+     :level (or (org-roam-node-level node) 0)
+     :id (org-roam-node-id node))))
 
 (provide 'vulpea-note)
 ;;; vulpea-note.el ends here

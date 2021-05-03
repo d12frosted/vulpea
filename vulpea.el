@@ -42,6 +42,9 @@
 (require 'vulpea-meta)
 (require 'vulpea-db)
 
+(let ((data (cons :key "value")))
+  (setf (cdr data) 42))
+
 (cl-defun vulpea-select (prompt
                          &key
                          require-match
@@ -60,47 +63,31 @@ INITIAL-PROMPT is the initial title prompt.
 
 FILTER-FN is the function to apply on the candidates, which takes
 as its argument a `vulpea-note'."
-  (unless org-roam-mode (org-roam-mode))
-  (let* ((notes (seq-sort-by
-                 (lambda (n)
-                   (vulpea-note-meta-mtime
-                    (vulpea-note-meta n)))
-                 #'time-less-p
-                 (vulpea-db-query filter-fn)))
-         (completions (seq-map
-                       (lambda (n)
-                         (cons
-                          (org-roam--add-tag-string
-                           (vulpea-note-title n)
-                           (vulpea-note-tags n))
-                          n))
-                       notes))
-         (title-with-tags (org-roam-completion--completing-read
-                           (concat prompt ": ")
-                           completions
-                           :require-match require-match
-                           :initial-input initial-prompt)))
-    (or (cdr (assoc title-with-tags completions))
+  (let* ((notes (seq-map (lambda (data)
+                           (setf (cdr data)
+                                 (vulpea-note-from-node (cdr data)))
+                           data)
+                         (org-roam-node--completions)))
+         (notes (if filter-fn
+                    (seq-filter (lambda (data)
+                                  (funcall filter-fn (cdr data)))
+                                notes)
+                  notes))
+         (note (completing-read
+                (concat prompt ": ")
+                (lambda (string pred action)
+                  (if (eq action 'metadata)
+                      '(metadata
+                        (annotation-function . (lambda (title)
+                                                 (funcall org-roam-node-annotation-function
+                                                          (get-text-property 0 'node title))))
+                        (category . org-roam-node))
+                    (complete-with-action action notes string pred)))
+                nil require-match initial-prompt)))
+    (or (cdr (assoc note notes))
         (make-vulpea-note
-         :title title-with-tags
+         :title note
          :level 0))))
-
-(defvar vulpea--capture-file-path nil
-  "Path to file created during `vulpea-create'.")
-
-(defun vulpea--capture-new-file (orig-func &optional
-                                           allow-existing-file-p)
-  "Advice around `org-roam-capture--new-file'.
-
-The only purpose of this advice is to set the value of
-`vulpea--capture-file-path' to file path returned by
-`org-roam-capture--new-file', so `vulpea-create' may update
-`org-roam-db' efficiently.
-
-Calls ORIG-FUNC with ALLOW-EXISTING-FILE-P."
-  (let ((file-path (funcall orig-func allow-existing-file-p)))
-    (setq vulpea--capture-file-path file-path)
-    file-path))
 
 (defun vulpea-create (title template &optional context)
   "Create a new note file with TITLE using TEMPLATE.
@@ -124,49 +111,35 @@ Available variables in the capture context are:
 - id (passed via CONTEXT or generated)
 - all other values from CONTEXT"
   (let* ((id (or (and context
-                      (alist-get 'id context))
+                      (plist-get context :id))
                  (org-id-new)))
-         (org-roam-capture--info
-          (append
-           (list
-            (cons 'title title)
-            (cons 'slug (funcall org-roam-title-to-slug-function
-                                 title)))
-           context
-           (list
-            (cons 'id id))))
-         (org-roam-capture--context 'title)
+         (node (org-roam-node-create
+                :id id
+                :title title))
          (roam-template
           `("d" "default" plain
-            #'org-roam-capture--get-point
             ,(or (plist-get template :body)
                  "%?")
-            :file-name
-            ,(plist-get template :file-name)
-            :head
-            ,(concat
-              ":PROPERTIES:\n"
-              (format org-property-format ":ID:" id)
-              "\n:END:\n"
-              (plist-get template :head))
+            :if-new (file+head
+                     ,(plist-get template :file-name)
+                     ,(concat
+                       ":PROPERTIES:\n"
+                       (format org-property-format ":ID:" id)
+                       "\n:END:\n"
+                       "#+title: ${title}\n"
+                       (plist-get template :head)))
             :unnarrowed
             ,(plist-get template :unnarrowed)
             :immediate-finish
-            ,(plist-get template :immediate-finish)))
-         (org-roam-capture-templates (list roam-template)))
-    (org-roam-capture--capture)
-    (unless vulpea--capture-file-path
-      (error "Could not capture created file, use `vulpea-setup'"))
-    (org-roam-db-update-file vulpea--capture-file-path)
-    (setq vulpea--capture-file-path nil)
+            ,(plist-get template :immediate-finish))))
+    (org-roam-capture-
+     :info context
+     :node node
+     :props (list :immediate-finish
+                  (plist-get template :immediate-finish))
+     :templates (list roam-template))
+    (org-roam-db-update-file (org-roam-capture--get :new-file))
     (vulpea-db-get-by-id id)))
-
-;;;###autoload
-(defun vulpea-setup ()
-  "Setup `vulpea' library."
-  (advice-add 'org-roam-capture--new-file
-              :around
-              #'vulpea--capture-new-file))
 
 (provide 'vulpea)
 ;;; vulpea.el ends here

@@ -42,30 +42,12 @@
         (new-dir (expand-file-name (make-temp-name "note-files") temporary-file-directory)))
     (copy-directory original-dir new-dir)
     (setq org-roam-directory new-dir)
-    (vulpea-setup)
-    (org-roam-mode +1)
-    (org-roam-db-build-cache)))
+    (org-roam-setup)))
 
 (defun vulpea-test--teardown ()
   "Teardown testing environment."
-  (org-roam-mode -1)
-  (delete-file org-roam-db-location)
-  (org-roam-db--close))
-
-(defun vulpea-test-meta (file)
-  "Return `vulpea-note-meta' for FILE.
-
-If the FILE is relative, it is considered to be relative to
-`org-roam-directory'."
-  (let* ((attr (file-attributes
-                (if (file-name-absolute-p file)
-                    file
-                  (expand-file-name file org-roam-directory))))
-         (atime (file-attribute-access-time attr))
-         (mtime (file-attribute-modification-time attr)))
-    (make-vulpea-note-meta
-     :atime atime
-     :mtime mtime)))
+  (org-roam-teardown)
+  (delete-file org-roam-db-location))
 
 (buttercup-define-matcher :to-contain-exactly (file value)
   (cl-destructuring-bind

@@ -12,7 +12,41 @@
 :ID:                     32a267f4-dd27-44b9-a045-5835a5c8503f
 :END:
 
-Migration to org-roam v2.
+Primarily migration to =org-roam= v2 that has many improvements and breaking
+changes.
+
+*Breaking changes*
+
+- [[https://github.com/d12frosted/vulpea/pull/92][vulpea#92]] Flatten template in =vulpea-create=, meaning that instead of passing
+  a template in format =(:body :file-name :head :unnarrowed :immediate-finish)=,
+  all values should be passed as arguments to =vulpea-create=. Also, there is no
+  need to provide =#+title: ${title}= in =:head= anymore. See =vulpea-create=
+  documentation for more information.
+  #+begin_src emacs-lisp
+    ;; instead of
+    (vulpea-create title
+                   (list :file-name file-name
+                         :head "#+title: ${title}\n#+url: ${url}\n"
+                         :unnarrowed t
+                         :immediate-finish t)
+                   (list (cons url "https://example.org")
+                         (cons id "xyz")))
+
+    ;; you should
+    (vulpea-create title
+                   file-name
+                   :id xyz
+                   :head "#+url: ${url}"
+                   :unnarrowed t
+                   :immediate-finish t
+                   :context
+                   (list :url "https://example.org"))
+  #+end_src
+- [[https://github.com/d12frosted/vulpea/pull/92][vulpea#92]] Remove =vulpea-setup= because =org-roam= v2 already provides all
+  information to get resulting file of capture process.
+- [[https://github.com/d12frosted/vulpea/pull/92][vulpea#92]] Remove =vulpea-note-meta=. It was only used for =vulpea-select=, but
+  now it is not needed anymore.
+- All breaking changes of =org-roam= apply to =vulpea=.
 
 ** v0.1.1
 :PROPERTIES:
