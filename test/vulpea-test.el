@@ -94,9 +94,9 @@
     (setq note
           (vulpea-create
            "Slarina"
-           (list :file-name "prefix-${slug}.org"
-                 :unnarrowed t
-                 :immediate-finish t)))
+           "prefix-${slug}.org"
+           :unnarrowed t
+           :immediate-finish t))
     (expect note
             :to-equal
             (make-vulpea-note
@@ -113,11 +113,10 @@
     (setq note
           (vulpea-create
            "Frappato"
-           (list :file-name "prefix-${slug}.org"
-                 :unnarrowed t
-                 :immediate-finish t)
-           :context
-           (list :id "xyz")))
+           "prefix-${slug}.org"
+           :id "xyz"
+           :unnarrowed t
+           :immediate-finish t))
     (expect note
             :to-equal
             (make-vulpea-note
@@ -134,9 +133,9 @@
     (setq note
           (vulpea-create
            "Nerello Mascalese"
-           (list :file-name "prefix-${slug}.org"
-                 :unnarrowed t
-                 :immediate-finish t)
+           "prefix-${slug}.org"
+           :unnarrowed t
+           :immediate-finish t
            :context
            (list :title "hehe"
                  :slug "xoxo")))
@@ -156,10 +155,10 @@
     (setq note
           (vulpea-create
            "Aglianico"
-           (list :file-name "prefix-${slug}.org"
-                 :head "#+roam_key: ${url}"
-                 :unnarrowed t
-                 :immediate-finish t)
+           "prefix-${slug}.org"
+           :head "#+roam_key: ${url}"
+           :unnarrowed t
+           :immediate-finish t
            :context
            (list :url "https://d12frosted.io")
            :properties

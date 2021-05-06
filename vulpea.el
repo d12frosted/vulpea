@@ -92,22 +92,38 @@ as its argument a `vulpea-note'."
          :title note
          :level 0))))
 
-(cl-defun vulpea-create (title template &key context properties)
-  "Create a new note file with TITLE using TEMPLATE.
+(cl-defun vulpea-create (title
+                         file-name
+                         &key
+                         id
+                         head
+                         body
+                         unnarrowed
+                         immediate-finish
+                         context
+                         properties)
+  "Create a new note file with TITLE in FILE-NAME.
 
 Returns created `vulpea-note'.
 
-TEMPLATE is a property list of the following format
+ID is automatically generated unless explicitly passed.
 
-  (:body :file-name :head :unnarrowed :immediate-finish)
+Structure of the generated file is:
 
-The only mandatory value is :file-name. This property list is
-converted into proper `org-roam-capture-templates'.
+  :PROPERTIES:
+  :ID: ID
+  PROPERTIES if passed
+  :END:
+  :title: TITLE
+  HEAD if passed
 
-Please note that generated file will contain PROPERTIES block
-with an ID and any extra PROPERTIES passed as a list of
+  BODY if passed
 
-  (key_str . val_str).
+CONTEXT is a property list of :key val.
+
+PROPERTIES is a list of (key_str . val_str).
+
+UNNARROWED and IMMEDIATE-FINISH are passed to `org-capture'.
 
 Available variables in the capture context are:
 
@@ -115,18 +131,15 @@ Available variables in the capture context are:
 - title
 - id (passed via CONTEXT or generated)
 - all other values from CONTEXT"
-  (let* ((id (or (and context
-                      (plist-get context :id))
-                 (org-id-new)))
+  (let* ((id (or id (org-id-new)))
          (node (org-roam-node-create
                 :id id
                 :title title))
          (roam-template
           `("d" "default" plain
-            ,(or (plist-get template :body)
-                 "%?")
+            ,(or body "%?")
             :if-new (file+head
-                     ,(plist-get template :file-name)
+                     ,file-name
                      ,(concat
                        ":PROPERTIES:\n"
                        (format org-property-format ":ID:" id)
@@ -140,16 +153,13 @@ Available variables in the capture context are:
                         properties "\n")
                        "\n:END:\n"
                        "#+title: ${title}\n"
-                       (plist-get template :head)))
-            :unnarrowed
-            ,(plist-get template :unnarrowed)
-            :immediate-finish
-            ,(plist-get template :immediate-finish))))
+                       head))
+            :unnarrowed ,unnarrowed
+            :immediate-finish ,immediate-finish)))
     (org-roam-capture-
      :info context
      :node node
-     :props (list :immediate-finish
-                  (plist-get template :immediate-finish))
+     :props (list :immediate-finish immediate-finish)
      :templates (list roam-template))
     (org-roam-db-update-file (org-roam-capture--get :new-file))
     (vulpea-db-get-by-id id)))
