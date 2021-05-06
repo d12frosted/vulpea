@@ -116,6 +116,7 @@
            (list :file-name "prefix-${slug}.org"
                  :unnarrowed t
                  :immediate-finish t)
+           :context
            (list :id "xyz")))
     (expect note
             :to-equal
@@ -136,6 +137,7 @@
            (list :file-name "prefix-${slug}.org"
                  :unnarrowed t
                  :immediate-finish t)
+           :context
            (list :title "hehe"
                  :slug "xoxo")))
     (expect note
@@ -150,7 +152,7 @@
             :to-equal
             note))
 
-  (it "creates new file with additional context"
+  (it "creates new file with additional head, context and properties"
     (setq note
           (vulpea-create
            "Aglianico"
@@ -158,7 +160,10 @@
                  :head "#+roam_key: ${url}"
                  :unnarrowed t
                  :immediate-finish t)
-           (list :url "https://d12frosted.io")))
+           :context
+           (list :url "https://d12frosted.io")
+           :properties
+           (list (cons "MY_TAG" "super-tag"))))
     (expect note
             :to-equal
             (make-vulpea-note
@@ -175,6 +180,7 @@
             (format
              ":PROPERTIES:
 :ID:       %s
+:MY_TAG:   super-tag
 :END:
 #+title: Aglianico
 #+roam_key: https://d12frosted.io

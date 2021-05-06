@@ -15,6 +15,11 @@
 Primarily migration to =org-roam= v2 that has many improvements and breaking
 changes.
 
+*Features*
+
+- [[https://github.com/d12frosted/vulpea/pull/92][vulpea#92]] Allow to provide extra properties in =vulpea-create=.
+- All features of =org-roam= apply to =vulpea=.
+
 *Breaking changes*
 
 - [[https://github.com/d12frosted/vulpea/pull/92][vulpea#92]] Flatten template in =vulpea-create=, meaning that instead of passing

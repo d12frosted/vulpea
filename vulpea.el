@@ -89,7 +89,7 @@ as its argument a `vulpea-note'."
          :title note
          :level 0))))
 
-(defun vulpea-create (title template &optional context)
+(cl-defun vulpea-create (title template &key context properties)
   "Create a new note file with TITLE using TEMPLATE.
 
 Returns created `vulpea-note'.
@@ -102,7 +102,9 @@ The only mandatory value is :file-name. This property list is
 converted into proper `org-roam-capture-templates'.
 
 Please note that generated file will contain PROPERTIES block
-with an ID.
+with an ID and any extra PROPERTIES passed as a list of
+
+  (key_str . val_str).
 
 Available variables in the capture context are:
 
@@ -125,6 +127,11 @@ Available variables in the capture context are:
                      ,(concat
                        ":PROPERTIES:\n"
                        (format org-property-format ":ID:" id)
+                       (when properties
+                         "\n")
+                       (mapconcat (lambda (data)
+                                    (format org-property-format (concat ":" (car data) ":") (cdr data)))
+                                  properties "\n")
                        "\n:END:\n"
                        "#+title: ${title}\n"
                        (plist-get template :head)))
