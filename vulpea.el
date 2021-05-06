@@ -164,5 +164,30 @@ Available variables in the capture context are:
     (org-roam-db-update-file (org-roam-capture--get :new-file))
     (vulpea-db-get-by-id id)))
 
+(defun vulpea-buffer-title-set (title)
+  "Set TITLE in current file.
+
+If the title is already set, replace its value."
+  (vulpea-buffer-prop-set "title" title))
+
+(defun vulpea-buffer-prop-set (name value)
+  "Set a file property called NAME to VALUE in current file.
+
+If the property is already set, replace its value."
+  (org-with-point-at 1
+    (let ((case-fold-search t))
+      (if (re-search-forward (concat "^#\\+" name ":\\(.*\\)")
+                             (point-max) t)
+          (replace-match (concat "#+" name ": " value) 'fixedcase)
+        (while (and (not (eobp))
+                    (looking-at "^[#:]"))
+          (if (save-excursion (end-of-line) (eobp))
+              (progn
+                (end-of-line)
+                (insert "\n"))
+            (forward-line)
+            (beginning-of-line)))
+        (insert "#+" name ": " value "\n")))))
+
 (provide 'vulpea)
 ;;; vulpea.el ends here

@@ -187,5 +187,49 @@
 "
              (vulpea-note-id note)))))
 
+(describe "vulpea-buffer-title-set"
+  :var (id)
+  (before-all
+    (vulpea-test--init))
+
+  (after-all
+    (vulpea-test--teardown))
+
+  (it "set a title in note without title"
+    (setq id "2c3bd05d-b3d1-40bc-bd42-f019d441592c")
+    (vulpea-utils-with-note (vulpea-db-get-by-id id)
+      (vulpea-buffer-title-set "Some title")
+      (save-buffer))
+    (expect (vulpea-note-title (vulpea-db-get-by-id id))
+            :to-equal "Some title"))
+
+  (it "set a title in note with title when used on min point"
+    (setq id "eeec8f05-927f-4c61-b39e-2fb8228cf484")
+    (vulpea-utils-with-note (vulpea-db-get-by-id id)
+      (goto-char (point-min))
+      (vulpea-buffer-title-set "Changed title")
+      (save-buffer))
+    (expect (vulpea-note-title (vulpea-db-get-by-id id))
+            :to-equal "Changed title"))
+
+  (it "set a title in note with title when used on max point"
+    (setq id "eeec8f05-927f-4c61-b39e-2fb8228cf484")
+    (vulpea-utils-with-note (vulpea-db-get-by-id id)
+      (goto-char (point-max))
+      (vulpea-buffer-title-set "Changed title")
+      (save-buffer))
+    (expect (vulpea-note-title (vulpea-db-get-by-id id))
+            :to-equal "Changed title"))
+
+  (it "set a title in note with title when used somewhere in file"
+    (setq id "eeec8f05-927f-4c61-b39e-2fb8228cf484")
+    ;; do something on some heading
+    (vulpea-utils-with-note (vulpea-db-get-by-id "cfc39858-351d-4f1e-8f98-10d16d71f49e")
+      (goto-char (point-max))
+      (vulpea-buffer-title-set "Changed title")
+      (save-buffer))
+    (expect (vulpea-note-title (vulpea-db-get-by-id id))
+            :to-equal "Changed title")))
+
 (provide 'vulpea-test)
 ;;; vulpea-test.el ends here

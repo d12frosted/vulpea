@@ -127,6 +127,7 @@ Functions of interest:
 - =vulpea-create= - function to create a new note file with given =TITLE=,
   =FILE-NAME=, extra =PROPERTIES=, =HEAD=, =BODY= and =CONTEXT=. Returns newly
   created note.
+- =vulpea-buffer-title-set= - function to set title of the current note file.
 
 ** =vulpea-utils=
 :PROPERTIES:
