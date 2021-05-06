@@ -78,9 +78,12 @@ as its argument a `vulpea-note'."
                 (lambda (string pred action)
                   (if (eq action 'metadata)
                       '(metadata
-                        (annotation-function . (lambda (title)
-                                                 (funcall org-roam-node-annotation-function
-                                                          (get-text-property 0 'node title))))
+                        (annotation-function
+                         .
+                         (lambda (title)
+                           (funcall
+                            org-roam-node-annotation-function
+                            (get-text-property 0 'node title))))
                         (category . org-roam-node))
                     (complete-with-action action notes string pred)))
                 nil require-match initial-prompt)))
@@ -129,9 +132,12 @@ Available variables in the capture context are:
                        (format org-property-format ":ID:" id)
                        (when properties
                          "\n")
-                       (mapconcat (lambda (data)
-                                    (format org-property-format (concat ":" (car data) ":") (cdr data)))
-                                  properties "\n")
+                       (mapconcat
+                        (lambda (data)
+                          (format org-property-format
+                                  (concat ":" (car data) ":")
+                                  (cdr data)))
+                        properties "\n")
                        "\n:END:\n"
                        "#+title: ${title}\n"
                        (plist-get template :head)))
