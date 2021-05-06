@@ -36,8 +36,6 @@ Users of this library:
 =vulpea= is available via [[https://melpa.org/#/vulpea][MELPA]], but you can still install it manually, using
 [[https://github.com/raxod502/straight][straight]], [[https://github.com/quelpa/quelpa][quelpa]], or any other tool.
 
-Once installed, you need to call =vulpea-setup= once.
-
 ** use-package
 :PROPERTIES:
 :ID:                     efb94478-a55d-4f98-8dd3-88f032585add
@@ -45,9 +43,7 @@ Once installed, you need to call =vulpea-setup= once.
 
 #+begin_src emacs-lisp
   (use-package vulpea
-    :ensure t
-    :hook
-    (after-init . vulpea-setup))
+    :ensure t)
 #+end_src
 
 ** straight.el
@@ -58,8 +54,6 @@ Once installed, you need to call =vulpea-setup= once.
 #+begin_src emacs-lisp
   (straight-use-package
    '(vulpea :type git :host github :repo "d12frosted/vulpea"))
-
-  (vulpea-setup)
 #+end_src
 
 In case you have [[https://github.com/raxod502/straight.el/#integration-with-use-package][integration]] with [[https://github.com/jwiegley/use-package][use-package]]:
@@ -69,9 +63,7 @@ In case you have [[https://github.com/raxod502/straight.el/#integration-with-use
     :straight (vulpea
                :type git
                :host github
-               :repo "d12frosted/vulpea")
-    :hook
-    (after-init . vulpea-setup))
+               :repo "d12frosted/vulpea"))
 #+end_src
 
 * Data types
@@ -88,9 +80,6 @@ slots/fields:
 - =vulpea-note-level= - level of the note inside =:path=, with =0= being a file-level note
   and other numbers being a header;
 - =vulpea-note-id= - =ID= property of note (file-level or heading level).
-- =vulpea-note-meta= - a structure containing:
-  - =vulpea-note-meta-atime= - access time of the note.
-  - =vulpea-note-meta-mtime= - modification time of the note.
 
 If =ID= is not present in the note structure, this note is treated as
 non-existent. For example, see =vulpea-select=.
@@ -101,8 +90,8 @@ non-existent. For example, see =vulpea-select=.
 :END:
 
 Please note, that each =vulpea-note= (!) must contain an =ID= for Vulpea to be
-operational. One of the ways to always ensure existence of =ID= is to use the
-following code:
+operational. =org-roam= should cover this, but another way to always ensure
+existence of =ID= is to use the following code:
 
 #+begin_src emacs-lisp
   (defun +org-auto-id-add-to-headlines-in-file ()
@@ -134,15 +123,10 @@ place in separate modules. It also imports every other module.
 
 Functions of interest:
 
-- =vulpea-setup= - ties all the knots and setups all the cogs for =vulpea= to
-  function properly. You should call it once. Currently it only advices
-  =org-roam-capture--new-file= in order to automatically update =org-roam=
-  database in an efficient manner during =vulpea-create= (e.g. instead of
-  building cache for all changed files, only created file is updated).
 - =vulpea-select= - function to =completing-read= a note optional filter.
-- =vulpea-create= - function to create a new note file with given =TITLE= and
-  =TEMPLATE=. Returns newly created note. This function requires =vulpea-setup=
-  to be called upfront.
+- =vulpea-create= - function to create a new note file with given =TITLE=,
+  =FILE-NAME=, extra =PROPERTIES=, =HEAD=, =BODY= and =CONTEXT=. Returns newly
+  created note.
 
 ** =vulpea-utils=
 :PROPERTIES:
