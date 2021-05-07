@@ -151,12 +151,13 @@
             :to-equal
             note))
 
-  (it "creates new file with additional head, context and properties"
+  (it "creates new file with additional head, tags, context and properties"
     (setq note
           (vulpea-create
            "Aglianico"
            "prefix-${slug}.org"
            :head "#+roam_key: ${url}"
+           :tags '("tag1" "tag2")
            :unnarrowed t
            :immediate-finish t
            :context
@@ -168,7 +169,7 @@
             (make-vulpea-note
              :path (expand-file-name "prefix-aglianico.org" org-roam-directory)
              :title "Aglianico"
-             :tags nil
+             :tags '("tag1" "tag2")
              :level 0
              :id (vulpea-note-id note)))
     (expect (vulpea-db-get-by-id (vulpea-note-id note))
@@ -182,6 +183,7 @@
 :MY_TAG:   super-tag
 :END:
 #+title: Aglianico
+#+filetags: tag1 tag2
 #+roam_key: https://d12frosted.io
 
 "

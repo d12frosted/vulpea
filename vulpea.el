@@ -102,7 +102,8 @@ as its argument a `vulpea-note'."
                          unnarrowed
                          immediate-finish
                          context
-                         properties)
+                         properties
+                         tags)
   "Create a new note file with TITLE in FILE-NAME.
 
 Returns created `vulpea-note'.
@@ -113,12 +114,13 @@ Structure of the generated file is:
 
   :PROPERTIES:
   :ID: ID
-  PROPERTIES if passed
+  PROPERTIES if present
   :END:
-  :title: TITLE
-  HEAD if passed
+  #+title: TITLE
+  #+filetags: TAGS if present
+  HEAD if present
 
-  BODY if passed
+  BODY if present
 
 CONTEXT is a property list of :key val.
 
@@ -154,6 +156,11 @@ Available variables in the capture context are:
                         properties "\n")
                        "\n:END:\n"
                        "#+title: ${title}\n"
+                       (when tags
+                         (concat
+                          "#+filetags: "
+                          (string-join tags " ")
+                          "\n"))
                        head))
             :unnarrowed ,unnarrowed
             :immediate-finish ,immediate-finish)))

@@ -40,7 +40,7 @@ changes.
     ;; instead of
     (vulpea-create title
                    (list :file-name file-name
-                         :head "#+title: ${title}\n#+url: ${url}\n"
+                         :head "#+title: ${title}\n#+url: ${url}\n#+filetags: tag1 tag2\n"
                          :unnarrowed t
                          :immediate-finish t)
                    (list (cons url "https://example.org")
@@ -50,6 +50,7 @@ changes.
     (vulpea-create title
                    file-name
                    :id xyz
+                   :tags '("tag1" "tag2")
                    :head "#+url: ${url}"
                    :unnarrowed t
                    :immediate-finish t
