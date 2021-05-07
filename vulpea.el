@@ -42,8 +42,7 @@
 (require 'vulpea-meta)
 (require 'vulpea-db)
 
-(let ((data (cons :key "value")))
-  (setf (cdr data) 42))
+
 
 (cl-defun vulpea-select (prompt
                          &key
@@ -91,6 +90,8 @@ as its argument a `vulpea-note'."
         (make-vulpea-note
          :title note
          :level 0))))
+
+
 
 (cl-defun vulpea-create (title
                          file-name
@@ -164,6 +165,8 @@ Available variables in the capture context are:
     (org-roam-db-update-file (org-roam-capture--get :new-file))
     (vulpea-db-get-by-id id)))
 
+
+
 (defun vulpea-buffer-title-set (title)
   "Set TITLE in current file.
 
@@ -174,6 +177,7 @@ If the title is already set, replace its value."
   "Set a file property called NAME to VALUE in current file.
 
 If the property is already set, replace its value."
+  (setq name (downcase name))
   (org-with-point-at 1
     (let ((case-fold-search t))
       (if (re-search-forward (concat "^#\\+" name ":\\(.*\\)")
@@ -188,6 +192,26 @@ If the property is already set, replace its value."
             (forward-line)
             (beginning-of-line)))
         (insert "#+" name ": " value "\n")))))
+
+(defun vulpea-buffer-prop-get (name)
+  "Get a buffer property called NAME as a string."
+  (org-with-point-at 1
+    (when (re-search-forward (concat "^#\\+" name ": \\(.*\\)")
+                             (point-max) t)
+      (buffer-substring-no-properties
+       (match-beginning 1)
+       (match-end 1)))))
+
+(defun vulpea-buffer-prop-get-list (name &optional separators)
+  "Get a buffer property NAME as a list using SEPARATORS.
+
+If SEPARATORS is non-nil, it should be a regular expression
+matching text that separates, but is not part of, the substrings.
+If nil it defaults to `split-string-default-separators', normally
+\"[ \f\t\n\r\v]+\", and OMIT-NULLS is forced to t."
+  (split-string (vulpea-buffer-prop-get name) separators))
+
+
 
 (provide 'vulpea)
 ;;; vulpea.el ends here

@@ -231,5 +231,79 @@
     (expect (vulpea-note-title (vulpea-db-get-by-id id))
             :to-equal "Changed title")))
 
+(describe "vulpea-buffer-prop-*"
+  :var (id)
+  (before-each
+    (vulpea-test--init))
+
+  (after-each
+    (vulpea-test--teardown))
+
+  (it "downcase property name"
+    (setq id "2c3bd05d-b3d1-40bc-bd42-f019d441592c")
+    (expect
+     (vulpea-utils-with-note (vulpea-db-get-by-id id)
+       (vulpea-buffer-prop-set "TITLE" "Title 1")
+       (vulpea-buffer-prop-get "title"))
+     :to-equal "Title 1")
+    (expect (vulpea-note-path (vulpea-db-get-by-id id))
+            :to-contain-exactly
+            (format
+             ":PROPERTIES:
+:ID:       %s
+:END:
+#+title: Title 1
+
+Some body.
+"
+             id)))
+
+  (it "ignore case when getting"
+    (setq id "2c3bd05d-b3d1-40bc-bd42-f019d441592c")
+    (expect
+     (vulpea-utils-with-note (vulpea-db-get-by-id id)
+       (vulpea-buffer-prop-set "TITLE" "Title 1")
+       (vulpea-buffer-prop-get "TiTle"))
+     :to-equal "Title 1"))
+
+  (it "replace existing property"
+    (setq id "2c3bd05d-b3d1-40bc-bd42-f019d441592c")
+    (expect
+     (vulpea-utils-with-note (vulpea-db-get-by-id id)
+       (vulpea-buffer-prop-set "TITLE" "Title 1")
+       (vulpea-buffer-prop-set "TiTlE" "Title 2")
+       (vulpea-buffer-prop-get "title"))
+     :to-equal "Title 2")
+    (expect (vulpea-note-path (vulpea-db-get-by-id id))
+            :to-contain-exactly
+            (format
+             ":PROPERTIES:
+:ID:       %s
+:END:
+#+title: Title 2
+
+Some body.
+"
+             id)))
+
+  (it "support list values"
+    (setq id "2c3bd05d-b3d1-40bc-bd42-f019d441592c")
+    (expect
+     (vulpea-utils-with-note (vulpea-db-get-by-id id)
+       (vulpea-buffer-prop-set "values" (string-join '("value 1" "value 2" "single") ", "))
+       (vulpea-buffer-prop-get-list "values" ", "))
+     :to-equal '("value 1" "value 2" "single"))
+    (expect (vulpea-note-path (vulpea-db-get-by-id id))
+            :to-contain-exactly
+            (format
+             ":PROPERTIES:
+:ID:       %s
+:END:
+#+values: value 1, value 2, single
+
+Some body.
+"
+             id))))
+
 (provide 'vulpea-test)
 ;;; vulpea-test.el ends here

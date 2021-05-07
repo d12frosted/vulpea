@@ -1,5 +1,5 @@
 :PROPERTIES:
-:ID:                     2c3bd05d-b3d1-40bc-bd42-f019d441592c
+:ID:       2c3bd05d-b3d1-40bc-bd42-f019d441592c
 :END:
 
 Some body.
