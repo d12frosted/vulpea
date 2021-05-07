@@ -13,8 +13,9 @@
 
 ;; Eldev-local is loaded after Eldev, meaning that it's impossible to
 ;; set this env per user.
-(when-let ((path (expand-file-name "Developer/org-roam" (getenv "HOME"))))
-  (setenv "ORG_ROAM_V2_PATH" path))
+(let ((path (expand-file-name "Developer/org-roam" (getenv "HOME"))))
+  (when (file-exists-p path)
+    (setenv "ORG_ROAM_V2_PATH" path)))
 
 ;; Use local version of org-roam until it is released.
 (eldev-use-local-dependency (getenv "ORG_ROAM_V2_PATH"))
