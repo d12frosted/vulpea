@@ -74,17 +74,23 @@
 
 (cl-defun completion-for (&key title tags)
   "Return completion for TITLE and TAGS matchers."
-  (car-safe
-   (seq-find
-    (lambda (data)
-      (let ((note (vulpea-note-from-node (cdr data))))
-        (and (or (null title) (string-equal title (vulpea-note-title note)))
-             (or (null tags)
-                 (seq-every-p
-                  (lambda (x)
-                    (seq-contains-p (vulpea-note-tags note) x))
-                  tags)))))
-    (org-roam-node--completions))))
+  (let ((res (car-safe
+              (seq-find
+               (lambda (data)
+                 (let ((note (vulpea-note-from-node (cdr data))))
+                   (let ((res (and (or (null title) (string-equal title (vulpea-note-title note)))
+                                   (or (null tags)
+                                       (seq-every-p
+                                        (lambda (x)
+                                          (seq-contains-p (vulpea-note-tags note) x))
+                                        tags)))))
+                     (message "searching for title %s and tags %s: note %s #%s => %s"
+                              title tags (vulpea-note-title note) (vulpea-note-tags note)
+                              res)
+                     res)))
+               (org-roam-node--completions)))))
+    (message "searching for title %s and tags %s => %s" title tags res)
+    res))
 
 (provide 'vulpea-test-utils)
 ;;; vulpea-test-utils.el ends here
