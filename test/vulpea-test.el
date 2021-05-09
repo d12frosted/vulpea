@@ -352,7 +352,7 @@ Some body.
     (setq id "2c3bd05d-b3d1-40bc-bd42-f019d441592c")
     (expect
      (vulpea-utils-with-note (vulpea-db-get-by-id id)
-       (vulpea-buffer-prop-set "values" (combine-and-quote-strings '("value 1" "value 2" "single")))
+       (vulpea-buffer-prop-set-list "values" '("value 1" "value 2" "single"))
        (vulpea-buffer-prop-get-list "values"))
      :to-equal '("value 1" "value 2" "single"))
     (expect (vulpea-note-path (vulpea-db-get-by-id id))

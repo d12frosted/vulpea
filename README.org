@@ -135,6 +135,8 @@ Functions of interest:
 - =vulpea-buffer-prop-set= - function to set a =VALUE= of property with =NAME=
   in the current buffer, e.g. property in the buffer header using =#+NAME:
   value= format.
+- =vulpea-buffer-prop-set-list= - function to set a value of property with
+  =NAME= to the list of =VALUES= in the current buffer.
 - =vulpea-buffer-prop-get= - function to get a value of property with =NAME=
   from the current buffer.
 - =vulpea-buffer-prop-get-list= - function to get a value of property with

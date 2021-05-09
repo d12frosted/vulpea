@@ -223,6 +223,20 @@ If the property is already set, replace its value."
             (beginning-of-line)))
         (insert "#+" name ": " value "\n")))))
 
+(defun vulpea-buffer-prop-set-list (name values &optional separators)
+  "Set a file property called NAME to VALUES in current file.
+
+VALUES are quoted and combined into single string using
+`combine-and-quote-strings'.
+
+If SEPARATORS is non-nil, it should be a regular expression
+matching text that separates, but is not part of, the substrings.
+If nil it defaults to `split-string-default-separators', normally
+\"[ \f\t\n\r\v]+\", and OMIT-NULLS is forced to t.
+
+If the property is already set, replace its value."
+  (vulpea-buffer-prop-set name (combine-and-quote-strings values separators)))
+
 (defun vulpea-buffer-prop-get (name)
   "Get a buffer property called NAME as a string."
   (org-with-point-at 1
