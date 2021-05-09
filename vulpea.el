@@ -241,7 +241,7 @@ If nil it defaults to `split-string-default-separators', normally
 \"[ \f\t\n\r\v]+\", and OMIT-NULLS is forced to t."
   (let ((value (vulpea-buffer-prop-get name)))
     (when (and value (not (string-empty-p value)))
-      (split-string value separators))))
+      (split-string-and-unquote value separators))))
 
 
 
