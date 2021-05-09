@@ -72,5 +72,19 @@
                    "Expected `%F' to have content equal to `%v', but instead `%F' has content equal to `%c'"
                    spec))))))
 
+(cl-defun completion-for (&key title tags)
+  "Return completion for TITLE and TAGS matchers."
+  (car-safe
+   (seq-find
+    (lambda (data)
+      (let ((note (vulpea-note-from-node (cdr data))))
+        (and (or (null title) (string-equal title (vulpea-note-title note)))
+             (or (null tags)
+                 (seq-every-p
+                  (lambda (x)
+                    (seq-contains-p (vulpea-note-tags note) x))
+                  tags)))))
+    (org-roam-node--completions))))
+
 (provide 'vulpea-test-utils)
 ;;; vulpea-test-utils.el ends here

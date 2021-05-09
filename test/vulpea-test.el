@@ -33,8 +33,11 @@
     (vulpea-test--teardown))
 
   (it "returns all information about existing note"
-    (spy-on 'completing-read
-            :and-return-value "#tag2 #tag1Reference                                                         #tag2 #tag")
+    (spy-on
+     'completing-read
+     :and-return-value
+     (completion-for :title "Reference"
+                     :tags '("tag1" "tag2")))
     (expect (vulpea-select "Note")
             :to-equal
             (make-vulpea-note
