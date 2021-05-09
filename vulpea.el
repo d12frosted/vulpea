@@ -181,6 +181,28 @@ Available variables in the capture context are:
 If the title is already set, replace its value."
   (vulpea-buffer-prop-set "title" title))
 
+(defun vulpea-buffer-tags-get ()
+  "Return filetags value in current file."
+  (vulpea-buffer-prop-get-list "filetags" " "))
+
+(defun vulpea-buffer-tags-set (&rest tags)
+  "Set TAGS in current file.
+
+If filetags value is already set, replace it."
+  (vulpea-buffer-prop-set "filetags" (string-join tags " ")))
+
+(defun vulpea-buffer-tags-add (tag)
+  "Add a TAG to filetags in current file."
+  (let* ((tags (vulpea-buffer-tags-get))
+         (tags (append tags (list tag))))
+    (apply #'vulpea-buffer-tags-set tags)))
+
+(defun vulpea-buffer-tags-remove (tag)
+  "Remove a TAG from filetags in current file."
+  (let* ((tags (vulpea-buffer-tags-get))
+         (tags (delete tag tags)))
+    (apply #'vulpea-buffer-tags-set tags)))
+
 (defun vulpea-buffer-prop-set (name value)
   "Set a file property called NAME to VALUE in current file.
 
@@ -217,7 +239,9 @@ If SEPARATORS is non-nil, it should be a regular expression
 matching text that separates, but is not part of, the substrings.
 If nil it defaults to `split-string-default-separators', normally
 \"[ \f\t\n\r\v]+\", and OMIT-NULLS is forced to t."
-  (split-string (vulpea-buffer-prop-get name) separators))
+  (let ((value (vulpea-buffer-prop-get name)))
+    (when (and value (not (string-empty-p value)))
+      (split-string value separators))))
 
 
 

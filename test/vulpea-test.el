@@ -236,6 +236,63 @@
     (expect (vulpea-note-title (vulpea-db-get-by-id id))
             :to-equal "Changed title")))
 
+(describe "vulpea-buffer-tags-*"
+  :var (id)
+  (before-each
+    (vulpea-test--init))
+
+  (after-each
+    (vulpea-test--teardown))
+
+  (it "return empty tags list in a note without tags"
+    (setq id "eeec8f05-927f-4c61-b39e-2fb8228cf484")
+    (expect (vulpea-utils-with-note (vulpea-db-get-by-id id)
+              (vulpea-buffer-tags-get))
+            :to-equal nil))
+
+  (it "set several tags at once"
+    (setq id "eeec8f05-927f-4c61-b39e-2fb8228cf484")
+    (expect (vulpea-utils-with-note (vulpea-db-get-by-id id)
+              (vulpea-buffer-tags-set "super_tag_1" "super_tag_2")
+              (vulpea-buffer-tags-get))
+            :to-equal '("super_tag_1" "super_tag_2")))
+
+  (it "clear tags"
+    (setq id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")
+    (expect (vulpea-utils-with-note (vulpea-db-get-by-id id)
+              (vulpea-buffer-tags-set)
+              (vulpea-buffer-tags-get))
+            :to-equal nil))
+
+  (it "add a first tag"
+    (setq id "eeec8f05-927f-4c61-b39e-2fb8228cf484")
+    (expect (vulpea-utils-with-note (vulpea-db-get-by-id id)
+              (vulpea-buffer-tags-add "super_tag_1")
+              (vulpea-buffer-tags-get))
+            :to-equal '("super_tag_1")))
+
+  (it "add one more tag"
+    (setq id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")
+    (expect (vulpea-utils-with-note (vulpea-db-get-by-id id)
+              (vulpea-buffer-tags-add "super_tag_1")
+              (vulpea-buffer-tags-get))
+            :to-equal '("tag1" "tag2" "super_tag_1")))
+
+  (it "delete one of the tags"
+    (setq id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")
+    (expect (vulpea-utils-with-note (vulpea-db-get-by-id id)
+              (vulpea-buffer-tags-remove "tag1")
+              (vulpea-buffer-tags-get))
+            :to-equal '("tag2")))
+
+  (it "delete last tag"
+    (setq id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")
+    (expect (vulpea-utils-with-note (vulpea-db-get-by-id id)
+              (vulpea-buffer-tags-remove "tag1")
+              (vulpea-buffer-tags-remove "tag2")
+              (vulpea-buffer-tags-get))
+            :to-equal nil)))
+
 (describe "vulpea-buffer-prop-*"
   :var (id)
   (before-each

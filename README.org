@@ -128,6 +128,10 @@ Functions of interest:
   =FILE-NAME=, extra =PROPERTIES=, =HEAD=, =BODY= and =CONTEXT=. Returns newly
   created note.
 - =vulpea-buffer-title-set= - function to set title of the current note file.
+- =vulpea-buffer-tags-get= - function to get list of tags.
+- =vulpea-buffer-tags-set= - function to set/replace the value of =#+filetags=.
+- =vulpea-buffer-tags-add= - function to add a tag to =#+filetags=.
+- =vulpea-buffer-tags-remove= - function to remove a tag from =#+filetags=.
 - =vulpea-buffer-prop-set= - function to set a =VALUE= of property with =NAME=
   in the current buffer, e.g. property in the buffer header using =#+NAME:
   value= format.
