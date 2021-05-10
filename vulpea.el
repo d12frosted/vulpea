@@ -86,7 +86,6 @@ as its argument a `vulpea-note'."
                         (category . org-roam-node))
                     (complete-with-action action notes string pred)))
                 nil require-match initial-prompt)))
-    (message "user typed: %s => %s" note (assoc note notes))
     (or (cdr (assoc note notes))
         (make-vulpea-note
          :title note
