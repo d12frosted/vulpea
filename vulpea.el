@@ -234,7 +234,8 @@ If nil it defaults to `split-string-default-separators', normally
 \"[ \f\t\n\r\v]+\", and OMIT-NULLS is forced to t.
 
 If the property is already set, replace its value."
-  (vulpea-buffer-prop-set name (combine-and-quote-strings values separators)))
+  (vulpea-buffer-prop-set
+   name (combine-and-quote-strings values separators)))
 
 (defun vulpea-buffer-prop-get (name)
   "Get a buffer property called NAME as a string."
