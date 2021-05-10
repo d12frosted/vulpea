@@ -169,7 +169,6 @@ Available variables in the capture context are:
      :node node
      :props (list :immediate-finish immediate-finish)
      :templates (list roam-template))
-    (org-roam-db-update-file (org-roam-capture--get :new-file))
     (vulpea-db-get-by-id id)))
 
 
