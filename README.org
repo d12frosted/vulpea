@@ -125,7 +125,17 @@ place in separate modules. It also imports every other module.
 
 Functions of interest:
 
-- =vulpea-select= - function to =completing-read= a note optional filter.
+- =vulpea-select= - function to =completing-read= a note optional filter. This
+  function does not use =org-roam= completion system, as the latter is hard to
+  configure and filter programatically. They key difference between
+  =vulpea-select= and =org-roam= completion is that the former doesn't list
+  aliases separately, but rather combines everything into one row using
+  =vulpea-select-describe= function, which by default formats the note in the
+  =title (comma_separated_aliases) #space_separated_tags= format, which is
+  controlled by two configurable values:
+  - =vulpea-select-describe-fn= - description of the note (by default title).
+  - =vulpea-select-annotate-fn= - annotation of the note (by default aliases and
+    tags) with special face.
 - =vulpea-create= - function to create a new note file with given =TITLE=,
   =FILE-NAME=, extra =PROPERTIES=, =HEAD=, =BODY= and =CONTEXT=. Returns newly
   created note.

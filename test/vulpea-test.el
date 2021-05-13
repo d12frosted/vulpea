@@ -43,7 +43,7 @@
             (make-vulpea-note
              :path (expand-file-name "reference.org" org-roam-directory)
              :title "Reference"
-             :tags '("tag2" "tag1")
+             :tags '("tag1" "tag2")
              :level 0
              :id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")))
 
@@ -66,12 +66,9 @@
                    (lambda (_)
                      (setq filter-count (+ 1 filter-count))))
     (expect filter-count :to-equal
-            (+ (caar (org-roam-db-query
-                      [:select (funcall count *)
-                       :from nodes]))
-               (caar (org-roam-db-query
-                      [:select (funcall count *)
-                       :from aliases])))))
+            (caar (org-roam-db-query
+                   [:select (funcall count *)
+                    :from nodes]))))
 
   (it "calls FILTER-FN on note structure"
     (setq filter-count 0)

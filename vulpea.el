@@ -45,6 +45,48 @@
 
 
 
+(defvar vulpea-select-describe-fn #'vulpea-note-title
+  "Function to describe a note for completion.
+
+Accepts a `vulpea-note'. Returns a `string'.")
+
+(defvar vulpea-select-annotate-fn #'vulpea-select-annotate
+  "Function to annotate a note for completion.
+
+Accepts a `vulpea-note'. Returns a `string'.")
+
+(defun vulpea-select-describe (note)
+  "Describe a NOTE for completion."
+  (propertize
+   (concat
+    (funcall vulpea-select-describe-fn note)
+    (propertize
+     (funcall vulpea-select-annotate-fn note)
+     'face 'completions-annotations))
+   'vulpea-note-id
+   (vulpea-note-id note)))
+
+(defun vulpea-select-annotate (note)
+  "Annotate a NOTE for completion."
+  (let* ((alias-str
+          (if (vulpea-note-aliases note)
+              (concat "("
+                      (string-join
+                       (vulpea-note-aliases note)
+                       ", ")
+                      ")")
+            ""))
+         (tags-str (mapconcat
+                    (lambda (x) (concat "#" x))
+                    (vulpea-note-tags note)
+                    " "))
+         (sections (seq-remove #'string-empty-p
+                               (list alias-str
+                                     tags-str))))
+    (if (null sections)
+        ""
+      (concat " " (string-join sections " ")))))
+
 (cl-defun vulpea-select (prompt
                          &key
                          require-match
@@ -63,34 +105,24 @@ INITIAL-PROMPT is the initial title prompt.
 
 FILTER-FN is the function to apply on the candidates, which takes
 as its argument a `vulpea-note'."
-  (let* ((notes (seq-map (lambda (data)
-                           (setf (cdr data)
-                                 (vulpea-note-from-node (cdr data)))
-                           data)
-                         (org-roam-node--completions)))
-         (notes (if filter-fn
-                    (seq-filter (lambda (data)
-                                  (funcall filter-fn (cdr data)))
-                                notes)
-                  notes))
-         (note (completing-read
-                (concat prompt ": ")
-                (lambda (string pred action)
-                  (if (eq action 'metadata)
-                      '(metadata
-                        (annotation-function
-                         .
-                         (lambda (title)
-                           (funcall
-                            org-roam-node-annotation-function
-                            (get-text-property 0 'node title))))
-                        (category . org-roam-node))
-                    (complete-with-action action notes string pred)))
-                nil require-match initial-prompt)))
-    (or (cdr (assoc note notes))
-        (make-vulpea-note
-         :title note
-         :level 0))))
+  (let* ((notes (vulpea-db-query filter-fn))
+         (completions (seq-map
+                       (lambda (n)
+                         (cons (vulpea-select-describe n)
+                               n))
+                       notes))
+         (notes-table (make-hash-table :test #'equal)))
+    (seq-each (lambda (note)
+                (puthash (vulpea-note-id note) note notes-table))
+              notes)
+    (let ((note (completing-read
+                 (concat prompt ": ")
+                 completions
+                 nil require-match initial-prompt)))
+      (or (cdr (assoc note completions))
+          (make-vulpea-note
+           :title (substring-no-properties note)
+           :level 0)))))
 
 
 
