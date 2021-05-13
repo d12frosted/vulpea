@@ -81,19 +81,21 @@ returned."
               [:select [nodes:id
                         nodes:file
                         nodes:title
-                        nodes:level]
-               :from nodes]))
+                        nodes:level
+                        (funcall group-concat tags:tag "")]
+               :from nodes
+               :left-join tags
+               :on (= nodes:id tags:node-id)
+               :group :by nodes:id]))
        notes)
     (dolist (row rows notes)
-      (pcase-let ((`(,id ,file-path ,title ,level) row))
+      (pcase-let ((`(,id ,file-path ,title ,level . ,tags) row))
         (let ((note (make-vulpea-note
                      :path file-path
                      :title title
-                     :tags (mapcar #'car
-                                   (org-roam-db-query
-                                    [:select tag :from tags
-                                     :where (= node-id $s1)]
-                                    id))
+                     :tags (seq-filter
+                            (lambda (x) (not (string-empty-p x)))
+                            tags)
                      :id id
                      :level level)))
           (when (or (null filter-fn)
