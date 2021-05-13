@@ -38,6 +38,21 @@
 (require 'org)
 (require 'vulpea-note)
 
+(defvar vulpea-utils--uuid-regexp
+  (concat
+   "\\("
+   "[a-zA-Z0-9]\\{8\\}"
+   "-"
+   "[a-zA-Z0-9]\\{4\\}"
+   "-"
+   "[a-zA-Z0-9]\\{4\\}"
+   "-"
+   "[a-zA-Z0-9]\\{4\\}"
+   "-"
+   "[a-zA-Z0-9]\\{12\\}"
+   "\\)")
+  "UUID regexp.")
+
 (defmacro vulpea-utils-with-file (file &rest body)
   "Execute BODY in `org-mode' FILE.
 

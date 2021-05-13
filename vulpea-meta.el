@@ -46,21 +46,7 @@
 (require 's)
 (require 'vulpea-utils)
 (require 'vulpea-db)
-
-(defvar vulpea-meta--uuid-regexp
-  (concat
-   "\\("
-   "[a-zA-Z0-9]\\{8\\}"
-   "-"
-   "[a-zA-Z0-9]\\{4\\}"
-   "-"
-   "[a-zA-Z0-9]\\{4\\}"
-   "-"
-   "[a-zA-Z0-9]\\{4\\}"
-   "-"
-   "[a-zA-Z0-9]\\{12\\}"
-   "\\)")
-  "UUID regexp.")
+(require 'vulpea-buffer)
 
 (defun vulpea-meta (note-or-id)
   "Get metadata for NOTE-OR-ID.
@@ -82,91 +68,12 @@ key.
 
 In case you are doing multiple calls to meta API, it's better to
 get metadata using this function and use bang version of
-functions, e.g. `vulpea-meta-get!'."
+functions, e.g. `vulpea-buffer-meta-get!'."
   (when-let ((file (if (stringp note-or-id)
                        (vulpea-db-get-file-by-id note-or-id)
                      (vulpea-note-path note-or-id))))
     (vulpea-utils-with-file file
-      (let* ((buf (org-element-parse-buffer))
-             (pls (org-element-map buf 'plain-list #'identity))
-             (pl (seq-find
-                  (lambda (pl)
-                    (equal 'descriptive
-                           (org-element-property :type pl)))
-                  pls)))
-        (list :file file
-              :buffer buf
-              :pl pl)))))
-
-(defun vulpea-meta--get (meta prop)
-  "Get all values of PROP from META.
-
-Return plist (:file :buffer :pl :items)"
-  (let* ((pl (plist-get meta :pl))
-         (items-all (org-element-map pl 'item #'identity))
-         (items
-          (seq-filter
-           (lambda (item)
-             (string-equal
-              prop
-              (org-element-interpret-data
-               (org-element-contents
-                (org-element-property :tag item)))))
-           items-all)))
-    (plist-put meta :items items)))
-
-(defun vulpea-meta-get-list! (meta prop &optional type)
-  "Get all values of PROP from META.
-
-Each element value depends on TYPE:
-
-- raw - org element object
-- string (default) - an interpreted object (without trailing
-  newline)
-- number - an interpreted number
-- link - path of the link (either ID of the linked note or raw link)
-- note - linked `vulpea-note'
-- symbol - an interned symbol."
-  (setq type (or type 'string))
-  (let* ((meta (vulpea-meta--get meta prop))
-         (items (plist-get meta :items)))
-    (seq-map
-     (lambda (item)
-       (let ((val (car (org-element-contents item))))
-         (pcase type
-           (`raw val)
-           (`symbol
-            (intern
-             (s-trim-right
-              (substring-no-properties
-               (org-element-interpret-data
-                (org-element-contents val))))))
-           (`string
-            (s-trim-right
-             (substring-no-properties
-              (org-element-interpret-data
-               (org-element-contents val)))))
-           (`number
-            (string-to-number
-             (s-trim-right
-              (substring-no-properties
-               (org-element-interpret-data
-                (org-element-contents val))))))
-           (`note
-            (let ((el (car (org-element-contents val))))
-              (when (equal 'link
-                           (org-element-type el))
-                (pcase (org-element-property :type el)
-                  ("id" (vulpea-db-get-by-id
-                         (org-element-property :path el)))))))
-           (`link
-            (let ((el (car (org-element-contents val))))
-              (when (equal 'link
-                           (org-element-type el))
-                (pcase (org-element-property :type el)
-                  ("id" (org-element-property :path el))
-                  (_ (org-element-property :raw-link el)))))))))
-     items)))
+      (vulpea-buffer-meta))))
 
 (defun vulpea-meta-get-list (note-or-id prop &optional type)
   "Get all values of PROP from NOTE-OR-ID.
@@ -180,25 +87,7 @@ Each element value depends on TYPE:
 - link - path of the link (either ID of the linked note or raw link)
 - note - linked `vulpea-note'
 - symbol - an interned symbol."
-  (vulpea-meta-get-list! (vulpea-meta note-or-id) prop type))
-
-(defun vulpea-meta-get! (meta prop &optional type)
-  "Get value of PROP from META.
-
-Result depends on TYPE:
-
-- raw - org element object
-- string (default) - an interpreted object (without trailing
-  newline)
-- number - an interpreted number
-- link - path of the link (either ID of the linked note or raw link)
-- note - linked `vulpea-note'
-- symbol - an interned symbol.
-
-If the note contains multiple values for a given PROP, the first
-one is returned. In case all values are required, use
-`vulpea-meta-get-list'."
-  (car (vulpea-meta-get-list! meta prop type)))
+  (vulpea-buffer-meta-get-list! (vulpea-meta note-or-id) prop type))
 
 (defun vulpea-meta-get (note-or-id prop &optional type)
   "Get value of PROP for NOTE-OR-ID.
@@ -216,7 +105,7 @@ Result depends on TYPE:
 If the note contains multiple values for a given PROP, the first
 one is returned. In case all values are required, use
 `vulpea-meta-get-list'."
-  (vulpea-meta-get! (vulpea-meta note-or-id) prop type))
+  (vulpea-buffer-meta-get! (vulpea-meta note-or-id) prop type))
 
 (defun vulpea-meta-set (note-or-id prop value &optional append)
   "Set VALUE of PROP for NOTE-OR-ID.
@@ -229,134 +118,27 @@ Please note that all occurrences of PROP are replaced by VALUE.
 When PROP is not yet set, VALUE is inserted at the beginning of
 the meta, unless the optional argument APPEND is non-nil, in
 which case VALUE is added at the end of the meta."
-  (let* ((values (if (listp value) value (list value)))
-         (meta (vulpea-meta--get (vulpea-meta note-or-id) prop))
-         (file (plist-get meta :file))
-         (buffer (plist-get meta :buffer))
-         (pl (plist-get meta :pl))
-         (items (plist-get meta :items))
-         (img (org-element-copy (car items))))
+  (when-let ((file (if (stringp note-or-id)
+                       (vulpea-db-get-file-by-id note-or-id)
+                     (vulpea-note-path note-or-id))))
     (vulpea-utils-with-file file
-      (cond
-       ;; descriptive plain list exists, update it
-       (pl
-        ;; TODO: inline
-        (vulpea-meta-remove note-or-id prop)
-        (cond
-         ;; property already set, remove it and set again
-         (img
-          (goto-char (org-element-property :begin img))
-          (seq-do
-           (lambda (val)
-             (insert
-              (org-element-interpret-data
-               (org-element-set-contents (org-element-copy img)
-                                         (vulpea-meta-format val)))))
-           values)
-          (when (equal (length items)
-                       (length (org-element-contents pl)))
-            (insert "\n")))
-
-         ;; property is not yet set, simply set it
-         (t
-          (let* ((items-all (org-element-map pl 'item #'identity))
-                 ;; we copy any item from the list so we don't need to
-                 ;; deal with :bullet and other properties
-                 (img (org-element-copy (car items-all)))
-                 (point (if append
-                            (- (org-element-property :end pl)
-                               (org-element-property :post-blank pl))
-                          (org-element-property :begin pl))))
-            ;; when APPEND and body is present, insert new item on the
-            ;; next line after the last item
-            (goto-char point)
-            (seq-do
-             (lambda (val)
-               (insert
-                (org-element-interpret-data
-                 (org-element-set-contents
-                  (org-element-put-property
-                   (org-element-copy img)
-                   :tag
-                   prop)
-                  (vulpea-meta-format val)))))
-             values)))))
-
-       ;; descriptive plain list does not exist, create one
-       (t
-        ;; insert either after the last keyword in the buffer, or
-        ;; after the property drawer if it is present on the first
-        ;; line or on the fist line
-        (let*
-            ((element
-              (or
-               (car (last (org-element-map
-                           buffer 'keyword #'identity)))
-               (car (org-element-map
-                     buffer 'property-drawer #'identity))))
-             (point
-              (if element
-                  (- (org-element-property :end element)
-                     (org-element-property :post-blank element))
-                (point-min))))
-          (goto-char point)
-          (insert "\n")
-          (seq-do
-           (lambda (val)
-             (insert "- " prop " :: "
-                     (vulpea-meta-format val)
-                     "\n"))
-           values)))))))
+      (vulpea-buffer-meta-set prop value append))))
 
 (defun vulpea-meta-remove (note-or-id prop)
   "Delete values of PROP for NOTE-OR-ID."
-  (let* ((meta (vulpea-meta--get (vulpea-meta note-or-id) prop))
-         (items (plist-get meta :items))
-         (pl (plist-get meta :pl))
-         (file (plist-get meta :file)))
-    (when (car items)
-      (vulpea-utils-with-file file
-        (if (equal (length items)
-                   (length (org-element-contents pl)))
-            (delete-region (org-element-property :begin pl)
-                           (org-element-property :end pl))
-          (seq-do
-           (lambda (item)
-             (when-let* ((begin (org-element-property :begin item))
-                         (end (org-element-property :end item)))
-               (delete-region begin end)))
-           (seq-reverse items)))))))
+  (when-let ((file (if (stringp note-or-id)
+                       (vulpea-db-get-file-by-id note-or-id)
+                     (vulpea-note-path note-or-id))))
+    (vulpea-utils-with-file file
+      (vulpea-buffer-meta-remove prop))))
 
 (defun vulpea-meta-clean (note-or-id)
   "Delete all meta from NOTE-OR-ID."
-  (when-let* ((meta (vulpea-meta note-or-id))
-              (pl (plist-get meta :pl))
-              (file (plist-get meta :file)))
+  (when-let ((file (if (stringp note-or-id)
+                       (vulpea-db-get-file-by-id note-or-id)
+                     (vulpea-note-path note-or-id))))
     (vulpea-utils-with-file file
-      (delete-region (org-element-property :begin pl)
-                     (org-element-property :end pl)))))
-
-(defun vulpea-meta-format (value)
-  "Format a VALUE depending on it's type."
-  (cond
-   ((vulpea-note-p value)
-    (vulpea-utils-link-make-string value))
-   ((and (stringp value)
-         (string-match-p vulpea-meta--uuid-regexp value))
-    (if-let* ((note (vulpea-db-get-by-id value)))
-        (vulpea-utils-link-make-string note)
-      (user-error "Note with id \"%s\" does not exist" value)))
-   ((stringp value)
-    (let ((domain (ignore-errors
-                    (url-domain (url-generic-parse-url value)))))
-      (if domain
-          (org-link-make-string value domain)
-        value)))
-   ((numberp value)
-    (number-to-string value))
-   ((symbolp value)
-    (symbol-name value))
-   (t (user-error "Unsupported type of \"%s\"" value))))
+      (vulpea-buffer-meta-clean))))
 
 (provide 'vulpea-meta)
 ;;; vulpea-meta.el ends here

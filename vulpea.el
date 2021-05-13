@@ -39,6 +39,7 @@
 
 (require 'org-roam)
 (require 'vulpea-utils)
+(require 'vulpea-buffer)
 (require 'vulpea-meta)
 (require 'vulpea-db)
 
@@ -170,91 +171,6 @@ Available variables in the capture context are:
      :props (list :immediate-finish immediate-finish)
      :templates (list roam-template))
     (vulpea-db-get-by-id id)))
-
-
-
-(defun vulpea-buffer-title-set (title)
-  "Set TITLE in current file.
-
-If the title is already set, replace its value."
-  (vulpea-buffer-prop-set "title" title))
-
-(defun vulpea-buffer-tags-get ()
-  "Return filetags value in current file."
-  (vulpea-buffer-prop-get-list "filetags" " "))
-
-(defun vulpea-buffer-tags-set (&rest tags)
-  "Set TAGS in current file.
-
-If filetags value is already set, replace it."
-  (vulpea-buffer-prop-set "filetags" (string-join tags " ")))
-
-(defun vulpea-buffer-tags-add (tag)
-  "Add a TAG to filetags in current file."
-  (let* ((tags (vulpea-buffer-tags-get))
-         (tags (append tags (list tag))))
-    (apply #'vulpea-buffer-tags-set tags)))
-
-(defun vulpea-buffer-tags-remove (tag)
-  "Remove a TAG from filetags in current file."
-  (let* ((tags (vulpea-buffer-tags-get))
-         (tags (delete tag tags)))
-    (apply #'vulpea-buffer-tags-set tags)))
-
-(defun vulpea-buffer-prop-set (name value)
-  "Set a file property called NAME to VALUE in current file.
-
-If the property is already set, replace its value."
-  (setq name (downcase name))
-  (org-with-point-at 1
-    (let ((case-fold-search t))
-      (if (re-search-forward (concat "^#\\+" name ":\\(.*\\)")
-                             (point-max) t)
-          (replace-match (concat "#+" name ": " value) 'fixedcase)
-        (while (and (not (eobp))
-                    (looking-at "^[#:]"))
-          (if (save-excursion (end-of-line) (eobp))
-              (progn
-                (end-of-line)
-                (insert "\n"))
-            (forward-line)
-            (beginning-of-line)))
-        (insert "#+" name ": " value "\n")))))
-
-(defun vulpea-buffer-prop-set-list (name values &optional separators)
-  "Set a file property called NAME to VALUES in current file.
-
-VALUES are quoted and combined into single string using
-`combine-and-quote-strings'.
-
-If SEPARATORS is non-nil, it should be a regular expression
-matching text that separates, but is not part of, the substrings.
-If nil it defaults to `split-string-default-separators', normally
-\"[ \f\t\n\r\v]+\", and OMIT-NULLS is forced to t.
-
-If the property is already set, replace its value."
-  (vulpea-buffer-prop-set
-   name (combine-and-quote-strings values separators)))
-
-(defun vulpea-buffer-prop-get (name)
-  "Get a buffer property called NAME as a string."
-  (org-with-point-at 1
-    (when (re-search-forward (concat "^#\\+" name ": \\(.*\\)")
-                             (point-max) t)
-      (buffer-substring-no-properties
-       (match-beginning 1)
-       (match-end 1)))))
-
-(defun vulpea-buffer-prop-get-list (name &optional separators)
-  "Get a buffer property NAME as a list using SEPARATORS.
-
-If SEPARATORS is non-nil, it should be a regular expression
-matching text that separates, but is not part of, the substrings.
-If nil it defaults to `split-string-default-separators', normally
-\"[ \f\t\n\r\v]+\", and OMIT-NULLS is forced to t."
-  (let ((value (vulpea-buffer-prop-get name)))
-    (when (and value (not (string-empty-p value)))
-      (split-string-and-unquote value separators))))
 
 
 

@@ -127,7 +127,29 @@ Functions of interest:
 - =vulpea-create= - function to create a new note file with given =TITLE=,
   =FILE-NAME=, extra =PROPERTIES=, =HEAD=, =BODY= and =CONTEXT=. Returns newly
   created note.
-- =vulpea-buffer-title-set= - function to set title of the current note file.
+
+** =vulpea-buffer=
+:PROPERTIES:
+:ID:                     3d044495-a298-4422-b2a0-2a355430c1ac
+:END:
+
+This module contains functions for prop and meta manipulations in current
+buffer.
+
+Buffer properties are key-values defined as =#+KEY: VALUE= in the header of
+buffer.
+
+Metadata is defined as the first description list in the buffer, e.g. list like:
+
+#+begin_src org-mode
+- key1 :: value1
+- key2 :: value21
+- key2 :: value22
+- key3 :: value3
+#+end_src
+
+- =vulpea-buffer-title-get= - function to get title of the current buffer.
+- =vulpea-buffer-title-set= - function to set title of the current buffer.
 - =vulpea-buffer-tags-get= - function to get list of tags.
 - =vulpea-buffer-tags-set= - function to set/replace the value of =#+filetags=.
 - =vulpea-buffer-tags-add= - function to add a tag to =#+filetags=.
@@ -141,10 +163,31 @@ Functions of interest:
   from the current buffer.
 - =vulpea-buffer-prop-get-list= - function to get a value of property with
   =NAME= as a list separated by some =SEPARATORS=.
+- =vulpea-buffer-meta= - function to get metadata from current buffer. In most
+  cases you should not use this function unless performance is important. In
+  this case, take a look at bang functions, e.g. =vulpea-buffer-meta-get!=.
+- =vulpea-buffer-meta-get= - function to get a value of =PROP= from current
+  buffer. Value is parsed based on the passed =TYPE= or as a string if omitted.
+- =vulpea-buffer-meta-get!= - function to get a value of =PROP= from =META=
+  (result of =vulpea-buffer-meta=). Value is parsed based on the passed =TYPE=
+  or as a string if omitted. Use it performing multiple read operations in a
+  row.
+- =vulpea-buffer-meta-get-list= - function to get all values of =PROP= from
+  current buffer. Values are parsed based on the passed =TYPE= or as a string if
+  omitted.
+- =vulpea-buffer-meta-get-list!= - function to get all values of =PROP= from
+  =META= (result of =vulpea-buffer-meta=). Values are parsed based on the passed
+  =TYPE= or as a string if omitted. Use it performing multiple read operations
+  in a row.
+- =vulpea-buffer-meta-set= - function to set =VALUE= of =PROP= in current
+  buffer. Supports multi-value properties.
+- =vulpea-buffer-meta-remove= - function to remove a =PROP= from current buffer.
+- =vulpea-buffer-meta-clean= - function to remove all meta from current buffer.
+- =vulpea-buffer-meta-format= - function to format a =VALUE=.
 
 ** =vulpea-utils=
 :PROPERTIES:
-:ID:                     92508fc8-5500-489c-b534-659ebfdb8e9a
+:ID: 92508fc8-5500-489c-b534-659ebfdb8e9a
 :END:
 
 This module contains =vulpea-note= definition and various utilities. Functions
@@ -192,19 +235,12 @@ Functions of interest:
   take a look at bang functions, e.g. =vulpea-meta-get!=.
 - =vulpea-meta-get= - function to get a value of =PROP= for note with =ID=.
   Value is parsed based on the passed =TYPE= or as a string if omitted.
-- =vulpea-meta-get!= - function to get a value of =PROP= from =META= (result of
-  =vulpea-meta=). Value is parsed based on the passed =TYPE= or as a string if
-  omitted. Use it performing multiple read operations in a row.
 - =vulpea-meta-get-list= - function to get all values of =PROP= for note with
   =ID=. Values are parsed based on the passed =TYPE= or as a string if omitted.
-- =vulpea-meta-get-list!= - function to get all values of =PROP= from =META=
-  (result of =vulpea-meta=). Values are parsed based on the passed =TYPE= or as
-  a string if omitted. Use it performing multiple read operations in a row.
 - =vulpea-meta-set= - function to set =VALUE= of =PROP= for =NOTE-OR-ID=.
   Supports multi-value properties.
 - =vulpea-meta-remove= - function to remove a =PROP= for =NOTE-OR-ID=.
-- =vulpea-meta-remove= - function to remove all meta for =NOTE-OR-ID=.
-- =vulpea-meta-format= - function to format a =VALUE=.
+- =vulpea-meta-clean= - function to remove all meta for =NOTE-OR-ID=.
 
 * Coding
 :PROPERTIES:

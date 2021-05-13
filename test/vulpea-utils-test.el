@@ -45,5 +45,13 @@
               (org-entry-get (point) "ID"))
             :to-equal id)))
 
+(describe "vulpea-utils--uuid-regexp"
+  (it "matches some UUID"
+    (expect (string-match vulpea-utils--uuid-regexp (org-id-new))
+            :to-be 0))
+  (it "doesn't match non-UUID"
+    (expect (string-match vulpea-utils--uuid-regexp "not UUID")
+            :to-be nil)))
+
 (provide 'vulpea-utils-test)
 ;;; vulpea-utils-test.el ends here
