@@ -42,6 +42,7 @@
   title
   path
   tags
+  aliases
   level)
 
 (defun vulpea-note-from-node (node)
@@ -51,6 +52,7 @@
      :path (org-roam-node-file node)
      :title (org-roam-node-title node)
      :tags (org-roam-node-tags node)
+     :aliases (org-roam-node-aliases node)
      :level (or (org-roam-node-level node) 0)
      :id (org-roam-node-id node))))
 

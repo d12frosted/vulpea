@@ -39,6 +39,7 @@ changes.
 - [[https://github.com/d12frosted/vulpea/pull/92][vulpea#92]] Extract buffer related functions (prop and meta related) to separate
   module. Basically, this means that now it's possible to manipulate meta lists
   that are located in any org file, not necessarily part of vulpea.
+- [[https://github.com/d12frosted/vulpea/pull/92][vulpea#92]] Add =aliases= to =vulpea-note=.
 
 *Breaking changes*
 

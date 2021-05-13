@@ -76,7 +76,9 @@ slots/fields:
 
 - =vulpea-note-path= - absolute path to the note (even if the note is actually a heading);
 - =vulpea-note-title= - title of the note (it might be an alias);
-- =vulpea-note-tags= - tags extracted using =org-roam-tag-sources=;
+- =vulpea-note-tags= - tags of the note;
+- =vulpea-note-aliases= - aliases if the note (might contain original title if
+  the title is an alias - see =vulpea-db-search-by-title=);
 - =vulpea-note-level= - level of the note inside =:path=, with =0= being a file-level note
   and other numbers being a header;
 - =vulpea-note-id= - =ID= property of note (file-level or heading level).

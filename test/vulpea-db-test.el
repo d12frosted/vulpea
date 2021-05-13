@@ -42,6 +42,7 @@
               :path (expand-file-name "note-with-alias.org" org-roam-directory)
               :title "Alias of the note with alias"
               :tags nil
+              :aliases '("Note with an alias")
               :level 0
               :id "72522ed2-9991-482e-a365-01155c172aa5"))))
 
@@ -128,6 +129,7 @@
              :path (expand-file-name "note-with-alias.org" org-roam-directory)
              :title "Note with an alias"
              :tags nil
+             :aliases '("Alias of the note with alias")
              :level 0
              :id "72522ed2-9991-482e-a365-01155c172aa5")))
 

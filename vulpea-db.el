@@ -64,7 +64,13 @@ Does not support headings in the note."
                  matches)))
     (seq-map
      (lambda (note)
-       (setf (vulpea-note-title note) title)
+       (when (seq-contains-p (vulpea-note-aliases note) title)
+         (setf (vulpea-note-aliases note)
+               (cons (vulpea-note-title note)
+                     (seq-remove (lambda (x)
+                                   (string-equal x title))
+                                 (vulpea-note-aliases note))))
+         (setf (vulpea-note-title note) title))
        note)
      (seq-map #'vulpea-note-from-node nodes))))
 
@@ -76,28 +82,44 @@ Does not support headings in the note."
 
 When FILTER-FN is non-nil, only notes that satisfy it are
 returned."
-  (let*
-      ((rows (org-roam-db-query
-              [:select [nodes:id
-                        nodes:file
-                        nodes:title
-                        nodes:level
-                        (funcall group-concat tags:tag "")]
-               :from nodes
-               :left-join tags
-               :on (= nodes:id tags:node-id)
-               :group :by nodes:id]))
-       notes)
+  (let* ((rows
+          (org-roam-db-query
+           [:select
+            [id file title level
+             (funcall group-concat ntags "")
+             "$sep"
+             aliases]
+            :from [:select
+                   [(as nodes:id id)
+                    (as nodes:title title)
+                    (as nodes:file file)
+                    (as nodes:level level)
+                    (as tags:tag ntags)
+                    (as (funcall group-concat aliases:alias "")
+                        aliases)]
+                   :from nodes
+                   :left-join tags
+                   :on (= nodes:id tags:node-id)
+                   :left-join aliases
+                   :on (= nodes:id aliases:node-id)
+                   :group :by [nodes:id tags:tag]]
+            :group :by [id aliases]]))
+         notes)
     (dolist (row rows notes)
-      (pcase-let ((`(,id ,file-path ,title ,level . ,tags) row))
-        (let ((note (make-vulpea-note
-                     :path file-path
-                     :title title
-                     :tags (seq-filter
-                            (lambda (x) (not (string-empty-p x)))
-                            tags)
-                     :id id
-                     :level level)))
+      (pcase-let ((`(,id ,file-path ,title ,level . ,rest) row))
+        (let* ((rest (seq-remove #'null rest))
+               (tags (seq-take-while
+                      (lambda (x)
+                        (not (string-equal x "$sep")))
+                      rest))
+               (aliases (seq-drop rest (+ 1 (length tags))))
+               (note (make-vulpea-note
+                      :path file-path
+                      :title title
+                      :tags (seq-remove #'string-empty-p tags)
+                      :aliases (seq-remove #'string-empty-p aliases)
+                      :id id
+                      :level level)))
           (when (or (null filter-fn)
                     (funcall filter-fn note))
             (push note notes)))))))
