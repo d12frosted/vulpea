@@ -196,7 +196,8 @@ Available variables in the capture context are:
                           "\n"))
                        head))
             :unnarrowed ,unnarrowed
-            :immediate-finish ,immediate-finish)))
+            :immediate-finish ,immediate-finish
+            :empty-lines-before 1)))
     (org-roam-capture-
      :info context
      :node node

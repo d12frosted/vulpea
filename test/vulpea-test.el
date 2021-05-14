@@ -151,13 +151,14 @@
             :to-equal
             note))
 
-  (it "creates new file with additional head, tags, context and properties"
+  (it "creates new file with additional head, tags, body, context and properties"
     (setq note
           (vulpea-create
            "Aglianico"
            "prefix-${slug}.org"
            :head "#+roam_key: ${url}"
            :tags '("tag1" "tag2")
+           :body "Well, I am a grape!"
            :unnarrowed t
            :immediate-finish t
            :context
@@ -186,6 +187,7 @@
 #+filetags: tag1 tag2
 #+roam_key: https://d12frosted.io
 
+Well, I am a grape!
 "
              (vulpea-note-id note)))))
 
