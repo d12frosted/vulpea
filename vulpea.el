@@ -69,11 +69,9 @@ Accepts a `vulpea-note'. Returns a `string'.")
 (defun vulpea-select-annotate (note)
   "Annotate a NOTE for completion."
   (let* ((alias-str
-          (if (vulpea-note-aliases note)
+          (if (vulpea-note-primary-title note)
               (concat "("
-                      (string-join
-                       (vulpea-note-aliases note)
-                       ", ")
+                      (vulpea-note-primary-title note)
                       ")")
             ""))
          (tags-str (mapconcat

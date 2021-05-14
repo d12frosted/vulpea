@@ -39,22 +39,23 @@
 
 (cl-defstruct vulpea-note
   id
-  title
   path
-  tags
+  level
+  title
+  primary-title
   aliases
-  level)
+  tags)
 
 (defun vulpea-note-from-node (node)
   "Convert NODE represented as `org-roam-node' to `vulpea-note'."
   (when (org-roam-node-title node)
     (make-vulpea-note
+     :id (org-roam-node-id node)
      :path (org-roam-node-file node)
-     :title (org-roam-node-title node)
-     :tags (org-roam-node-tags node)
-     :aliases (org-roam-node-aliases node)
      :level (or (org-roam-node-level node) 0)
-     :id (org-roam-node-id node))))
+     :title (org-roam-node-title node)
+     :aliases (org-roam-node-aliases node)
+     :tags (org-roam-node-tags node))))
 
 (provide 'vulpea-note)
 ;;; vulpea-note.el ends here

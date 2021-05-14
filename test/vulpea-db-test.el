@@ -34,6 +34,18 @@
     (expect (vulpea-db-search-by-title "very unique name not existing in present")
             :to-be nil))
 
+  (it "finds a note by original name"
+    (expect (vulpea-db-search-by-title "Note with an alias")
+            :to-equal
+            (list
+             (make-vulpea-note
+              :path (expand-file-name "note-with-alias.org" org-roam-directory)
+              :title "Note with an alias"
+              :tags nil
+              :aliases '("Alias of the note with alias")
+              :level 0
+              :id "72522ed2-9991-482e-a365-01155c172aa5"))))
+
   (it "finds a note by alias"
     (expect (vulpea-db-search-by-title "Alias of the note with alias")
             :to-equal
@@ -41,8 +53,9 @@
              (make-vulpea-note
               :path (expand-file-name "note-with-alias.org" org-roam-directory)
               :title "Alias of the note with alias"
+              :primary-title "Note with an alias"
               :tags nil
-              :aliases '("Note with an alias")
+              :aliases '("Alias of the note with alias")
               :level 0
               :id "72522ed2-9991-482e-a365-01155c172aa5"))))
 
@@ -88,9 +101,12 @@
   (it "returns all notes when filter function is not passed"
     (expect (length (vulpea-db-query))
             :to-equal
-            (caar (org-roam-db-query
-                   [:select (funcall count *)
-                    :from nodes]))))
+            (+ (caar (org-roam-db-query
+                      [:select (funcall count *)
+                       :from nodes]))
+               (caar (org-roam-db-query
+                      [:select (funcall count *)
+                       :from aliases])))))
 
   (it "applies filter function when passed"
     (expect (vulpea-db-query (lambda (n)

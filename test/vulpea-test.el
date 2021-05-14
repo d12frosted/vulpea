@@ -66,9 +66,12 @@
                    (lambda (_)
                      (setq filter-count (+ 1 filter-count))))
     (expect filter-count :to-equal
-            (caar (org-roam-db-query
-                   [:select (funcall count *)
-                    :from nodes]))))
+            (+ (caar (org-roam-db-query
+                      [:select (funcall count *)
+                       :from nodes]))
+               (caar (org-roam-db-query
+                      [:select (funcall count *)
+                       :from aliases])))))
 
   (it "calls FILTER-FN on note structure"
     (setq filter-count 0)

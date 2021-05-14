@@ -64,12 +64,10 @@ Does not support headings in the note."
                  matches)))
     (seq-map
      (lambda (note)
-       (when (seq-contains-p (vulpea-note-aliases note) title)
-         (setf (vulpea-note-aliases note)
-               (cons (vulpea-note-title note)
-                     (seq-remove (lambda (x)
-                                   (string-equal x title))
-                                 (vulpea-note-aliases note))))
+       (unless (string-equal (vulpea-note-title note)
+                             title)
+         (setf (vulpea-note-primary-title note)
+               (vulpea-note-title note))
          (setf (vulpea-note-title note) title))
        note)
      (seq-map #'vulpea-note-from-node nodes))))
@@ -108,18 +106,26 @@ from
 group by id, aliases;"))
          notes)
     (dolist (row rows notes)
-      (pcase-let ((`(,id ,file-path ,title ,level ,tags ,aliases)
-                   row))
-        (let ((note (make-vulpea-note
-                     :path file-path
-                     :title title
-                     :tags tags
-                     :aliases aliases
-                     :id id
-                     :level level)))
-          (when (or (null filter-fn)
-                    (funcall filter-fn note))
-            (push note notes)))))))
+      (let ((id (nth 0 row))
+            (file (nth 1 row))
+            (title (nth 2 row))
+            (level (nth 3 row))
+            (tags (nth 4 row))
+            (aliases (nth 5 row)))
+        (dolist (name (cons title aliases))
+          (let ((note (make-vulpea-note
+                       :path file
+                       :title name
+                       :primary-title
+                       (unless (string-equal title name)
+                         title)
+                       :tags tags
+                       :aliases aliases
+                       :id id
+                       :level level)))
+            (when (or (null filter-fn)
+                      (funcall filter-fn note))
+              (push note notes))))))))
 
 ;;
 ;; Exchanging ID to X
