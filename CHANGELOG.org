@@ -17,17 +17,17 @@ changes.
 
 *Features*
 
-- [[https://github.com/d12frosted/vulpea/pull/92][vulpea#92]] Allow to provide extra properties in =vulpea-create=.
-- All features of =org-roam= apply to =vulpea=.
-- [[https://github.com/d12frosted/vulpea/pull/92][vulpea#92]] New function =vulpea-buffer-title-set=.
-- [[https://github.com/d12frosted/vulpea/pull/92][vulpea#92]] New functions to manipulate =#+filetags=:
+- Allow to provide extra properties in =vulpea-create=.
+- New function to manipulate =#+title=: =vulpea-buffer-title-set= and
+  =vulpea-buffer-title-get=.
+- New functions to manipulate =#+filetags=:
   - =vulpea-buffer-tags-get= - function to get list of tags.
   - =vulpea-buffer-tags-set= - function to set/replace the value of
     =#+filetags=.
   - =vulpea-buffer-tags-add= - function to add a tag to =#+filetags=.
   - =vulpea-buffer-tags-remove= - function to remove a tag from =#+filetags=.
-- [[https://github.com/d12frosted/vulpea/pull/92][vulpea#92]] New functions to manipulate buffer-wide properties in the buffer
-  header using =#+NAME: value= format:
+- New functions to manipulate buffer-wide properties in the buffer header using
+  =#+NAME: value= format:
   - =vulpea-buffer-prop-set= - function to set a =VALUE= of property with =NAME=
     in the current buffer.
   - =vulpea-buffer-prop-set-list= - function to set a value of property with
@@ -36,15 +36,18 @@ changes.
     from the current buffer.
   - =vulpea-buffer-prop-get-list= - function to get a value of property with
     =NAME= as a list separated by some =SEPARATORS=.
-- [[https://github.com/d12frosted/vulpea/pull/92][vulpea#92]] Extract buffer related functions (prop and meta related) to separate
-  module. Basically, this means that now it's possible to manipulate meta lists
-  that are located in any org file, not necessarily part of vulpea.
-- [[https://github.com/d12frosted/vulpea/pull/92][vulpea#92]] Add =aliases= to =vulpea-note=.
+- Extract buffer related functions (prop and meta related) to separate module.
+  Basically, this means that now it's possible to manipulate meta lists that are
+  located in any org file, not necessarily part of =vulpea=.
+- Add =aliases= and =primary-title= slots to =vulpea-note=.
+- Use custom completion in =vulpea-select= instead of one provided by
+  =org-roam=. See documentation for more information.
+- All features of =org-roam= apply to =vulpea=.
 
 *Breaking changes*
 
-- [[https://github.com/d12frosted/vulpea/pull/92][vulpea#92]] Flatten template in =vulpea-create=, meaning that instead of passing
-  a template in format =(:body :file-name :head :unnarrowed :immediate-finish)=,
+- Flatten template in =vulpea-create=, meaning that instead of passing a
+  template in format =(:body :file-name :head :unnarrowed :immediate-finish)=,
   all values should be passed as arguments to =vulpea-create=. Also, there is no
   need to provide =#+title: ${title}= in =:head= anymore. See =vulpea-create=
   documentation for more information.
@@ -69,10 +72,10 @@ changes.
                    :context
                    (list :url "https://example.org"))
   #+end_src
-- [[https://github.com/d12frosted/vulpea/pull/92][vulpea#92]] Remove =vulpea-setup= because =org-roam= v2 already provides all
-  information to get resulting file of capture process.
-- [[https://github.com/d12frosted/vulpea/pull/92][vulpea#92]] Remove =vulpea-note-meta=. It was only used for =vulpea-select=, but
-  now it is not needed anymore.
+- Remove =vulpea-setup= because =org-roam= v2 already provides all information
+  to get resulting file of capture process.
+- Remove =vulpea-note-meta=. It was only used for =vulpea-select=, but now it is
+  not needed anymore.
 - All breaking changes of =org-roam= apply to =vulpea=.
 
 ** v0.1.1

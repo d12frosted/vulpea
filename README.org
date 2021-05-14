@@ -74,26 +74,28 @@ In case you have [[https://github.com/raxod502/straight.el/#integration-with-use
 A note is represented as a =vulpea-note= structure with the following
 slots/fields:
 
-- =vulpea-note-path= - absolute path to the note (even if the note is actually a heading);
-- =vulpea-note-title= - title of the note (it might be an alias);
-- =vulpea-note-tags= - tags of the note;
-- =vulpea-note-aliases= - aliases if the note (might contain original title if
-  the title is an alias - see =vulpea-db-search-by-title=);
-- =vulpea-note-level= - level of the note inside =:path=, with =0= being a file-level note
-  and other numbers being a header;
 - =vulpea-note-id= - =ID= property of note (file-level or heading level).
+- =vulpea-note-path= - absolute path to the note (even if the note is actually a heading);
+- =vulpea-note-level= - level of the note inside =:path=, with =0= being a
+  file-level note and other numbers being a header;
+- =vulpea-note-title= - title of the note (it might be an alias);
+- =vulpea-note-primary-title= - primary title of the note (present only when
+  =title= is an alias);
+- =vulpea-note-aliases= - aliases of the note;
+- =vulpea-note-tags= - tags of the note;
 
 If =ID= is not present in the note structure, this note is treated as
-non-existent. For example, see =vulpea-select=.
+non-existent. For example, =vulpea-select= returns such a note, when
+=require-match= is =nil= and the user selects non-existent note.
 
 ** Mandatory =ID= property
 :PROPERTIES:
 :ID:                     4aa43ec9-b576-4adc-b4a7-b01958ec2e15
 :END:
 
-Please note, that each =vulpea-note= (!) must contain an =ID= for Vulpea to be
-operational. =org-roam= should cover this, but another way to always ensure
-existence of =ID= is to use the following code:
+Please note, that each existing =vulpea-note= (!) must contain an =ID= for
+Vulpea to be operational. =org-roam= should cover this, but another way to
+always ensure existence of =ID= is to use the following code:
 
 #+begin_src emacs-lisp
   (defun +org-auto-id-add-to-headlines-in-file ()
@@ -125,20 +127,69 @@ place in separate modules. It also imports every other module.
 
 Functions of interest:
 
-- =vulpea-select= - function to =completing-read= a note optional filter. This
-  function does not use =org-roam= completion system, as the latter is hard to
-  configure and filter programatically. They key difference between
-  =vulpea-select= and =org-roam= completion is that the former doesn't list
-  aliases separately, but rather combines everything into one row using
-  =vulpea-select-describe= function, which by default formats the note in the
-  =title (comma_separated_aliases) #space_separated_tags= format, which is
-  controlled by two configurable values:
+- =vulpea-select= - function to =completing-read= a note with optional filter.
+  This function does not use =org-roam= completion system, as the latter is hard
+  to extend, configure and reuse in broader context. Display of notes in
+  completion list is defined by =vulpea-select-describe= function, which by
+  default formats the note in the =title (primary_title) #space_separated_tags=
+  format, which is controlled by two configurable values:
   - =vulpea-select-describe-fn= - description of the note (by default title).
-  - =vulpea-select-annotate-fn= - annotation of the note (by default aliases and
-    tags) with special face.
+  - =vulpea-select-annotate-fn= - annotation of the note (by default primary
+    title when present and tags) with special face.
 - =vulpea-create= - function to create a new note file with given =TITLE=,
   =FILE-NAME=, extra =PROPERTIES=, =HEAD=, =BODY= and =CONTEXT=. Returns newly
   created note.
+
+** =vulpea-note=
+:PROPERTIES:
+:ID:                     71b66fd8-d51d-49af-8ad1-e2ecadac6210
+:END:
+
+This module contains =vulpea-note= definition.
+
+** =vulpea-db=
+:PROPERTIES:
+:ID: 55717e59-d850-4659-8a02-8153fda52fef
+:END:
+
+This module contains functions to query notes data base. Functions of interest:
+
+- =vulpea-db-get-id-by-file= - function to get =ID= of a note represented by =FILE=.
+- =vulpea-db-get-by-id= - function to get note represented by =ID=. Supports
+  headings of the note.
+- =vulpea-db-get-file-by-id= - function to get =FILE= of a note represented by
+  =ID=. Supports headings of the note.
+- =vulpea-db-search-by-title= - function to query notes with =TITLE=.
+- =vulpea-db-query= - function to query notes with generic predicate.
+
+** =vulpea-meta=
+:PROPERTIES:
+:ID:                     c1f820af-1940-46cb-a6bb-752146eec52b
+:END:
+
+This module contains functions for manipulating note metadata represented by the
+first description list in the note, e.g. list like:
+
+#+begin_src org-mode
+- key1 :: value1
+- key2 :: value21
+- key2 :: value22
+- key3 :: value3
+#+end_src
+
+Functions of interest:
+
+- =vulpea-meta= - function to get metadata from =NOTE-OR-ID=. In most cases you
+  should not use this function unless performance is important. In this case,
+  take a look at bang functions, e.g. =vulpea-meta-get!=.
+- =vulpea-meta-get= - function to get a value of =PROP= for note with =ID=.
+  Value is parsed based on the passed =TYPE= or as a string if omitted.
+- =vulpea-meta-get-list= - function to get all values of =PROP= for note with
+  =ID=. Values are parsed based on the passed =TYPE= or as a string if omitted.
+- =vulpea-meta-set= - function to set =VALUE= of =PROP= for =NOTE-OR-ID=.
+  Supports multi-value properties.
+- =vulpea-meta-remove= - function to remove a =PROP= for =NOTE-OR-ID=.
+- =vulpea-meta-clean= - function to remove all meta for =NOTE-OR-ID=.
 
 ** =vulpea-buffer=
 :PROPERTIES:
@@ -202,57 +253,13 @@ Metadata is defined as the first description list in the buffer, e.g. list like:
 :ID: 92508fc8-5500-489c-b534-659ebfdb8e9a
 :END:
 
-This module contains =vulpea-note= definition and various utilities. Functions
-of interest:
+This module contains various utilities used by other modules. Functions of
+interest:
 
 - =vulpea-utils-with-note= - function to execute =BODY= with point at =NOTE=.
   Supports file-level notes as well as heading notes.
 - =vulpea-utils-link-make-string= - make a bracket link to =NOTE=.
 - =vulpea-utils-note-hash= function to calculate =sha1= of a given =NOTE=.
-
-** =vulpea-db=
-:PROPERTIES:
-:ID: 55717e59-d850-4659-8a02-8153fda52fef
-:END:
-
-This module contains functions to query notes data base. Functions of interest:
-
-- =vulpea-db-get-id-by-file= - function to get =ID= of a note represented by =FILE=.
-- =vulpea-db-get-by-id= - function to get note represented by =ID=. Supports
-  headings of the note.
-- =vulpea-db-get-file-by-id= - function to get =FILE= of a note represented by
-  =ID=. Supports headings of the note.
-- =vulpea-db-search-by-title= - function to query notes with =TITLE=.
-- =vulpea-db-query= - function to query notes with generic predicate.
-
-** =vulpea-meta=
-:PROPERTIES:
-:ID:                     c1f820af-1940-46cb-a6bb-752146eec52b
-:END:
-
-This module contains functions for manipulating note metadata represented by the
-first description list in the note, e.g. list like:
-
-#+begin_src org-mode
-- key1 :: value1
-- key2 :: value21
-- key2 :: value22
-- key3 :: value3
-#+end_src
-
-Functions of interest:
-
-- =vulpea-meta= - function to get metadata from =NOTE-OR-ID=. In most cases you
-  should not use this function unless performance is important. In this case,
-  take a look at bang functions, e.g. =vulpea-meta-get!=.
-- =vulpea-meta-get= - function to get a value of =PROP= for note with =ID=.
-  Value is parsed based on the passed =TYPE= or as a string if omitted.
-- =vulpea-meta-get-list= - function to get all values of =PROP= for note with
-  =ID=. Values are parsed based on the passed =TYPE= or as a string if omitted.
-- =vulpea-meta-set= - function to set =VALUE= of =PROP= for =NOTE-OR-ID=.
-  Supports multi-value properties.
-- =vulpea-meta-remove= - function to remove a =PROP= for =NOTE-OR-ID=.
-- =vulpea-meta-clean= - function to remove all meta for =NOTE-OR-ID=.
 
 * Coding
 :PROPERTIES:
