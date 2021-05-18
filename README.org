@@ -136,6 +136,10 @@ Functions of interest:
   - =vulpea-select-describe-fn= - description of the note (by default title).
   - =vulpea-select-annotate-fn= - annotation of the note (by default primary
     title when present and tags) with special face.
+- =vulpea-find= - select and find a note, a wrapper around =vulpea-select= to
+  provide a consistent experience; selection can be narrowed down by
+  =vulpea-find-default-filter= or by passing explicit filter.
+- =vulpea-find-backling= - select and find a backlink to the current note.
 - =vulpea-create= - function to create a new note file with given =TITLE=,
   =FILE-NAME=, extra =PROPERTIES=, =HEAD=, =BODY= and =CONTEXT=. Returns newly
   created note.

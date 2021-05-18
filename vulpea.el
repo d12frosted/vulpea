@@ -124,6 +124,64 @@ as its argument a `vulpea-note'."
 
 
 
+(defvar vulpea-find-default-filter nil
+  "Default filter to use in `vulpea-find'.")
+
+;;;###autoload
+(defun vulpea-find (&optional other-window
+                              filter-fn
+                              require-match)
+  "Select and find a note.
+
+If OTHER-WINDOW, visit the NOTE in another window.
+
+FILTER-FN is the function to apply on the candidates, which takes
+as its argument a `vulpea-note'. Unless specified,
+`vulpea-find-default-filter' is used.
+
+When REQUIRE-MATCH is nil user may select a non-existent note and
+start the capture process."
+  (interactive current-prefix-arg)
+  (let ((note (vulpea-select
+               "Note"
+               :filter-fn
+               (or filter-fn
+                   vulpea-find-default-filter)
+               :require-match require-match)))
+    (if (vulpea-note-id note)
+        (org-roam-node-visit
+         (org-roam-node-from-id (vulpea-note-id note))
+         other-window)
+      (when (not require-match)
+        (org-roam-capture-
+         :node (org-roam-node-create :title (vulpea-note-title note))
+         :props '(:finalize find-file))))))
+
+;;;###autoload
+(defun vulpea-find-backlink ()
+  "Select and find a note linked to current note."
+  (interactive)
+  (let* ((node (org-roam-node-at-point 'assert))
+         (backlinks (seq-map
+                     (lambda (x)
+                       (vulpea-note-from-node
+                        (org-roam-backlink-source-node x)))
+                     (org-roam-backlinks-get node))))
+    (unless backlinks
+      (user-error "There are no backlinks to the current note"))
+    (vulpea-find
+     nil
+     (lambda (note)
+       (seq-contains-p
+        backlinks note
+        (lambda (a b)
+          (string-equal
+           (vulpea-note-id a)
+           (vulpea-note-id b)))))
+     'require-match)))
+
+
+
 (cl-defun vulpea-create (title
                          file-name
                          &key

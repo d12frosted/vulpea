@@ -85,6 +85,73 @@
                        (setq filter-count (+ 1 filter-count)))))
     (expect filter-count :to-equal 2)))
 
+(describe "vulpea-find"
+  :var (global-filter-fn
+        local-filter-fn)
+  (before-all
+    (vulpea-test--init))
+
+  (before-each
+    (setq vulpea-find-default-filter nil)
+    (fset 'local-filter-fn (lambda (x) x))
+    (fset 'global-filter-fn (lambda (x) x))
+    (spy-on 'local-filter-fn)
+    (spy-on 'global-filter-fn))
+
+  (after-all
+    (vulpea-test--teardown)
+    (setq vulpea-find-default-filter nil))
+
+  (it "finds existing note without any filters"
+    (spy-on 'org-roam-node-visit)
+    (spy-on 'completing-read
+            :and-return-value "Big note")
+    (vulpea-find)
+    (expect 'org-roam-node-visit :to-have-been-called))
+
+  (it "initiates capture process"
+    (spy-on 'org-roam-capture-)
+    (spy-on 'completing-read
+            :and-return-value "I simply can't exist")
+    (vulpea-find)
+    (expect 'org-roam-capture- :to-have-been-called))
+
+  (it "uses default filter"
+    (setq vulpea-find-default-filter 'global-filter-fn)
+    (spy-on 'org-roam-node-visit)
+    (spy-on 'completing-read
+            :and-return-value "Big note")
+    (vulpea-find)
+
+    (expect 'local-filter-fn
+            :not :to-have-been-called)
+    (expect 'global-filter-fn
+            :to-have-been-called-times
+            (+ (caar (org-roam-db-query
+                      [:select (funcall count *)
+                       :from nodes]))
+               (caar (org-roam-db-query
+                      [:select (funcall count *)
+                       :from aliases])))))
+
+  (it "uses filter override instead of default one"
+    (setq vulpea-find-default-filter 'global-filter-fn)
+    (spy-on 'org-roam-node-visit)
+    (spy-on 'completing-read
+            :and-return-value "Big note")
+    (vulpea-find nil 'local-filter-fn)
+
+    (expect 'local-filter-fn
+            :to-have-been-called-times
+            (+ (caar (org-roam-db-query
+                      [:select (funcall count *)
+                       :from nodes]))
+               (caar (org-roam-db-query
+                      [:select (funcall count *)
+                       :from aliases]))))
+    (expect 'global-filter-fn
+            :not :to-have-been-called)))
+
 (describe "vulpea-create"
   :var (note)
   (before-all

@@ -42,6 +42,11 @@ changes.
 - Add =aliases= and =primary-title= slots to =vulpea-note=.
 - Use custom completion in =vulpea-select= instead of one provided by
   =org-roam=. See documentation for more information.
+- New functionality to select and find a note:
+  - =vulpea-find= - just a wrapper around =vulpea-select= to provide a
+    consistent experience; selection can be narrowed down by
+    =vulpea-find-default-filter= or by passing explicit filter.
+  - =vulpea-find-backlink= - select and find a backlink to current note.
 - All features of =org-roam= apply to =vulpea=.
 
 *Breaking changes*
