@@ -47,6 +47,11 @@ changes.
     consistent experience; selection can be narrowed down by
     =vulpea-find-default-filter= or by passing explicit filter.
   - =vulpea-find-backlink= - select and find a backlink to current note.
+- New functionality to insert a link to the note via =vulpea-insert=, which
+  accepts global and local filter (just like =vulpea-find=) and allows to hook
+  into finalisation (e.g. call your custom handler after the link was inserted
+  regardless involvement of capture process). See documentation for more
+  information.
 - All features of =org-roam= apply to =vulpea=.
 
 *Breaking changes*

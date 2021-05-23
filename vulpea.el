@@ -182,6 +182,86 @@ start the capture process."
 
 
 
+(defvar vulpea-insert-default-filter nil
+  "Default filter to use in `vulpea-insert'.")
+
+(defvar vulpea-insert-handle-functions nil
+  "Abnormal hooks to run after `vulpea-note' is inserted.
+
+Each function accepts a note that was inserted via
+`vulpea-insert'.
+
+The current point is the point of the new node. The hooks must
+not move the point.")
+
+;;;###autoload
+(defun vulpea-insert (&optional filter-fn)
+  "Select a note and insert a link to it.
+
+Allows capturing new notes. After link is inserted,
+`vulpea-insert-handle-functions' are called with the inserted
+note as the only argument regardless involvement of capture
+process.
+
+FILTER-FN is the function to apply on the candidates, which takes
+as its argument a `vulpea-note'. Unless specified,
+`vulpea-insert-default-filter' is used."
+  (interactive)
+  (unwind-protect
+      (atomic-change-group
+        (let* (region-text
+               beg end
+               (_ (when (region-active-p)
+                    (setq
+                     beg (set-marker
+                          (make-marker) (region-beginning))
+                     end (set-marker
+                          (make-marker) (region-end))
+                     region-text
+                     (org-link-display-format
+                      (buffer-substring-no-properties
+                       beg end)))))
+               (note (vulpea-select
+                      "Note"
+                      :filter-fn
+                      (or filter-fn
+                          vulpea-insert-default-filter)
+                      :initial-prompt region-text))
+               (description (or region-text
+                                (vulpea-note-title note))))
+          (if (vulpea-note-id note)
+              (progn
+                (when region-text
+                  (delete-region beg end)
+                  (set-marker beg nil)
+                  (set-marker end nil))
+                (insert (org-link-make-string
+                         (concat "id:" (vulpea-note-id note))
+                         description))
+                (run-hook-with-args
+                 'vulpea-insert-handle-functions
+                 note))
+            (org-roam-capture-
+             :node (org-roam-node-create
+                    :title (vulpea-note-title note))
+             :props
+             (list
+              :region (when (and beg end)
+                        (cons beg end))
+              :insert-at (point-marker)
+              :link-description description
+              :finalize #'vulpea-insert--capture-finalize)))))
+    (deactivate-mark)))
+
+(defun vulpea-insert--capture-finalize ()
+  "Finalize capture process initiated by `vulpea-insert'."
+  (org-roam-capture--finalize-insert-link)
+  (when-let* ((id (org-roam-capture--get :id))
+              (note (vulpea-db-get-by-id id)))
+    (run-hook-with-args 'vulpea-insert-handle-functions note)))
+
+
+
 (cl-defun vulpea-create (title
                          file-name
                          &key

@@ -86,17 +86,13 @@
     (expect filter-count :to-equal 2)))
 
 (describe "vulpea-find"
-  :var (global-filter-fn
-        local-filter-fn)
   (before-all
     (vulpea-test--init))
 
   (before-each
     (setq vulpea-find-default-filter nil)
-    (fset 'local-filter-fn (lambda (x) x))
-    (fset 'global-filter-fn (lambda (x) x))
-    (spy-on 'local-filter-fn)
-    (spy-on 'global-filter-fn))
+    (spy-on 'local-filter-fn :and-call-through)
+    (spy-on 'global-filter-fn :and-call-through))
 
   (after-all
     (vulpea-test--teardown)
@@ -106,14 +102,18 @@
     (spy-on 'org-roam-node-visit)
     (spy-on 'completing-read
             :and-return-value "Big note")
+
     (vulpea-find)
+
     (expect 'org-roam-node-visit :to-have-been-called))
 
   (it "initiates capture process"
     (spy-on 'org-roam-capture-)
     (spy-on 'completing-read
             :and-return-value "I simply can't exist")
+
     (vulpea-find)
+
     (expect 'org-roam-capture- :to-have-been-called))
 
   (it "uses default filter"
@@ -121,6 +121,7 @@
     (spy-on 'org-roam-node-visit)
     (spy-on 'completing-read
             :and-return-value "Big note")
+
     (vulpea-find)
 
     (expect 'local-filter-fn
@@ -139,7 +140,90 @@
     (spy-on 'org-roam-node-visit)
     (spy-on 'completing-read
             :and-return-value "Big note")
+
     (vulpea-find nil 'local-filter-fn)
+
+    (expect 'local-filter-fn
+            :to-have-been-called-times
+            (+ (caar (org-roam-db-query
+                      [:select (funcall count *)
+                       :from nodes]))
+               (caar (org-roam-db-query
+                      [:select (funcall count *)
+                       :from aliases]))))
+    (expect 'global-filter-fn
+            :not :to-have-been-called)))
+
+(describe "vulpea-insert"
+  (before-each
+    (vulpea-test--init)
+    (setq vulpea-insert-default-filter nil)
+    (spy-on 'local-filter-fn :and-call-through)
+    (spy-on 'global-filter-fn :and-call-through)
+    (spy-on 'insert-handle-fn :and-call-through)
+    (add-hook 'vulpea-insert-handle-functions 'insert-handle-fn))
+
+  (after-each
+    (vulpea-test--teardown)
+    (setq vulpea-insert-default-filter nil))
+
+  (it "inserts existing note"
+    (spy-on 'completing-read
+            :and-return-value "Big note")
+
+    (vulpea-insert)
+
+    (expect 'insert-handle-fn
+            :to-have-been-called-with
+            (vulpea-db-get-by-id "eeec8f05-927f-4c61-b39e-2fb8228cf484")))
+
+  (it "inserts captured note"
+    (setq org-roam-capture-templates
+          '(("d" "default" plain "%?"
+             :if-new
+             (file+head
+              "%<%Y%m%d%H%M%S>-${slug}.org"
+              "#+title: ${title}\n")
+             :unnarrowed t
+             :immediate-finish t)))
+    (spy-on 'completing-read
+            :and-return-value "I can't possibly exist")
+
+    (vulpea-insert)
+
+    (expect 'insert-handle-fn
+            :to-have-been-called-with
+            (car-safe
+             (vulpea-db-query
+              (lambda (note)
+                (string-equal
+                 (vulpea-note-title note)
+                 "I can't possibly exist"))))))
+
+  (it "uses default filter"
+    (setq vulpea-insert-default-filter 'global-filter-fn)
+    (spy-on 'completing-read
+            :and-return-value "Big note")
+
+    (vulpea-insert)
+
+    (expect 'local-filter-fn
+            :not :to-have-been-called)
+    (expect 'global-filter-fn
+            :to-have-been-called-times
+            (+ (caar (org-roam-db-query
+                      [:select (funcall count *)
+                       :from nodes]))
+               (caar (org-roam-db-query
+                      [:select (funcall count *)
+                       :from aliases])))))
+
+  (it "uses filter override instead of default one"
+    (setq vulpea-insert-default-filter 'global-filter-fn)
+    (spy-on 'completing-read
+            :and-return-value "Big note")
+
+    (vulpea-insert 'local-filter-fn)
 
     (expect 'local-filter-fn
             :to-have-been-called-times

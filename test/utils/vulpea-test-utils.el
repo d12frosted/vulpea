@@ -87,5 +87,17 @@
                 (vulpea-db-query))))
     (vulpea-select-describe note)))
 
+(defun global-filter-fn (x)
+  "Just some dummy global filter for X."
+  x)
+
+(defun local-filter-fn (x)
+  "Just some dummy local filter for X."
+  x)
+
+(defun insert-handle-fn (x)
+  "Just some dummy insertion handler for X."
+  x)
+
 (provide 'vulpea-test-utils)
 ;;; vulpea-test-utils.el ends here

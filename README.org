@@ -140,6 +140,13 @@ Functions of interest:
   provide a consistent experience; selection can be narrowed down by
   =vulpea-find-default-filter= or by passing explicit filter.
 - =vulpea-find-backling= - select and find a backlink to the current note.
+- =vulpea-insert= - select a note and insert a link to it. When user selects
+  non-existent note, it is captured via =org-roam-capture= process (see
+  =org-roam-capture-templates=). Once the link is inserted,
+  =vulpea-insert-handle-functions= is called with inserted note as an argument,
+  so you can easily perform any necessary post-insertion actions. Selection is
+  controlled in a similar way to =vulpea-find= - via global
+  =vulpea-insert-default-filter= or local filter.
 - =vulpea-create= - function to create a new note file with given =TITLE=,
   =FILE-NAME=, extra =PROPERTIES=, =HEAD=, =BODY= and =CONTEXT=. Returns newly
   created note.
