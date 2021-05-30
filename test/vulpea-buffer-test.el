@@ -197,7 +197,15 @@ Some body.
 
 Some body.
 "
-             id))))
+             id)))
+
+  (it "ignore trailing spaces"
+    (setq id "2c3bd05d-b3d1-40bc-bd42-f019d441592c")
+    (expect
+     (vulpea-utils-with-note (vulpea-db-get-by-id id)
+       (vulpea-buffer-prop-set "value" "             ")
+       (vulpea-buffer-prop-get "value"))
+     :to-equal nil)))
 
 (describe "vulpea-buffer-meta-format"
   (before-all

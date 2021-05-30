@@ -128,9 +128,12 @@ If the property is already set, replace its value."
   (org-with-point-at 1
     (when (re-search-forward (concat "^#\\+" name ": \\(.*\\)")
                              (point-max) t)
-      (buffer-substring-no-properties
-       (match-beginning 1)
-       (match-end 1)))))
+      (let ((value (string-trim
+                    (buffer-substring-no-properties
+                     (match-beginning 1)
+                     (match-end 1)))))
+        (unless (string-empty-p value)
+          value)))))
 
 (defun vulpea-buffer-prop-get-list (name &optional separators)
   "Get a buffer property NAME as a list using SEPARATORS.
@@ -140,7 +143,7 @@ matching text that separates, but is not part of, the substrings.
 If nil it defaults to `split-string-default-separators', normally
 \"[ \f\t\n\r\v]+\", and OMIT-NULLS is forced to t."
   (let ((value (vulpea-buffer-prop-get name)))
-    (when (and value (not (string-empty-p value)))
+    (when value
       (split-string-and-unquote value separators))))
 
 
