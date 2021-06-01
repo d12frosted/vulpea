@@ -245,12 +245,13 @@ as its argument a `vulpea-note'. Unless specified,
              :node (org-roam-node-create
                     :title (vulpea-note-title note))
              :props
-             (list
-              :region (when (and beg end)
-                        (cons beg end))
-              :insert-at (point-marker)
-              :link-description description
-              :finalize #'vulpea-insert--capture-finalize)))))
+             (append
+              (when (and beg end)
+                (list :region (cons beg end)))
+              (list
+               :insert-at (point-marker)
+               :link-description description
+               :finalize #'vulpea-insert--capture-finalize))))))
     (deactivate-mark)))
 
 (defun vulpea-insert--capture-finalize ()
