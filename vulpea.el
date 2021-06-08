@@ -142,12 +142,21 @@ as its argument a `vulpea-note'. Unless specified,
 When REQUIRE-MATCH is nil user may select a non-existent note and
 start the capture process."
   (interactive current-prefix-arg)
-  (let ((note (vulpea-select
-               "Note"
-               :filter-fn
-               (or filter-fn
-                   vulpea-find-default-filter)
-               :require-match require-match)))
+  (let* ((region-text
+          (when (region-active-p)
+            (org-link-display-format
+             (buffer-substring-no-properties
+              (set-marker
+               (make-marker) (region-beginning))
+              (set-marker
+               (make-marker) (region-end))))))
+         (note (vulpea-select
+                "Note"
+                :filter-fn
+                (or filter-fn
+                    vulpea-find-default-filter)
+                :require-match require-match
+                :initial-prompt region-text)))
     (if (vulpea-note-id note)
         (org-roam-node-visit
          (org-roam-node-from-id (vulpea-note-id note))
