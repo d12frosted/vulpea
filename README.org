@@ -183,6 +183,13 @@ Functions of interest:
   =FILE-NAME=, extra =PROPERTIES=, =HEAD=, =BODY= and =CONTEXT=. Returns newly
   created note.
 
+#+begin_html
+<div>
+  <img src="images/vulpea-select.png" width="100%"/>
+  <p align="center"><em>Narrowing by aliases and tags</em></p>
+</div>
+#+end_html
+
 ** =vulpea-note=
 
 This module contains =vulpea-note= definition.
