@@ -16,13 +16,70 @@
 #+end_html
 
 A collection of functions for note taking based on =org= and =org-roam=. This
-repository goal is to be a tested library for other applications around note
-taking.
+repository primary goal is to be a tested library for other applications and
+utilities around note taking.
 
 Users of this library:
 
 - [[https://github.com/d12frosted/environment][d12frosted/environment]] - Emacs configurations;
 - [[https://github.com/d12frosted/vino][d12frosted/vino]] - collection of functions for cellar tracking and wine rating.
+
+* Table of Contents                                                :TOC_2_gh:
+- [[#reasons-to-use-vulpea][Reasons to use =vulpea=]]
+- [[#install][Install]]
+  - [[#use-package][use-package]]
+  - [[#straightel][straight.el]]
+- [[#data-types][Data types]]
+  - [[#mandatory-id-property][Mandatory =ID= property]]
+- [[#modules][Modules]]
+  - [[#vulpea][=vulpea=]]
+  - [[#vulpea-note][=vulpea-note=]]
+  - [[#vulpea-db][=vulpea-db=]]
+  - [[#vulpea-meta][=vulpea-meta=]]
+  - [[#vulpea-buffer][=vulpea-buffer=]]
+  - [[#vulpea-utils][=vulpea-utils=]]
+- [[#coding][Coding]]
+- [[#building-and-testing][Building and testing]]
+- [[#acknowledgements][Acknowledgements]]
+
+* Reasons to use =vulpea=
+
+1. If you are automating things around Org mode files and you want to have a
+   tested library to build upon.
+2. While =org-roam= was greatly simplified and adopted some ideas from =vulpea=
+   starting from =v2=, it still lacks certain pieces for programmatic usage.
+   Just to name few of them:
+   1. =vulpea-db-query= is a great interface for quick database search without
+      knowing its scheme. In many cases you just want to have a fully
+      materialized note instead of a structure that lacks, say tags or aliases.
+      So you don't need to write any extra SQL.
+   2. =vulpea-select= is a configurable interface for selecting a note with an
+      optional filter. Note rendering is controlled by two variables:
+      - =vulpea-select-describe-fn= - description of the note (by default
+        title).
+      - =vulpea-select-annotate-fn= - annotation of the note (by default primary
+        title when present and tags) with special face.
+   3. =vulpea-create= is a wrapper around =org-roam-capture-= allowing to easily
+      provide extra properties, tags and context when creating a new note. And
+      most importantly - it returns a newly created note.
+3. Several interactive functions:
+   1. =vulpea-find= that acts like =org-roam-node-find=, but (a) uses
+      =vulpea-select= for consistent experience and (b) allows to set
+      =vulpea-find-default-filter=, meaning that you can, for example, list only
+      file-level notes by default (which imitates =org-roam= v1 behaviour).
+   2. =vulpea-find-backlink= is just a convenient function to find a note
+      linking currently opened one. For those who don't want to use =org-roam=
+      buffer.
+   3. =vulpea-insert= that acts like =org-roam-node-insert=, but (a) uses
+      =vulpea-select= for consistent experience, (b) allows to set
+      =vulpea-insert-default-filter= (see =vulpea-find= for examples) and (c)
+      allows to provide an insertion handler via
+      =vulpea-insert-handle-functions=, which is called with inserted note.
+4. =vulpea= is more than just a wrapper around =org-roam=, it contains more
+   stuff:
+   1. Utilities for dealing with buffer properties (e.g. =#+KEY: VALUE=).
+   2. Utilities for dealing with metadata (e.g. first description list in the
+      buffer).
 
 * Install
 
