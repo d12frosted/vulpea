@@ -1,7 +1,3 @@
-:PROPERTIES:
-:ID:                     8fc370e3-29ae-47ab-bb2e-02e572e54599
-:END:
-
 #+begin_html
 <h1 align="center">Vulpea</h1>
 <p align="center">
@@ -29,17 +25,11 @@ Users of this library:
 - [[https://github.com/d12frosted/vino][d12frosted/vino]] - collection of functions for cellar tracking and wine rating.
 
 * Install
-:PROPERTIES:
-:ID:                     a021b872-2704-4d5a-adf1-0eb5a3a06ee0
-:END:
 
 =vulpea= is available via [[https://melpa.org/#/vulpea][MELPA]], but you can still install it manually, using
 [[https://github.com/raxod502/straight][straight]], [[https://github.com/quelpa/quelpa][quelpa]], or any other tool.
 
 ** use-package
-:PROPERTIES:
-:ID:                     efb94478-a55d-4f98-8dd3-88f032585add
-:END:
 
 #+begin_src emacs-lisp
   (use-package vulpea
@@ -47,9 +37,6 @@ Users of this library:
 #+end_src
 
 ** straight.el
-:PROPERTIES:
-:ID:                     2beccee5-417a-4053-8275-217f41dedcca
-:END:
 
 #+begin_src emacs-lisp
   (straight-use-package
@@ -67,9 +54,6 @@ In case you have [[https://github.com/raxod502/straight.el/#integration-with-use
 #+end_src
 
 * Data types
-:PROPERTIES:
-:ID:                     26af31d5-4fd4-40bb-9058-8543e7359c53
-:END:
 
 A note is represented as a =vulpea-note= structure with the following
 slots/fields:
@@ -89,9 +73,6 @@ non-existent. For example, =vulpea-select= returns such a note, when
 =require-match= is =nil= and the user selects non-existent note.
 
 ** Mandatory =ID= property
-:PROPERTIES:
-:ID:                     4aa43ec9-b576-4adc-b4a7-b01958ec2e15
-:END:
 
 Please note, that each existing =vulpea-note= (!) must contain an =ID= for
 Vulpea to be operational. =org-roam= should cover this, but another way to
@@ -113,14 +94,8 @@ always ensure existence of =ID= is to use the following code:
 #+end_src
 
 * Modules
-:PROPERTIES:
-:ID:                     3bc76150-557b-471b-94e3-efa2d903167a
-:END:
 
 ** =vulpea=
-:PROPERTIES:
-:ID:                     eafd127f-bf86-483f-a692-1bdda7d48659
-:END:
 
 This one-stop module contains some generic functions that didn't find their
 place in separate modules. It also imports every other module.
@@ -152,16 +127,10 @@ Functions of interest:
   created note.
 
 ** =vulpea-note=
-:PROPERTIES:
-:ID:                     71b66fd8-d51d-49af-8ad1-e2ecadac6210
-:END:
 
 This module contains =vulpea-note= definition.
 
 ** =vulpea-db=
-:PROPERTIES:
-:ID: 55717e59-d850-4659-8a02-8153fda52fef
-:END:
 
 This module contains functions to query notes data base. Functions of interest:
 
@@ -174,9 +143,6 @@ This module contains functions to query notes data base. Functions of interest:
 - =vulpea-db-query= - function to query notes with generic predicate.
 
 ** =vulpea-meta=
-:PROPERTIES:
-:ID:                     c1f820af-1940-46cb-a6bb-752146eec52b
-:END:
 
 This module contains functions for manipulating note metadata represented by the
 first description list in the note, e.g. list like:
@@ -203,9 +169,6 @@ Functions of interest:
 - =vulpea-meta-clean= - function to remove all meta for =NOTE-OR-ID=.
 
 ** =vulpea-buffer=
-:PROPERTIES:
-:ID:                     3d044495-a298-4422-b2a0-2a355430c1ac
-:END:
 
 This module contains functions for prop and meta manipulations in current
 buffer.
@@ -260,9 +223,6 @@ Metadata is defined as the first description list in the buffer, e.g. list like:
 - =vulpea-buffer-meta-format= - function to format a =VALUE=.
 
 ** =vulpea-utils=
-:PROPERTIES:
-:ID: 92508fc8-5500-489c-b534-659ebfdb8e9a
-:END:
 
 This module contains various utilities used by other modules. Functions of
 interest:
@@ -273,18 +233,12 @@ interest:
 - =vulpea-utils-note-hash= function to calculate =sha1= of a given =NOTE=.
 
 * Coding
-:PROPERTIES:
-:ID:                     fe0386d0-08d2-4eea-8c78-6a43fe97f318
-:END:
 
 Vulpea is developed using [[https://github.com/doublep/eldev/][eldev]]. If you are using =flycheck=, it is advised to
 also use [[https://github.com/flycheck/flycheck-eldev][flycheck-eldev]], as it makes dependencies and project files available
 thus mitigating false negative results from default Emacs Lisp checker.
 
 * Building and testing
-:PROPERTIES:
-:ID:                     69263cd2-927a-4a38-9ca0-e2dc8848e285
-:END:
 
 Vulpea tests are written using [[https://github.com/jorgenschaefer/emacs-buttercup/][buttercup]] testing framework. And [[https://github.com/doublep/eldev/][eldev]] is used to
 run them both locally and on CI. In order to run the tests locally, first
@@ -302,8 +256,5 @@ it as well:
 #+end_src
 
 * Acknowledgements
-:PROPERTIES:
-:ID:                     41c3498f-3f20-440f-9c50-fdade1340b14
-:END:
 
 [[images/logo.png][Logo]] was created by [[https://www.behance.net/irynarutylo][Iryna Rutylo]].
