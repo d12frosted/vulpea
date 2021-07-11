@@ -47,6 +47,7 @@
 (require 'vulpea-utils)
 (require 'vulpea-db)
 (require 'vulpea-buffer)
+(require 'vulpea-select)
 
 (defun vulpea-meta (note-or-id)
   "Get metadata for NOTE-OR-ID.
@@ -124,16 +125,92 @@ which case VALUE is added at the end of the meta."
     (vulpea-utils-with-file file
       (vulpea-buffer-meta-set prop value append))))
 
-(defun vulpea-meta-remove (note-or-id prop)
+(defun vulpea-meta--read-value (type)
+  "Read value of TYPE."
+  (pcase type
+    (`"string" (read-string "String: "))
+    (`"number" (read-number "Number: "))
+    (`"link" (read-string "URL: "))
+    (`"note" (vulpea-select "Note"))))
+
+(defun vulpea-meta-add ()
+  "Interactive version of `vulpea-meta-set' for note at point."
+  (interactive)
+  (if-let* ((id (save-excursion
+                  (goto-char (point-min))
+                  (org-id-get)))
+            (note (vulpea-db-get-by-id id)))
+      (when-let ((prop (read-string "Property: "))
+                 (value-type (completing-read
+                              "Value type: "
+                              '(string number link note)
+                              nil 'require-match))
+                 (value (vulpea-meta--read-value value-type)))
+        (vulpea-meta-set note prop value 'append))
+    (user-error "Current buffer is not a note")))
+
+(defun vulpea-meta-add-list ()
+  "Interactive version of `vulpea-meta-set' for note at point."
+  (interactive)
+  (if-let* ((id (save-excursion
+                  (goto-char (point-min))
+                  (org-id-get)))
+            (note (vulpea-db-get-by-id id)))
+      (when-let ((prop (read-string "Property: "))
+                 (value-type (completing-read
+                              "Value type: "
+                              '(string number link note)
+                              nil 'require-match))
+                 (values
+                  (vulpea-utils-collect-while
+                   #'vulpea-meta--read-value
+                   nil
+                   value-type)))
+        (vulpea-meta-set note prop values 'append))
+    (user-error "Current buffer is not a note")))
+
+(defun vulpea-meta-remove (&optional note-or-id prop)
   "Delete values of PROP for NOTE-OR-ID."
+  (interactive)
+  ;; handle interactive call, e.g. guess the note and read a prop
+  (when (called-interactively-p 'any)
+    (let ((id (save-excursion
+                (goto-char (point-min))
+                (org-id-get))))
+      (setq note-or-id (vulpea-db-get-by-id id))
+      (unless note-or-id
+        (user-error "Current buffer is not a note"))
+      (when-let
+          ((props
+            (seq-map
+             (lambda (item)
+               (org-element-interpret-data
+                (org-element-contents
+                 (org-element-property :tag item))))
+             (org-element-map (plist-get (vulpea-meta note-or-id) :pl)
+                 'item #'identity))))
+        (setq prop (completing-read "Property: " (seq-uniq props))))))
+
+  ;; do the dirty work
   (when-let ((file (if (stringp note-or-id)
                        (vulpea-db-get-file-by-id note-or-id)
                      (vulpea-note-path note-or-id))))
     (vulpea-utils-with-file file
       (vulpea-buffer-meta-remove prop))))
 
-(defun vulpea-meta-clean (note-or-id)
+(defun vulpea-meta-clean (&optional note-or-id)
   "Delete all meta from NOTE-OR-ID."
+  (interactive)
+  ;; handle interactive call, e.g. guess the note
+  (when (called-interactively-p 'any)
+    (let ((id (save-excursion
+                (goto-char (point-min))
+                (org-id-get))))
+      (setq note-or-id (vulpea-db-get-by-id id))
+      (unless note-or-id
+        (user-error "Current buffer is not a note"))))
+
+  ;; do the dirty work
   (when-let ((file (if (stringp note-or-id)
                        (vulpea-db-get-file-by-id note-or-id)
                      (vulpea-note-path note-or-id))))

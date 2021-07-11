@@ -55,6 +55,10 @@ changes.
 - New utilities to repeat functions:
   - =vulpea-utils-collect-while=;
   - =vulpea-utils-repeat-while=.
+- [[https://github.com/d12frosted/vulpea/issues/98][vulpea#98]] Make it possible to use =vulpea-meta-remove= interactively.
+- [[https://github.com/d12frosted/vulpea/issues/98][vulpea#98]] Make it possible to use =vulpea-meta-clean= interactively.
+- [[https://github.com/d12frosted/vulpea/issues/98][vulpea#98]] Provide interactive variant of =vulpea-meta-set=:
+  =vulpea-meta-add= and =vulpea-meta-add-list=.
 - All features of =org-roam= apply to =vulpea=.
 
 *Breaking changes*

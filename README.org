@@ -234,8 +234,13 @@ Functions of interest:
   =ID=. Values are parsed based on the passed =TYPE= or as a string if omitted.
 - =vulpea-meta-set= - function to set =VALUE= of =PROP= for =NOTE-OR-ID=.
   Supports multi-value properties.
-- =vulpea-meta-remove= - function to remove a =PROP= for =NOTE-OR-ID=.
-- =vulpea-meta-clean= - function to remove all meta for =NOTE-OR-ID=.
+- =vulpea-meta-add= - interactive version of =vulpea-meta-set=.
+- =vulpea-meta-add-list= - interactive version of =vulpea-meta-set= that
+  operates on list values.
+- =vulpea-meta-remove= - interactive function to remove a =PROP= for
+  =NOTE-OR-ID=.
+- =vulpea-meta-clean= - interactive function to remove all meta for
+  =NOTE-OR-ID=.
 
 ** =vulpea-buffer=
 
