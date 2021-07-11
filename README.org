@@ -33,6 +33,7 @@ Users of this library:
   - [[#mandatory-id-property][Mandatory =ID= property]]
 - [[#modules][Modules]]
   - [[#vulpea][=vulpea=]]
+  - [[#vulpea-select][=vulpea-select=]]
   - [[#vulpea-note][=vulpea-note=]]
   - [[#vulpea-db][=vulpea-db=]]
   - [[#vulpea-meta][=vulpea-meta=]]
@@ -159,15 +160,6 @@ place in separate modules. It also imports every other module.
 
 Functions of interest:
 
-- =vulpea-select= - function to =completing-read= a note with optional filter.
-  This function does not use =org-roam= completion system, as the latter is hard
-  to extend, configure and reuse in broader context. Display of notes in
-  completion list is defined by =vulpea-select-describe= function, which by
-  default formats the note in the =title (primary_title) #space_separated_tags=
-  format, which is controlled by two configurable values:
-  - =vulpea-select-describe-fn= - description of the note (by default title).
-  - =vulpea-select-annotate-fn= - annotation of the note (by default primary
-    title when present and tags) with special face.
 - =vulpea-find= - select and find a note, a wrapper around =vulpea-select= to
   provide a consistent experience; selection can be narrowed down by
   =vulpea-find-default-filter= or by passing explicit filter.
@@ -182,6 +174,19 @@ Functions of interest:
 - =vulpea-create= - function to create a new note file with given =TITLE=,
   =FILE-NAME=, extra =PROPERTIES=, =HEAD=, =BODY= and =CONTEXT=. Returns newly
   created note.
+
+** =vulpea-select=
+
+Module containing =vulpea-select= and it's configurations. =vulpea-select= is a
+function to =completing-read= a note with optional filter. This function does
+not use =org-roam= completion system, as the latter is hard to extend, configure
+and reuse in broader context. Display of notes in completion list is defined by
+=vulpea-select-describe= function, which by default formats the note in the
+=title (primary_title) #space_separated_tags= format, which is controlled by two
+configurable values:
+- =vulpea-select-describe-fn= - description of the note (by default title).
+- =vulpea-select-annotate-fn= - annotation of the note (by default primary
+  title when present and tags) with special face.
 
 #+begin_html
 <div>
