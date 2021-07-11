@@ -46,25 +46,31 @@
   "Return a list of `vulpea-note' that has TITLE.
 
 Does not support headings in the note."
-  (let ((files
-         (seq-map
-          #'car
-          (org-roam-db-query
-           [:select file
-            :from titles
-            :where (= title $s1)]
-           title))))
+  (let* ((matches
+          ;; would be nice if org-roam provides a helper for this
+          (seq-uniq
+           (append
+            (org-roam-db-query [:select [id] :from nodes
+                                :where (= title $s1)]
+                               title)
+            (org-roam-db-query [:select [node-id] :from aliases
+                                :where (= alias $s1)]
+                               title))))
+         ;; `org-roam-populate' is expensive
+         (nodes (seq-map
+                 (lambda (data)
+                   (org-roam-populate
+                    (org-roam-node-create :id (car data))))
+                 matches)))
     (seq-map
-     (lambda (file)
-       (make-vulpea-note
-        :path file
-        :title title
-        :tags (vulpea-utils-with-file file
-                (org-roam--extract-tags file))
-        :level 0
-        :id (vulpea-db-get-id-by-file file)
-        :meta (vulpea-db-get-meta-by-file file)))
-     files)))
+     (lambda (note)
+       (unless (string-equal (vulpea-note-title note)
+                             title)
+         (setf (vulpea-note-primary-title note)
+               (vulpea-note-title note))
+         (setf (vulpea-note-title note) title))
+       note)
+     (seq-map #'vulpea-note-from-node nodes))))
 
 ;;
 ;; Querying
@@ -74,36 +80,52 @@ Does not support headings in the note."
 
 When FILTER-FN is non-nil, only notes that satisfy it are
 returned."
-  (let*
-      ((rows (org-roam-db-query
-              [:select [files:file
-                        titles:title
-                        tags:tags
-                        ids:id
-                        files:meta]
-               :from titles
-               :left :join tags
-               :on (= titles:file tags:file)
-               :left :join files
-               :on (= titles:file files:file)
-               :left :join ids
-               :on (and (= titles:file ids:file)
-                        (= ids:level 0))]))
-       notes)
+  (let* ((rows
+          (org-roam-db-query
+           "select
+  id,
+  file,
+  title,
+  \"level\",
+  '(' || group_concat(tags,
+  ' ') || ')' as tags,
+  aliases
+from
+  (
+  select
+    nodes.id as id,
+    nodes.title as title,
+    nodes.file as file,
+    nodes.\"level\" as \"level\",
+    tags.tag as tags,
+    '(' || group_concat(aliases.alias, ' ') || ')' as aliases
+  from nodes
+  left join tags on tags.node_id = nodes.id
+  left join aliases on aliases.node_id = nodes.id
+  group by nodes.id, tags.tag )
+group by id, aliases;"))
+         notes)
     (dolist (row rows notes)
-      (pcase-let ((`(,file-path ,title ,tags ,id ,meta) row))
-        (let ((note (make-vulpea-note
-                     :path file-path
-                     :title title
-                     :tags tags
-                     :id id
-                     :level 0
-                     :meta (make-vulpea-note-meta
-                            :atime (plist-get meta :atime)
-                            :mtime (plist-get meta :mtime)))))
-          (when (or (null filter-fn)
-                    (funcall filter-fn note))
-            (push note notes)))))))
+      (let ((id (nth 0 row))
+            (file (nth 1 row))
+            (title (nth 2 row))
+            (level (nth 3 row))
+            (tags (nth 4 row))
+            (aliases (nth 5 row)))
+        (dolist (name (cons title aliases))
+          (let ((note (make-vulpea-note
+                       :path file
+                       :title name
+                       :primary-title
+                       (unless (string-equal title name)
+                         title)
+                       :tags tags
+                       :aliases aliases
+                       :id id
+                       :level level)))
+            (when (or (null filter-fn)
+                      (funcall filter-fn note))
+              (push note notes))))))))
 
 ;;
 ;; Exchanging ID to X
@@ -112,29 +134,8 @@ returned."
   "Find a `vulpea-note' by ID.
 
 Supports headings in the note."
-  (when-let*
-      ((fls
-        (org-roam-db-query
-         [:select [file level]
-          :from ids
-          :where (= id $s1)]
-         id))
-       (fl (car fls))
-       (file (car fl))
-       (level (nth 1 fl))
-       (title (if (= 0 level)
-                  (org-roam-db--get-title file)
-                (vulpea-utils-with-file file
-                  (goto-char (cdr (org-id-find-id-in-file id file)))
-                  (org-entry-get (point) "ITEM")))))
-    (make-vulpea-note
-     :path file
-     :title title
-     :tags (vulpea-utils-with-file file
-             (org-roam--extract-tags file))
-     :level level
-     :id id
-     :meta (vulpea-db-get-meta-by-file file))))
+  (vulpea-note-from-node
+   (org-roam-populate (org-roam-node-create :id id))))
 
 (defun vulpea-db-get-file-by-id (id)
   "Get file of `vulpea-note' with ID.
@@ -143,7 +144,7 @@ Supports headings in the note."
   (caar
    (org-roam-db-query
     [:select file
-     :from ids
+     :from nodes
      :where (= id $s1)]
     id)))
 
@@ -158,31 +159,13 @@ If the FILE is relative, it is considered to be relative to
   (caar
    (org-roam-db-query
     [:select id
-     :from ids
+     :from nodes
      :where (and (= file $s1)
                  (= level $s2))]
     (if (file-name-absolute-p file)
         file
       (expand-file-name file org-roam-directory))
     0)))
-
-(defun vulpea-db-get-meta-by-file (file)
-  "Get `vulpea-note-meta' of `vulpea-note' represented by FILE.
-
-If the FILE is relative, it is considered to be relative to
-`org-roam-directory'."
-  (when-let ((meta
-              (caar
-               (org-roam-db-query
-                [:select meta
-                 :from files
-                 :where (= file $s1)]
-                (if (file-name-absolute-p file)
-                    file
-                  (expand-file-name file org-roam-directory))))))
-    (make-vulpea-note-meta
-     :atime (plist-get meta :atime)
-     :mtime (plist-get meta :mtime))))
 
 ;;
 ;; Update

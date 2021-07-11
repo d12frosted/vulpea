@@ -38,6 +38,21 @@
 (require 'org)
 (require 'vulpea-note)
 
+(defvar vulpea-utils--uuid-regexp
+  (concat
+   "\\("
+   "[a-zA-Z0-9]\\{8\\}"
+   "-"
+   "[a-zA-Z0-9]\\{4\\}"
+   "-"
+   "[a-zA-Z0-9]\\{4\\}"
+   "-"
+   "[a-zA-Z0-9]\\{4\\}"
+   "-"
+   "[a-zA-Z0-9]\\{12\\}"
+   "\\)")
+  "UUID regexp.")
+
 (defmacro vulpea-utils-with-file (file &rest body)
   "Execute BODY in `org-mode' FILE.
 
@@ -70,6 +85,48 @@ beginning of the buffer. Otherwise at the heading with note id."
     (set-buffer-multibyte nil)
     (insert-file-contents-literally (vulpea-note-path note))
     (secure-hash 'sha1 (current-buffer))))
+
+(defun vulpea-utils-collect-while (fn filter &rest args)
+  "Repeat FN and collect it's results until `C-g` is used.
+
+Repeat cycle stops when `C-g` is used or FILTER returns nil.
+
+If FILTER is nil, it does not affect repeat cycle.
+
+If FILTER returns nil, the computed value is not added to result.
+
+ARGS are passed to FN."
+  (let (result
+        value
+        (continue t)
+        (inhibit-quit t))
+    (with-local-quit
+      (while continue
+        (setq value (apply fn args))
+        (if (and filter
+                 (null (funcall filter value)))
+            (setq continue nil)
+          (setq result (cons value result)))))
+    (setq quit-flag nil)
+    (seq-reverse result)))
+
+(defun vulpea-utils-repeat-while (fn filter &rest args)
+  "Repeat FN and return the first unfiltered result.
+
+Repeat cycle stops when `C-g` is used or FILTER returns nil.
+
+ARGS are passed to FN."
+  (let (value
+        (continue t)
+        (inhibit-quit t))
+    (with-local-quit
+      (while continue
+        (setq value (apply fn args))
+        (when (null (funcall filter value))
+          (setq continue nil))))
+    (setq quit-flag nil)
+    (when (null continue)
+      value)))
 
 (provide 'vulpea-utils)
 ;;; vulpea-utils.el ends here

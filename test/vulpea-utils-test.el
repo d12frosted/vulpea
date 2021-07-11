@@ -45,5 +45,29 @@
               (org-entry-get (point) "ID"))
             :to-equal id)))
 
+(describe "vulpea-utils--uuid-regexp"
+  (it "matches some UUID"
+    (expect (string-match vulpea-utils--uuid-regexp (org-id-new))
+            :to-be 0))
+  (it "doesn't match non-UUID"
+    (expect (string-match vulpea-utils--uuid-regexp "not UUID")
+            :to-be nil)))
+
+(describe "vulpea-utils-collect-while"
+  (it "repeats a function until filter returns nil"
+    (let ((n 0))
+      (expect (vulpea-utils-collect-while
+               (lambda () (setq n (+ 1 n)))
+               (lambda (v) (< v 5)))
+              :to-equal '(1 2 3 4)))))
+
+(describe "vulpea-utils-repeat-while"
+  (it "repeats a function until filter returns nil"
+    (let ((n 0))
+      (expect (vulpea-utils-repeat-while
+               (lambda () (setq n (+ 1 n)))
+               (lambda (v) (< v 5)))
+              :to-equal 5))))
+
 (provide 'vulpea-utils-test)
 ;;; vulpea-utils-test.el ends here

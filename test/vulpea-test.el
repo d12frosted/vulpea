@@ -24,48 +24,156 @@
 (require 'vulpea)
 (require 'vulpea-db)
 
-(describe "vulpea-select"
-  :var ((filter-count 0))
+(describe "vulpea-find"
   (before-all
     (vulpea-test--init))
 
+  (before-each
+    (setq vulpea-find-default-filter nil)
+    (spy-on 'local-filter-fn :and-call-through)
+    (spy-on 'global-filter-fn :and-call-through))
+
   (after-all
-    (vulpea-test--teardown))
+    (vulpea-test--teardown)
+    (setq vulpea-find-default-filter nil))
 
-  (it "returns all information about existing note"
-    (spy-on 'org-roam-completion--completing-read
-            :and-return-value "(tag1,tag2) Reference")
-    (expect (vulpea-select "Note")
-            :to-equal
-            (make-vulpea-note
-             :path (expand-file-name "reference.org" org-roam-directory)
-             :title "Reference"
-             :tags '("tag1" "tag2")
-             :level 0
-             :id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"
-             :meta (vulpea-test-meta "reference.org"))))
+  (it "finds existing note without any filters"
+    (spy-on 'org-roam-node-visit)
+    (spy-on 'completing-read
+            :and-return-value "Big note")
 
-  (it "returns only title for non-existent note"
-    (spy-on 'org-roam-completion--completing-read
-            :and-return-value "Future")
-    (expect (vulpea-select "Note")
-            :to-equal
-            (make-vulpea-note
-             :title "Future"
-             :level 0)))
+    (vulpea-find)
 
-  (it "calls FILTER-FN on each item"
-    (spy-on 'org-roam-completion--completing-read
-            :and-return-value "(tag1,tag2) Reference")
+    (expect 'org-roam-node-visit :to-have-been-called))
 
-    (vulpea-select "Note"
-                   :filter-fn
-                   (lambda (_)
-                     (setq filter-count (+ 1 filter-count))))
-    (expect filter-count :to-equal
-            (caar (org-roam-db-query
-                   [:select (funcall count *)
-                    :from titles])))))
+  (it "initiates capture process"
+    (spy-on 'org-roam-capture-)
+    (spy-on 'completing-read
+            :and-return-value "I simply can't exist")
+
+    (vulpea-find)
+
+    (expect 'org-roam-capture- :to-have-been-called))
+
+  (it "uses default filter"
+    (setq vulpea-find-default-filter 'global-filter-fn)
+    (spy-on 'org-roam-node-visit)
+    (spy-on 'completing-read
+            :and-return-value "Big note")
+
+    (vulpea-find)
+
+    (expect 'local-filter-fn
+            :not :to-have-been-called)
+    (expect 'global-filter-fn
+            :to-have-been-called-times
+            (+ (caar (org-roam-db-query
+                      [:select (funcall count *)
+                       :from nodes]))
+               (caar (org-roam-db-query
+                      [:select (funcall count *)
+                       :from aliases])))))
+
+  (it "uses filter override instead of default one"
+    (setq vulpea-find-default-filter 'global-filter-fn)
+    (spy-on 'org-roam-node-visit)
+    (spy-on 'completing-read
+            :and-return-value "Big note")
+
+    (vulpea-find nil 'local-filter-fn)
+
+    (expect 'local-filter-fn
+            :to-have-been-called-times
+            (+ (caar (org-roam-db-query
+                      [:select (funcall count *)
+                       :from nodes]))
+               (caar (org-roam-db-query
+                      [:select (funcall count *)
+                       :from aliases]))))
+    (expect 'global-filter-fn
+            :not :to-have-been-called)))
+
+(describe "vulpea-insert"
+  (before-each
+    (vulpea-test--init)
+    (setq vulpea-insert-default-filter nil)
+    (spy-on 'local-filter-fn :and-call-through)
+    (spy-on 'global-filter-fn :and-call-through)
+    (spy-on 'insert-handle-fn :and-call-through)
+    (add-hook 'vulpea-insert-handle-functions 'insert-handle-fn))
+
+  (after-each
+    (vulpea-test--teardown)
+    (setq vulpea-insert-default-filter nil))
+
+  (it "inserts existing note"
+    (spy-on 'completing-read
+            :and-return-value "Big note")
+
+    (vulpea-insert)
+
+    (expect 'insert-handle-fn
+            :to-have-been-called-with
+            (vulpea-db-get-by-id "eeec8f05-927f-4c61-b39e-2fb8228cf484")))
+
+  (it "inserts captured note"
+    (setq org-roam-capture-templates
+          '(("d" "default" plain "%?"
+             :if-new
+             (file+head
+              "%<%Y%m%d%H%M%S>-${slug}.org"
+              "#+title: ${title}\n")
+             :unnarrowed t
+             :immediate-finish t)))
+    (spy-on 'completing-read
+            :and-return-value "I can't possibly exist")
+
+    (vulpea-insert)
+
+    (expect 'insert-handle-fn
+            :to-have-been-called-with
+            (car-safe
+             (vulpea-db-query
+              (lambda (note)
+                (string-equal
+                 (vulpea-note-title note)
+                 "I can't possibly exist"))))))
+
+  (it "uses default filter"
+    (setq vulpea-insert-default-filter 'global-filter-fn)
+    (spy-on 'completing-read
+            :and-return-value "Big note")
+
+    (vulpea-insert)
+
+    (expect 'local-filter-fn
+            :not :to-have-been-called)
+    (expect 'global-filter-fn
+            :to-have-been-called-times
+            (+ (caar (org-roam-db-query
+                      [:select (funcall count *)
+                       :from nodes]))
+               (caar (org-roam-db-query
+                      [:select (funcall count *)
+                       :from aliases])))))
+
+  (it "uses filter override instead of default one"
+    (setq vulpea-insert-default-filter 'global-filter-fn)
+    (spy-on 'completing-read
+            :and-return-value "Big note")
+
+    (vulpea-insert 'local-filter-fn)
+
+    (expect 'local-filter-fn
+            :to-have-been-called-times
+            (+ (caar (org-roam-db-query
+                      [:select (funcall count *)
+                       :from nodes]))
+               (caar (org-roam-db-query
+                      [:select (funcall count *)
+                       :from aliases]))))
+    (expect 'global-filter-fn
+            :not :to-have-been-called)))
 
 (describe "vulpea-create"
   :var (note)
@@ -79,11 +187,9 @@
     (setq note
           (vulpea-create
            "Slarina"
-           (list :file-name "prefix-${slug}"
-                 :head "#+TITLE: ${title}\n\n"
-                 :unnarrowed t
-                 :immediate-finish t)))
-    (expect vulpea--capture-file-path :to-be nil)
+           "prefix-${slug}.org"
+           :unnarrowed t
+           :immediate-finish t))
     (expect note
             :to-equal
             (make-vulpea-note
@@ -91,8 +197,7 @@
              :title "Slarina"
              :tags nil
              :level 0
-             :id (vulpea-note-id note)
-             :meta (vulpea-note-meta note)))
+             :id (vulpea-note-id note)))
     (expect (vulpea-db-get-by-id (vulpea-note-id note))
             :to-equal
             note))
@@ -101,11 +206,10 @@
     (setq note
           (vulpea-create
            "Frappato"
-           (list :file-name "prefix-${slug}"
-                 :head "#+TITLE: ${title}\n\n"
-                 :unnarrowed t
-                 :immediate-finish t)
-           (list (cons 'id "xyz"))))
+           "prefix-${slug}.org"
+           :id "xyz"
+           :unnarrowed t
+           :immediate-finish t))
     (expect note
             :to-equal
             (make-vulpea-note
@@ -113,8 +217,7 @@
              :title "Frappato"
              :tags nil
              :level 0
-             :id "xyz"
-             :meta (vulpea-note-meta note)))
+             :id "xyz"))
     (expect (vulpea-db-get-by-id "xyz")
             :to-equal
             note))
@@ -123,12 +226,12 @@
     (setq note
           (vulpea-create
            "Nerello Mascalese"
-           (list :file-name "prefix-${slug}"
-                 :head "#+TITLE: ${title}\n\n"
-                 :unnarrowed t
-                 :immediate-finish t)
-           (list (cons 'title "hehe")
-                 (cons 'slug "xoxo"))))
+           "prefix-${slug}.org"
+           :unnarrowed t
+           :immediate-finish t
+           :context
+           (list :title "hehe"
+                 :slug "xoxo")))
     (expect note
             :to-equal
             (make-vulpea-note
@@ -136,32 +239,33 @@
              :title "Nerello Mascalese"
              :tags nil
              :level 0
-             :id (vulpea-note-id note)
-             :meta (vulpea-note-meta note)))
+             :id (vulpea-note-id note)))
     (expect (vulpea-db-get-by-id (vulpea-note-id note))
             :to-equal
             note))
 
-  (it "creates new file with additional context"
+  (it "creates new file with additional head, tags, body, context and properties"
     (setq note
           (vulpea-create
            "Aglianico"
-           (list :file-name "prefix-${slug}"
-                 :head (concat
-                        "#+TITLE: ${title}\n"
-                        "#+ROAM_KEY: ${url}\n")
-                 :unnarrowed t
-                 :immediate-finish t)
-           (list (cons 'url "https://d12frosted.io"))))
+           "prefix-${slug}.org"
+           :head "#+roam_key: ${url}"
+           :tags '("tag1" "tag2")
+           :body "Well, I am a grape!"
+           :unnarrowed t
+           :immediate-finish t
+           :context
+           (list :url "https://d12frosted.io")
+           :properties
+           (list (cons "MY_TAG" "super-tag"))))
     (expect note
             :to-equal
             (make-vulpea-note
              :path (expand-file-name "prefix-aglianico.org" org-roam-directory)
              :title "Aglianico"
-             :tags nil
+             :tags '("tag1" "tag2")
              :level 0
-             :id (vulpea-note-id note)
-             :meta (vulpea-note-meta note)))
+             :id (vulpea-note-id note)))
     (expect (vulpea-db-get-by-id (vulpea-note-id note))
             :to-equal
             note)
@@ -170,10 +274,13 @@
             (format
              ":PROPERTIES:
 :ID:       %s
+:MY_TAG:   super-tag
 :END:
-#+TITLE: Aglianico
-#+ROAM_KEY: https://d12frosted.io
+#+title: Aglianico
+#+filetags: tag1 tag2
+#+roam_key: https://d12frosted.io
 
+Well, I am a grape!
 "
              (vulpea-note-id note)))))
 

@@ -12,7 +12,88 @@
 :ID:                     32a267f4-dd27-44b9-a045-5835a5c8503f
 :END:
 
-Migration to org-roam v2.
+Primarily migration to =org-roam= v2 that has many improvements and breaking
+changes.
+
+*Features*
+
+- Allow to provide extra properties in =vulpea-create=.
+- New function to manipulate =#+title=: =vulpea-buffer-title-set= and
+  =vulpea-buffer-title-get=.
+- New functions to manipulate =#+filetags=:
+  - =vulpea-buffer-tags-get= - function to get list of tags.
+  - =vulpea-buffer-tags-set= - function to set/replace the value of
+    =#+filetags=.
+  - =vulpea-buffer-tags-add= - function to add a tag to =#+filetags=.
+  - =vulpea-buffer-tags-remove= - function to remove a tag from =#+filetags=.
+- New functions to manipulate buffer-wide properties in the buffer header using
+  =#+NAME: value= format:
+  - =vulpea-buffer-prop-set= - function to set a =VALUE= of property with =NAME=
+    in the current buffer.
+  - =vulpea-buffer-prop-set-list= - function to set a value of property with
+    =NAME= to the list of =VALUES= in the current buffer.
+  - =vulpea-buffer-prop-get= - function to get a value of property with =NAME=
+    from the current buffer.
+  - =vulpea-buffer-prop-get-list= - function to get a value of property with
+    =NAME= as a list separated by some =SEPARATORS=.
+- Extract buffer related functions (prop and meta related) to separate module.
+  Basically, this means that now it's possible to manipulate meta lists that are
+  located in any org file, not necessarily part of =vulpea=.
+- Add =aliases= and =primary-title= slots to =vulpea-note=.
+- Use custom completion in =vulpea-select= instead of one provided by
+  =org-roam=. See documentation for more information.
+- New functionality to select and find a note:
+  - =vulpea-find= - just a wrapper around =vulpea-select= to provide a
+    consistent experience; selection can be narrowed down by
+    =vulpea-find-default-filter= or by passing explicit filter.
+  - =vulpea-find-backlink= - select and find a backlink to current note.
+- New functionality to insert a link to the note via =vulpea-insert=, which
+  accepts global and local filter (just like =vulpea-find=) and allows to hook
+  into finalisation (e.g. call your custom handler after the link was inserted
+  regardless involvement of capture process). See documentation for more
+  information.
+- New utilities to repeat functions:
+  - =vulpea-utils-collect-while=;
+  - =vulpea-utils-repeat-while=.
+- [[https://github.com/d12frosted/vulpea/issues/98][vulpea#98]] Make it possible to use =vulpea-meta-remove= interactively.
+- [[https://github.com/d12frosted/vulpea/issues/98][vulpea#98]] Make it possible to use =vulpea-meta-clean= interactively.
+- [[https://github.com/d12frosted/vulpea/issues/98][vulpea#98]] Provide interactive variant of =vulpea-meta-set=:
+  =vulpea-meta-add= and =vulpea-meta-add-list=.
+- All features of =org-roam= apply to =vulpea=.
+
+*Breaking changes*
+
+- Flatten template in =vulpea-create=, meaning that instead of passing a
+  template in format =(:body :file-name :head :unnarrowed :immediate-finish)=,
+  all values should be passed as arguments to =vulpea-create=. Also, there is no
+  need to provide =#+title: ${title}= in =:head= anymore. See =vulpea-create=
+  documentation for more information.
+  #+begin_src emacs-lisp
+    ;; instead of
+    (vulpea-create title
+                   (list :file-name file-name
+                         :head "#+title: ${title}\n#+url: ${url}\n#+filetags: tag1 tag2\n"
+                         :unnarrowed t
+                         :immediate-finish t)
+                   (list (cons url "https://example.org")
+                         (cons id "xyz")))
+
+    ;; you should
+    (vulpea-create title
+                   file-name
+                   :id xyz
+                   :tags '("tag1" "tag2")
+                   :head "#+url: ${url}"
+                   :unnarrowed t
+                   :immediate-finish t
+                   :context
+                   (list :url "https://example.org"))
+  #+end_src
+- Remove =vulpea-setup= because =org-roam= v2 already provides all information
+  to get resulting file of capture process.
+- Remove =vulpea-note-meta=. It was only used for =vulpea-select=, but now it is
+  not needed anymore.
+- All breaking changes of =org-roam= apply to =vulpea=.
 
 ** v0.1.1
 :PROPERTIES:

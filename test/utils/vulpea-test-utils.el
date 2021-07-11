@@ -42,30 +42,12 @@
         (new-dir (expand-file-name (make-temp-name "note-files") temporary-file-directory)))
     (copy-directory original-dir new-dir)
     (setq org-roam-directory new-dir)
-    (vulpea-setup)
-    (org-roam-mode +1)
-    (org-roam-db-build-cache)))
+    (org-roam-setup)))
 
 (defun vulpea-test--teardown ()
   "Teardown testing environment."
-  (org-roam-mode -1)
-  (delete-file org-roam-db-location)
-  (org-roam-db--close))
-
-(defun vulpea-test-meta (file)
-  "Return `vulpea-note-meta' for FILE.
-
-If the FILE is relative, it is considered to be relative to
-`org-roam-directory'."
-  (let* ((attr (file-attributes
-                (if (file-name-absolute-p file)
-                    file
-                  (expand-file-name file org-roam-directory))))
-         (atime (file-attribute-access-time attr))
-         (mtime (file-attribute-modification-time attr)))
-    (make-vulpea-note-meta
-     :atime atime
-     :mtime mtime)))
+  (org-roam-teardown)
+  (delete-file org-roam-db-location))
 
 (buttercup-define-matcher :to-contain-exactly (file value)
   (cl-destructuring-bind
@@ -89,6 +71,33 @@ If the FILE is relative, it is considered to be relative to
         (cons nil (buttercup-format-spec
                    "Expected `%F' to have content equal to `%v', but instead `%F' has content equal to `%c'"
                    spec))))))
+
+(cl-defun completion-for (&key title tags)
+  "Return completion for TITLE and TAGS matchers."
+  (when-let ((note
+              (seq-find
+                (lambda (note)
+                  (let ((res (and (or (null title) (string-equal title (vulpea-note-title note)))
+                                  (or (null tags)
+                                      (seq-every-p
+                                       (lambda (x)
+                                         (seq-contains-p (vulpea-note-tags note) x))
+                                       tags)))))
+                    res))
+                (vulpea-db-query))))
+    (vulpea-select-describe note)))
+
+(defun global-filter-fn (x)
+  "Just some dummy global filter for X."
+  x)
+
+(defun local-filter-fn (x)
+  "Just some dummy local filter for X."
+  x)
+
+(defun insert-handle-fn (x)
+  "Just some dummy insertion handler for X."
+  x)
 
 (provide 'vulpea-test-utils)
 ;;; vulpea-test-utils.el ends here

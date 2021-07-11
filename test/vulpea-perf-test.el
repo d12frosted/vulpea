@@ -49,8 +49,7 @@
          (_ (url-copy-file vulpea-perf-zip-url zip-file-loc))
          (_ (shell-command (format "mkdir -p %s && unzip -j -qq %s -d %s" temp-loc zip-file-loc temp-loc))))
     (setq org-roam-directory temp-loc)
-    (org-roam-mode +1)
-    (org-roam-db-build-cache)))
+    (org-roam-setup)))
 
 (describe "vulpea-select performance"
   :var (duration)
@@ -61,7 +60,7 @@
     (vulpea-test--teardown))
 
   (it "select without filter is fast"
-    (spy-on 'org-roam-completion--completing-read
+    (spy-on 'completing-read
             :and-return-value "bell-bottom sprue Presently the roots")
     (setq duration
           (benchmark-run 100
@@ -71,7 +70,7 @@
     (expect (car duration) :to-be-less-than 10))
 
   (it "select with filter is fast"
-    (spy-on 'org-roam-completion--completing-read
+    (spy-on 'completing-read
             :and-return-value "bell-bottom sprue Presently the roots")
     (setq duration
           (benchmark-run 100
