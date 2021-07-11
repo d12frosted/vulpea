@@ -180,16 +180,19 @@ which case VALUE is added at the end of the meta."
       (setq note-or-id (vulpea-db-get-by-id id))
       (unless note-or-id
         (user-error "Current buffer is not a note"))
-      (when-let
-          ((props
+      (when-let*
+          ((meta (vulpea-meta note-or-id))
+           (pl (plist-get meta :pl))
+           (props
             (seq-map
              (lambda (item)
                (org-element-interpret-data
                 (org-element-contents
                  (org-element-property :tag item))))
-             (org-element-map (plist-get (vulpea-meta note-or-id) :pl)
-                 'item #'identity))))
-        (setq prop (completing-read "Property: " (seq-uniq props))))))
+             (org-element-map pl 'item #'identity))))
+        (setq prop (completing-read
+                    "Property: "
+                    (seq-uniq props))))))
 
   ;; do the dirty work
   (when-let ((file (if (stringp note-or-id)
