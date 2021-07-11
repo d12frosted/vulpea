@@ -52,6 +52,9 @@ changes.
   into finalisation (e.g. call your custom handler after the link was inserted
   regardless involvement of capture process). See documentation for more
   information.
+- New utilities to repeat functions:
+  - =vulpea-utils-collect-while=;
+  - =vulpea-utils-repeat-while=.
 - All features of =org-roam= apply to =vulpea=.
 
 *Breaking changes*

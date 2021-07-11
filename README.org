@@ -299,7 +299,14 @@ interest:
 - =vulpea-utils-with-note= - function to execute =BODY= with point at =NOTE=.
   Supports file-level notes as well as heading notes.
 - =vulpea-utils-link-make-string= - make a bracket link to =NOTE=.
-- =vulpea-utils-note-hash= function to calculate =sha1= of a given =NOTE=.
+- =vulpea-utils-note-hash= - function to calculate =sha1= of a given =NOTE=.
+- =vulpea-utils-collect-while= - utility to repeat some function and collect
+  it's results until ~C-g~ is used or passed filter returns =nil=. Example of
+  usage - you want to collect multiple values from user and be able to quit the
+  process.
+- =vulpea-utils-repeat-while= - utility to repeat some function and return first
+  unfiltered result. Example of usage - you want to enforce some validation on
+  value and keep prompting user until valid value is typed.
 
 * Coding
 
