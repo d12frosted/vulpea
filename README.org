@@ -46,9 +46,9 @@ Users of this library:
 
 1. If you are automating things around Org mode files and you want to have a
    tested library to build upon.
-2. While =org-roam= was greatly simplified and adopted some ideas from =vulpea=
-   starting from =v2=, it still lacks certain pieces for programmatic usage.
-   Just to name few of them:
+2. While =org-roam= was greatly simplified and has adopted some ideas from
+   =vulpea= starting from =v2=, it still lacks certain pieces for programmatic
+   usage. Just to name few of them:
    1. =vulpea-db-query= is a great interface for quick database search without
       knowing its scheme. In many cases you just want to have a fully
       materialized note instead of a structure that lacks, say tags or aliases.
