@@ -12,6 +12,8 @@
 :ID:                     32a267f4-dd27-44b9-a045-5835a5c8503f
 :END:
 
+** v0.2.0
+
 Primarily migration to =org-roam= v2 that has many improvements and breaking
 changes.
 
