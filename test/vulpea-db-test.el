@@ -44,7 +44,14 @@
               :tags nil
               :aliases '("Alias of the note with alias")
               :level 0
-              :id "72522ed2-9991-482e-a365-01155c172aa5"))))
+              :id "72522ed2-9991-482e-a365-01155c172aa5"
+              :properties (list
+                           (cons "CATEGORY" "note-with-alias")
+                           (cons "ROAM_ALIASES" "\"Alias of the note with alias\"")
+                           (cons "ID" "72522ed2-9991-482e-a365-01155c172aa5")
+                           (cons "BLOCKED" "")
+                           (cons "FILE" (expand-file-name "note-with-alias.org" org-roam-directory))
+                           (cons "PRIORITY" "B"))))))
 
   (it "finds a note by alias"
     (expect (vulpea-db-search-by-title "Alias of the note with alias")
@@ -57,7 +64,14 @@
               :tags nil
               :aliases '("Alias of the note with alias")
               :level 0
-              :id "72522ed2-9991-482e-a365-01155c172aa5"))))
+              :id "72522ed2-9991-482e-a365-01155c172aa5"
+              :properties (list
+                           (cons "CATEGORY" "note-with-alias")
+                           (cons "ROAM_ALIASES" "\"Alias of the note with alias\"")
+                           (cons "ID" "72522ed2-9991-482e-a365-01155c172aa5")
+                           (cons "BLOCKED" "")
+                           (cons "FILE" (expand-file-name "note-with-alias.org" org-roam-directory))
+                           (cons "PRIORITY" "B"))))))
 
   (it "finds multiple notes sharing the same title"
     (expect (vulpea-db-search-by-title "Duplicating Term")
@@ -68,13 +82,25 @@
               :title "Duplicating Term"
               :tags '("tag1" "tag2")
               :level 0
-              :id "ff01962f-47c2-4a32-9bf4-990e41090a9b")
+              :id "ff01962f-47c2-4a32-9bf4-990e41090a9b"
+              :properties (list
+                           (cons "CATEGORY" "same-name-1")
+                           (cons "ID" "ff01962f-47c2-4a32-9bf4-990e41090a9b")
+                           (cons "BLOCKED" "")
+                           (cons "FILE" (expand-file-name "same-name-1.org" org-roam-directory))
+                           (cons "PRIORITY" "B")))
              (make-vulpea-note
               :path (expand-file-name "same-name-2.org" org-roam-directory)
               :title "Duplicating Term"
               :tags '("tag3")
               :level 0
-              :id "68f11246-91e1-4d48-b3c6-801a2ef0160b"))))
+              :id "68f11246-91e1-4d48-b3c6-801a2ef0160b"
+              :properties (list
+                           (cons "CATEGORY" "same-name-2")
+                           (cons "ID" "68f11246-91e1-4d48-b3c6-801a2ef0160b")
+                           (cons "BLOCKED" "")
+                           (cons "FILE" (expand-file-name "same-name-2.org" org-roam-directory))
+                           (cons "PRIORITY" "B"))))))
 
   (it "returns all information about the note"
     (expect (vulpea-db-search-by-title "Reference")
@@ -85,7 +111,13 @@
               :title "Reference"
               :tags '("tag1" "tag2")
               :level 0
-              :id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"))))
+              :id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"
+              :properties (list
+                           (cons "CATEGORY" "reference")
+                           (cons "ID" "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")
+                           (cons "BLOCKED" "")
+                           (cons "FILE" (expand-file-name "reference.org" org-roam-directory))
+                           (cons "PRIORITY" "B"))))))
 
   (it "should use case sensitive search"
     (expect (vulpea-db-search-by-title "reference")
@@ -119,13 +151,25 @@
               :title "Duplicating Term"
               :tags '("tag1" "tag2")
               :level 0
-              :id "ff01962f-47c2-4a32-9bf4-990e41090a9b")
+              :id "ff01962f-47c2-4a32-9bf4-990e41090a9b"
+              :properties (list
+                           (cons "CATEGORY" "same-name-1")
+                           (cons "ID" "ff01962f-47c2-4a32-9bf4-990e41090a9b")
+                           (cons "BLOCKED" "")
+                           (cons "FILE" (expand-file-name "same-name-1.org" org-roam-directory))
+                           (cons "PRIORITY" "B")))
              (make-vulpea-note
               :path (expand-file-name "same-name-2.org" org-roam-directory)
               :title "Duplicating Term"
               :tags '("tag3")
               :level 0
-              :id "68f11246-91e1-4d48-b3c6-801a2ef0160b")))))
+              :id "68f11246-91e1-4d48-b3c6-801a2ef0160b"
+              :properties (list
+                           (cons "CATEGORY" "same-name-2")
+                           (cons "ID" "68f11246-91e1-4d48-b3c6-801a2ef0160b")
+                           (cons "BLOCKED" "")
+                           (cons "FILE" (expand-file-name "same-name-2.org" org-roam-directory))
+                           (cons "PRIORITY" "B")))))))
 
 (describe "vulpea-db-get-by-id"
   (before-all
@@ -147,7 +191,14 @@
              :tags nil
              :aliases '("Alias of the note with alias")
              :level 0
-             :id "72522ed2-9991-482e-a365-01155c172aa5")))
+             :id "72522ed2-9991-482e-a365-01155c172aa5"
+             :properties (list
+                           (cons "CATEGORY" "note-with-alias")
+                           (cons "ROAM_ALIASES" "\"Alias of the note with alias\"")
+                           (cons "ID" "72522ed2-9991-482e-a365-01155c172aa5")
+                           (cons "BLOCKED" "")
+                           (cons "FILE" (expand-file-name "note-with-alias.org" org-roam-directory))
+                           (cons "PRIORITY" "B")))))
 
   (it "returns note by sub-heading id"
     (expect (vulpea-db-get-by-id "b77a4837-71d6-495e-98f1-b576464aacc1")
@@ -157,9 +208,16 @@
              :title "Big note sub-heading"
              :tags nil
              :level 1
-             :id "b77a4837-71d6-495e-98f1-b576464aacc1")))
+             :id "b77a4837-71d6-495e-98f1-b576464aacc1"
+             :properties (list
+                          (cons "CATEGORY" "big-note")
+                          (cons "ID" "b77a4837-71d6-495e-98f1-b576464aacc1")
+                          (cons "BLOCKED" "")
+                          (cons "FILE" (expand-file-name "big-note.org" org-roam-directory))
+                          (cons "PRIORITY" "B")
+                          (cons "ITEM" "Big note sub-heading")))))
 
-  (it "returns note by sub0sub-heading id"
+  (it "returns note by sub-sub-heading id"
     (expect (vulpea-db-get-by-id "cfc39858-351d-4f1e-8f98-10d16d71f49e")
             :to-equal
             (make-vulpea-note
@@ -167,7 +225,14 @@
              :title "Big note sub-sub-heading"
              :tags nil
              :level 2
-             :id "cfc39858-351d-4f1e-8f98-10d16d71f49e"))))
+             :id "cfc39858-351d-4f1e-8f98-10d16d71f49e"
+             :properties (list
+                          (cons "CATEGORY" "big-note")
+                          (cons "ID" "cfc39858-351d-4f1e-8f98-10d16d71f49e")
+                          (cons "BLOCKED" "")
+                          (cons "FILE" (expand-file-name "big-note.org" org-roam-directory))
+                          (cons "PRIORITY" "B")
+                          (cons "ITEM" "Big note sub-sub-heading"))))))
 
 (describe "vulpea-db-get-file-by-id"
   (before-all

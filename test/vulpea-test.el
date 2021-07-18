@@ -197,7 +197,13 @@
              :title "Slarina"
              :tags nil
              :level 0
-             :id (vulpea-note-id note)))
+             :id (vulpea-note-id note)
+             :properties (list
+                           (cons "CATEGORY" "prefix-slarina")
+                           (cons "ID" (vulpea-note-id note))
+                           (cons "BLOCKED" "")
+                           (cons "FILE" (expand-file-name "prefix-slarina.org" org-roam-directory))
+                           (cons "PRIORITY" "B"))))
     (expect (vulpea-db-get-by-id (vulpea-note-id note))
             :to-equal
             note))
@@ -217,7 +223,13 @@
              :title "Frappato"
              :tags nil
              :level 0
-             :id "xyz"))
+             :id "xyz"
+             :properties (list
+                           (cons "CATEGORY" "prefix-frappato")
+                           (cons "ID" "xyz")
+                           (cons "BLOCKED" "")
+                           (cons "FILE" (expand-file-name "prefix-frappato.org" org-roam-directory))
+                           (cons "PRIORITY" "B"))))
     (expect (vulpea-db-get-by-id "xyz")
             :to-equal
             note))
@@ -239,7 +251,13 @@
              :title "Nerello Mascalese"
              :tags nil
              :level 0
-             :id (vulpea-note-id note)))
+             :id (vulpea-note-id note)
+             :properties (list
+                           (cons "CATEGORY" "prefix-nerello_mascalese")
+                           (cons "ID" (vulpea-note-id note))
+                           (cons "BLOCKED" "")
+                           (cons "FILE" (expand-file-name "prefix-nerello_mascalese.org" org-roam-directory))
+                           (cons "PRIORITY" "B"))))
     (expect (vulpea-db-get-by-id (vulpea-note-id note))
             :to-equal
             note))
@@ -265,7 +283,14 @@
              :title "Aglianico"
              :tags '("tag1" "tag2")
              :level 0
-             :id (vulpea-note-id note)))
+             :id (vulpea-note-id note)
+             :properties (list
+                          (cons "CATEGORY" "prefix-aglianico")
+                          (cons "MY_TAG" "super-tag")
+                          (cons "ID" (vulpea-note-id note))
+                          (cons "BLOCKED" "")
+                          (cons "FILE" (expand-file-name "prefix-aglianico.org" org-roam-directory))
+                          (cons "PRIORITY" "B"))))
     (expect (vulpea-db-get-by-id (vulpea-note-id note))
             :to-equal
             note)

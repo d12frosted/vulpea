@@ -44,7 +44,8 @@
   title
   primary-title
   aliases
-  tags)
+  tags
+  properties)
 
 (defun vulpea-note-from-node (node)
   "Convert NODE represented as `org-roam-node' to `vulpea-note'."
@@ -55,7 +56,8 @@
      :level (or (org-roam-node-level node) 0)
      :title (org-roam-node-title node)
      :aliases (org-roam-node-aliases node)
-     :tags (org-roam-node-tags node))))
+     :tags (org-roam-node-tags node)
+     :properties (org-roam-node-properties node))))
 
 (provide 'vulpea-note)
 ;;; vulpea-note.el ends here

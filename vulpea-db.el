@@ -89,13 +89,15 @@ returned."
   \"level\",
   '(' || group_concat(tags,
   ' ') || ')' as tags,
-  aliases
+  aliases,
+  properties
 from
   (
   select
     nodes.id as id,
     nodes.title as title,
     nodes.file as file,
+    nodes.properties as properties,
     nodes.\"level\" as \"level\",
     tags.tag as tags,
     '(' || group_concat(aliases.alias, ' ') || ')' as aliases
@@ -111,7 +113,8 @@ group by id, aliases;"))
             (title (nth 2 row))
             (level (nth 3 row))
             (tags (nth 4 row))
-            (aliases (nth 5 row)))
+            (aliases (nth 5 row))
+            (properties (nth 6 row)))
         (dolist (name (cons title aliases))
           (let ((note (make-vulpea-note
                        :path file
@@ -122,7 +125,8 @@ group by id, aliases;"))
                        :tags tags
                        :aliases aliases
                        :id id
-                       :level level)))
+                       :level level
+                       :properties properties)))
             (when (or (null filter-fn)
                       (funcall filter-fn note))
               (push note notes))))))))
