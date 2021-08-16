@@ -42,11 +42,12 @@
         (new-dir (expand-file-name (make-temp-name "note-files") temporary-file-directory)))
     (copy-directory original-dir new-dir)
     (setq org-roam-directory new-dir)
-    (org-roam-setup)))
+    (vulpea-db-setup)
+    (org-roam-db-autosync-enable)))
 
 (defun vulpea-test--teardown ()
   "Teardown testing environment."
-  (org-roam-teardown)
+  (org-roam-db-autosync-disable)
   (delete-file org-roam-db-location))
 
 (buttercup-define-matcher :to-contain-exactly (file value)

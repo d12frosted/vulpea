@@ -169,7 +169,39 @@
                            (cons "ID" "68f11246-91e1-4d48-b3c6-801a2ef0160b")
                            (cons "BLOCKED" "")
                            (cons "FILE" (expand-file-name "same-name-2.org" org-roam-directory))
-                           (cons "PRIORITY" "B")))))))
+                           (cons "PRIORITY" "B"))))))
+
+  (it "includes meta"
+    (expect (vulpea-db-query
+             (lambda (n)
+               (seq-contains-p
+                (cdr (assoc "singleton" (vulpea-note-meta n)))
+                "only value")))
+            :to-have-same-items-as
+            (list
+             (make-vulpea-note
+              :path (expand-file-name "with-meta.org" org-roam-directory)
+              :title "Note with META"
+              :tags nil
+              :level 0
+              :id "05907606-f836-45bf-bd36-a8444308eddd"
+              :properties (list
+                           (cons "CATEGORY" "with-meta")
+                           (cons "ID" "05907606-f836-45bf-bd36-a8444308eddd")
+                           (cons "BLOCKED" "")
+                           (cons "FILE" (expand-file-name "with-meta.org" org-roam-directory))
+                           (cons "PRIORITY" "B"))
+              :meta
+              '(("name" . ("some name"))
+                ("tags" . ("tag 1" "tag 2" "tag 3"))
+                ("numbers" . ("12" "18" "24"))
+                ("singleton" . ("only value"))
+                ("symbol" . ("red"))
+                ("url" . ("[[https://en.wikipedia.org/wiki/Frappato][wikipedia.org]]"))
+                ("link" . ("[[id:444f94d7-61e0-4b7c-bb7e-100814c6b4bb][Note without META]]"))
+                ("references" . ("[[id:444f94d7-61e0-4b7c-bb7e-100814c6b4bb][Note without META]]"
+                                 "[[id:5093fc4e-8c63-4e60-a1da-83fc7ecd5db7][Reference]]"))
+                ("answer" . ("42"))))))))
 
 (describe "vulpea-db-get-by-id"
   (before-all
@@ -193,12 +225,12 @@
              :level 0
              :id "72522ed2-9991-482e-a365-01155c172aa5"
              :properties (list
-                           (cons "CATEGORY" "note-with-alias")
-                           (cons "ROAM_ALIASES" "\"Alias of the note with alias\"")
-                           (cons "ID" "72522ed2-9991-482e-a365-01155c172aa5")
-                           (cons "BLOCKED" "")
-                           (cons "FILE" (expand-file-name "note-with-alias.org" org-roam-directory))
-                           (cons "PRIORITY" "B")))))
+                          (cons "CATEGORY" "note-with-alias")
+                          (cons "ROAM_ALIASES" "\"Alias of the note with alias\"")
+                          (cons "ID" "72522ed2-9991-482e-a365-01155c172aa5")
+                          (cons "BLOCKED" "")
+                          (cons "FILE" (expand-file-name "note-with-alias.org" org-roam-directory))
+                          (cons "PRIORITY" "B")))))
 
   (it "returns note by sub-heading id"
     (expect (vulpea-db-get-by-id "b77a4837-71d6-495e-98f1-b576464aacc1")
@@ -232,7 +264,33 @@
                           (cons "BLOCKED" "")
                           (cons "FILE" (expand-file-name "big-note.org" org-roam-directory))
                           (cons "PRIORITY" "B")
-                          (cons "ITEM" "Big note sub-sub-heading"))))))
+                          (cons "ITEM" "Big note sub-sub-heading")))))
+
+  (it "includes meta in response"
+    (expect (vulpea-db-get-by-id "05907606-f836-45bf-bd36-a8444308eddd")
+            :to-equal
+            (make-vulpea-note
+             :path (expand-file-name "with-meta.org" org-roam-directory)
+             :title "Note with META"
+             :tags nil
+             :level 0
+             :id "05907606-f836-45bf-bd36-a8444308eddd"
+             :properties (list
+                          (cons "CATEGORY" "with-meta")
+                          (cons "ID" "05907606-f836-45bf-bd36-a8444308eddd")
+                          (cons "BLOCKED" "")
+                          (cons "FILE" (expand-file-name "with-meta.org" org-roam-directory))
+                          (cons "PRIORITY" "B"))
+             :meta '(("name" . ("some name"))
+                     ("tags" . ("tag 1" "tag 2" "tag 3"))
+                     ("numbers" . ("12" "18" "24"))
+                     ("singleton" . ("only value"))
+                     ("symbol" . ("red"))
+                     ("url" . ("[[https://en.wikipedia.org/wiki/Frappato][wikipedia.org]]"))
+                     ("link" . ("[[id:444f94d7-61e0-4b7c-bb7e-100814c6b4bb][Note without META]]"))
+                     ("references" . ("[[id:444f94d7-61e0-4b7c-bb7e-100814c6b4bb][Note without META]]"
+                                      "[[id:5093fc4e-8c63-4e60-a1da-83fc7ecd5db7][Reference]]"))
+                     ("answer" . ("42")))))))
 
 (describe "vulpea-db-get-file-by-id"
   (before-all

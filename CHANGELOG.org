@@ -15,6 +15,7 @@
 *Features*
 
 - [[https://github.com/d12frosted/vulpea/issues/97][vulpea#97]] Expose properties in =vulpea-note=.
+- [[https://github.com/d12frosted/vulpea/issues/100][vulpea#100]] Persist note meta in =org-roam-db=.
 
 ** v0.2.0
 

@@ -125,6 +125,9 @@ slots/fields:
   =title= is an alias);
 - =vulpea-note-aliases= - aliases of the note;
 - =vulpea-note-tags= - tags of the note;
+- =vulpea-note-meta= - associative list of metadata (see =vulpea-meta= module
+  description for more information), where key is a string and the value is a
+  list of strings.
 
 If =ID= is not present in the note structure, this note is treated as
 non-existent. For example, =vulpea-select= returns such a note, when

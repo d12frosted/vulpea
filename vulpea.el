@@ -95,7 +95,7 @@ start the capture process."
   (let* ((node (org-roam-node-at-point 'assert))
          (backlinks (seq-map
                      (lambda (x)
-                       (vulpea-note-from-node
+                       (vulpea-db--from-node
                         (org-roam-backlink-source-node x)))
                      (org-roam-backlinks-get node))))
     (unless backlinks

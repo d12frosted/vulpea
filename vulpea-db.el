@@ -70,7 +70,7 @@ Does not support headings in the note."
                (vulpea-note-title note))
          (setf (vulpea-note-title note) title))
        note)
-     (seq-map #'vulpea-note-from-node nodes))))
+     (seq-map #'vulpea-db--from-node nodes))))
 
 ;;
 ;; Querying
@@ -87,25 +87,44 @@ returned."
   file,
   title,
   \"level\",
-  '(' || group_concat(tags,
-  ' ') || ')' as tags,
+  '(' || group_concat(tags, ' ') || ')' as tags,
   aliases,
-  properties
+  properties,
+  meta
 from
   (
   select
-    nodes.id as id,
-    nodes.title as title,
-    nodes.file as file,
-    nodes.properties as properties,
-    nodes.\"level\" as \"level\",
-    tags.tag as tags,
-    '(' || group_concat(aliases.alias, ' ') || ')' as aliases
-  from nodes
-  left join tags on tags.node_id = nodes.id
-  left join aliases on aliases.node_id = nodes.id
-  group by nodes.id, tags.tag )
-group by id, aliases;"))
+    id,
+    file,
+    title,
+    \"level\",
+    tags,
+    '(' || group_concat(aliases, ' ') || ')' as aliases,
+    properties,
+    meta
+  from
+    (
+    select
+      nodes.id as id,
+      nodes.file as file,
+      nodes.title as title,
+      nodes.\"level\" as \"level\",
+      tags.tag as tags,
+      aliases.alias as aliases,
+      nodes.properties as properties,
+      '(' || group_concat('(' || meta.prop
+                              || ' '
+                              || meta.value
+                              || ')',
+                          ' ')
+          || ')' as meta
+    from nodes
+    left join tags on tags.node_id = nodes.id
+    left join aliases on aliases.node_id = nodes.id
+    left join meta on meta.node_id = nodes.id
+    group by nodes.id, tags.tag, aliases.alias )
+  group by id, tags )
+group by id"))
          notes)
     (dolist (row rows notes)
       (let ((id (nth 0 row))
@@ -114,7 +133,8 @@ group by id, aliases;"))
             (level (nth 3 row))
             (tags (nth 4 row))
             (aliases (nth 5 row))
-            (properties (nth 6 row)))
+            (properties (nth 6 row))
+            (meta (nth 7 row)))
         (dolist (name (cons title aliases))
           (let ((note (make-vulpea-note
                        :path file
@@ -126,7 +146,11 @@ group by id, aliases;"))
                        :aliases aliases
                        :id id
                        :level level
-                       :properties properties)))
+                       :properties properties
+                       :meta (seq-map
+                              (lambda (row)
+                                (cons (nth 0 row) (nth 1 row)))
+                              meta))))
             (when (or (null filter-fn)
                       (funcall filter-fn note))
               (push note notes))))))))
@@ -138,7 +162,7 @@ group by id, aliases;"))
   "Find a `vulpea-note' by ID.
 
 Supports headings in the note."
-  (vulpea-note-from-node
+  (vulpea-db--from-node
    (org-roam-populate (org-roam-node-create :id id))))
 
 (defun vulpea-db-get-file-by-id (id)
@@ -180,6 +204,103 @@ If the FILE is relative, it is considered to be relative to
                   (vulpea-db-get-file-by-id note-or-id)
                 (vulpea-note-path note-or-id))))
     (org-roam-db-update-file file)))
+
+
+
+;;
+;; Populate
+
+(defun vulpea-db--from-node (node)
+  "Convert Org-roam NODE to note."
+  (when-let ((title (org-roam-node-title node))
+             (id (org-roam-node-id node)))
+    (let ((meta (seq-map
+                 (lambda (row)
+                   (cons (nth 0 row) (nth 1 row)))
+                 (org-roam-db-query
+                  [:select [prop value]
+                   :from meta
+                   :where (= node-id $s1)]
+                  id))))
+      (make-vulpea-note
+       :id id
+       :path (org-roam-node-file node)
+       :level (or (org-roam-node-level node) 0)
+       :title title
+       :aliases (org-roam-node-aliases node)
+       :tags (org-roam-node-tags node)
+       :properties (org-roam-node-properties node)
+       :meta meta))))
+
+
+
+(defun vulpea-db-setup ()
+  "Setup all the cogs for meta persistence.
+
+It does several terrible things, so don't inspect sources of this
+function for your own sanity."
+  (add-to-list
+   'org-roam-db--table-schemata
+   '(meta
+     ([(node-id :not-null)
+       (prop :not-null)
+       (value :not-null)]
+      (:foreign-key
+       [node-id]
+       :references
+       nodes [id]
+       :on-delete
+       :cascade)))
+   'append)
+  (add-to-list
+   'org-roam-db--table-indices
+   '(meta-node-id meta [node-id])
+   'append)
+  (advice-add 'org-roam-db-insert-file-node
+              :after
+              #'vulpea-db-meta-insert))
+
+;; this is a great indicator of a poor module design
+(autoload 'vulpea-buffer-meta "vulpea-buffer")
+(autoload 'vulpea-buffer-meta-get-list! "vulpea-buffer")
+
+(defun vulpea-db-meta-insert ()
+  "Update meta in Org-roam cache for FILE-PATH."
+  (org-with-point-at 1
+    (when (and (= (org-outline-level) 0)
+               (org-roam-db-node-p))
+      (when-let* ((id (org-id-get))
+                  (meta (vulpea-buffer-meta))
+                  (pl (plist-get meta :pl))
+                  (items-all (org-element-map pl 'item #'identity))
+                  (props-all (seq-uniq
+                              (seq-map
+                               (lambda (item)
+                                 (org-element-interpret-data
+                                  (org-element-contents
+                                   (org-element-property :tag item))))
+                               items-all)))
+                  (kvps (seq-map
+                         (lambda (prop)
+                           (cons
+                            (substring-no-properties prop)
+                            (seq-map
+                             (lambda (x)
+                               (substring-no-properties
+                                (s-trim-right
+                                 (org-element-interpret-data x))))
+                             (vulpea-buffer-meta-get-list!
+                              meta prop 'raw))))
+                         props-all)))
+        (org-roam-db-query
+         [:insert :into meta
+          :values $v1]
+         (seq-map
+          (lambda (kvp)
+            (vector id (car kvp) (cdr kvp)))
+          kvps))))))
+
+
 
 (provide 'vulpea-db)
 ;;; vulpea-db.el ends here
