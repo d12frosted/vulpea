@@ -91,7 +91,11 @@ Users of this library:
 
 #+begin_src emacs-lisp
   (use-package vulpea
-    :ensure t)
+    :ensure t
+    ;; hook into org-roam-db-autosync-mode you wish to enable
+    ;; persistence of meta values (see respective section in README to
+    ;; find out what meta means)
+    :hook ((org-roam-db-autosync-mode . vulpea-db-setup)))
 #+end_src
 
 ** straight.el
@@ -99,6 +103,12 @@ Users of this library:
 #+begin_src emacs-lisp
   (straight-use-package
    '(vulpea :type git :host github :repo "d12frosted/vulpea"))
+
+  ;; hook into org-roam-db-autosync-mode you wish to enable persistence
+  ;; of meta values (see respective section in README to find out what
+  ;; meta means)
+  (add-hook 'org-roam-db-autosync-mode-hook #'vulpea-db-setup)
+
 #+end_src
 
 In case you have [[https://github.com/raxod502/straight.el/#integration-with-use-package][integration]] with [[https://github.com/jwiegley/use-package][use-package]]:
@@ -108,7 +118,11 @@ In case you have [[https://github.com/raxod502/straight.el/#integration-with-use
     :straight (vulpea
                :type git
                :host github
-               :repo "d12frosted/vulpea"))
+               :repo "d12frosted/vulpea")
+    ;; hook into org-roam-db-autosync-mode you wish to enable
+    ;; persistence of meta values (see respective section in README to
+    ;; find out what meta means)
+    :hook ((org-roam-db-autosync-mode . vulpea-db-setup)))
 #+end_src
 
 * Data types
