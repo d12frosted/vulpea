@@ -16,6 +16,9 @@
 
 - [[https://github.com/d12frosted/vulpea/issues/97][vulpea#97]] Expose properties in =vulpea-note=.
 - [[https://github.com/d12frosted/vulpea/issues/100][vulpea#100]] Persist note meta in =org-roam-db=.
+- [[https://github.com/d12frosted/vulpea/issues/100][vulpea#100]] Provide an API to access/extract data from =vulpea-note-meta=:
+  - =vulpea-note-meta-get-list= - to get all values of given =PROP= and =TYPE=.
+  - =vulpea-note-meta-get= - to get the first value of given =PROP= and =TYPE=.
 
 ** v0.2.0
 

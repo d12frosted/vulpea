@@ -200,7 +200,11 @@ configurable values:
 
 ** =vulpea-note=
 
-This module contains =vulpea-note= definition.
+This module contains =vulpea-note= definition and few helpers to access/extract
+data from =vulpea-note-meta= slot:
+
+- =vulpea-note-meta-get-list= - to get all values of given =PROP= and =TYPE=.
+- =vulpea-note-meta-get= - to get the first value of given =PROP= and =TYPE=.
 
 ** =vulpea-db=
 
