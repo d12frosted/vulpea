@@ -234,31 +234,57 @@ If the FILE is relative, it is considered to be relative to
 
 
 
+(defconst vulpea-db--meta-schema
+  '([(node-id :not-null)
+     (prop :not-null)
+     (value :not-null)]
+    (:foreign-key
+     [node-id]
+     :references
+     nodes [id]
+     :on-delete
+     :cascade))
+  "Schemata for meta table.")
+
 (defun vulpea-db-setup ()
   "Setup all the cogs for meta persistence.
 
 It does several terrible things, so don't inspect sources of this
 function for your own sanity."
-  (add-to-list
-   'org-roam-db--table-schemata
-   '(meta
-     ([(node-id :not-null)
-       (prop :not-null)
-       (value :not-null)]
-      (:foreign-key
-       [node-id]
-       :references
-       nodes [id]
-       :on-delete
-       :cascade)))
-   'append)
-  (add-to-list
-   'org-roam-db--table-indices
-   '(meta-node-id meta [node-id])
-   'append)
+  (add-to-list 'org-roam-db--table-schemata
+               (list 'meta vulpea-db--meta-schema)
+               'append)
+  (add-to-list 'org-roam-db--table-indices
+               '(meta-node-id meta [node-id])
+               'append)
   (advice-add 'org-roam-db-insert-file-node
               :after
-              #'vulpea-db-meta-insert))
+              #'vulpea-db-meta-insert)
+  (advice-add 'org-roam-db
+              :around
+              #'vulpea-db--advice))
+
+(defun vulpea-db--advice (get-db)
+  "Initialize database by creating missing tables if needed.
+
+GET-DB is a function that returns connection to database."
+  (when-let ((db (funcall get-db)))
+    (unless (emacsql db
+                     (concat
+                      "SELECT name FROM sqlite_master "
+                      "WHERE type='table' AND name='meta'"))
+      (emacsql
+       db
+       [:create-table $i1 $S2]
+       'meta
+       vulpea-db--meta-schema)
+      (emacsql
+       db
+       [:create-index $i1 :on $i2 $S3]
+       'meta-node-id
+       'meta
+       [node-id]))
+    db))
 
 ;; this is a great indicator of a poor module design
 (autoload 'vulpea-buffer-meta "vulpea-buffer")
