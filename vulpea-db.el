@@ -234,32 +234,46 @@ If the FILE is relative, it is considered to be relative to
 
 
 
-(defconst vulpea-db--meta-schema
-  '([(node-id :not-null)
-     (prop :not-null)
-     (value :not-null)]
-    (:foreign-key
-     [node-id]
-     :references
-     nodes [id]
-     :on-delete
-     :cascade))
-  "Schemata for meta table.")
+(defconst vulpea-db--schemata
+  '((meta
+     ([(node-id :not-null)
+       (prop :not-null)
+       (value :not-null)]
+      (:foreign-key
+       [node-id]
+       :references
+       nodes [id]
+       :on-delete
+       :cascade))))
+  "Vulpea db schemata.")
+
+(defconst vulpea-db--indices
+  '((meta-node-id meta [node-id]))
+  "Vulpea db indices.")
 
 (defun vulpea-db-setup ()
   "Setup all the cogs for meta persistence.
 
 It does several terrible things, so don't inspect sources of this
 function for your own sanity."
-  (add-to-list 'org-roam-db--table-schemata
-               (list 'meta vulpea-db--meta-schema)
-               'append)
-  (add-to-list 'org-roam-db--table-indices
-               '(meta-node-id meta [node-id])
-               'append)
+  ;; attach custom schemata
+  (seq-each
+   (lambda (schema)
+     (add-to-list 'org-roam-db--table-schemata schema 'append))
+   vulpea-db--schemata)
+
+  ;; attach custom indices
+  (seq-each
+   (lambda (index)
+     (add-to-list 'org-roam-db--table-indices index 'append))
+   vulpea-db--indices)
+
+  ;; make sure that meta is inserted into table
   (advice-add 'org-roam-db-insert-file-node
               :after
               #'vulpea-db-meta-insert)
+
+  ;; make sure that meta table exists
   (advice-add 'org-roam-db
               :around
               #'vulpea-db--advice))
@@ -269,21 +283,25 @@ function for your own sanity."
 
 GET-DB is a function that returns connection to database."
   (when-let ((db (funcall get-db)))
-    (unless (emacsql db
-                     (concat
-                      "SELECT name FROM sqlite_master "
-                      "WHERE type='table' AND name='meta'"))
-      (emacsql
-       db
-       [:create-table $i1 $S2]
-       'meta
-       vulpea-db--meta-schema)
-      (emacsql
-       db
-       [:create-index $i1 :on $i2 $S3]
-       'meta-node-id
-       'meta
-       [node-id]))
+    (emacsql-with-transaction db
+      (pcase-dolist (`(,table ,schema) vulpea-db--schemata)
+        (unless (emacsql db
+                         [:select name
+                          :from sqlite_master
+                          :where (and (= type 'table)
+                                      (= name $r1))]
+                         (emacsql-escape-identifier table))
+          (emacsql db [:create-table $i1 $S2] table schema)))
+      (pcase-dolist (`(,index-name ,table ,columns)
+                     vulpea-db--indices)
+        (unless (emacsql db
+                         [:select name
+                          :from sqlite_master
+                          :where (and (= type 'index)
+                                      (= name $r1))]
+                         (emacsql-escape-identifier index-name))
+          (emacsql db [:create-index $i1 :on $i2 $S3]
+                   index-name table columns))))
     db))
 
 ;; this is a great indicator of a poor module design

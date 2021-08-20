@@ -353,5 +353,103 @@
             :to-equal
             "eeec8f05-927f-4c61-b39e-2fb8228cf484")))
 
+(describe "vulpea-db-setup"
+  (before-all
+    (vulpea-test--init 'no-setup))
+
+  (after-all
+    (vulpea-test--teardown))
+
+  (it "applies cleanly on existing database"
+    (org-roam-db-sync 'force)
+
+    ;; initially there are no vulpea specific tables
+    (pcase-dolist (`(,table ,_) vulpea-db--schemata)
+      (expect (org-roam-db-query
+               [:select name
+                :from sqlite_master
+                :where (and (= type 'table)
+                            (= name $r1))]
+               (emacsql-escape-identifier table))
+              :to-equal nil))
+    (pcase-dolist (`(,index-name ,_ ,_) vulpea-db--indices)
+      (expect (org-roam-db-query
+               [:select name
+                :from sqlite_master
+                :where (and (= type 'index)
+                            (= name $r1))]
+               (emacsql-escape-identifier index-name))
+              :to-equal nil))
+
+    ;; then we setup vulpea-db
+    (message "vulpea-db-setup")
+    (vulpea-db-setup)
+
+    ;; and vulpea specific tables should exist
+    (pcase-dolist (`(,table ,_) vulpea-db--schemata)
+      (expect (org-roam-db-query
+               [:select name
+                :from sqlite_master
+                :where (and (= type 'table)
+                            (= name $r1))]
+               (emacsql-escape-identifier table))
+              :to-equal (list (list (intern (emacsql-escape-identifier table))))))
+    (pcase-dolist (`(,index-name ,_ ,_) vulpea-db--indices)
+      (expect (org-roam-db-query
+               [:select name
+                :from sqlite_master
+                :where (and (= type 'index)
+                            (= name $r1))]
+               (emacsql-escape-identifier index-name))
+              :to-equal (list (list (intern (emacsql-escape-identifier index-name))))))
+
+    ;; and we are able to query stuff, but extra info is not yet
+    ;; available as we did not run a full sync
+    (expect (vulpea-db-get-by-id "05907606-f836-45bf-bd36-a8444308eddd")
+            :to-equal
+            (make-vulpea-note
+             :path (expand-file-name "with-meta.org" org-roam-directory)
+             :title "Note with META"
+             :tags nil
+             :level 0
+             :id "05907606-f836-45bf-bd36-a8444308eddd"
+             :properties (list
+                          (cons "CATEGORY" "with-meta")
+                          (cons "ID" "05907606-f836-45bf-bd36-a8444308eddd")
+                          (cons "BLOCKED" "")
+                          (cons "FILE" (expand-file-name "with-meta.org" org-roam-directory))
+                          (cons "PRIORITY" "B"))))
+
+    ;; sync a file
+    (message "update file")
+    (org-roam-db-clear-file (expand-file-name "with-meta.org" org-roam-directory))
+    (org-roam-db-update-file (expand-file-name "with-meta.org" org-roam-directory))
+
+    ;; and now everything is available
+    (expect (vulpea-db-get-by-id "05907606-f836-45bf-bd36-a8444308eddd")
+            :to-equal
+            (make-vulpea-note
+             :path (expand-file-name "with-meta.org" org-roam-directory)
+             :title "Note with META"
+             :tags nil
+             :level 0
+             :id "05907606-f836-45bf-bd36-a8444308eddd"
+             :properties (list
+                          (cons "CATEGORY" "with-meta")
+                          (cons "ID" "05907606-f836-45bf-bd36-a8444308eddd")
+                          (cons "BLOCKED" "")
+                          (cons "FILE" (expand-file-name "with-meta.org" org-roam-directory))
+                          (cons "PRIORITY" "B"))
+             :meta '(("name" . ("some name"))
+                     ("tags" . ("tag 1" "tag 2" "tag 3"))
+                     ("numbers" . ("12" "18" "24"))
+                     ("singleton" . ("only value"))
+                     ("symbol" . ("red"))
+                     ("url" . ("[[https://en.wikipedia.org/wiki/Frappato][wikipedia.org]]"))
+                     ("link" . ("[[id:444f94d7-61e0-4b7c-bb7e-100814c6b4bb][Note without META]]"))
+                     ("references" . ("[[id:444f94d7-61e0-4b7c-bb7e-100814c6b4bb][Note without META]]"
+                                      "[[id:5093fc4e-8c63-4e60-a1da-83fc7ecd5db7][Reference]]"))
+                     ("answer" . ("42")))))))
+
 (provide 'vulpea-db-test)
 ;;; vulpea-db-test.el ends here

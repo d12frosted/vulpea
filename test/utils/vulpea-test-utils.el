@@ -36,19 +36,32 @@
     (with-current-buffer buf
       (funcall fn fname))))
 
-(defun vulpea-test--init ()
-  "Initialize testing environment."
+(defun vulpea-test--init (&optional no-setup)
+  "Initialize testing environment.
+
+Unless NO-SETUP is non-nil, setup vulpea db."
   (let ((original-dir vulpea-test-directory)
         (new-dir (expand-file-name (make-temp-name "note-files") temporary-file-directory)))
     (copy-directory original-dir new-dir)
     (setq org-roam-directory new-dir)
-    (vulpea-db-setup)
+    (unless no-setup
+      (vulpea-db-setup))
     (org-roam-db-autosync-enable)))
 
 (defun vulpea-test--teardown ()
   "Teardown testing environment."
+  (advice-remove 'org-roam-db-insert-file-node #'vulpea-db-meta-insert)
+  (advice-remove 'org-roam-db #'vulpea-db--advice)
+  (seq-each
+   (lambda (schema)
+     (setq org-roam-db--table-schemata (delete schema org-roam-db--table-schemata)))
+   vulpea-db--schemata)
+  (seq-each
+   (lambda (index)
+     (setq org-roam-db--table-indices (delete index org-roam-db--table-indices)))
+   vulpea-db--indices)
   (org-roam-db-autosync-disable)
-  (delete-file org-roam-db-location))
+  (setq org-roam-db--connection (make-hash-table :test #'equal)))
 
 (buttercup-define-matcher :to-contain-exactly (file value)
   (cl-destructuring-bind
