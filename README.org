@@ -29,12 +29,14 @@ Users of this library:
 - [[#install][Install]]
   - [[#use-package][use-package]]
   - [[#straightel][straight.el]]
-- [[#data-types][Data types]]
+- [[#vulpea-note][=vulpea-note=]]
   - [[#mandatory-id-property][Mandatory =ID= property]]
+- [[#metadata][Metadata]]
+  - [[#why-not-properties-drawer][Why not properties drawer]]
 - [[#modules][Modules]]
   - [[#vulpea][=vulpea=]]
   - [[#vulpea-select][=vulpea-select=]]
-  - [[#vulpea-note][=vulpea-note=]]
+  - [[#vulpea-note-1][=vulpea-note=]]
   - [[#vulpea-db][=vulpea-db=]]
   - [[#vulpea-meta][=vulpea-meta=]]
   - [[#vulpea-buffer][=vulpea-buffer=]]
@@ -79,13 +81,21 @@ Users of this library:
 4. =vulpea= is more than just a wrapper around =org-roam=, it contains more
    stuff:
    1. Utilities for dealing with buffer properties (e.g. =#+KEY: VALUE=).
-   2. Utilities for dealing with metadata (e.g. first description list in the
+   2. Utilities for dealing with [[#metadata][metadata]] (e.g. first description list in the
       buffer).
 
 * Install
 
 =vulpea= is available via [[https://melpa.org/#/vulpea][MELPA]], but you can still install it manually, using
 [[https://github.com/raxod502/straight][straight]], [[https://github.com/quelpa/quelpa][quelpa]], or any other tool.
+
+In short, installation process is simple:
+
+1. Download =vulpea= package via any preferred way.
+2. Call =vulpea-db-setup= (either via adding a hook to
+   =org-roam-db-autosync-mode= or directly).
+3. If you are using [[#metadata][metadata]], you might need to re-sync =org-roam-db= from
+   scratch, e.g. =(org-roam-db-sync 'force)=.
 
 ** use-package
 
@@ -125,7 +135,7 @@ In case you have [[https://github.com/raxod502/straight.el/#integration-with-use
     :hook ((org-roam-db-autosync-mode . vulpea-db-setup)))
 #+end_src
 
-* Data types
+* =vulpea-note=
 
 A note is represented as a =vulpea-note= structure with the following
 slots/fields:
@@ -139,9 +149,11 @@ slots/fields:
   =title= is an alias);
 - =vulpea-note-aliases= - aliases of the note;
 - =vulpea-note-tags= - tags of the note;
-- =vulpea-note-meta= - associative list of metadata (see =vulpea-meta= module
-  description for more information), where key is a string and the value is a
-  list of strings.
+- =vulpea-note-meta= - associative list of [[#metadata][metadata]], where key is a string and
+  the value is a list of strings. There are also two utilities to access/query
+  metadata from note:
+  - =vulpea-note-meta-get-list= - to get all values of given =PROP= and =TYPE=.
+  - =vulpea-note-meta-get= - to get the first value of given =PROP= and =TYPE=.
 
 If =ID= is not present in the note structure, this note is treated as
 non-existent. For example, =vulpea-select= returns such a note, when
@@ -167,6 +179,50 @@ always ensure existence of =ID= is to use the following code:
 
   (add-hook 'before-save-hook #'+org-auto-id-add-to-headlines-in-file)
 #+end_src
+
+* Metadata
+
+In general, metadata is an key value pairs that is represented by the first
+description list in the note, e.g. list like:
+
+#+begin_src org-mode
+- key1 :: value1
+- key2 :: value21
+- key2 :: value22
+- key3 :: value3
+#+end_src
+
+It can be manipulated programatically by using functions from either
+=vulpea-meta= module or from =vulpea-buffer= module (those prefixed by
+=vulpea-buffer-meta=). This data is also persisted in Org roam database for your
+convenience and is part of =vulpea-note= returned by =vulpea-db= module. See
+respective module documentation to find out all available functions.
+
+Currently metadata is limited to file-level only, e.g. description lists in
+outlines are not handled by =vulpea=. Vote for [[https://github.com/d12frosted/vulpea/issues/75][vulpea#75]] to bring it faster.
+
+** Why not properties drawer
+
+In many cases, properties are far better choice for storing technical
+'metadata', like =ID=, =DATE=, =TAGS=, etc. - something that is not really part
+of note content. After all, properties drawer is a drawer:
+
+#+begin_quote
+Sometimes you want to keep information associated with an entry, but you
+normally do not want to see it. For this, Org mode has drawers.
+
+[[https://orgmode.org/manual/Drawers.html#Drawers][orgmode.org]]
+#+end_quote
+
+Of course you can use [[https://orgmode.org/manual/Properties-and-Columns.html#Properties-and-Columns][properties drawer]] to implement simple database
+capabilities, but it has one important limitation - values are mere text, so you
+can't have real Org mode links there, meaning that [[https://orgmode.org/worg/dev/org-element-api.html][Element API]], Org roam and
+some other tools *do not* recognise them as links.
+
+Metadata provided by library is just a part of your note content, meaning that
+it incorporates well into existing tools. Sure enough it's not as rich as
+properties and is not as battle tested as properties, but you can give them a
+try.
 
 * Modules
 
@@ -215,7 +271,7 @@ configurable values:
 ** =vulpea-note=
 
 This module contains =vulpea-note= definition and few helpers to access/extract
-data from =vulpea-note-meta= slot:
+[[#metadata][metadata]] from =vulpea-note-meta= slot:
 
 - =vulpea-note-meta-get-list= - to get all values of given =PROP= and =TYPE=.
 - =vulpea-note-meta-get= - to get the first value of given =PROP= and =TYPE=.
@@ -234,7 +290,7 @@ This module contains functions to query notes data base. Functions of interest:
 
 ** =vulpea-meta=
 
-This module contains functions for manipulating note metadata represented by the
+This module contains functions for manipulating note [[#metadata][metadata]] represented by the
 first description list in the note, e.g. list like:
 
 #+begin_src org-mode
