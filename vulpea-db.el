@@ -251,34 +251,7 @@ If the FILE is relative, it is considered to be relative to
   '((meta-node-id meta [node-id]))
   "Vulpea db indices.")
 
-(defun vulpea-db-setup ()
-  "Setup all the cogs for meta persistence.
-
-It does several terrible things, so don't inspect sources of this
-function for your own sanity."
-  ;; attach custom schemata
-  (seq-each
-   (lambda (schema)
-     (add-to-list 'org-roam-db--table-schemata schema 'append))
-   vulpea-db--schemata)
-
-  ;; attach custom indices
-  (seq-each
-   (lambda (index)
-     (add-to-list 'org-roam-db--table-indices index 'append))
-   vulpea-db--indices)
-
-  ;; make sure that meta is inserted into table
-  (advice-add 'org-roam-db-insert-file-node
-              :after
-              #'vulpea-db-meta-insert)
-
-  ;; make sure that meta table exists
-  (advice-add 'org-roam-db
-              :around
-              #'vulpea-db--advice))
-
-(defun vulpea-db--advice (get-db)
+(defun vulpea-db--init (get-db)
   "Initialize database by creating missing tables if needed.
 
 GET-DB is a function that returns connection to database."
@@ -303,6 +276,72 @@ GET-DB is a function that returns connection to database."
           (emacsql db [:create-index $i1 :on $i2 $S3]
                    index-name table columns))))
     db))
+
+
+
+;;;###autoload
+(define-minor-mode vulpea-db-autosync-mode
+  "Global minor mode to automatically synchronise vulpea db."
+  :global t
+  :group 'vulpea
+  :init-value nil
+  (let ((enabled vulpea-db-autosync-mode))
+    (cond
+     (enabled
+      ;; attach custom schemata
+      (seq-each
+       (lambda (schema)
+         (add-to-list 'org-roam-db--table-schemata schema 'append))
+       vulpea-db--schemata)
+
+      ;; attach custom indices
+      (seq-each
+       (lambda (index)
+         (add-to-list 'org-roam-db--table-indices index 'append))
+       vulpea-db--indices)
+
+      ;; make sure that meta is inserted into table
+      (advice-add 'org-roam-db-insert-file-node
+                  :after
+                  #'vulpea-db-meta-insert)
+
+      ;; make sure that meta table exists
+      (advice-add 'org-roam-db
+                  :around
+                  #'vulpea-db--init))
+     (t
+      (advice-remove 'org-roam-db-insert-file-node
+                     #'vulpea-db-meta-insert)
+      (advice-remove 'org-roam-db #'vulpea-db--init)
+      (seq-each
+       (lambda (schema)
+         (setq org-roam-db--table-schemata
+               (delete schema org-roam-db--table-schemata)))
+       vulpea-db--schemata)
+      (seq-each
+       (lambda (index)
+         (setq org-roam-db--table-indices
+               (delete index org-roam-db--table-indices)))
+       vulpea-db--indices)))))
+
+;;;###autoload
+(defun vulpea-db-autosync-enable ()
+  "Activate function `vulpea-db-autosync-mode'."
+  (vulpea-db-autosync-mode +1))
+
+(defun vulpea-db-autosync-disable ()
+  "Deactivate function `vulpea-db-autosync-mode'."
+  (vulpea-db-autosync-mode -1))
+
+(defun vulpea-db-autosync-toggle ()
+  "Toggle status of function `vulpea-db-autosync-mode'."
+  (vulpea-db-autosync-mode 'toggle))
+
+(define-obsolete-function-alias
+  'vulpea-db-setup
+  'vulpea-db-autosync-enable "vulpea 0.2.0")
+
+
 
 ;; this is a great indicator of a poor module design
 (autoload 'vulpea-buffer-meta "vulpea-buffer")

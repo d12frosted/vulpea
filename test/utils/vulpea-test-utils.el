@@ -45,21 +45,12 @@ Unless NO-SETUP is non-nil, setup vulpea db."
     (copy-directory original-dir new-dir)
     (setq org-roam-directory new-dir)
     (unless no-setup
-      (vulpea-db-setup))
+      (vulpea-db-autosync-enable))
     (org-roam-db-autosync-enable)))
 
 (defun vulpea-test--teardown ()
   "Teardown testing environment."
-  (advice-remove 'org-roam-db-insert-file-node #'vulpea-db-meta-insert)
-  (advice-remove 'org-roam-db #'vulpea-db--advice)
-  (seq-each
-   (lambda (schema)
-     (setq org-roam-db--table-schemata (delete schema org-roam-db--table-schemata)))
-   vulpea-db--schemata)
-  (seq-each
-   (lambda (index)
-     (setq org-roam-db--table-indices (delete index org-roam-db--table-indices)))
-   vulpea-db--indices)
+  (vulpea-db-autosync-disable)
   (org-roam-db-autosync-disable)
   (setq org-roam-db--connection (make-hash-table :test #'equal)))
 

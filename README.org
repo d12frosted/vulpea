@@ -92,7 +92,7 @@ Users of this library:
 In short, installation process is simple:
 
 1. Download =vulpea= package via any preferred way.
-2. Call =vulpea-db-setup= (either via adding a hook to
+2. Call =vulpea-db-autosync-enable= (either via adding a hook to
    =org-roam-db-autosync-mode= or directly).
 3. If you are using [[#metadata][metadata]], you might need to re-sync =org-roam-db= from
    scratch, e.g. =(org-roam-db-sync 'force)=.
@@ -105,7 +105,7 @@ In short, installation process is simple:
     ;; hook into org-roam-db-autosync-mode you wish to enable
     ;; persistence of meta values (see respective section in README to
     ;; find out what meta means)
-    :hook ((org-roam-db-autosync-mode . vulpea-db-setup)))
+    :hook ((org-roam-db-autosync-mode . vulpea-db-autosync-enable)))
 #+end_src
 
 ** straight.el
@@ -117,7 +117,7 @@ In short, installation process is simple:
   ;; hook into org-roam-db-autosync-mode you wish to enable persistence
   ;; of meta values (see respective section in README to find out what
   ;; meta means)
-  (add-hook 'org-roam-db-autosync-mode-hook #'vulpea-db-setup)
+  (add-hook 'org-roam-db-autosync-mode-hook #'vulpea-db-autosync-enable)
 
 #+end_src
 
@@ -132,7 +132,7 @@ In case you have [[https://github.com/raxod502/straight.el/#integration-with-use
     ;; hook into org-roam-db-autosync-mode you wish to enable
     ;; persistence of meta values (see respective section in README to
     ;; find out what meta means)
-    :hook ((org-roam-db-autosync-mode . vulpea-db-setup)))
+    :hook ((org-roam-db-autosync-mode . vulpea-db-autosync-enable)))
 #+end_src
 
 * =vulpea-note=
