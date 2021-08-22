@@ -383,7 +383,7 @@
 
     ;; then we setup vulpea-db
     (message "vulpea-db-setup")
-    (vulpea-db-setup)
+    (vulpea-db-autosync-enable)
 
     ;; and vulpea specific tables should exist
     (pcase-dolist (`(,table ,_) vulpea-db--schemata)
