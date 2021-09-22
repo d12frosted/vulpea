@@ -68,13 +68,13 @@ If the title is already set, replace its value."
 
 (defun vulpea-buffer-tags-get ()
   "Return filetags value in current buffer."
-  (vulpea-buffer-prop-get-list "filetags" " "))
+  (vulpea-buffer-prop-get-list "filetags" "[ :]"))
 
 (defun vulpea-buffer-tags-set (&rest tags)
   "Set TAGS in current buffer.
 
 If filetags value is already set, replace it."
-  (vulpea-buffer-prop-set "filetags" (string-join tags " ")))
+  (vulpea-buffer-prop-set "filetags" (string-join tags ":")))
 
 (defun vulpea-buffer-tags-add (tag)
   "Add a TAG to filetags in current buffer."
