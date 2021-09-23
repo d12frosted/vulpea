@@ -74,7 +74,9 @@ If the title is already set, replace its value."
   "Set TAGS in current buffer.
 
 If filetags value is already set, replace it."
-  (vulpea-buffer-prop-set "filetags" (string-join tags ":")))
+  (if tags
+      (vulpea-buffer-prop-set "filetags" (string-join tags ":"))
+    (vulpea-buffer-prop-remove "filetags")))
 
 (defun vulpea-buffer-tags-add (tag)
   "Add a TAG to filetags in current buffer."
@@ -145,6 +147,13 @@ If nil it defaults to `split-string-default-separators', normally
   (let ((value (vulpea-buffer-prop-get name)))
     (when value
       (split-string-and-unquote value separators))))
+
+(defun vulpea-buffer-prop-remove (name)
+  "Remove a buffer property called NAME."
+  (org-with-point-at 1
+    (when (re-search-forward (concat "\\(^#\\+" name ":.*\n?\\)")
+                             (point-max) t)
+      (replace-match ""))))
 
 
 

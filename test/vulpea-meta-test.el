@@ -264,7 +264,7 @@
       (expect reference-file
               :to-contain-exactly
               ":PROPERTIES:
-:ID:                     5093fc4e-8c63-4e60-a1da-83fc7ecd5db7
+:ID:       5093fc4e-8c63-4e60-a1da-83fc7ecd5db7
 :END:
 #+title: Reference
 #+filetags: tag1 tag2
@@ -399,7 +399,7 @@ Just some text to make sure that meta is inserted before.
       (expect reference-file
               :to-contain-exactly
               ":PROPERTIES:
-:ID:                     5093fc4e-8c63-4e60-a1da-83fc7ecd5db7
+:ID:       5093fc4e-8c63-4e60-a1da-83fc7ecd5db7
 :END:
 #+title: Reference
 #+filetags: tag1 tag2
@@ -424,7 +424,7 @@ Just some text to make sure that meta is inserted before.
       (expect reference-file
               :to-contain-exactly
               ":PROPERTIES:
-:ID:                     5093fc4e-8c63-4e60-a1da-83fc7ecd5db7
+:ID:       5093fc4e-8c63-4e60-a1da-83fc7ecd5db7
 :END:
 #+title: Reference
 #+filetags: tag1 tag2

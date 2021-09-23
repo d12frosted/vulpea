@@ -91,10 +91,29 @@
 
   (it "clear tags"
     (setq id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")
+    (expect (vulpea-note-path (vulpea-db-get-by-id id))
+            :to-contain-exactly
+            (format
+             ":PROPERTIES:
+:ID:       %s
+:END:
+#+title: Reference
+#+filetags: tag1 tag2
+"
+             id))
     (expect (vulpea-utils-with-note (vulpea-db-get-by-id id)
               (vulpea-buffer-tags-set)
               (vulpea-buffer-tags-get))
-            :to-equal nil))
+            :to-equal nil)
+    (expect (vulpea-note-path (vulpea-db-get-by-id id))
+            :to-contain-exactly
+            (format
+             ":PROPERTIES:
+:ID:       %s
+:END:
+#+title: Reference
+"
+             id)))
 
   (it "add a first tag"
     (setq id "eeec8f05-927f-4c61-b39e-2fb8228cf484")
@@ -177,6 +196,27 @@ Some body.
 #+title: Title 2
 
 Some body.
+"
+             id)))
+
+  (it "remove existing property"
+    (setq id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")
+    (expect
+     (vulpea-utils-with-note (vulpea-db-get-by-id id)
+       (vulpea-buffer-prop-get "title"))
+     :to-equal "Reference")
+    (expect
+     (vulpea-utils-with-note (vulpea-db-get-by-id id)
+       (vulpea-buffer-prop-remove "title")
+       (vulpea-buffer-prop-get "title"))
+     :to-equal nil)
+    (expect (vulpea-note-path (vulpea-db-get-by-id id))
+            :to-contain-exactly
+            (format
+             ":PROPERTIES:
+:ID:       %s
+:END:
+#+filetags: tag1 tag2
 "
              id)))
 

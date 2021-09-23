@@ -351,6 +351,8 @@ Metadata is defined as the first description list in the buffer, e.g. list like:
   from the current buffer.
 - =vulpea-buffer-prop-get-list= - function to get a value of property with
   =NAME= as a list separated by some =SEPARATORS=.
+- =vulpea-buffer-prop-remove= - function to remove a property with =NAME= from
+  the current buffer.
 - =vulpea-buffer-meta= - function to get metadata from current buffer. In most
   cases you should not use this function unless performance is important. In
   this case, take a look at bang functions, e.g. =vulpea-buffer-meta-get!=.
