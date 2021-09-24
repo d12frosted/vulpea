@@ -75,7 +75,8 @@ If the title is already set, replace its value."
 
 If filetags value is already set, replace it."
   (if tags
-      (vulpea-buffer-prop-set "filetags" (string-join tags ":"))
+      (vulpea-buffer-prop-set
+       "filetags" (concat ":" (string-join tags ":") ":"))
     (vulpea-buffer-prop-remove "filetags")))
 
 (defun vulpea-buffer-tags-add (tag)

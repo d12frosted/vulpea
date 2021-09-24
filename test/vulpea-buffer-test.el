@@ -83,11 +83,21 @@
             :to-equal nil))
 
   (it "set several tags at once"
-    (setq id "eeec8f05-927f-4c61-b39e-2fb8228cf484")
+    (setq id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")
     (expect (vulpea-utils-with-note (vulpea-db-get-by-id id)
               (vulpea-buffer-tags-set "super_tag_1" "super_tag_2")
               (vulpea-buffer-tags-get))
-            :to-equal '("super_tag_1" "super_tag_2")))
+            :to-equal '("super_tag_1" "super_tag_2"))
+    (expect (vulpea-note-path (vulpea-db-get-by-id id))
+            :to-contain-exactly
+            (format
+             ":PROPERTIES:
+:ID:       %s
+:END:
+#+title: Reference
+#+filetags: :super_tag_1:super_tag_2:
+"
+             id)))
 
   (it "clear tags"
     (setq id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")
