@@ -259,8 +259,9 @@ Available variables in the capture context are:
                        "#+title: ${title}\n"
                        (when tags
                          (concat
-                          "#+filetags: "
-                          (string-join tags " ")
+                          "#+filetags: :"
+                          (string-join tags ":")
+                          ":"
                           "\n"))
                        head))
             :unnarrowed ,unnarrowed

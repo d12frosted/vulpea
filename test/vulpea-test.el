@@ -302,7 +302,7 @@
 :MY_TAG:   super-tag
 :END:
 #+title: Aglianico
-#+filetags: tag1 tag2
+#+filetags: :tag1:tag2:
 #+roam_key: https://d12frosted.io
 
 Well, I am a grape!
