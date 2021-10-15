@@ -26,7 +26,7 @@ jobs:
         with:
           version: ${{ matrix.emacs_version }}
 
-      - uses: actions/checkout@v2.3.4
+      - uses: actions/checkout@v2.3.5
 
       - name: Install Eldev
         run: curl -fsSL https://raw.github.com/doublep/eldev/master/webinstall/github-eldev | sh
