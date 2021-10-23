@@ -251,30 +251,35 @@ If the FILE is relative, it is considered to be relative to
   '((meta-node-id meta [node-id]))
   "Vulpea db indices.")
 
+(defvar vulpea-db--initalized nil
+  "Non-nil when database was initialized.")
+
 (defun vulpea-db--init (get-db)
   "Initialize database by creating missing tables if needed.
 
 GET-DB is a function that returns connection to database."
   (when-let ((db (funcall get-db)))
-    (emacsql-with-transaction db
-      (pcase-dolist (`(,table ,schema) vulpea-db--schemata)
-        (unless (emacsql db
-                         [:select name
-                          :from sqlite_master
-                          :where (and (= type 'table)
-                                      (= name $r1))]
-                         (emacsql-escape-identifier table))
-          (emacsql db [:create-table $i1 $S2] table schema)))
-      (pcase-dolist (`(,index-name ,table ,columns)
-                     vulpea-db--indices)
-        (unless (emacsql db
-                         [:select name
-                          :from sqlite_master
-                          :where (and (= type 'index)
-                                      (= name $r1))]
-                         (emacsql-escape-identifier index-name))
-          (emacsql db [:create-index $i1 :on $i2 $S3]
-                   index-name table columns))))
+    (unless vulpea-db--initalized
+      (emacsql-with-transaction db
+        (pcase-dolist (`(,table ,schema) vulpea-db--schemata)
+          (unless (emacsql db
+                           [:select name
+                            :from sqlite_master
+                            :where (and (= type 'table)
+                                        (= name $r1))]
+                           (emacsql-escape-identifier table))
+            (emacsql db [:create-table $i1 $S2] table schema)))
+        (pcase-dolist (`(,index-name ,table ,columns)
+                       vulpea-db--indices)
+          (unless (emacsql db
+                           [:select name
+                            :from sqlite_master
+                            :where (and (= type 'index)
+                                        (= name $r1))]
+                           (emacsql-escape-identifier index-name))
+            (emacsql db [:create-index $i1 :on $i2 $S3]
+                     index-name table columns))))
+      (setq vulpea-db--initalized t))
     db))
 
 
@@ -288,6 +293,7 @@ GET-DB is a function that returns connection to database."
   (let ((enabled vulpea-db-autosync-mode))
     (cond
      (enabled
+      (setq vulpea-db--initalized nil)
       ;; attach custom schemata
       (seq-each
        (lambda (schema)
@@ -310,6 +316,7 @@ GET-DB is a function that returns connection to database."
                   :around
                   #'vulpea-db--init))
      (t
+      (setq vulpea-db--initalized nil)
       (advice-remove 'org-roam-db-insert-file-node
                      #'vulpea-db-meta-insert)
       (advice-remove 'org-roam-db #'vulpea-db--init)
