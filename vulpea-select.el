@@ -97,8 +97,28 @@ INITIAL-PROMPT is the initial title prompt.
 
 FILTER-FN is the function to apply on the candidates, which takes
 as its argument a `vulpea-note'."
-  (let* ((notes (vulpea-db-query filter-fn))
-         (completions (seq-map
+  (let ((notes (vulpea-db-query filter-fn)))
+    (vulpea-select-from
+     prompt notes
+     :require-match require-match
+     :initial-prompt initial-prompt)))
+
+(cl-defun vulpea-select-from (prompt
+                              notes
+                              &key
+                              require-match
+                              initial-prompt)
+  "Select a note from the list of NOTES.
+
+Returns a selected `vulpea-note'. If `vulpea-note-id' is nil, it
+means that user selected non-existing note.
+
+When REQUIRE-MATCH is non-nil, use may select only existing note.
+
+PROMPT is a message to present.
+
+INITIAL-PROMPT is the initial title prompt."
+  (let* ((completions (seq-map
                        (lambda (n)
                          (cons (vulpea-select-describe n)
                                n))

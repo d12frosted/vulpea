@@ -250,13 +250,14 @@ Functions of interest:
 
 ** =vulpea-select=
 
-Module containing =vulpea-select= and it's configurations. =vulpea-select= is a
-function to =completing-read= a note with optional filter. This function does
-not use =org-roam= completion system, as the latter is hard to extend, configure
-and reuse in broader context. Display of notes in completion list is defined by
-=vulpea-select-describe= function, which by default formats the note in the
-=title (primary_title) #space_separated_tags= format, which is controlled by two
-configurable values:
+Module containing =vulpea-select=, =vulpea-select-from= and selection
+configuration. =vulpea-select= is a function to =completing-read= a note with
+optional filter. =vulpea-select-from= is a function to =completing-read=
+arbitrary list of notes. These functions does not use =org-roam= completion
+system, as the latter is hard to extend, configure and reuse in broader context.
+Display of notes in completion list is defined by =vulpea-select-describe=
+function, which by default formats the note in the =title (primary_title)
+#space_separated_tags= format, which is controlled by two configurable values:
 - =vulpea-select-describe-fn= - description of the note (by default title).
 - =vulpea-select-annotate-fn= - annotation of the note (by default primary
   title when present and tags) with special face.

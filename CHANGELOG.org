@@ -24,6 +24,8 @@
   - Property format them with =:= as separator;
   - Remove property when setting them to empty list instead of leaving empty
     property.
+- New function to select on arbitrary list of notes as opposed to relying on
+  filter - =vulpea-select-from=.
 
 ** v0.2.0
 
