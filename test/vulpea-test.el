@@ -284,6 +284,7 @@
              :tags '("tag1" "tag2")
              :level 0
              :id (vulpea-note-id note)
+             :links '(("https" . "https://d12frosted.io"))
              :properties (list
                           (cons "CATEGORY" "prefix-aglianico")
                           (cons "MY_TAG" "super-tag")

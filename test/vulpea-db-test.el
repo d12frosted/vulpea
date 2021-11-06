@@ -171,7 +171,7 @@
                            (cons "FILE" (expand-file-name "same-name-2.org" org-roam-directory))
                            (cons "PRIORITY" "B"))))))
 
-  (it "includes meta"
+  (it "includes meta and links"
     (expect (vulpea-db-query
              (lambda (n)
                (seq-contains-p
@@ -185,6 +185,9 @@
               :tags nil
               :level 0
               :id "05907606-f836-45bf-bd36-a8444308eddd"
+              :links '(("https" . "https://en.wikipedia.org/wiki/Frappato")
+                       ("id" . "444f94d7-61e0-4b7c-bb7e-100814c6b4bb")
+                       ("id" . "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"))
               :properties (list
                            (cons "CATEGORY" "with-meta")
                            (cons "ID" "05907606-f836-45bf-bd36-a8444308eddd")
@@ -266,7 +269,7 @@
                           (cons "PRIORITY" "B")
                           (cons "ITEM" "Big note sub-sub-heading")))))
 
-  (it "includes meta in response"
+  (it "includes meta and links in response"
     (expect (vulpea-db-get-by-id "05907606-f836-45bf-bd36-a8444308eddd")
             :to-equal
             (make-vulpea-note
@@ -275,6 +278,9 @@
              :tags nil
              :level 0
              :id "05907606-f836-45bf-bd36-a8444308eddd"
+             :links '(("https" . "https://en.wikipedia.org/wiki/Frappato")
+                      ("id" . "444f94d7-61e0-4b7c-bb7e-100814c6b4bb")
+                      ("id" . "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"))
              :properties (list
                           (cons "CATEGORY" "with-meta")
                           (cons "ID" "05907606-f836-45bf-bd36-a8444308eddd")
@@ -413,6 +419,9 @@
              :tags nil
              :level 0
              :id "05907606-f836-45bf-bd36-a8444308eddd"
+             :links '(("https" . "https://en.wikipedia.org/wiki/Frappato")
+                      ("id" . "444f94d7-61e0-4b7c-bb7e-100814c6b4bb")
+                      ("id" . "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"))
              :properties (list
                           (cons "CATEGORY" "with-meta")
                           (cons "ID" "05907606-f836-45bf-bd36-a8444308eddd")
@@ -434,6 +443,9 @@
              :tags nil
              :level 0
              :id "05907606-f836-45bf-bd36-a8444308eddd"
+             :links '(("https" . "https://en.wikipedia.org/wiki/Frappato")
+                      ("id" . "444f94d7-61e0-4b7c-bb7e-100814c6b4bb")
+                      ("id" . "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"))
              :properties (list
                           (cons "CATEGORY" "with-meta")
                           (cons "ID" "05907606-f836-45bf-bd36-a8444308eddd")

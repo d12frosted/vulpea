@@ -87,8 +87,9 @@ returned."
   file,
   title,
   \"level\",
-  '(' || group_concat(tags, ' ') || ')' as tags,
+  tags,
   aliases,
+  '(' || group_concat(links, ' ') || ')' as links,
   properties,
   meta
 from
@@ -98,33 +99,61 @@ from
     file,
     title,
     \"level\",
-    tags,
-    '(' || group_concat(aliases, ' ') || ')' as aliases,
+    '(' || group_concat(tags,
+    ' ') || ')' as tags,
+    aliases,
+    links,
     properties,
     meta
   from
     (
     select
-      nodes.id as id,
-      nodes.file as file,
-      nodes.title as title,
-      nodes.\"level\" as \"level\",
-      tags.tag as tags,
-      aliases.alias as aliases,
-      nodes.properties as properties,
-      '(' || group_concat('(' || meta.prop
+      id,
+      file,
+      title,
+      \"level\",
+      tags,
+      '(' || group_concat(aliases,
+      ' ') || ')' as aliases,
+      links,
+      properties,
+      meta
+    from
+      (
+      select
+        nodes.id as id,
+        nodes.file as file,
+        nodes.title as title,
+        nodes.\"level\" as \"level\",
+        tags.tag as tags,
+        aliases.alias as aliases,
+        '(' || links.\"type\" || ' ' || links.dest || ')' as links,
+        nodes.properties as properties,
+        '(' || group_concat('(' || meta.prop
                               || ' '
                               || meta.value
                               || ')',
-                          ' ')
+        ' ')
           || ')' as meta
-    from nodes
-    left join tags on tags.node_id = nodes.id
-    left join aliases on aliases.node_id = nodes.id
-    left join meta on meta.node_id = nodes.id
-    group by nodes.id, tags.tag, aliases.alias )
-  group by id, tags )
-group by id"))
+      from nodes
+      left join tags on tags.node_id = nodes.id
+      left join aliases on aliases.node_id = nodes.id
+      left join meta on meta.node_id = nodes.id
+      left join links on links.\"source\" = nodes.id
+      group by
+        nodes.id,
+        tags.tag,
+        aliases.alias,
+        links.dest)
+    group by
+      id,
+      tags,
+      links)
+  group by
+    id,
+    links)
+group by
+  id"))
          notes)
     (dolist (row rows notes)
       (let ((id (nth 0 row))
@@ -133,8 +162,9 @@ group by id"))
             (level (nth 3 row))
             (tags (nth 4 row))
             (aliases (nth 5 row))
-            (properties (nth 6 row))
-            (meta (nth 7 row)))
+            (links (nth 6 row))
+            (properties (nth 7 row))
+            (meta (nth 8 row)))
         (dolist (name (cons title aliases))
           (let ((note (make-vulpea-note
                        :path file
@@ -146,6 +176,9 @@ group by id"))
                        :aliases aliases
                        :id id
                        :level level
+                       :links (seq-uniq (seq-map
+                                         #'vulpea-db--parse-link-pair
+                                         links))
                        :properties properties
                        :meta (seq-map
                               (lambda (row)
@@ -221,7 +254,14 @@ If the FILE is relative, it is considered to be relative to
                   [:select [prop value]
                    :from meta
                    :where (= node-id $s1)]
-                  id))))
+                  id)))
+          (links (seq-map
+                  #'vulpea-db--parse-link-pair
+                  (org-roam-db-query
+                   [:select [type dest]
+                    :from links
+                    :where (and (= source $s1))]
+                   id))))
       (make-vulpea-note
        :id id
        :path (org-roam-node-file node)
@@ -229,8 +269,18 @@ If the FILE is relative, it is considered to be relative to
        :title title
        :aliases (org-roam-node-aliases node)
        :tags (org-roam-node-tags node)
+       :links (seq-uniq links)
        :properties (org-roam-node-properties node)
        :meta meta))))
+
+(defun vulpea-db--parse-link-pair (link)
+  "Parse LINK pair."
+  (let ((type (car link))
+        (value (cadr link)))
+    (pcase type
+      (`"http" (cons type (concat type ":" value)))
+      (`"https" (cons type (concat type ":" value)))
+      (_ (cons type value)))))
 
 
 
