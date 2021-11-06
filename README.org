@@ -148,6 +148,8 @@ slots/fields:
 - =vulpea-note-primary-title= - primary title of the note (present only when
   =title= is an alias);
 - =vulpea-note-aliases= - aliases of the note;
+- =vulpea-note-links= - list of links, each link being represented as =cons= of
+  type and link;
 - =vulpea-note-tags= - tags of the note;
 - =vulpea-note-meta= - associative list of [[#metadata][metadata]], where key is a string and
   the value is a list of strings. There are also two utilities to access/query

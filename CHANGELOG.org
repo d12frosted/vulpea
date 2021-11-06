@@ -26,6 +26,7 @@
     property.
 - New function to select on arbitrary list of notes as opposed to relying on
   filter - =vulpea-select-from=.
+- [[https://github.com/d12frosted/vulpea/discussions/106][vulpea#106]] Include links in =vulpea-note=.
 
 ** v0.2.0
 

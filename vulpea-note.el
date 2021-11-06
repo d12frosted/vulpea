@@ -45,6 +45,7 @@
   primary-title
   aliases
   tags
+  links
   properties
   meta)
 
