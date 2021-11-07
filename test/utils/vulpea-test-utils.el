@@ -43,7 +43,8 @@ Unless NO-SETUP is non-nil, setup vulpea db."
   (let ((original-dir vulpea-test-directory)
         (new-dir (expand-file-name (make-temp-name "note-files") temporary-file-directory)))
     (copy-directory original-dir new-dir)
-    (setq org-roam-directory new-dir)
+    (setq org-roam-directory new-dir
+          org-roam-db-location (expand-file-name "org-roam.db" new-dir))
     (unless no-setup
       (vulpea-db-autosync-enable))
     (org-roam-db-autosync-enable)))
