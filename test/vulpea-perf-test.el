@@ -39,50 +39,59 @@
 (require 'vulpea)
 
 (defconst vulpea-perf-zip-url
-  "https://github.com/org-roam/test-org-files/archive/master.zip"
+  "https://github.com/d12frosted/vulpea-test-notes/archive/master.zip"
   "Path to zip for test org-roam files.")
 
 (defun vulpea-perf--init ()
   "Initialize performance testing environment."
-  (let* ((temp-loc (expand-file-name (make-temp-name "test-org-files-") temporary-file-directory))
+  (let* ((temp-loc (expand-file-name (make-temp-name "note-files") temporary-file-directory))
          (zip-file-loc (concat temp-loc ".zip"))
          (_ (url-copy-file vulpea-perf-zip-url zip-file-loc))
-         (_ (shell-command (format "mkdir -p %s && unzip -j -qq %s -d %s" temp-loc zip-file-loc temp-loc))))
-    (setq org-roam-directory temp-loc)
-    (org-roam-setup)))
+         (_ (shell-command (format "mkdir -p %s && unzip -qq %s -d %s" temp-loc zip-file-loc temp-loc)))
+         (test-notes-dir (expand-file-name "vulpea-test-notes-master/" temp-loc)))
+    (setq org-roam-directory (expand-file-name "notes-generated/notes/" test-notes-dir)
+          org-roam-db-location (expand-file-name "org-roam.db" test-notes-dir))
+    ;; fix file path values
+    (let ((db (emacsql-sqlite org-roam-db-location)))
+      (emacsql db (format "update nodes set file = '\"' || '%s' || replace(file, '\"', '') || '\"'"
+                          org-roam-directory)))
+    (vulpea-db-autosync-enable)
+    (org-roam-db-autosync-enable)))
 
-(describe "vulpea-select performance"
-  :var (duration)
+(describe "vulpea performance"
   (before-all
-    (vulpea-perf--init))
+    (vulpea-perf--init)
+    (message "Count of notes: %s" (length (vulpea-db-query))))
 
   (after-all
     (vulpea-test--teardown))
 
-  (it "select without filter is fast"
-    (spy-on 'completing-read
-            :and-return-value "bell-bottom sprue Presently the roots")
-    (setq duration
-          (benchmark-run 100
-            (vulpea-select "Note")))
-    (message "duration = %s" duration)
-    ;; 10 seconds for 100 runs is pretty fast for 1000 notes
-    (expect (car duration) :to-be-less-than 10))
+  (describe "vulpea-select"
+    :var (duration)
+    (it "select without filter is relatively fast on 9500+ notes"
+      (spy-on 'completing-read
+              :and-return-value "bell-bottom sprue Presently the roots")
+      (setq duration
+            (benchmark-run 10
+              (vulpea-select "Note")))
+      (message "duration = %s" duration)
+      ;; 40 seconds for 10 runs is pretty fast for 9500+ notes
+      (expect (car duration) :to-be-less-than 40))
 
-  (it "select with filter is fast"
-    (spy-on 'completing-read
-            :and-return-value "bell-bottom sprue Presently the roots")
-    (setq duration
-          (benchmark-run 100
-            (vulpea-select "Note"
-                           :filter-fn
-                           (lambda (n)
-                             (string-prefix-p
-                              "bell-bottom"
-                              (vulpea-note-title n))))))
-    (message "duration = %s" duration)
-    ;; 10 seconds for 100 runs is pretty fast for 1000 notes
-    (expect (car duration) :to-be-less-than 10)))
+    (it "select with filter is relatively fast on 9500+ notes"
+      (spy-on 'completing-read
+              :and-return-value "bell-bottom sprue Presently the roots")
+      (setq duration
+            (benchmark-run 10
+              (vulpea-select "Note"
+                             :filter-fn
+                             (lambda (n)
+                               (string-prefix-p
+                                "bell-bottom"
+                                (vulpea-note-title n))))))
+      (message "duration = %s" duration)
+      ;; 40 seconds for 10 runs is pretty fast for 9500+ notes
+      (expect (car duration) :to-be-less-than 40))))
 
 (provide 'vulpea-perf-test)
 ;;; vulpea-perf-test.el ends here
