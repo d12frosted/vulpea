@@ -91,7 +91,56 @@
                                 (vulpea-note-title n))))))
       (message "duration = %s" duration)
       ;; 40 seconds for 10 runs is pretty fast for 9500+ notes
-      (expect (car duration) :to-be-less-than 40))))
+      (expect (car duration) :to-be-less-than 40)))
+
+  (describe "vulpea-db-query-by-tags-some"
+    (it "specialized query is faster than generic vulpea-db-query"
+      (let* ((runs 10)
+             (tags-all (seq-map
+                        #'car
+                        (org-roam-db-query "select tag from tags group by tag order by count(1) desc")))
+             (tags (append (seq-take tags-all 2)
+                           (last tags-all 2)))
+             (duration1 (benchmark-run runs
+                          (vulpea-db-query-by-tags-some tags)))
+             (duration2 (benchmark-run runs
+                          (vulpea-db-query (lambda (note)
+                                             (let ((note-tags (vulpea-note-tags note)))
+                                               (seq-some
+                                                (lambda (tag)
+                                                  (seq-contains-p note-tags tag))
+                                                tags)))))))
+        (message "runs = %s" runs)
+        (message "duration specialized = %s" duration1)
+        (message "duration generic     = %s" duration2)
+        (expect (car duration1)
+                :to-be-less-than
+                (car duration2)))))
+
+  (describe "vulpea-db-query-by-tags-every"
+    (it "specialized query is faster than generic vulpea-db-query"
+      (message "Count of notes: %s" (length (vulpea-db-query)))
+      (let* ((runs 10)
+             (tags-all (seq-map
+                        #'car
+                        (org-roam-db-query "select tag from tags group by tag order by count(1) desc")))
+             (tags (append (seq-take tags-all 2)
+                           (last tags-all 2)))
+             (duration1 (benchmark-run runs
+                          (vulpea-db-query-by-tags-every tags)))
+             (duration2 (benchmark-run runs
+                          (vulpea-db-query (lambda (note)
+                                             (let ((note-tags (vulpea-note-tags note)))
+                                               (seq-every-p
+                                                (lambda (tag)
+                                                  (seq-contains-p note-tags tag))
+                                                tags)))))))
+        (message "runs = %s" runs)
+        (message "duration specialized = %s" duration1)
+        (message "duration generic     = %s" duration2)
+        (expect (car duration1)
+                :to-be-less-than
+                (car duration2))))))
 
 (provide 'vulpea-perf-test)
 ;;; vulpea-perf-test.el ends here

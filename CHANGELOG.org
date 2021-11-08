@@ -27,6 +27,11 @@
 - New function to select on arbitrary list of notes as opposed to relying on
   filter - =vulpea-select-from=.
 - [[https://github.com/d12frosted/vulpea/discussions/106][vulpea#106]] Include links in =vulpea-note=.
+- [[https://github.com/d12frosted/vulpea/discussions/106][vulpea#106]] Provide more functions to query notes in efficient manner:
+  - =vulpea-db-query-by-tags-some= - return all notes tagged with one of the
+    provided =TAGS=;
+  - =vulpea-db-query-by-tags-every= - return all notes tagged by every tag from
+    the list of provided =TAGS=;
 
 ** v0.2.0
 

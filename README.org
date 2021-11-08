@@ -289,7 +289,13 @@ This module contains functions to query notes data base. Functions of interest:
 - =vulpea-db-get-file-by-id= - function to get =FILE= of a note represented by
   =ID=. Supports headings of the note.
 - =vulpea-db-search-by-title= - function to query notes with =TITLE=.
-- =vulpea-db-query= - function to query notes with generic predicate.
+- =vulpea-db-query= - function to query notes with generic predicate. This
+  function is very powerful as it allows to apply Emacs Lisp predicate on
+  /every/ note. This might be not very efficient on big set of notes, in such
+  cases use specialized query functions.
+- =vulpea-db-query-by-tags-some= - return all notes tagged with one of the provided =TAGS=.
+- =vulpea-db-query-by-tags-every= - return all notes tagged by every tag from
+  the list of provided =TAGS=.
 
 ** =vulpea-meta=
 

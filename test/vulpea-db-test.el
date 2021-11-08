@@ -206,6 +206,172 @@
                                  "[[id:5093fc4e-8c63-4e60-a1da-83fc7ecd5db7][Reference]]"))
                 ("answer" . ("42"))))))))
 
+(describe "vulpea-db-query-by-tags-some"
+  (before-all
+    (vulpea-test--init))
+
+  (after-all
+    (vulpea-test--teardown))
+
+  (it "returns empty list when no tags are provided"
+    (expect (vulpea-db-query-by-tags-some nil) :to-equal nil))
+
+  (it "returns only notes tagged by any of tags: =1 tag"
+    (expect (vulpea-db-query-by-tags-some '("tag3"))
+            :to-have-same-items-as
+            (list
+             (make-vulpea-note
+              :path (expand-file-name "reference.org" org-roam-directory)
+              :title "Reference"
+              :tags '("tag1" "tag2" "tag3")
+              :level 0
+              :id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"
+              :properties (list
+                           (cons "CATEGORY" "reference")
+                           (cons "ID" "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")
+                           (cons "BLOCKED" "")
+                           (cons "FILE" (expand-file-name "reference.org" org-roam-directory))
+                           (cons "PRIORITY" "B")))
+             (make-vulpea-note
+              :path (expand-file-name "same-name-2.org" org-roam-directory)
+              :title "Duplicating Term"
+              :tags '("tag3")
+              :level 0
+              :id "68f11246-91e1-4d48-b3c6-801a2ef0160b"
+              :properties (list
+                           (cons "CATEGORY" "same-name-2")
+                           (cons "ID" "68f11246-91e1-4d48-b3c6-801a2ef0160b")
+                           (cons "BLOCKED" "")
+                           (cons "FILE" (expand-file-name "same-name-2.org" org-roam-directory))
+                           (cons "PRIORITY" "B"))))))
+
+  (it "returns only notes tagged by any of tags: >1 tag"
+    (expect (vulpea-db-query-by-tags-some '("tag3" "tag2"))
+            :to-have-same-items-as
+            (list
+             (make-vulpea-note
+              :path (expand-file-name "reference.org" org-roam-directory)
+              :title "Reference"
+              :tags '("tag1" "tag2" "tag3")
+              :level 0
+              :id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"
+              :properties (list
+                           (cons "CATEGORY" "reference")
+                           (cons "ID" "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")
+                           (cons "BLOCKED" "")
+                           (cons "FILE" (expand-file-name "reference.org" org-roam-directory))
+                           (cons "PRIORITY" "B")))
+             (make-vulpea-note
+              :path (expand-file-name "same-name-1.org" org-roam-directory)
+              :title "Duplicating Term"
+              :tags '("tag1" "tag2")
+              :level 0
+              :id "ff01962f-47c2-4a32-9bf4-990e41090a9b"
+              :properties (list
+                           (cons "CATEGORY" "same-name-1")
+                           (cons "ID" "ff01962f-47c2-4a32-9bf4-990e41090a9b")
+                           (cons "BLOCKED" "")
+                           (cons "FILE" (expand-file-name "same-name-1.org" org-roam-directory))
+                           (cons "PRIORITY" "B")))
+             (make-vulpea-note
+              :path (expand-file-name "same-name-2.org" org-roam-directory)
+              :title "Duplicating Term"
+              :tags '("tag3")
+              :level 0
+              :id "68f11246-91e1-4d48-b3c6-801a2ef0160b"
+              :properties (list
+                           (cons "CATEGORY" "same-name-2")
+                           (cons "ID" "68f11246-91e1-4d48-b3c6-801a2ef0160b")
+                           (cons "BLOCKED" "")
+                           (cons "FILE" (expand-file-name "same-name-2.org" org-roam-directory))
+                           (cons "PRIORITY" "B"))))))
+
+  (it "returns the same elements as vulpea-db-query"
+    (let ((tags '("tag2" "tag3")))
+      (expect
+       (vulpea-db-query-by-tags-some tags)
+       :to-have-same-items-as
+       (vulpea-db-query (lambda (note)
+                          (let ((note-tags (vulpea-note-tags note)))
+                            (seq-some
+                             (lambda (tag)
+                               (seq-contains-p note-tags tag))
+                             tags))))))))
+
+(describe "vulpea-db-query-by-tags-every"
+  (before-all
+    (vulpea-test--init))
+
+  (after-all
+    (vulpea-test--teardown))
+
+  ;; this is kind of strange... but maybe that makes sense
+  (it "returns empty list when no tags are provided"
+    (expect (vulpea-db-query-by-tags-every nil) :to-equal nil))
+
+  (it "returns only notes tagged by each and every of tags: =1 tag"
+    (expect (vulpea-db-query-by-tags-every '("tag3"))
+            :to-have-same-items-as
+            (list
+             (make-vulpea-note
+              :path (expand-file-name "reference.org" org-roam-directory)
+              :title "Reference"
+              :tags '("tag1" "tag2" "tag3")
+              :level 0
+              :id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"
+              :properties (list
+                           (cons "CATEGORY" "reference")
+                           (cons "ID" "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")
+                           (cons "BLOCKED" "")
+                           (cons "FILE" (expand-file-name "reference.org" org-roam-directory))
+                           (cons "PRIORITY" "B")))
+             (make-vulpea-note
+              :path (expand-file-name "same-name-2.org" org-roam-directory)
+              :title "Duplicating Term"
+              :tags '("tag3")
+              :level 0
+              :id "68f11246-91e1-4d48-b3c6-801a2ef0160b"
+              :properties (list
+                           (cons "CATEGORY" "same-name-2")
+                           (cons "ID" "68f11246-91e1-4d48-b3c6-801a2ef0160b")
+                           (cons "BLOCKED" "")
+                           (cons "FILE" (expand-file-name "same-name-2.org" org-roam-directory))
+                           (cons "PRIORITY" "B"))))))
+
+  (it "returns only notes tagged by each and every of tags: >1 tag"
+    (expect (vulpea-db-query-by-tags-every '("tag3" "tag2"))
+            :to-have-same-items-as
+            (list
+             (make-vulpea-note
+              :path (expand-file-name "reference.org" org-roam-directory)
+              :title "Reference"
+              :tags '("tag1" "tag2" "tag3")
+              :level 0
+              :id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"
+              :properties (list
+                           (cons "CATEGORY" "reference")
+                           (cons "ID" "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")
+                           (cons "BLOCKED" "")
+                           (cons "FILE" (expand-file-name "reference.org" org-roam-directory))
+                           (cons "PRIORITY" "B"))))))
+
+  (it "behave the same as vulpea-db-query-by-tags-some with 1 tag"
+    (expect (vulpea-db-query-by-tags-every '("tag3"))
+            :to-have-same-items-as
+            (vulpea-db-query-by-tags-some '("tag3"))))
+
+  (it "returns the same elements as vulpea-db-query"
+    (let ((tags '("tag2" "tag3")))
+      (expect
+       (vulpea-db-query-by-tags-every tags)
+       :to-have-same-items-as
+       (vulpea-db-query (lambda (note)
+                          (let ((note-tags (vulpea-note-tags note)))
+                            (seq-every-p
+                             (lambda (tag)
+                               (seq-contains-p note-tags tag))
+                             tags))))))))
+
 (describe "vulpea-db-get-by-id"
   (before-all
     (vulpea-test--init))
