@@ -188,6 +188,37 @@ group by
                       (funcall filter-fn note))
               (push note notes))))))))
 
+(defun vulpea-db-query-by-tags-some (tags)
+  "Query a list of `vulpea-note' from database.
+
+Only notes that are tagged by at least one tag from the list of
+TAGS are returned."
+  (emacsql-with-transaction (org-roam-db)
+    (seq-map
+     (lambda (v)
+       (vulpea-db-get-by-id (car v)))
+     (org-roam-db-query
+      (format "select distinct node_id from tags where tag in %s"
+              (emacsql-escape-vector (apply #'vector tags)))))))
+
+(defun vulpea-db-query-by-tags-every (tags)
+  "Query a list of `vulpea-note' from database.
+
+Only notes that are tagged by each and every tag from the list of
+TAGS are returned."
+  (emacsql-with-transaction (org-roam-db)
+    (seq-map
+     (lambda (v)
+       (vulpea-db-get-by-id (car v)))
+     (org-roam-db-query
+      (string-join
+       (seq-map
+        (lambda (tag)
+          (format "select node_id from tags where tag = '\"%s\"'"
+                  tag))
+        tags)
+       "\nintersect\n")))))
+
 ;;
 ;; Exchanging ID to X
 
