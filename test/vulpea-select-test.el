@@ -37,13 +37,13 @@
      'completing-read
      :and-return-value
      (completion-for :title "Reference"
-                     :tags '("tag1" "tag2")))
+                     :tags '("tag1" "tag2" "tag3")))
     (expect (vulpea-select "Note")
             :to-equal
             (make-vulpea-note
              :path (expand-file-name "reference.org" org-roam-directory)
              :title "Reference"
-             :tags '("tag1" "tag2")
+             :tags '("tag1" "tag2" "tag3")
              :level 0
              :id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"
              :properties (list

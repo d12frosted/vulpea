@@ -267,7 +267,7 @@
 :ID:       5093fc4e-8c63-4e60-a1da-83fc7ecd5db7
 :END:
 #+title: Reference
-#+filetags: tag1 tag2
+#+filetags: :tag1:tag2:tag3:
 
 - name :: some name
 "))
@@ -402,7 +402,7 @@ Just some text to make sure that meta is inserted before.
 :ID:       5093fc4e-8c63-4e60-a1da-83fc7ecd5db7
 :END:
 #+title: Reference
-#+filetags: tag1 tag2
+#+filetags: :tag1:tag2:tag3:
 
 - references :: [[id:5093fc4e-8c63-4e60-a1da-83fc7ecd5db7][Reference]]
 - references :: [[id:05907606-f836-45bf-bd36-a8444308eddd][Note with META]]
@@ -427,7 +427,7 @@ Just some text to make sure that meta is inserted before.
 :ID:       5093fc4e-8c63-4e60-a1da-83fc7ecd5db7
 :END:
 #+title: Reference
-#+filetags: tag1 tag2
+#+filetags: :tag1:tag2:tag3:
 
 - references :: [[id:5093fc4e-8c63-4e60-a1da-83fc7ecd5db7][Reference]]
 - references :: [[id:05907606-f836-45bf-bd36-a8444308eddd][Note with META]]
