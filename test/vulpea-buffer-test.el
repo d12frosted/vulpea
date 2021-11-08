@@ -108,7 +108,7 @@
 :ID:       %s
 :END:
 #+title: Reference
-#+filetags: tag1 tag2
+#+filetags: :tag1:tag2:tag3:
 "
              id))
     (expect (vulpea-utils-with-note (vulpea-db-get-by-id id)
@@ -137,20 +137,21 @@
     (expect (vulpea-utils-with-note (vulpea-db-get-by-id id)
               (vulpea-buffer-tags-add "super_tag_1")
               (vulpea-buffer-tags-get))
-            :to-equal '("tag1" "tag2" "super_tag_1")))
+            :to-equal '("tag1" "tag2" "tag3" "super_tag_1")))
 
   (it "delete one of the tags"
     (setq id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")
     (expect (vulpea-utils-with-note (vulpea-db-get-by-id id)
               (vulpea-buffer-tags-remove "tag1")
               (vulpea-buffer-tags-get))
-            :to-equal '("tag2")))
+            :to-equal '("tag2" "tag3")))
 
   (it "delete last tag"
     (setq id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")
     (expect (vulpea-utils-with-note (vulpea-db-get-by-id id)
               (vulpea-buffer-tags-remove "tag1")
               (vulpea-buffer-tags-remove "tag2")
+              (vulpea-buffer-tags-remove "tag3")
               (vulpea-buffer-tags-get))
             :to-equal nil)))
 
@@ -226,7 +227,7 @@ Some body.
              ":PROPERTIES:
 :ID:       %s
 :END:
-#+filetags: tag1 tag2
+#+filetags: :tag1:tag2:tag3:
 "
              id)))
 
