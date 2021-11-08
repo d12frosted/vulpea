@@ -41,6 +41,8 @@ Users of this library:
   - [[#vulpea-meta][=vulpea-meta=]]
   - [[#vulpea-buffer][=vulpea-buffer=]]
   - [[#vulpea-utils][=vulpea-utils=]]
+- [[#performance][Performance]]
+  - [[#query-from-database][Query from database]]
 - [[#coding][Coding]]
 - [[#building-and-testing][Building and testing]]
 - [[#acknowledgements][Acknowledgements]]
@@ -293,7 +295,8 @@ This module contains functions to query notes data base. Functions of interest:
   function is very powerful as it allows to apply Emacs Lisp predicate on
   /every/ note. This might be not very efficient on big set of notes, in such
   cases use specialized query functions.
-- =vulpea-db-query-by-tags-some= - return all notes tagged with one of the provided =TAGS=.
+- =vulpea-db-query-by-tags-some= - return all notes tagged with one of the
+  provided =TAGS=.
 - =vulpea-db-query-by-tags-every= - return all notes tagged by every tag from
   the list of provided =TAGS=.
 
@@ -400,6 +403,31 @@ interest:
 - =vulpea-utils-repeat-while= - utility to repeat some function and return first
   unfiltered result. Example of usage - you want to enforce some validation on
   value and keep prompting user until valid value is typed.
+
+* Performance
+
+** Query from database
+
+This library provides multiple functions to query notes from the database.
+Basically, there is one powerful =vulpea-db-query= allowing to filter notes by
+any =vulpea-note= based predicate. The only downside of this power is
+performance and memory penalty as all notes are loaded into memory. In cases
+when performance is critical, one can use specialized queries:
+
+- =vulpea-db-query-by-tags-some= - return all notes tagged with one of the
+  provided =TAGS=.
+- =vulpea-db-query-by-tags-every= - return all notes tagged by every tag from
+  the list of provided =TAGS=.
+
+The following table displays time required to query notes by using
+=vulpea-db-query= vs specialized query on the database of ~9500 notes.
+
+| test         |      generic |            specialized |
+|--------------+--------------+------------------------|
+| =tags-some=  | 2.1853156198 | 0.00031791239999999998 |
+| =tags-every= | 2.2151637800000003             |           0.0002604419 |
+
+See [[https://github.com/d12frosted/vulpea/discussions/106#discussioncomment-1601429][this comment]] for more background on why these functions where created.
 
 * Coding
 
