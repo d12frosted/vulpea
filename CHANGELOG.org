@@ -32,6 +32,10 @@
     provided =TAGS=;
   - =vulpea-db-query-by-tags-every= - return all notes tagged by every tag from
     the list of provided =TAGS=;
+  - =vulpea-db-query-by-links-some= - return all notes linking at least one of
+    the provided =DESTINATIONS=;
+  - =vulpea-db-query-by-links-every= - return all notes linking each and every
+    provided =DESTINATIONS=;
 
 ** v0.2.0
 

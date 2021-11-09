@@ -299,6 +299,10 @@ This module contains functions to query notes data base. Functions of interest:
   provided =TAGS=.
 - =vulpea-db-query-by-tags-every= - return all notes tagged by every tag from
   the list of provided =TAGS=.
+- =vulpea-db-query-by-links-some= - return all notes linking at least one of the
+  provided =DESTINATIONS=.
+- =vulpea-db-query-by-links-every= - return all notes linking each and every
+  provided =DESTINATIONS=.
 
 ** =vulpea-meta=
 
@@ -418,14 +422,20 @@ when performance is critical, one can use specialized queries:
   provided =TAGS=.
 - =vulpea-db-query-by-tags-every= - return all notes tagged by every tag from
   the list of provided =TAGS=.
+- =vulpea-db-query-by-links-some= - return all notes linking at least one of the
+  provided =DESTINATIONS=;
+- =vulpea-db-query-by-links-every= - return all notes linking each and every
+  provided =DESTINATIONS=;
 
 The following table displays time required to query notes by using
 =vulpea-db-query= vs specialized query on the database of ~9500 notes.
 
-| test         |      generic |            specialized |
-|--------------+--------------+------------------------|
-| =tags-some=  | 2.1853156198 | 0.00031791239999999998 |
-| =tags-every= | 2.2151637800000003             |           0.0002604419 |
+| test          |            generic |  specialized |
+|---------------+--------------------+--------------|
+| =tags-some=   | 2.5866148216000003 | 0.0003537717 |
+| =tags-every=  |       2.7016701243 | 0.0003028715 |
+| =links-some=  |       2.7395955169 | 0.0054181364 |
+| =links-every= |        2.704427894 | 0.0169718277 |
 
 See [[https://github.com/d12frosted/vulpea/discussions/106#discussioncomment-1601429][this comment]] for more background on why these functions where created.
 

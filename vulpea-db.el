@@ -219,6 +219,41 @@ TAGS are returned."
         tags)
        "\nintersect\n")))))
 
+(defun vulpea-db-query-by-links-some (destinations)
+  "Query a list of `vulpea-note' from database.
+
+Only notes that link to at least one destination from the list of
+DESTINATIONS are returned."
+  (emacsql-with-transaction (org-roam-db)
+    (seq-map
+     (lambda (v)
+       (vulpea-db-get-by-id (car v)))
+     (org-roam-db-query
+      (format "select distinct source from links where dest in %s"
+              (emacsql-escape-vector
+               (apply #'vector (seq-map #'cdr destinations))))))))
+
+(defun vulpea-db-query-by-links-every (destinations)
+  "Query a list of `vulpea-note' from database.
+
+Only notes that link to each and every destination from the list of
+DESTINATIONS are returned."
+  (emacsql-with-transaction (org-roam-db)
+    (seq-map
+     (lambda (v)
+       (vulpea-db-get-by-id (car v)))
+     (org-roam-db-query
+      (string-join
+       (seq-map
+        (lambda (link)
+          (format "select source from links
+ where type = '\"%s\"'
+   and dest = '\"%s\"'"
+                  (car link)
+                  (cdr link)))
+        destinations)
+       "\nintersect\n")))))
+
 ;;
 ;; Exchanging ID to X
 

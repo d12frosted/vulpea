@@ -3,3 +3,5 @@
 :ROAM_ALIASES:           "Alias of the note with alias"
 :END:
 #+TITLE: Note with an alias
+
+[[id:5093fc4e-8c63-4e60-a1da-83fc7ecd5db7][Reference]]

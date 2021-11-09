@@ -1,0 +1,6 @@
+:PROPERTIES:
+:ID:       1cc15044-aedb-442e-b727-9e3f7346be95
+:END:
+#+title: Note with link
+
+[[id:6fccd4ff-d1af-43b0-840e-66f636280acb][Old reference]]
