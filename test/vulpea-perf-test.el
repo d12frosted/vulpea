@@ -56,12 +56,12 @@
       (emacsql db (format "update nodes set file = '\"' || '%s' || replace(file, '\"', '') || '\"'"
                           org-roam-directory)))
     (vulpea-db-autosync-enable)
-    (org-roam-db-autosync-enable)))
+    (org-roam-db-autosync-enable)
+    (message "Count of notes: %s" (length (vulpea-db-query)))))
 
 (describe "vulpea performance"
   (before-all
-    (vulpea-perf--init)
-    (message "Count of notes: %s" (length (vulpea-db-query))))
+    (vulpea-perf--init))
 
   (after-all
     (vulpea-test--teardown))
@@ -119,7 +119,6 @@
 
   (describe "vulpea-db-query-by-tags-every"
     (it "specialized query is faster than generic vulpea-db-query"
-      (message "Count of notes: %s" (length (vulpea-db-query)))
       (let* ((runs 10)
              (tags-all (seq-map
                         #'car
@@ -135,6 +134,56 @@
                                                 (lambda (tag)
                                                   (seq-contains-p note-tags tag))
                                                 tags)))))))
+        (message "runs = %s" runs)
+        (message "duration specialized = %s" duration1)
+        (message "duration generic     = %s" duration2)
+        (expect (car duration1)
+                :to-be-less-than
+                (car duration2)))))
+
+  (describe "vulpea-db-query-by-links-some"
+    (it "specialized query is faster than generic vulpea-db-query"
+      (let* ((runs 10)
+             (links-all (seq-map
+                         (lambda (link)
+                           (cons "id" link))
+                         (org-roam-db-query "select dest from links where \"type\" = '\"id\"' group by dest order by count(1) desc")))
+             (links (append (seq-take links-all 2)
+                            (last links-all 2)))
+             (duration1 (benchmark-run runs
+                          (vulpea-db-query-by-links-some links)))
+             (duration2 (benchmark-run runs
+                          (vulpea-db-query (lambda (note)
+                                             (let ((note-links (vulpea-note-links note)))
+                                               (seq-some
+                                                (lambda (link)
+                                                  (seq-contains-p note-links link))
+                                                links)))))))
+        (message "runs = %s" runs)
+        (message "duration specialized = %s" duration1)
+        (message "duration generic     = %s" duration2)
+        (expect (car duration1)
+                :to-be-less-than
+                (car duration2)))))
+
+  (describe "vulpea-db-query-by-links-every"
+    (it "specialized query is faster than generic vulpea-db-query"
+      (let* ((runs 10)
+             (links-all (seq-map
+                         (lambda (link)
+                           (cons "id" link))
+                         (org-roam-db-query "select dest from links where \"type\" = '\"id\"' group by dest order by count(1) desc")))
+             (links (append (seq-take links-all 2)
+                            (last links-all 2)))
+             (duration1 (benchmark-run runs
+                          (vulpea-db-query-by-links-every links)))
+             (duration2 (benchmark-run runs
+                          (vulpea-db-query (lambda (note)
+                                             (let ((note-links (vulpea-note-links note)))
+                                               (seq-every-p
+                                                (lambda (link)
+                                                  (seq-contains-p note-links link))
+                                                links)))))))
         (message "runs = %s" runs)
         (message "duration specialized = %s" duration1)
         (message "duration generic     = %s" duration2)

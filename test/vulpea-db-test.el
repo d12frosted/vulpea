@@ -45,6 +45,7 @@
               :aliases '("Alias of the note with alias")
               :level 0
               :id "72522ed2-9991-482e-a365-01155c172aa5"
+              :links '(("id" . "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"))
               :properties (list
                            (cons "CATEGORY" "note-with-alias")
                            (cons "ROAM_ALIASES" "\"Alias of the note with alias\"")
@@ -65,6 +66,7 @@
               :aliases '("Alias of the note with alias")
               :level 0
               :id "72522ed2-9991-482e-a365-01155c172aa5"
+              :links '(("id" . "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"))
               :properties (list
                            (cons "CATEGORY" "note-with-alias")
                            (cons "ROAM_ALIASES" "\"Alias of the note with alias\"")
@@ -286,17 +288,20 @@
                            (cons "FILE" (expand-file-name "same-name-2.org" org-roam-directory))
                            (cons "PRIORITY" "B"))))))
 
-  (it "returns the same elements as vulpea-db-query"
+  (it "returns the same elements as vulpea-db-query (ignoring aliases)"
     (let ((tags '("tag2" "tag3")))
       (expect
        (vulpea-db-query-by-tags-some tags)
        :to-have-same-items-as
-       (vulpea-db-query (lambda (note)
-                          (let ((note-tags (vulpea-note-tags note)))
-                            (seq-some
-                             (lambda (tag)
-                               (seq-contains-p note-tags tag))
-                             tags))))))))
+       (seq-remove
+        #'vulpea-note-primary-title
+        (vulpea-db-query
+         (lambda (note)
+           (let ((note-tags (vulpea-note-tags note)))
+             (seq-some
+              (lambda (tag)
+                (seq-contains-p note-tags tag))
+              tags)))))))))
 
 (describe "vulpea-db-query-by-tags-every"
   (before-all
@@ -360,17 +365,265 @@
             :to-have-same-items-as
             (vulpea-db-query-by-tags-some '("tag3"))))
 
-  (it "returns the same elements as vulpea-db-query"
+  (it "returns the same elements as vulpea-db-query (ignoring aliases)"
     (let ((tags '("tag2" "tag3")))
       (expect
        (vulpea-db-query-by-tags-every tags)
        :to-have-same-items-as
-       (vulpea-db-query (lambda (note)
-                          (let ((note-tags (vulpea-note-tags note)))
-                            (seq-every-p
-                             (lambda (tag)
-                               (seq-contains-p note-tags tag))
-                             tags))))))))
+       (seq-remove
+        #'vulpea-note-primary-title
+        (vulpea-db-query
+         (lambda (note)
+           (let ((note-tags (vulpea-note-tags note)))
+             (seq-every-p
+              (lambda (tag)
+                (seq-contains-p note-tags tag))
+              tags)))))))))
+
+(describe "vulpea-db-query-by-links-some"
+  (before-all
+    (vulpea-test--init))
+
+  (after-all
+    (vulpea-test--teardown))
+
+  (it "returns empty list when no links are provided"
+    (expect (vulpea-db-query-by-links-some nil) :to-equal nil))
+
+  (it "returns only notes linking to any of destinations: =1 link"
+    (expect (vulpea-db-query-by-links-some
+             '(("id" . "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")))
+            :to-have-same-items-as
+            (list
+             (make-vulpea-note
+              :path (expand-file-name "with-meta.org" org-roam-directory)
+              :title "Note with META"
+              :tags nil
+              :level 0
+              :id "05907606-f836-45bf-bd36-a8444308eddd"
+              :links '(("https" . "https://en.wikipedia.org/wiki/Frappato")
+                       ("id" . "444f94d7-61e0-4b7c-bb7e-100814c6b4bb")
+                       ("id" . "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"))
+              :properties (list
+                           (cons "CATEGORY" "with-meta")
+                           (cons "ID" "05907606-f836-45bf-bd36-a8444308eddd")
+                           (cons "BLOCKED" "")
+                           (cons "FILE" (expand-file-name "with-meta.org" org-roam-directory))
+                           (cons "PRIORITY" "B"))
+              :meta
+              '(("name" . ("some name"))
+                ("tags" . ("tag 1" "tag 2" "tag 3"))
+                ("numbers" . ("12" "18" "24"))
+                ("singleton" . ("only value"))
+                ("symbol" . ("red"))
+                ("url" . ("[[https://en.wikipedia.org/wiki/Frappato][wikipedia.org]]"))
+                ("link" . ("[[id:444f94d7-61e0-4b7c-bb7e-100814c6b4bb][Note without META]]"))
+                ("references" . ("[[id:444f94d7-61e0-4b7c-bb7e-100814c6b4bb][Note without META]]"
+                                 "[[id:5093fc4e-8c63-4e60-a1da-83fc7ecd5db7][Reference]]"))
+                ("answer" . ("42"))))
+             (make-vulpea-note
+              :path (expand-file-name "note-with-alias.org" org-roam-directory)
+              :title "Note with an alias"
+              :tags nil
+              :aliases '("Alias of the note with alias")
+              :level 0
+              :id "72522ed2-9991-482e-a365-01155c172aa5"
+              :links '(("id" . "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"))
+              :properties (list
+                           (cons "CATEGORY" "note-with-alias")
+                           (cons "ROAM_ALIASES" "\"Alias of the note with alias\"")
+                           (cons "ID" "72522ed2-9991-482e-a365-01155c172aa5")
+                           (cons "BLOCKED" "")
+                           (cons "FILE" (expand-file-name "note-with-alias.org" org-roam-directory))
+                           (cons "PRIORITY" "B"))))))
+
+  (it "returns only notes linking to any of destinations: >1 link"
+    (expect (vulpea-db-query-by-links-some
+             '(("id" . "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")
+               ("id" . "6fccd4ff-d1af-43b0-840e-66f636280acb")))
+            :to-have-same-items-as
+            (list
+             (make-vulpea-note
+              :path (expand-file-name "with-meta.org" org-roam-directory)
+              :title "Note with META"
+              :tags nil
+              :level 0
+              :id "05907606-f836-45bf-bd36-a8444308eddd"
+              :links '(("https" . "https://en.wikipedia.org/wiki/Frappato")
+                       ("id" . "444f94d7-61e0-4b7c-bb7e-100814c6b4bb")
+                       ("id" . "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"))
+              :properties (list
+                           (cons "CATEGORY" "with-meta")
+                           (cons "ID" "05907606-f836-45bf-bd36-a8444308eddd")
+                           (cons "BLOCKED" "")
+                           (cons "FILE" (expand-file-name "with-meta.org" org-roam-directory))
+                           (cons "PRIORITY" "B"))
+              :meta
+              '(("name" . ("some name"))
+                ("tags" . ("tag 1" "tag 2" "tag 3"))
+                ("numbers" . ("12" "18" "24"))
+                ("singleton" . ("only value"))
+                ("symbol" . ("red"))
+                ("url" . ("[[https://en.wikipedia.org/wiki/Frappato][wikipedia.org]]"))
+                ("link" . ("[[id:444f94d7-61e0-4b7c-bb7e-100814c6b4bb][Note without META]]"))
+                ("references" . ("[[id:444f94d7-61e0-4b7c-bb7e-100814c6b4bb][Note without META]]"
+                                 "[[id:5093fc4e-8c63-4e60-a1da-83fc7ecd5db7][Reference]]"))
+                ("answer" . ("42"))))
+             (make-vulpea-note
+              :path (expand-file-name "note-with-alias.org" org-roam-directory)
+              :title "Note with an alias"
+              :tags nil
+              :aliases '("Alias of the note with alias")
+              :level 0
+              :id "72522ed2-9991-482e-a365-01155c172aa5"
+              :links '(("id" . "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"))
+              :properties (list
+                           (cons "CATEGORY" "note-with-alias")
+                           (cons "ROAM_ALIASES" "\"Alias of the note with alias\"")
+                           (cons "ID" "72522ed2-9991-482e-a365-01155c172aa5")
+                           (cons "BLOCKED" "")
+                           (cons "FILE" (expand-file-name "note-with-alias.org" org-roam-directory))
+                           (cons "PRIORITY" "B")))
+             (make-vulpea-note
+              :path (expand-file-name "note-with-link.org" org-roam-directory)
+              :title "Note with link"
+              :tags nil
+              :level 0
+              :id "1cc15044-aedb-442e-b727-9e3f7346be95"
+              :links '(("id" . "6fccd4ff-d1af-43b0-840e-66f636280acb"))
+              :properties (list
+                           (cons "CATEGORY" "note-with-link")
+                           (cons "ID" "1cc15044-aedb-442e-b727-9e3f7346be95")
+                           (cons "BLOCKED" "")
+                           (cons "FILE" (expand-file-name "note-with-link.org" org-roam-directory))
+                           (cons "PRIORITY" "B"))))))
+
+  (it "returns the same elements as vulpea-db-query (ignoring aliases)"
+    (let ((links '(("id" . "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")
+                   ("id" . "444f94d7-61e0-4b7c-bb7e-100814c6b4bb"))))
+      (expect
+       (vulpea-db-query-by-links-some links)
+       :to-have-same-items-as
+       (seq-remove
+        #'vulpea-note-primary-title
+        (vulpea-db-query
+         (lambda (note)
+           (let ((note-links (vulpea-note-links note)))
+             (seq-some
+              (lambda (link)
+                (seq-contains-p note-links link))
+              links)))))))))
+
+(describe "vulpea-db-query-by-links-every"
+  (before-all
+    (vulpea-test--init))
+
+  (after-all
+    (vulpea-test--teardown))
+
+  ;; this is kind of strange... but maybe that makes sense
+  (it "returns empty list when no links are provided"
+    (expect (vulpea-db-query-by-links-every nil) :to-equal nil))
+
+  (it "returns only notes linking to every destination: =1 link"
+    (expect (vulpea-db-query-by-links-every
+             '(("id" . "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")))
+            :to-have-same-items-as
+            (list
+             (make-vulpea-note
+              :path (expand-file-name "with-meta.org" org-roam-directory)
+              :title "Note with META"
+              :tags nil
+              :level 0
+              :id "05907606-f836-45bf-bd36-a8444308eddd"
+              :links '(("https" . "https://en.wikipedia.org/wiki/Frappato")
+                       ("id" . "444f94d7-61e0-4b7c-bb7e-100814c6b4bb")
+                       ("id" . "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"))
+              :properties (list
+                           (cons "CATEGORY" "with-meta")
+                           (cons "ID" "05907606-f836-45bf-bd36-a8444308eddd")
+                           (cons "BLOCKED" "")
+                           (cons "FILE" (expand-file-name "with-meta.org" org-roam-directory))
+                           (cons "PRIORITY" "B"))
+              :meta
+              '(("name" . ("some name"))
+                ("tags" . ("tag 1" "tag 2" "tag 3"))
+                ("numbers" . ("12" "18" "24"))
+                ("singleton" . ("only value"))
+                ("symbol" . ("red"))
+                ("url" . ("[[https://en.wikipedia.org/wiki/Frappato][wikipedia.org]]"))
+                ("link" . ("[[id:444f94d7-61e0-4b7c-bb7e-100814c6b4bb][Note without META]]"))
+                ("references" . ("[[id:444f94d7-61e0-4b7c-bb7e-100814c6b4bb][Note without META]]"
+                                 "[[id:5093fc4e-8c63-4e60-a1da-83fc7ecd5db7][Reference]]"))
+                ("answer" . ("42"))))
+             (make-vulpea-note
+              :path (expand-file-name "note-with-alias.org" org-roam-directory)
+              :title "Note with an alias"
+              :tags nil
+              :aliases '("Alias of the note with alias")
+              :level 0
+              :id "72522ed2-9991-482e-a365-01155c172aa5"
+              :links '(("id" . "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"))
+              :properties (list
+                           (cons "CATEGORY" "note-with-alias")
+                           (cons "ROAM_ALIASES" "\"Alias of the note with alias\"")
+                           (cons "ID" "72522ed2-9991-482e-a365-01155c172aa5")
+                           (cons "BLOCKED" "")
+                           (cons "FILE" (expand-file-name "note-with-alias.org" org-roam-directory))
+                           (cons "PRIORITY" "B"))))))
+
+  (it "returns only notes linking each and every of destinations: >1 tag"
+    (expect (vulpea-db-query-by-links-every
+             '(("id" . "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")
+               ("id" . "444f94d7-61e0-4b7c-bb7e-100814c6b4bb")))
+            :to-have-same-items-as
+            (list
+             (make-vulpea-note
+              :path (expand-file-name "with-meta.org" org-roam-directory)
+              :title "Note with META"
+              :tags nil
+              :level 0
+              :id "05907606-f836-45bf-bd36-a8444308eddd"
+              :links '(("https" . "https://en.wikipedia.org/wiki/Frappato")
+                       ("id" . "444f94d7-61e0-4b7c-bb7e-100814c6b4bb")
+                       ("id" . "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"))
+              :properties (list
+                           (cons "CATEGORY" "with-meta")
+                           (cons "ID" "05907606-f836-45bf-bd36-a8444308eddd")
+                           (cons "BLOCKED" "")
+                           (cons "FILE" (expand-file-name "with-meta.org" org-roam-directory))
+                           (cons "PRIORITY" "B"))
+              :meta
+              '(("name" . ("some name"))
+                ("tags" . ("tag 1" "tag 2" "tag 3"))
+                ("numbers" . ("12" "18" "24"))
+                ("singleton" . ("only value"))
+                ("symbol" . ("red"))
+                ("url" . ("[[https://en.wikipedia.org/wiki/Frappato][wikipedia.org]]"))
+                ("link" . ("[[id:444f94d7-61e0-4b7c-bb7e-100814c6b4bb][Note without META]]"))
+                ("references" . ("[[id:444f94d7-61e0-4b7c-bb7e-100814c6b4bb][Note without META]]"
+                                 "[[id:5093fc4e-8c63-4e60-a1da-83fc7ecd5db7][Reference]]"))
+                ("answer" . ("42")))))))
+
+  (it "behave the same as vulpea-db-query-by-links-some with 1 destination"
+    (expect (vulpea-db-query-by-links-every '(("id" . "444f94d7-61e0-4b7c-bb7e-100814c6b4bb")))
+            :to-have-same-items-as
+            (vulpea-db-query-by-links-some '(("id" . "444f94d7-61e0-4b7c-bb7e-100814c6b4bb")))))
+
+  (it "returns the same elements as vulpea-db-query (ignoring aliases)"
+    (let ((links '(("id" . "444f94d7-61e0-4b7c-bb7e-100814c6b4bb"))))
+      (expect
+       (vulpea-db-query-by-links-every links)
+       :to-have-same-items-as
+       (seq-remove
+        #'vulpea-note-primary-title
+        (vulpea-db-query
+         (lambda (note)
+           (let ((note-links (vulpea-note-links note)))
+             (seq-every-p
+              (lambda (tag)
+                (seq-contains-p note-links tag))
+              links)))))))))
 
 (describe "vulpea-db-get-by-id"
   (before-all
@@ -393,6 +646,7 @@
              :aliases '("Alias of the note with alias")
              :level 0
              :id "72522ed2-9991-482e-a365-01155c172aa5"
+             :links '(("id" . "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"))
              :properties (list
                           (cons "CATEGORY" "note-with-alias")
                           (cons "ROAM_ALIASES" "\"Alias of the note with alias\"")
