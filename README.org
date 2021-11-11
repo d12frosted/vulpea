@@ -432,10 +432,10 @@ The following table displays time required to query notes by using
 
 | test          |            generic |  specialized |
 |---------------+--------------------+--------------|
-| =tags-some=   | 2.5866148216000003 | 0.0003537717 |
-| =tags-every=  |       2.7016701243 | 0.0003028715 |
-| =links-some=  |       2.7395955169 | 0.0054181364 |
-| =links-every= |        2.704427894 | 0.0169718277 |
+| =tags-some=   | 4.6693460650999995 | 0.0605194177 |
+| =tags-every=  | 4.7333844436999996 | 1.0618131127 |
+| =links-some=  |       4.8095771283 |  1.362214091 |
+| =links-every= | 4.5517473337999995 | 0.1707312557 |
 
 See [[https://github.com/d12frosted/vulpea/discussions/106#discussioncomment-1601429][this comment]] for more background on why these functions where created.
 
