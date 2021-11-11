@@ -435,6 +435,22 @@
                            (cons "ID" "72522ed2-9991-482e-a365-01155c172aa5")
                            (cons "BLOCKED" "")
                            (cons "FILE" (expand-file-name "note-with-alias.org" org-roam-directory))
+                           (cons "PRIORITY" "B")))
+             (make-vulpea-note
+              :path (expand-file-name "note-with-alias.org" org-roam-directory)
+              :title "Alias of the note with alias"
+              :primary-title "Note with an alias"
+              :tags nil
+              :aliases '("Alias of the note with alias")
+              :level 0
+              :id "72522ed2-9991-482e-a365-01155c172aa5"
+              :links '(("id" . "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"))
+              :properties (list
+                           (cons "CATEGORY" "note-with-alias")
+                           (cons "ROAM_ALIASES" "\"Alias of the note with alias\"")
+                           (cons "ID" "72522ed2-9991-482e-a365-01155c172aa5")
+                           (cons "BLOCKED" "")
+                           (cons "FILE" (expand-file-name "note-with-alias.org" org-roam-directory))
                            (cons "PRIORITY" "B"))))))
 
   (it "returns only notes linking to any of destinations: >1 link"
@@ -485,6 +501,22 @@
                            (cons "FILE" (expand-file-name "note-with-alias.org" org-roam-directory))
                            (cons "PRIORITY" "B")))
              (make-vulpea-note
+              :path (expand-file-name "note-with-alias.org" org-roam-directory)
+              :title "Alias of the note with alias"
+              :primary-title "Note with an alias"
+              :tags nil
+              :aliases '("Alias of the note with alias")
+              :level 0
+              :id "72522ed2-9991-482e-a365-01155c172aa5"
+              :links '(("id" . "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"))
+              :properties (list
+                           (cons "CATEGORY" "note-with-alias")
+                           (cons "ROAM_ALIASES" "\"Alias of the note with alias\"")
+                           (cons "ID" "72522ed2-9991-482e-a365-01155c172aa5")
+                           (cons "BLOCKED" "")
+                           (cons "FILE" (expand-file-name "note-with-alias.org" org-roam-directory))
+                           (cons "PRIORITY" "B")))
+             (make-vulpea-note
               :path (expand-file-name "note-with-link.org" org-roam-directory)
               :title "Note with link"
               :tags nil
@@ -498,21 +530,19 @@
                            (cons "FILE" (expand-file-name "note-with-link.org" org-roam-directory))
                            (cons "PRIORITY" "B"))))))
 
-  (it "returns the same elements as vulpea-db-query (ignoring aliases)"
+  (it "returns the same elements as vulpea-db-query"
     (let ((links '(("id" . "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")
                    ("id" . "444f94d7-61e0-4b7c-bb7e-100814c6b4bb"))))
       (expect
        (vulpea-db-query-by-links-some links)
        :to-have-same-items-as
-       (seq-remove
-        #'vulpea-note-primary-title
-        (vulpea-db-query
-         (lambda (note)
-           (let ((note-links (vulpea-note-links note)))
-             (seq-some
-              (lambda (link)
-                (seq-contains-p note-links link))
-              links)))))))))
+       (vulpea-db-query
+        (lambda (note)
+          (let ((note-links (vulpea-note-links note)))
+            (seq-some
+             (lambda (link)
+               (seq-contains-p note-links link))
+             links))))))))
 
 (describe "vulpea-db-query-by-links-every"
   (before-all
@@ -570,6 +600,22 @@
                            (cons "ID" "72522ed2-9991-482e-a365-01155c172aa5")
                            (cons "BLOCKED" "")
                            (cons "FILE" (expand-file-name "note-with-alias.org" org-roam-directory))
+                           (cons "PRIORITY" "B")))
+             (make-vulpea-note
+              :path (expand-file-name "note-with-alias.org" org-roam-directory)
+              :title "Alias of the note with alias"
+              :primary-title "Note with an alias"
+              :tags nil
+              :aliases '("Alias of the note with alias")
+              :level 0
+              :id "72522ed2-9991-482e-a365-01155c172aa5"
+              :links '(("id" . "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"))
+              :properties (list
+                           (cons "CATEGORY" "note-with-alias")
+                           (cons "ROAM_ALIASES" "\"Alias of the note with alias\"")
+                           (cons "ID" "72522ed2-9991-482e-a365-01155c172aa5")
+                           (cons "BLOCKED" "")
+                           (cons "FILE" (expand-file-name "note-with-alias.org" org-roam-directory))
                            (cons "PRIORITY" "B"))))))
 
   (it "returns only notes linking each and every of destinations: >1 tag"
@@ -610,20 +656,18 @@
             :to-have-same-items-as
             (vulpea-db-query-by-links-some '(("id" . "444f94d7-61e0-4b7c-bb7e-100814c6b4bb")))))
 
-  (it "returns the same elements as vulpea-db-query (ignoring aliases)"
+  (it "returns the same elements as vulpea-db-query"
     (let ((links '(("id" . "444f94d7-61e0-4b7c-bb7e-100814c6b4bb"))))
       (expect
        (vulpea-db-query-by-links-every links)
        :to-have-same-items-as
-       (seq-remove
-        #'vulpea-note-primary-title
-        (vulpea-db-query
-         (lambda (note)
-           (let ((note-links (vulpea-note-links note)))
-             (seq-every-p
-              (lambda (tag)
-                (seq-contains-p note-links tag))
-              links)))))))))
+       (vulpea-db-query
+        (lambda (note)
+          (let ((note-links (vulpea-note-links note)))
+            (seq-every-p
+             (lambda (tag)
+               (seq-contains-p note-links tag))
+             links))))))))
 
 (describe "vulpea-db-get-by-id"
   (before-all

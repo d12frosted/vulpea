@@ -188,18 +188,128 @@ group by
                       (funcall filter-fn note))
               (push note notes))))))))
 
+(defun vulpea-db-query-by-ids (ids)
+  "Query list of `vulpea-note' by IDS."
+  (let* ((rows
+          (org-roam-db-query
+           (format "select
+  id,
+  file,
+  title,
+  \"level\",
+  tags,
+  aliases,
+  '(' || group_concat(links, ' ') || ')' as links,
+  properties,
+  meta
+from
+  (
+  select
+    id,
+    file,
+    title,
+    \"level\",
+    '(' || group_concat(tags,
+    ' ') || ')' as tags,
+    aliases,
+    links,
+    properties,
+    meta
+  from
+    (
+    select
+      id,
+      file,
+      title,
+      \"level\",
+      tags,
+      '(' || group_concat(aliases,
+      ' ') || ')' as aliases,
+      links,
+      properties,
+      meta
+    from
+      (
+      select
+        nodes.id as id,
+        nodes.file as file,
+        nodes.title as title,
+        nodes.\"level\" as \"level\",
+        tags.tag as tags,
+        aliases.alias as aliases,
+        '(' || links.\"type\" || ' ' || links.dest || ')' as links,
+        nodes.properties as properties,
+        '(' || group_concat('(' || meta.prop
+                              || ' '
+                              || meta.value
+                              || ')',
+        ' ')
+          || ')' as meta
+      from nodes
+      left join tags on tags.node_id = nodes.id
+      left join aliases on aliases.node_id = nodes.id
+      left join meta on meta.node_id = nodes.id
+      left join links on links.\"source\" = nodes.id
+      where nodes.id in %s
+      group by
+        nodes.id,
+        tags.tag,
+        aliases.alias,
+        links.dest)
+    group by
+      id,
+      tags,
+      links)
+  group by
+    id,
+    links)
+group by
+  id"
+                   (emacsql-escape-vector (apply #'vector ids)))))
+         notes)
+    (dolist (row rows notes)
+      (let ((id (nth 0 row))
+            (file (nth 1 row))
+            (title (nth 2 row))
+            (level (nth 3 row))
+            (tags (nth 4 row))
+            (aliases (nth 5 row))
+            (links (nth 6 row))
+            (properties (nth 7 row))
+            (meta (nth 8 row)))
+        (dolist (name (cons title aliases))
+          (let ((note (make-vulpea-note
+                       :path file
+                       :title name
+                       :primary-title
+                       (unless (string-equal title name)
+                         title)
+                       :tags tags
+                       :aliases aliases
+                       :id id
+                       :level level
+                       :links (seq-uniq (seq-map
+                                         #'vulpea-db--parse-link-pair
+                                         links))
+                       :properties properties
+                       :meta (seq-map
+                              (lambda (row)
+                                (cons (nth 0 row) (nth 1 row)))
+                              meta))))
+            (push note notes)))))))
+
 (defun vulpea-db-query-by-tags-some (tags)
   "Query a list of `vulpea-note' from database.
 
 Only notes that are tagged by at least one tag from the list of
 TAGS are returned."
   (emacsql-with-transaction (org-roam-db)
-    (seq-map
-     (lambda (v)
-       (vulpea-db-get-by-id (car v)))
-     (org-roam-db-query
-      (format "select distinct node_id from tags where tag in %s"
-              (emacsql-escape-vector (apply #'vector tags)))))))
+    (vulpea-db-query-by-ids
+     (seq-map
+      #'car
+      (org-roam-db-query
+       (format "select distinct node_id from tags where tag in %s"
+               (emacsql-escape-vector (apply #'vector tags))))))))
 
 (defun vulpea-db-query-by-tags-every (tags)
   "Query a list of `vulpea-note' from database.
@@ -207,17 +317,17 @@ TAGS are returned."
 Only notes that are tagged by each and every tag from the list of
 TAGS are returned."
   (emacsql-with-transaction (org-roam-db)
-    (seq-map
-     (lambda (v)
-       (vulpea-db-get-by-id (car v)))
-     (org-roam-db-query
-      (string-join
-       (seq-map
-        (lambda (tag)
-          (format "select node_id from tags where tag = '\"%s\"'"
-                  tag))
-        tags)
-       "\nintersect\n")))))
+    (vulpea-db-query-by-ids
+     (seq-map
+      #'car
+      (org-roam-db-query
+       (string-join
+        (seq-map
+         (lambda (tag)
+           (format "select node_id from tags where tag = '\"%s\"'"
+                   tag))
+         tags)
+        "\nintersect\n"))))))
 
 (defun vulpea-db-query-by-links-some (destinations)
   "Query a list of `vulpea-note' from database.
@@ -225,13 +335,13 @@ TAGS are returned."
 Only notes that link to at least one destination from the list of
 DESTINATIONS are returned."
   (emacsql-with-transaction (org-roam-db)
-    (seq-map
-     (lambda (v)
-       (vulpea-db-get-by-id (car v)))
-     (org-roam-db-query
-      (format "select distinct source from links where dest in %s"
-              (emacsql-escape-vector
-               (apply #'vector (seq-map #'cdr destinations))))))))
+    (vulpea-db-query-by-ids
+     (seq-map
+      #'car
+      (org-roam-db-query
+       (format "select distinct source from links where dest in %s"
+               (emacsql-escape-vector
+                (apply #'vector (seq-map #'cdr destinations)))))))))
 
 (defun vulpea-db-query-by-links-every (destinations)
   "Query a list of `vulpea-note' from database.
@@ -239,20 +349,20 @@ DESTINATIONS are returned."
 Only notes that link to each and every destination from the list of
 DESTINATIONS are returned."
   (emacsql-with-transaction (org-roam-db)
-    (seq-map
-     (lambda (v)
-       (vulpea-db-get-by-id (car v)))
-     (org-roam-db-query
-      (string-join
-       (seq-map
-        (lambda (link)
-          (format "select source from links
+    (vulpea-db-query-by-ids
+     (seq-map
+      #'car
+      (org-roam-db-query
+       (string-join
+        (seq-map
+         (lambda (link)
+           (format "select source from links
  where type = '\"%s\"'
    and dest = '\"%s\"'"
-                  (car link)
-                  (cdr link)))
-        destinations)
-       "\nintersect\n")))))
+                   (car link)
+                   (cdr link)))
+         destinations)
+        "\nintersect\n"))))))
 
 ;;
 ;; Exchanging ID to X
