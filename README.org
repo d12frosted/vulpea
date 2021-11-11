@@ -428,14 +428,17 @@ when performance is critical, one can use specialized queries:
   provided =DESTINATIONS=;
 
 The following table displays time required to query notes by using
-=vulpea-db-query= vs specialized query on the database of ~9500 notes.
+=vulpea-db-query= vs specialized query on the database of 9554 [[https://github.com/d12frosted/vulpea-test-notes/][generated notes]].
+The difference between various test cases is partially explained by the fact
+that filtering functions result in different amount of notes. Since we need to
+retrieve full note structure, the more notes we have, the more time it takes.
 
-| test          |            generic |  specialized |
-|---------------+--------------------+--------------|
-| =tags-some=   | 4.6693460650999995 | 0.0605194177 |
-| =tags-every=  | 4.7333844436999996 | 1.0618131127 |
-| =links-some=  |       4.8095771283 |  1.362214091 |
-| =links-every= | 4.5517473337999995 | 0.1707312557 |
+| test          | result size |            generic |  specialized |
+|---------------+-------------+--------------------+--------------|
+| =tags-some=   | 30 notes    | 4.6693460650999995 | 0.0605194177 |
+| =tags-every=  | 3168 notes  | 4.7333844436999996 | 1.0618131127 |
+| =links-some=  | 1657 notes  |       4.8095771283 |  1.362214091 |
+| =links-every= | 92 notes    | 4.5517473337999995 | 0.1707312557 |
 
 See [[https://github.com/d12frosted/vulpea/discussions/106#discussioncomment-1601429][this comment]] for more background on why these functions where created.
 
