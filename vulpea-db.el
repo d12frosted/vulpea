@@ -73,6 +73,41 @@ Does not support headings in the note."
 ;;
 ;; Querying
 
+(defun vulpea-db--notes-from-row (row)
+  "Parse list of `vulpea-note' from ROW.
+
+The secret ingredient is list of aliases!"
+  (let ((id (nth 0 row))
+        (file (nth 1 row))
+        (level (nth 2 row))
+        (title (nth 3 row))
+        (properties (nth 4 row))
+        (aliases (nth 5 row))
+        (tags (nth 6 row))
+        (meta (nth 7 row))
+        (links (nth 8 row)))
+    (seq-map
+     (lambda (name)
+       (make-vulpea-note
+        :path file
+        :title name
+        :primary-title
+        (unless (string-equal title name)
+          title)
+        :tags (seq-map #'substring-no-properties tags)
+        :aliases aliases
+        :id id
+        :level level
+        :links (seq-uniq (seq-map
+                          #'vulpea-db--parse-link-pair
+                          links))
+        :properties properties
+        :meta (seq-map
+               (lambda (row)
+                 (cons (nth 0 row) (nth 1 row)))
+               meta)))
+     (cons title aliases))))
+
 (defun vulpea-db-query (&optional filter-fn)
   "Query list of `vulpea-note' from database.
 
@@ -82,219 +117,42 @@ returned."
           (org-roam-db-query
            "select
   id,
-  file,
-  title,
+  path,
   \"level\",
-  tags,
-  aliases,
-  '(' || group_concat(links, ' ') || ')' as links,
+  title,
   properties,
-  meta
-from
-  (
-  select
-    id,
-    file,
-    title,
-    \"level\",
-    '(' || group_concat(tags,
-    ' ') || ')' as tags,
-    aliases,
-    links,
-    properties,
-    meta
-  from
-    (
-    select
-      id,
-      file,
-      title,
-      \"level\",
-      tags,
-      '(' || group_concat(aliases,
-      ' ') || ')' as aliases,
-      links,
-      properties,
-      meta
-    from
-      (
-      select
-        nodes.id as id,
-        nodes.file as file,
-        nodes.title as title,
-        nodes.\"level\" as \"level\",
-        tags.tag as tags,
-        aliases.alias as aliases,
-        '(' || links.\"type\" || ' ' || links.dest || ')' as links,
-        nodes.properties as properties,
-        '(' || group_concat('(' || meta.prop
-                              || ' '
-                              || meta.value
-                              || ')',
-        ' ')
-          || ')' as meta
-      from nodes
-      left join tags on tags.node_id = nodes.id
-      left join aliases on aliases.node_id = nodes.id
-      left join meta on meta.node_id = nodes.id
-      left join links on links.\"source\" = nodes.id
-      group by
-        nodes.id,
-        tags.tag,
-        aliases.alias,
-        links.dest)
-    group by
-      id,
-      tags,
-      links)
-  group by
-    id,
-    links)
-group by
-  id"))
-         notes)
-    (dolist (row rows notes)
-      (let ((id (nth 0 row))
-            (file (nth 1 row))
-            (title (nth 2 row))
-            (level (nth 3 row))
-            (tags (nth 4 row))
-            (aliases (nth 5 row))
-            (links (nth 6 row))
-            (properties (nth 7 row))
-            (meta (nth 8 row)))
-        (dolist (name (cons title aliases))
-          (let ((note (make-vulpea-note
-                       :path file
-                       :title name
-                       :primary-title
-                       (unless (string-equal title name)
-                         title)
-                       :tags tags
-                       :aliases aliases
-                       :id id
-                       :level level
-                       :links (seq-uniq (seq-map
-                                         #'vulpea-db--parse-link-pair
-                                         links))
-                       :properties properties
-                       :meta (seq-map
-                              (lambda (row)
-                                (cons (nth 0 row) (nth 1 row)))
-                              meta))))
-            (when (or (null filter-fn)
-                      (funcall filter-fn note))
-              (push note notes))))))))
+  aliases,
+  tags,
+  meta,
+  links
+from notes")))
+    (seq-filter
+     (or filter-fn #'identity)
+     (seq-mapcat
+      #'vulpea-db--notes-from-row
+      rows))))
 
 (defun vulpea-db-query-by-ids (ids)
   "Query list of `vulpea-note' by IDS."
   (let* ((rows
           (org-roam-db-query
-           (format "select
+           (format
+            "select
   id,
-  file,
-  title,
+  path,
   \"level\",
-  tags,
-  aliases,
-  '(' || group_concat(links, ' ') || ')' as links,
+  title,
   properties,
-  meta
-from
-  (
-  select
-    id,
-    file,
-    title,
-    \"level\",
-    '(' || group_concat(tags,
-    ' ') || ')' as tags,
-    aliases,
-    links,
-    properties,
-    meta
-  from
-    (
-    select
-      id,
-      file,
-      title,
-      \"level\",
-      tags,
-      '(' || group_concat(aliases,
-      ' ') || ')' as aliases,
-      links,
-      properties,
-      meta
-    from
-      (
-      select
-        nodes.id as id,
-        nodes.file as file,
-        nodes.title as title,
-        nodes.\"level\" as \"level\",
-        tags.tag as tags,
-        aliases.alias as aliases,
-        '(' || links.\"type\" || ' ' || links.dest || ')' as links,
-        nodes.properties as properties,
-        '(' || group_concat('(' || meta.prop
-                              || ' '
-                              || meta.value
-                              || ')',
-        ' ')
-          || ')' as meta
-      from nodes
-      left join tags on tags.node_id = nodes.id
-      left join aliases on aliases.node_id = nodes.id
-      left join meta on meta.node_id = nodes.id
-      left join links on links.\"source\" = nodes.id
-      where nodes.id in %s
-      group by
-        nodes.id,
-        tags.tag,
-        aliases.alias,
-        links.dest)
-    group by
-      id,
-      tags,
-      links)
-  group by
-    id,
-    links)
-group by
-  id"
-                   (emacsql-escape-vector (apply #'vector ids)))))
-         notes)
-    (dolist (row rows notes)
-      (let ((id (nth 0 row))
-            (file (nth 1 row))
-            (title (nth 2 row))
-            (level (nth 3 row))
-            (tags (nth 4 row))
-            (aliases (nth 5 row))
-            (links (nth 6 row))
-            (properties (nth 7 row))
-            (meta (nth 8 row)))
-        (dolist (name (cons title aliases))
-          (let ((note (make-vulpea-note
-                       :path file
-                       :title name
-                       :primary-title
-                       (unless (string-equal title name)
-                         title)
-                       :tags tags
-                       :aliases aliases
-                       :id id
-                       :level level
-                       :links (seq-uniq (seq-map
-                                         #'vulpea-db--parse-link-pair
-                                         links))
-                       :properties properties
-                       :meta (seq-map
-                              (lambda (row)
-                                (cons (nth 0 row) (nth 1 row)))
-                              meta))))
-            (push note notes)))))))
+  aliases,
+  tags,
+  meta,
+  links
+from notes
+where notes.id in %s"
+            (emacsql-escape-vector (apply #'vector ids))))))
+    (seq-mapcat
+     #'vulpea-db--notes-from-row
+     rows)))
 
 (defun vulpea-db-query-by-tags-some (tags)
   "Query a list of `vulpea-note' from database.
@@ -369,8 +227,23 @@ DESTINATIONS are returned."
   "Find a `vulpea-note' by ID.
 
 Supports headings in the note."
-  (vulpea-db--from-node
-   (org-roam-populate (org-roam-node-create :id id))))
+  (when-let ((row
+              (org-roam-db-query
+               (format
+                "select
+  id,
+  path,
+  \"level\",
+  title,
+  properties,
+  aliases,
+  tags,
+  meta,
+  links
+from notes
+where notes.id = '\"%s\"'"
+                id))))
+    (car (vulpea-db--notes-from-row (car row)))))
 
 (defun vulpea-db-get-file-by-id (id)
   "Get file of `vulpea-note' with ID.
@@ -459,7 +332,17 @@ If the FILE is relative, it is considered to be relative to
 
 
 (defconst vulpea-db--schemata
-  '((meta
+  '((notes
+     ([(id :not-null :primary-key)
+       (path :not-null)
+       (level :not-null)
+       (title :not-null)
+       (properties :not-null)
+       aliases
+       tags
+       meta
+       links]))
+    (meta
      ([(node-id :not-null)
        (prop :not-null)
        (value :not-null)]
@@ -530,19 +413,27 @@ GET-DB is a function that returns connection to database."
          (add-to-list 'org-roam-db--table-indices index 'append))
        vulpea-db--indices)
 
-      ;; make sure that meta is inserted into table
-      (advice-add 'org-roam-db-insert-file-node
-                  :after
-                  #'vulpea-db-meta-insert)
+      ;; make sure that extra tables exist table exists
+      (advice-add 'org-roam-db :around #'vulpea-db--init)
 
-      ;; make sure that meta table exists
-      (advice-add 'org-roam-db
-                  :around
-                  #'vulpea-db--init))
+      ;; make sure that all data is inserted into table
+      (advice-add
+       'org-roam-db-insert-file-node
+       :after
+       #'vulpea-db-insert-file-note)
+      (advice-add
+       'org-roam-db-insert-node-data
+       :after
+       #'vulpea-db-insert-outline-note)
+      (advice-add
+       'org-roam-db-map-links :after #'vulpea-db-insert-links))
      (t
       (setq vulpea-db--initalized nil)
-      (advice-remove 'org-roam-db-insert-file-node
-                     #'vulpea-db-meta-insert)
+      (advice-remove 'org-roam-db-map-links #'vulpea-db-insert-links)
+      (advice-remove
+       'org-roam-db-insert-node-data #'vulpea-db-insert-outline-note)
+      (advice-remove
+       'org-roam-db-insert-file-node #'vulpea-db-insert-file-note)
       (advice-remove 'org-roam-db #'vulpea-db--init)
       (seq-each
        (lambda (schema)
@@ -578,41 +469,167 @@ GET-DB is a function that returns connection to database."
 (autoload 'vulpea-buffer-meta "vulpea-buffer")
 (autoload 'vulpea-buffer-meta-get-list! "vulpea-buffer")
 
-(defun vulpea-db-meta-insert ()
-  "Update meta in Org-roam cache for FILE-PATH."
+(defun vulpea-db-insert-file-note ()
+  "Insert file level note into `vulpea' database."
   (org-with-point-at 1
     (when (and (= (org-outline-level) 0)
                (org-roam-db-node-p))
-      (when-let* ((id (org-id-get))
-                  (meta (vulpea-buffer-meta))
-                  (pl (plist-get meta :pl))
-                  (items-all (org-element-map pl 'item #'identity))
-                  (props-all (seq-uniq
-                              (seq-map
-                               (lambda (item)
-                                 (org-element-interpret-data
-                                  (org-element-contents
-                                   (org-element-property :tag item))))
-                               items-all)))
-                  (kvps (seq-map
-                         (lambda (prop)
-                           (cons
-                            (substring-no-properties prop)
-                            (seq-map
-                             (lambda (x)
-                               (substring-no-properties
-                                (s-trim-right
-                                 (org-element-interpret-data x))))
-                             (vulpea-buffer-meta-get-list!
-                              meta prop 'raw))))
-                         props-all)))
-        (org-roam-db-query
-         [:insert :into meta
-          :values $v1]
-         (seq-map
-          (lambda (kvp)
-            (vector id (car kvp) (cdr kvp)))
-          kvps))))))
+      (when-let ((id (org-id-get)))
+        (let* ((file (buffer-file-name (buffer-base-buffer)))
+               (title (org-link-display-format
+                       (or (cadr
+                            (assoc "TITLE"
+                                   (org-collect-keywords '("title"))
+                                   #'string-equal))
+                           (file-relative-name
+                            file org-roam-directory))))
+               (level 0)
+               (aliases (org-entry-get (point) "ROAM_ALIASES"))
+               (aliases (when aliases
+                          (split-string-and-unquote aliases)))
+               (tags org-file-tags)
+               (properties (org-entry-properties))
+               (meta (vulpea-buffer-meta))
+               (pl (plist-get meta :pl))
+               (items-all (org-element-map pl 'item #'identity))
+               (props-all (seq-uniq
+                           (seq-map
+                            (lambda (item)
+                              (org-element-interpret-data
+                               (org-element-contents
+                                (org-element-property :tag item))))
+                            items-all)))
+               (kvps (seq-map
+                      (lambda (prop)
+                        (cons
+                         (substring-no-properties prop)
+                         (seq-map
+                          (lambda (x)
+                            (substring-no-properties
+                             (s-trim-right
+                              (org-element-interpret-data x))))
+                          (vulpea-buffer-meta-get-list!
+                           meta prop 'raw))))
+                      props-all)))
+          (org-roam-db-query
+           [:delete :from notes
+            :where (= id $s1)]
+           id)
+          (org-roam-db-query!
+           (lambda (err)
+             (lwarn 'org-roam :warning "%s for %s (%s) in %s"
+                    (error-message-string err)
+                    title id file))
+           [:insert :into notes
+            :values $v1]
+           (vector id
+                   file
+                   level
+                   title
+                   properties
+                   aliases
+                   tags
+                   (seq-map
+                    (lambda (kvp)
+                      (list (car kvp) (cdr kvp)))
+                    kvps)
+                   nil))
+          (when kvps
+            (org-roam-db-query
+             [:insert :into meta
+              :values $v1]
+             (seq-map
+              (lambda (kvp)
+                (vector id (car kvp) (cdr kvp)))
+              kvps))))))))
+
+(defun vulpea-db-insert-outline-note ()
+  "Insert outline level note into `vulpea' database."
+  (when-let ((id (org-id-get)))
+    (let* ((file (buffer-file-name (buffer-base-buffer)))
+           (heading-components (org-heading-components))
+           (level (nth 1 heading-components))
+           (title
+            (or (nth 4 heading-components)
+                (progn (lwarn
+                        'org-roam
+                        :warning
+                        "Node in %s:%s:%s has no title, skipping..."
+                        file
+                        (line-number-at-pos)
+                        (1+ (- (point) (line-beginning-position))))
+                       (cl-return-from
+                           org-roam-db-insert-node-data))))
+           (properties (org-entry-properties))
+           (title (org-link-display-format title))
+           (aliases (org-entry-get (point) "ROAM_ALIASES"))
+           (aliases (when aliases (split-string-and-unquote aliases)))
+           (tags (org-get-tags)))
+      (org-roam-db-query
+       [:delete :from notes
+        :where (= id $s1)]
+       id)
+      (org-roam-db-query!
+       (lambda (err)
+         (lwarn 'org-roam :warning "%s for %s (%s) in %s"
+                (error-message-string err)
+                title id file))
+       [:insert :into notes
+        :values $v1]
+       (vector id
+               file
+               level
+               title
+               properties
+               aliases
+               tags
+               nil
+               nil)))))
+
+(defun vulpea-db-insert-links (&rest _)
+  "Insert links into `vulpea' database."
+  (org-with-point-at 1
+    (let* ((links (org-element-map (org-element-parse-buffer) 'link
+                    #'vulpea-db--parse-link-element))
+           (kvps (seq-group-by #'car (apply #'append links))))
+      (seq-map
+       (lambda (kvp)
+         (org-roam-db-query
+          (format "update notes set links = '%s' where id = '\"%s\"'"
+                  (concat
+                   "("
+                   (string-join
+                    (seq-map
+                     (lambda (link)
+                       (format "(\"%s\" \"%s\")"
+                               (nth 1 link) (nth 2 link)))
+                     (cdr kvp))
+                    " ")
+                   ")")
+                  (car kvp))))
+       kvps))))
+
+(defun vulpea-db--parse-link-element (link)
+  "Parse LINK element.
+
+Return list of triplets source, type and target."
+  (save-excursion
+    (goto-char (org-element-property :begin link))
+    (when-let ((type (org-element-property :type link))
+               (path (org-element-property :path link))
+               (source (org-roam-id-at-point)))
+      ;; For Org-ref links, we need to split the path into the cite
+      ;; keys
+      (when (and (boundp 'org-ref-cite-types)
+                 (fboundp 'org-ref-split-and-strip-string)
+                 (member type org-ref-cite-types))
+        (setq path (org-ref-split-and-strip-string path)))
+      (unless (listp path)
+        (setq path (list path)))
+      (seq-map
+       (lambda (p)
+         (list source type p))
+       path))))
 
 
 

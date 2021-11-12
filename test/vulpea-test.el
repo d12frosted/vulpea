@@ -267,13 +267,13 @@
           (vulpea-create
            "Aglianico"
            "prefix-${slug}.org"
-           :head "#+roam_key: ${url}"
+           :head "#+author: ${name}"
            :tags '("tag1" "tag2")
            :body "Well, I am a grape!"
            :unnarrowed t
            :immediate-finish t
            :context
-           (list :url "https://d12frosted.io")
+           (list :name "frodo")
            :properties
            (list (cons "MY_TAG" "super-tag"))))
     (expect note
@@ -284,7 +284,6 @@
              :tags '("tag1" "tag2")
              :level 0
              :id (vulpea-note-id note)
-             :links '(("https" . "https://d12frosted.io"))
              :properties (list
                           (cons "CATEGORY" "prefix-aglianico")
                           (cons "MY_TAG" "super-tag")
@@ -304,7 +303,7 @@
 :END:
 #+title: Aglianico
 #+filetags: :tag1:tag2:
-#+roam_key: https://d12frosted.io
+#+author: frodo
 
 Well, I am a grape!
 "

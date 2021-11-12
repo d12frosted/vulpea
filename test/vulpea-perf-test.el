@@ -38,8 +38,12 @@
 (require 'org-roam)
 (require 'vulpea)
 
+(defconst vulpea-perf-zip-branch "view-table")
+
 (defconst vulpea-perf-zip-url
-  "https://github.com/d12frosted/vulpea-test-notes/archive/master.zip"
+  (format
+   "https://github.com/d12frosted/vulpea-test-notes/archive/refs/heads/%s.zip"
+   vulpea-perf-zip-branch)
   "Path to zip for test org-roam files.")
 
 (defun vulpea-perf--init ()
@@ -48,12 +52,21 @@
          (zip-file-loc (concat temp-loc ".zip"))
          (_ (url-copy-file vulpea-perf-zip-url zip-file-loc))
          (_ (shell-command (format "mkdir -p %s && unzip -qq %s -d %s" temp-loc zip-file-loc temp-loc)))
-         (test-notes-dir (expand-file-name "vulpea-test-notes-master/" temp-loc)))
+         (test-notes-dir (expand-file-name
+                          (format "vulpea-test-notes-%s/"
+                                  vulpea-perf-zip-branch)
+                          temp-loc)))
     (setq org-roam-directory (expand-file-name "notes/" test-notes-dir)
           org-roam-db-location (expand-file-name "org-roam.db" test-notes-dir))
+    (message "Initializing vulpea in %s" org-roam-directory)
     ;; fix file path values
     (let ((db (emacsql-sqlite org-roam-db-location)))
+      (emacsql db [:pragma (= foreign_keys 0)])
       (emacsql db (format "update nodes set file = '\"' || '%s' || replace(file, '\"', '') || '\"'"
+                          org-roam-directory))
+      (emacsql db (format "update files set file = '\"' || '%s' || replace(file, '\"', '') || '\"'"
+                          org-roam-directory))
+      (emacsql db (format "update notes set path = '\"' || '%s' || replace(path, '\"', '') || '\"'"
                           org-roam-directory)))
     (vulpea-db-autosync-enable)
     (org-roam-db-autosync-enable)))
