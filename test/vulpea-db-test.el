@@ -873,26 +873,6 @@
                (emacsql-escape-identifier index-name))
               :to-equal (list (list (intern (emacsql-escape-identifier index-name))))))
 
-    ;; and we are able to query stuff, but extra info is not yet
-    ;; available as we did not run a full sync
-    (expect (vulpea-db-get-by-id "05907606-f836-45bf-bd36-a8444308eddd")
-            :to-equal
-            (make-vulpea-note
-             :path (expand-file-name "with-meta.org" org-roam-directory)
-             :title "Note with META"
-             :tags nil
-             :level 0
-             :id "05907606-f836-45bf-bd36-a8444308eddd"
-             :links '(("https" . "https://en.wikipedia.org/wiki/Frappato")
-                      ("id" . "444f94d7-61e0-4b7c-bb7e-100814c6b4bb")
-                      ("id" . "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"))
-             :properties (list
-                          (cons "CATEGORY" "with-meta")
-                          (cons "ID" "05907606-f836-45bf-bd36-a8444308eddd")
-                          (cons "BLOCKED" "")
-                          (cons "FILE" (expand-file-name "with-meta.org" org-roam-directory))
-                          (cons "PRIORITY" "B"))))
-
     ;; sync a file
     (message "update file")
     (org-roam-db-clear-file (expand-file-name "with-meta.org" org-roam-directory))

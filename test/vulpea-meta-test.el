@@ -486,6 +486,13 @@ Just some text to make sure that meta is inserted before.
 #+title: Note with META
 
 Don't mind me. I am a content of this note.
+
+* Details
+:PROPERTIES:
+:ID:                     f210cc49-0e71-4bb6-843f-89dd2d809e02
+:END:
+
+Probably you've heard about [[https://github.com][GitHub]].
 "))))
 
 (provide 'vulpea-meta-test)
