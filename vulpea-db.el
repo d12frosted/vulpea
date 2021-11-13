@@ -595,18 +595,16 @@ GET-DB is a function that returns connection to database."
       (seq-map
        (lambda (kvp)
          (org-roam-db-query
-          (format "update notes set links = '%s' where id = '\"%s\"'"
-                  (concat
-                   "("
-                   (string-join
-                    (seq-map
-                     (lambda (link)
-                       (format "(\"%s\" \"%s\")"
-                               (nth 1 link) (nth 2 link)))
-                     (cdr kvp))
-                    " ")
-                   ")")
-                  (car kvp))))
+          [:update notes
+           :set (= links $s2)
+           :where (= id $s1)]
+          (car kvp)
+          (seq-map
+           (lambda (link)
+             (list
+              (nth 1 link)
+              (nth 2 link)))
+           (cdr kvp))))
        kvps))))
 
 (defun vulpea-db--parse-link-element (link)
