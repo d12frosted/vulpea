@@ -492,7 +492,8 @@ Don't mind me. I am a content of this note.
 :ID:                     f210cc49-0e71-4bb6-843f-89dd2d809e02
 :END:
 
-Probably you've heard about [[https://github.com][GitHub]].
+Probably you've heard about [[https://github.com][GitHub]]. And of course, you may have links with
+strange symbols like % and ', just like this [[https://en.wikipedia.org/wiki/I,_Olga_Hepnarov%C3%A1][link]] or this [[https://www.darenberg.com.au/assets/files/d'arenberg-the-stump-jump-lightly-wooded-chardonnay-2017.pdf][link]].
 "))))
 
 (provide 'vulpea-meta-test)
