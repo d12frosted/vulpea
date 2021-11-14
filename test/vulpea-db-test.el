@@ -823,6 +823,39 @@
             :to-equal
             "eeec8f05-927f-4c61-b39e-2fb8228cf484")))
 
+(describe "clear file"
+  (before-all
+    (vulpea-test--init))
+
+  (after-all
+    (vulpea-test--teardown))
+
+  (it "removing a file removes it from all tables"
+    (let* ((id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")
+           (note (vulpea-db-get-by-id id))
+           (file (vulpea-note-path note)))
+      (org-roam-db-clear-file file)
+      (expect (org-roam-db-query [:select *
+                                  :from files
+                                  :where (= file $s1)]
+                                 file)
+              :to-be nil)
+      (expect (org-roam-db-query [:select *
+                                  :from nodes
+                                  :where (= id $s1)]
+                                 id)
+              :to-be nil)
+      (expect (org-roam-db-query [:select *
+                                  :from notes
+                                  :where (= id $s1)]
+                                 id)
+              :to-be nil)
+      (expect (org-roam-db-query [:select *
+                                  :from meta
+                                  :where (= node-id $s1)]
+                                 id)
+              :to-be nil))))
+
 (describe "vulpea-db-setup"
   (before-all
     (vulpea-test--init 'no-setup))
