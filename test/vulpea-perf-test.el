@@ -38,7 +38,7 @@
 (require 'org-roam)
 (require 'vulpea)
 
-(defconst vulpea-perf-zip-branch "view-table")
+(defconst vulpea-perf-zip-branch "vulpea-view-table")
 
 (defconst vulpea-perf-zip-url
   (format
@@ -57,17 +57,19 @@
                                   vulpea-perf-zip-branch)
                           temp-loc)))
     (setq org-roam-directory (expand-file-name "notes/" test-notes-dir)
-          org-roam-db-location (expand-file-name "org-roam.db" test-notes-dir))
+          org-roam-db-location (expand-file-name "org-roam.db" org-roam-directory))
     (message "Initializing vulpea in %s" org-roam-directory)
     ;; fix file path values
     (let ((db (emacsql-sqlite org-roam-db-location)))
+      (message "Count of notes: %s"
+             (caar (emacsql db "select count(*) from nodes")))
       (emacsql db [:pragma (= foreign_keys 0)])
       (emacsql db (format "update nodes set file = '\"' || '%s' || replace(file, '\"', '') || '\"'"
-                          org-roam-directory))
+                          (string-remove-suffix "/" org-roam-directory)))
       (emacsql db (format "update files set file = '\"' || '%s' || replace(file, '\"', '') || '\"'"
-                          org-roam-directory))
+                          (string-remove-suffix "/" org-roam-directory)))
       (emacsql db (format "update notes set path = '\"' || '%s' || replace(path, '\"', '') || '\"'"
-                          org-roam-directory)))
+                          (string-remove-suffix "/" org-roam-directory))))
     (vulpea-db-autosync-enable)
     (org-roam-db-autosync-enable)))
 
