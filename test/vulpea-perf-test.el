@@ -249,6 +249,35 @@ and the time taken by garbage collection. See also
         (expect (seq-length (nth 0 bres1)) :to-equal (seq-length (nth 0 bres2)))
         (expect (nth 1 bres1) :to-be-less-than (nth 1 bres2))))))
 
+(defun single-note-perf (runs id)
+  "Test performance of syncing a note with ID."
+  (let* ((note (vulpea-db-get-by-id id))
+         (file (vulpea-note-path note))
+         (bres-bare)
+         (bres-vulpea))
+
+    (vulpea-db-autosync-disable)
+    (org-roam-db-clear-file file)
+    (setq bres-bare
+          (vulpea-benchmark-run runs
+            #'org-roam-db-update-file
+            nil
+            file))
+
+    (vulpea-db-autosync-enable)
+    (org-roam-db-clear-file file)
+    (setq bres-vulpea
+          (vulpea-benchmark-run runs
+            #'org-roam-db-update-file
+            nil
+            file))
+
+    ;; common sense - we expect it doesn't take more than 3 times
+    ;; of the bare org-roam sync
+    (expect (nth 1 bres-vulpea)
+            :to-be-less-than
+            (* 3 (nth 1 bres-bare)))))
+
 (describe "vulpea sync performance"
   (it "should not create huge footprint on synchronisation"
     (let ((runs 1)
@@ -276,9 +305,28 @@ and the time taken by garbage collection. See also
                           #'org-roam-db-sync))
       (expect (caar (org-roam-db-query "select count(*) from nodes")) :to-be-greater-than 0)
 
-      ;; common sense - we expect it doesn't take more than twice of
+      ;; common sense - we expect it doesn't take more than 3 times of
       ;; the bare org-roam sync
-      (expect (nth 1 bres-vulpea) :to-be-less-than (* 2.0 (nth 1 bres-bare))))))
+      (expect (nth 1 bres-vulpea) :to-be-less-than (* 3 (nth 1 bres-bare)))))
+
+  (describe "single note synchronisation"
+    (before-all
+      (vulpea-test--init))
+
+    (after-all
+      (vulpea-test--teardown))
+
+    (it "synchronisation of small note is fast"
+      (single-note-perf 1000 "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"))
+
+    (it "synchronisation of medium note is fast"
+      (single-note-perf 1000 "eeec8f05-927f-4c61-b39e-2fb8228cf484"))
+
+    (it "synchronisation of huge note is fast"
+      (copy-file "test/note-files-extra/sicily.org"
+                 (expand-file-name "sicily.org" org-roam-directory))
+      (org-roam-db-update-file (expand-file-name "sicily.org" org-roam-directory))
+      (single-note-perf 100 "b0dae07d-8789-4737-b830-db775715cbf0"))))
 
 (provide 'vulpea-perf-test)
 ;;; vulpea-perf-test.el ends here
