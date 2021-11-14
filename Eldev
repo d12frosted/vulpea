@@ -21,3 +21,6 @@
             (eldev-load-project-dependencies 'lint nil t)
             (require 'emacsql)
             (call-interactively #'emacsql-fix-vector-indentation)))
+
+;; just make sure that that error goes away
+(setq-default org-roam-v2-ack t)
