@@ -78,11 +78,11 @@ When DISABLE-VULPEA-AUTOSYNC is non-nil,
                  (caar (emacsql db "select count(*) from nodes")))
         (emacsql db [:pragma (= foreign_keys 0)])
         (emacsql db (format "update nodes set file = '\"' || '%s' || replace(file, '\"', '') || '\"'"
-                            (string-remove-suffix "/" org-roam-directory)))
+                            (file-name-as-directory org-roam-directory)))
         (emacsql db (format "update files set file = '\"' || '%s' || replace(file, '\"', '') || '\"'"
-                            (string-remove-suffix "/" org-roam-directory)))
+                            (file-name-as-directory org-roam-directory)))
         (emacsql db (format "update notes set path = '\"' || '%s' || replace(path, '\"', '') || '\"'"
-                            (string-remove-suffix "/" org-roam-directory)))))
+                            (file-name-as-directory org-roam-directory)))))
     (unless disable-vulpea-autosync
       (vulpea-db-autosync-enable))
     (unless disable-org-roam-autosync
