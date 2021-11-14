@@ -279,7 +279,7 @@ and the time taken by garbage collection. See also
             (* 3 (nth 1 bres-bare)))))
 
 (describe "vulpea sync performance"
-  (it "should not create huge footprint on synchronisation"
+  (xit "should not create huge footprint on synchronisation"
     (let ((runs 1)
           (bres-bare)
           (bres-vulpea))
