@@ -341,7 +341,8 @@ If the FILE is relative, it is considered to be relative to
        aliases
        tags
        meta
-       links]))
+       links]
+      (:foreign-key [path] :references files [file] :on-delete :cascade)))
     (meta
      ([(node-id :not-null)
        (prop :not-null)
