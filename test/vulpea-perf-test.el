@@ -103,7 +103,7 @@ and the time taken by garbage collection. See also
   (format "%s notes"
           (seq-length notes)))
 
-(xdescribe "vulpea performance"
+(describe "vulpea performance"
   (before-all
     (vulpea-perf--init))
 
