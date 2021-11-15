@@ -12,6 +12,13 @@
 :ID:                     32a267f4-dd27-44b9-a045-5835a5c8503f
 :END:
 
+This release main feature is dedicate view table to boost performance of query
+operations. In addition, it provides some specialized queries for situations
+when set of notes can be narrowed down by tags or links.
+
+In addition, =vulpea-note= now has properties, meta and links as part of its
+structure.
+
 *Features*
 
 - [[https://github.com/d12frosted/vulpea/issues/97][vulpea#97]] Expose properties in =vulpea-note=.
@@ -36,6 +43,8 @@
     the provided =DESTINATIONS=;
   - =vulpea-db-query-by-links-every= - return all notes linking each and every
     provided =DESTINATIONS=;
+- [[https://github.com/d12frosted/vulpea/pull/116][vulpea#116]] improve query performance by building and maintaining a separate
+  view table.
 
 ** v0.2.0
 
