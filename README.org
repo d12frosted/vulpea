@@ -57,7 +57,7 @@ Users of this library:
    1. =vulpea-db-query= is a great interface for quick database search without
       knowing its scheme. In many cases you just want to have a fully
       materialized note instead of a structure that lacks, say tags or aliases.
-      So you don't need to write any extra SQL.
+      So you don't need to write any extra SQL. See [[#performance][Performance]].
    2. =vulpea-select= is a configurable interface for selecting a note with an
       optional filter. Note rendering is controlled by two variables:
       - =vulpea-select-describe-fn= - description of the note (by default
@@ -166,8 +166,8 @@ non-existent. For example, =vulpea-select= returns such a note, when
 ** Mandatory =ID= property
 
 Please note, that each existing =vulpea-note= (!) must contain an =ID= for
-Vulpea to be operational. =org-roam= should cover this, but another way to
-always ensure existence of =ID= is to use the following code:
+Vulpea to be operational. Starting with v2 =org-roam= should cover this, but
+another way to always ensure existence of =ID= is to use the following code:
 
 #+begin_src emacs-lisp
   (defun +org-auto-id-add-to-headlines-in-file ()
@@ -186,8 +186,8 @@ always ensure existence of =ID= is to use the following code:
 
 * Metadata
 
-In general, metadata is an key value pairs that is represented by the first
-description list in the note, e.g. list like:
+In general, metadata is a list of key value pairs that is represented by the
+first description list in the note, e.g. list like:
 
 #+begin_src org-mode
 - key1 :: value1
@@ -283,14 +283,18 @@ This module contains =vulpea-note= definition and few helpers to access/extract
 
 ** =vulpea-db=
 
-This module contains functions to query notes data base. Functions of interest:
+This module contains functions to query notes data base. In order for most of
+these functions to operate, one needs to enable =vulpea-db-autosync-mode= (see
+[[#install][Install]] section), for example, using =vulpea-db-autosync-enable=. This hooks
+into =org-roam.db= by adding two extra tables:
 
-- =vulpea-db-get-id-by-file= - function to get =ID= of a note represented by =FILE=.
-- =vulpea-db-get-by-id= - function to get note represented by =ID=. Supports
-  headings of the note.
-- =vulpea-db-get-file-by-id= - function to get =FILE= of a note represented by
-  =ID=. Supports headings of the note.
-- =vulpea-db-search-by-title= - function to query notes with =TITLE=.
+- =meta= - for storing [[#metadata][Metadata]];
+- =notes= - a view table of fully materialized note (see [[#performance][Performance]]).
+
+You might need to perform a full re-sync of =org-roam.db=.
+
+Functions of interest:
+
 - =vulpea-db-query= - function to query notes with generic predicate. This
   function is very powerful as it allows to apply Emacs Lisp predicate on
   /every/ note. This might be not very efficient on big set of notes, in such
@@ -303,6 +307,13 @@ This module contains functions to query notes data base. Functions of interest:
   provided =DESTINATIONS=.
 - =vulpea-db-query-by-links-every= - return all notes linking each and every
   provided =DESTINATIONS=.
+- =vulpea-db-get-by-id= - function to get note represented by =ID=. Supports
+  headings of the note.
+- =vulpea-db-get-id-by-file= - function to get =ID= of a note represented by
+  =FILE=.
+- =vulpea-db-get-file-by-id= - function to get =FILE= of a note represented by
+  =ID=. Supports headings of the note.
+- =vulpea-db-search-by-title= - function to query notes with =TITLE=.
 
 ** =vulpea-meta=
 
@@ -416,7 +427,8 @@ This library provides multiple functions to query notes from the database.
 Basically, there is one powerful =vulpea-db-query= allowing to filter notes by
 any =vulpea-note= based predicate. The only downside of this power is
 performance and memory penalty as all notes are loaded into memory. In cases
-when performance is critical, one can use specialized queries:
+when performance is critical and the set of notes can be narrowed down, one can
+use specialized queries:
 
 - =vulpea-db-query-by-tags-some= - return all notes tagged with one of the
   provided =TAGS=.
@@ -441,6 +453,19 @@ retrieve full note structure, the more notes we have, the more time it takes.
 | =links-every= | 92 notes    |       1.0204833089 |       0.0545313596 |
 
 See [[https://github.com/d12frosted/vulpea/discussions/106#discussioncomment-1601429][this comment]] for more background on why these functions where created.
+
+In order to make these functions as fast as possible, =vulpea-db= module builds
+and maintains a view table called =notes=. While it does drastically improve
+query performance (see the table below), it adds a small footprint on
+synchronisation time. See [[https://github.com/d12frosted/vulpea/pull/116][vulpea#116]] for more information on this feature and
+measurements.
+
+| test          | result size |            [[https://github.com/d12frosted/vulpea/blob/master/vulpea-db.el#L76-L155][regular]] |         view table |     ratio |
+|---------------+-------------+--------------------+--------------------+-----------|
+| =tags-some=   | 30 notes    | 4.6693460650999995 |       1.0112478712 | 4.6174100 |
+| =tags-every=  | 3168 notes  | 4.7333844436999996 |       1.0059819176 | 4.7052381 |
+| =links-some=  | 1657 notes  |       4.8095771283 | 1.0462236128999999 | 4.5970833 |
+| =links-every= | 92 notes    | 4.5517473337999995 |       1.0204833089 | 4.4603839 |
 
 * Coding
 
