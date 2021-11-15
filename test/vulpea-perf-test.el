@@ -38,7 +38,7 @@
 (require 'org-roam)
 (require 'vulpea)
 
-(defconst vulpea-perf-zip-branch "vulpea-view-table")
+(defconst vulpea-perf-zip-branch "master")
 
 (defconst vulpea-perf-zip-url
   (format
