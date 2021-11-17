@@ -29,7 +29,8 @@
     (vulpea-test--init))
 
   (before-each
-    (setq vulpea-find-default-filter nil)
+    (setq vulpea-find-default-filter nil
+          vulpea-find-default-candidates-source #'vulpea-find-candidates)
     (spy-on 'local-filter-fn :and-call-through)
     (spy-on 'global-filter-fn :and-call-through))
 
@@ -91,7 +92,22 @@
                       [:select (funcall count *)
                        :from aliases]))))
     (expect 'global-filter-fn
-            :not :to-have-been-called)))
+            :not :to-have-been-called))
+
+  (it "uses custom candidates source instead of default one"
+    (setq vulpea-find-default-candidates-source 'custom-find-candidates-fn)
+    (spy-on 'custom-find-candidates-fn
+            :and-return-value
+            (list (vulpea-db-get-by-id "eeec8f05-927f-4c61-b39e-2fb8228cf484")
+                  (vulpea-db-get-by-id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")))
+    (spy-on 'org-roam-node-visit)
+    (spy-on 'completing-read
+            :and-return-value "Big note")
+
+    (vulpea-find)
+
+    (expect 'custom-find-candidates-fn
+            :to-have-been-called-times 1)))
 
 (describe "vulpea-insert"
   (before-each

@@ -49,6 +49,26 @@
 (defvar vulpea-find-default-filter nil
   "Default filter to use in `vulpea-find'.")
 
+(defvar vulpea-find-default-candidates-source #'vulpea-find-candidates
+  "Default source to get the list of candidates in `vulpea-find'.
+
+Must be a function that accepts one argument - optional note
+filter function.
+
+The decision of filtering is responsibility of override. In
+general it is expected that this function applies passed filter
+or `vulpea-find-default-filter'. See `vulpea-find-candidates' as
+example.")
+
+(defun vulpea-find-candidates (filter-fn)
+  "Prepare a list of candidates for `vulpea-find'.
+
+FILTER-FN is the function to apply on the candidates, which takes
+as its argument a `vulpea-note'. Unless specified,
+`vulpea-find-default-filter' is used."
+  (vulpea-db-query (or filter-fn
+                       vulpea-find-default-filter)))
+
 ;;;###autoload
 (defun vulpea-find (&optional other-window
                               filter-fn
@@ -72,11 +92,10 @@ start the capture process."
                (make-marker) (region-beginning))
               (set-marker
                (make-marker) (region-end))))))
-         (note (vulpea-select
+         (note (vulpea-select-from
                 "Note"
-                :filter-fn
-                (or filter-fn
-                    vulpea-find-default-filter)
+                (funcall vulpea-find-default-candidates-source
+                         filter-fn)
                 :require-match require-match
                 :initial-prompt region-text)))
     (if (vulpea-note-id note)
