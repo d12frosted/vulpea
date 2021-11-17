@@ -45,6 +45,8 @@ structure.
     provided =DESTINATIONS=;
 - [[https://github.com/d12frosted/vulpea/pull/116][vulpea#116]] improve query performance by building and maintaining a separate
   view table.
+- [[https://github.com/d12frosted/vulpea/issues/121][vulpea#121]] allow to configure candidates source for =vulpea-find= function via
+  =vulpea-find-default-candidates-source= variable.
 
 ** v0.2.0
 
