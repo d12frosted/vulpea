@@ -101,8 +101,12 @@ Unless NO-SETUP is non-nil, setup vulpea db."
   "Just some dummy local filter for X."
   x)
 
-(defun custom-find-candidates-fn (filter)
-  "Just some dummy find candidates source for FILTER."
+(defun global-candidates-fn (filter)
+  "Just some dummy global candidates source for FILTER."
+  filter)
+
+(defun local-candidates-fn (filter)
+  "Just some dummy global candidates source for FILTER."
   filter)
 
 (defun insert-handle-fn (x)

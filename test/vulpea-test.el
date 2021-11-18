@@ -30,7 +30,7 @@
 
   (before-each
     (setq vulpea-find-default-filter nil
-          vulpea-find-default-candidates-source #'vulpea-find-candidates)
+          vulpea-find-default-candidates-source #'vulpea-db-query)
     (spy-on 'local-filter-fn :and-call-through)
     (spy-on 'global-filter-fn :and-call-through))
 
@@ -81,7 +81,7 @@
     (spy-on 'completing-read
             :and-return-value "Big note")
 
-    (vulpea-find nil 'local-filter-fn)
+    (vulpea-find :filter-fn 'local-filter-fn)
 
     (expect 'local-filter-fn
             :to-have-been-called-times
@@ -94,9 +94,9 @@
     (expect 'global-filter-fn
             :not :to-have-been-called))
 
-  (it "uses custom candidates source instead of default one"
-    (setq vulpea-find-default-candidates-source 'custom-find-candidates-fn)
-    (spy-on 'custom-find-candidates-fn
+  (it "uses default candidates source"
+    (setq vulpea-find-default-candidates-source 'global-find-candidates-fn)
+    (spy-on 'global-find-candidates-fn
             :and-return-value
             (list (vulpea-db-get-by-id "eeec8f05-927f-4c61-b39e-2fb8228cf484")
                   (vulpea-db-get-by-id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")))
@@ -106,8 +106,23 @@
 
     (vulpea-find)
 
-    (expect 'custom-find-candidates-fn
-            :to-have-been-called-times 1)))
+    (expect 'global-find-candidates-fn :to-have-been-called-times 1)
+    (expect 'local-find-candidates-fn :not :to-have-been-called))
+
+  (it "uses candidates source override instead of default one"
+    (setq vulpea-find-default-candidates-source 'global-find-candidates-fn)
+    (spy-on 'local-find-candidates-fn
+            :and-return-value
+            (list (vulpea-db-get-by-id "eeec8f05-927f-4c61-b39e-2fb8228cf484")
+                  (vulpea-db-get-by-id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")))
+    (spy-on 'org-roam-node-visit)
+    (spy-on 'completing-read
+            :and-return-value "Big note")
+
+    (vulpea-find :candidates-fn 'local-find-candidates-fn)
+
+    (expect 'global-find-candidates-fn :not :to-have-been-called)
+    (expect 'local-find-candidates-fn :to-have-been-called-times 1)))
 
 (describe "vulpea-insert"
   (before-each
