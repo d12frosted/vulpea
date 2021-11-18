@@ -49,33 +49,25 @@
 (defvar vulpea-find-default-filter nil
   "Default filter to use in `vulpea-find'.")
 
-(defvar vulpea-find-default-candidates-source #'vulpea-find-candidates
+(defvar vulpea-find-default-candidates-source #'vulpea-db-query
   "Default source to get the list of candidates in `vulpea-find'.
 
 Must be a function that accepts one argument - optional note
-filter function.
-
-The decision of filtering is responsibility of override. In
-general it is expected that this function applies passed filter
-or `vulpea-find-default-filter'. See `vulpea-find-candidates' as
-example.")
-
-(defun vulpea-find-candidates (filter-fn)
-  "Prepare a list of candidates for `vulpea-find'.
-
-FILTER-FN is the function to apply on the candidates, which takes
-as its argument a `vulpea-note'. Unless specified,
-`vulpea-find-default-filter' is used."
-  (vulpea-db-query (or filter-fn
-                       vulpea-find-default-filter)))
+filter function.")
 
 ;;;###autoload
-(defun vulpea-find (&optional other-window
-                              filter-fn
-                              require-match)
+(cl-defun vulpea-find (&key other-window
+                            filter-fn
+                            candidates-fn
+                            require-match)
   "Select and find a note.
 
 If OTHER-WINDOW, visit the NOTE in another window.
+
+CANDIDATES-FN is the function to query candidates for selection,
+which takes as its argument a filtering function (see FILTER-FN).
+Unless specified, `vulpea-find-default-candidates-source' is
+used.
 
 FILTER-FN is the function to apply on the candidates, which takes
 as its argument a `vulpea-note'. Unless specified,
@@ -94,8 +86,13 @@ start the capture process."
                (make-marker) (region-end))))))
          (note (vulpea-select-from
                 "Note"
-                (funcall vulpea-find-default-candidates-source
-                         filter-fn)
+                (funcall
+                 (or
+                  candidates-fn
+                  vulpea-find-default-candidates-source)
+                 (or
+                  filter-fn
+                  vulpea-find-default-filter))
                 :require-match require-match
                 :initial-prompt region-text)))
     (if (vulpea-note-id note)
@@ -112,23 +109,14 @@ start the capture process."
   "Select and find a note linked to current note."
   (interactive)
   (let* ((node (org-roam-node-at-point 'assert))
-         (backlinks (seq-map
-                     (lambda (x)
-                       (vulpea-db--from-node
-                        (org-roam-backlink-source-node x)))
-                     (org-roam-backlinks-get node))))
+         (backlinks (vulpea-db-query-by-links-some
+                     (list (cons "id"
+                                 (org-roam-node-id node))))))
     (unless backlinks
       (user-error "There are no backlinks to the current note"))
     (vulpea-find
-     nil
-     (lambda (note)
-       (seq-contains-p
-        backlinks note
-        (lambda (a b)
-          (string-equal
-           (vulpea-note-id a)
-           (vulpea-note-id b)))))
-     'require-match)))
+     :candidates-fn (lambda (_) backlinks)
+     :require-match t)))
 
 
 
