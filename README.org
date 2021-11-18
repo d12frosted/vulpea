@@ -461,7 +461,7 @@ query performance (see the table below), it adds a small footprint on
 synchronisation time. See [[https://github.com/d12frosted/vulpea/pull/116][vulpea#116]] for more information on this feature and
 measurements.
 
-| test          | result size |            [[https://github.com/d12frosted/vulpea/blob/master/vulpea-db.el#L76-L155][regular]] |         view table |     ratio |
+| test          | result size |            [[https://github.com/d12frosted/vulpea/blob/551495a59fb8c3bcd49a091b233e24e4cb8b584c/vulpea-db.el#L76-L187][regular]] |         view table |     ratio |
 |---------------+-------------+--------------------+--------------------+-----------|
 | =tags-some=   | 30 notes    | 4.6693460650999995 |       1.0112478712 | 4.6174100 |
 | =tags-every=  | 3168 notes  | 4.7333844436999996 |       1.0059819176 | 4.7052381 |
