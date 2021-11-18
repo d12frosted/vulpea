@@ -102,7 +102,9 @@ and the time taken by garbage collection. See also
   (declare (indent 1) (debug t))
   `(let* ((v)
           (result)
-          (name (symbol-name ,fn)))
+          (name (if (symbolp ,fn)
+                    (symbol-name ,fn)
+                  "*lambda*")))
      (message "[%s] begin benchmark with %s invocations"
               name ,n)
      (setq result
