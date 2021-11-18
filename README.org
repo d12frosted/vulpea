@@ -24,17 +24,20 @@ Users of this library:
 - [[https://github.com/d12frosted/environment][d12frosted/environment]] - Emacs configurations;
 - [[https://github.com/d12frosted/vino][d12frosted/vino]] - collection of functions for cellar tracking and wine rating.
 
-* Table of Contents                                                :TOC_2_gh:
+* Table of Contents                                                :TOC_3_gh:
 - [[#reasons-to-use-vulpea][Reasons to use =vulpea=]]
 - [[#install][Install]]
   - [[#use-package][use-package]]
   - [[#straightel][straight.el]]
 - [[#vulpea-note][=vulpea-note=]]
-  - [[#mandatory-id-property][Mandatory =ID= property]]
 - [[#metadata][Metadata]]
   - [[#why-not-properties-drawer][Why not properties drawer]]
 - [[#modules][Modules]]
   - [[#vulpea][=vulpea=]]
+    - [[#vulpea-find][=vulpea-find=]]
+    - [[#vulpea-find-backlink][=vulpea-find-backlink=]]
+    - [[#vulpea-insert][=vulpea-insert=]]
+    - [[#vulpea-create][=vulpea-create=]]
   - [[#vulpea-select][=vulpea-select=]]
   - [[#vulpea-note-1][=vulpea-note=]]
   - [[#vulpea-db][=vulpea-db=]]
@@ -57,21 +60,19 @@ Users of this library:
    1. =vulpea-db-query= is a great interface for quick database search without
       knowing its scheme. In many cases you just want to have a fully
       materialized note instead of a structure that lacks, say tags or aliases.
-      So you don't need to write any extra SQL. See [[#performance][Performance]].
+      So you don't need to write any extra SQL. See [[#performance][Performance]] for more
+      information.
    2. =vulpea-select= is a configurable interface for selecting a note with an
-      optional filter. Note rendering is controlled by two variables:
-      - =vulpea-select-describe-fn= - description of the note (by default
-        title).
-      - =vulpea-select-annotate-fn= - annotation of the note (by default primary
-        title when present and tags) with special face.
+      optional filter. See [[#vulpea-select][=vulpea-select=]] for more information.
    3. =vulpea-create= is a wrapper around =org-roam-capture-= allowing to easily
       provide extra properties, tags and context when creating a new note. And
-      most importantly - it returns a newly created note.
+      most importantly - it returns a newly created note. See [[#vulpea-create][=vulpea-create=]]
+      for more information.
 3. Several interactive functions:
    1. =vulpea-find= that acts like =org-roam-node-find=, but (a) uses
-      =vulpea-select= for consistent experience and (b) allows to set
-      =vulpea-find-default-filter=, meaning that you can, for example, list only
-      file-level notes by default (which imitates =org-roam= v1 behaviour).
+      =vulpea-select= for consistent experience and (b) allows to configure
+      default and on-use filtering and candidates source. See [[#vulpea-find][=vulpea-find=]] for
+      more information.
    2. =vulpea-find-backlink= is just a convenient function to find a note
       linking currently opened one. For those who don't want to use =org-roam=
       buffer.
@@ -79,7 +80,8 @@ Users of this library:
       =vulpea-select= for consistent experience, (b) allows to set
       =vulpea-insert-default-filter= (see =vulpea-find= for examples) and (c)
       allows to provide an insertion handler via
-      =vulpea-insert-handle-functions=, which is called with inserted note.
+      =vulpea-insert-handle-functions=, which is called with inserted note. See
+      [[#vulpea-insert][=vulpea-insert=]] for more information.
 4. =vulpea= is more than just a wrapper around =org-roam=, it contains more
    stuff:
    1. Utilities for dealing with buffer properties (e.g. =#+KEY: VALUE=).
@@ -89,15 +91,16 @@ Users of this library:
 * Install
 
 =vulpea= is available via [[https://melpa.org/#/vulpea][MELPA]], but you can still install it manually, using
-[[https://github.com/raxod502/straight][straight]], [[https://github.com/quelpa/quelpa][quelpa]], or any other tool.
+[[https://github.com/raxod502/straight][straight]], [[https://github.com/quelpa/quelpa][quelpa]], or any package management tool of alike.
 
 In short, installation process is simple:
 
 1. Download =vulpea= package via any preferred way.
 2. Call =vulpea-db-autosync-enable= (either via adding a hook to
    =org-roam-db-autosync-mode= or directly).
-3. If you are using [[#metadata][metadata]], you might need to re-sync =org-roam-db= from
-   scratch, e.g. =(org-roam-db-sync 'force)=.
+3. Before first usage you need to re-sync =org-roam-db= from scratch, e.g.
+   =(org-roam-db-sync 'force)=. This is because =vulpea= has several custom
+   tables in addition to what =org-roam= provides.
 
 ** use-package
 
@@ -163,25 +166,34 @@ If =ID= is not present in the note structure, this note is treated as
 non-existent. For example, =vulpea-select= returns such a note, when
 =require-match= is =nil= and the user selects non-existent note.
 
-** Mandatory =ID= property
-
-Please note, that each existing =vulpea-note= (!) must contain an =ID= for
-Vulpea to be operational. Starting with v2 =org-roam= should cover this, but
-another way to always ensure existence of =ID= is to use the following code:
+Example of a note:
 
 #+begin_src emacs-lisp
-  (defun +org-auto-id-add-to-headlines-in-file ()
-    "Add ID property to the current file and all its headlines."
-    (when (and (or (eq major-mode 'org-mode)
-                   (eq major-mode 'org-journal-mode))
-               (eq buffer-read-only nil))
-      (save-excursion
-        (widen)
-        (goto-char (point-min))
-        (org-id-get-create)
-        (org-map-entries #'org-id-get-create))))
-
-  (add-hook 'before-save-hook #'+org-auto-id-add-to-headlines-in-file)
+  > (vulpea-db-get-by-id "7705e5e4-bcd4-4e16-9ba7-fda8acdefe8c")
+  #s(vulpea-note :id "7705e5e4-bcd4-4e16-9ba7-fda8acdefe8c"
+                 :path "/Users/d12frosted/Dropbox/vulpea/20200407160812-kitsune_book.org"
+                 :level 0
+                 :title "Kitsune Book"
+                 :primary-title nil
+                 :aliases
+                 ("vulpea" "Kitsune no Hon")
+                 :tags
+                 ("personal")
+                 :links
+                 (("https" . "https://github.com/d12frosted/vulpea")
+                  ("https" . "https://github.com/d12frosted/environment")
+                  ("https" . "https://github.com/d12frosted/vino"))
+                 :properties
+                 (("CATEGORY" . "20200407160812-kitsune_book")
+                  ("ROAM_ALIASES" . "vulpea \"Kitsune no Hon\"")
+                  ("ID" . "7705e5e4-bcd4-4e16-9ba7-fda8acdefe8c")
+                  ("BLOCKED" . "")
+                  ("FILE" . "/Users/d12frosted/Dropbox/vulpea/20200407160812-kitsune_book.org")
+                  ("PRIORITY" . "B"))
+                 :meta
+                 (("link" "[[https://github.com/d12frosted/vulpea][vulpea]]")
+                  ("users" "[[https://github.com/d12frosted/environment][environment]]" "[[https://github.com/d12frosted/vino][vino]]")
+                  ("status" "stable")))
 #+end_src
 
 * Metadata
@@ -235,13 +247,114 @@ try.
 This one-stop module contains some generic functions that didn't find their
 place in separate modules. It also imports every other module.
 
-Functions of interest:
+*** =vulpea-find=
 
-- =vulpea-find= - select and find a note, a wrapper around =vulpea-select= to
-  provide a consistent experience; selection can be narrowed down by
-  =vulpea-find-default-filter= or by passing explicit filter; or by changing
-  value of =vulpea-find-default-candidates-source=.
+A one stop function to select and find (visit) a note that can be used both
+interactively (e.g. =M-x vulpea-find=) and programatically. In the later case it
+provides multiple configuration bits.
+
+When =OTHER-WINDOW= argument is nil (default), the note is visited in the
+current window. In order to use the /other/ window, you may use universal
+argument during interactive usage (e.g. =C-u M-x vulpea-find=) or pass a non-nil
+value as argument:
+
+#+begin_src emacs-lisp
+  (vulpea-find :other-window t)
+#+end_src
+
+When =REQUIRE-MATCH= argument is nil (default), user may select a non-existent
+note and the capture process is started. In order to disallow selection of
+non-existent note, pass non-nil value:
+
+#+begin_src emacs-lisp
+  (vulpea-find :require-match t)
+#+end_src
+
+=vulpea-find= allows to configure candidates for selection in two ways - by
+controlling source of candidates and by controlling filtering function.
+
+**** Filter function
+
+Filtering is easy. It's just a function that takes one argument - =vulpea-note=
+that is being filtered. You can configure default filtering function called
+=vulpea-find-default-filter= (so it is applied to interactive usage) or pass an
+override for the default filtering function.
+
+For example, you wish to list only file-level notes during interactive usage of
+=vulpea-find= (to mimic how =org-roam-find= was behaving in v1). For that you
+just need to configure the value of =vulpea-find-default-filter= variable:
+
+#+begin_src emacs-lisp
+  (setq vulpea-find-default-filter
+        (lambda (note)
+          (= (vulpea-note-level note) 0)))
+#+end_src
+
+But of course override this behaviour when =vulpea-find= is used
+programatically, just pass filtering function as =FILTER-FN= argument:
+
+#+begin_src emacs-lisp
+  ;; by default `vulpea-find' lists aliases, imagine that we want to
+  ;; list only primary titles
+  (vulpea-find
+   :filter-fn (lambda (note)
+                ;; primary-title is set only when title is one of the
+                ;; aliases
+                (null (vulpea-note-primary-title note))))
+#+end_src
+
+**** Candidates function
+
+As it was already mentioned, =vulpea-find= allows to configure the source of
+candidates. This may be needed for performance considerations (e.g. to avoid
+filtering EVERY existing note in your database) or for some 'esoteric' features
+(like ordering).
+
+By default =vulpea-db-query= is used as a source of candidates. Default source
+is controlled by =vulpea-find-default-candidates-source= variable. You should
+change it only when your intention is to configure behaviour of =vulpea-find=
+interactive usage. For example (an 'esoteric' one):
+
+#+begin_src emacs-lisp
+  (setq vulpea-find-default-candidates-source
+        (lambda (filter)
+          ;; sort notes by title, but keep in mind that your completion
+          ;; framework might override this sorting, it's just an example
+          (seq-sort-by
+           #'vulpea-note-title
+           #'string<
+           (vulpea-db-query filter))))
+#+end_src
+
+But in most cases you should not touch the configuration variable and instead
+apply an override via =CANDIDATES-FN= argument. For example, if you wish to
+'find' a note linking to some specific note. Of course this can be achieved with
+a filtering function, but in this particular case performance can be drastically
+improved by overriding candidates source. You can achieve this by something
+along the lines:
+
+#+begin_src emacs-lisp
+  ;; Let's say we have a note in the context. First, we use a
+  ;; specialized query to find what links to a given note.
+  (let ((backlinks (vulpea-db-query-by-links-some
+                    (list (cons "id" (vulpea-note-id note))))))
+    ;; Secondly, we override default CANDIDATES-FN, so it simply
+    ;; presents us a list of backlinks. We deliberately ignore filtering
+    ;; function.
+    (vulpea-find
+     :candidates-fn (lambda (_) backlinks)
+     :require-match t))
+#+end_src
+
+Please don't rush into saving this function into your collection. It's already
+provided by =vulpea= as =vulpea-find-backlink=. Keep reading!
+
+*** =vulpea-find-backlink=
+
 - =vulpea-find-backlink= - select and find a backlink to the current note.
+
+*** =vulpea-insert=
+
 - =vulpea-insert= - select a note and insert a link to it. When user selects
   non-existent note, it is captured via =org-roam-capture= process (see
   =org-roam-capture-templates=). Once the link is inserted,
@@ -249,6 +362,9 @@ Functions of interest:
   so you can easily perform any necessary post-insertion actions. Selection is
   controlled in a similar way to =vulpea-find= - via global
   =vulpea-insert-default-filter= or local filter.
+
+*** =vulpea-create=
+
 - =vulpea-create= - function to create a new note file with given =TITLE=,
   =FILE-NAME=, extra =PROPERTIES=, =HEAD=, =BODY= and =CONTEXT=. Returns newly
   created note.
