@@ -75,7 +75,7 @@ as its argument a `vulpea-note'. Unless specified,
 
 When REQUIRE-MATCH is nil user may select a non-existent note and
 start the capture process."
-  (interactive current-prefix-arg)
+  (interactive)
   (let* ((region-text
           (when (region-active-p)
             (org-link-display-format
@@ -98,7 +98,8 @@ start the capture process."
     (if (vulpea-note-id note)
         (org-roam-node-visit
          (org-roam-node-from-id (vulpea-note-id note))
-         other-window)
+         (or current-prefix-arg
+             other-window))
       (when (not require-match)
         (org-roam-capture-
          :node (org-roam-node-create :title (vulpea-note-title note))
