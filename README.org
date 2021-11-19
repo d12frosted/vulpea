@@ -436,9 +436,160 @@ And then you just need to add it as a hook:
 
 *** =vulpea-create=
 
-- =vulpea-create= - function to create a new note file with given =TITLE=,
-  =FILE-NAME=, extra =PROPERTIES=, =HEAD=, =BODY= and =CONTEXT=. Returns newly
-  created note.
+This function enables programmatic creation of new notes without the need to
+configure =org-roam-capture-templaces=, but instead providing various bits to be
+inserted into new note. And yes, it returns you the created note. This function
+is heavily used in [[https://github.com/d12frosted/vino][vino]] and you can find several real world usage examples
+there.
+
+The minimal usage example:
+
+#+begin_src emacs-lisp
+  (vulpea-create
+   "Title of new note"
+   "relative/path/to/%<%Y%m%d%H%M%S>-${slug}.org")
+#+end_src
+
+This will create a note file
+=relative/path/to/20211119082840-title-of-new-note.org= with the following
+content:
+
+#+begin_src org
+  :PROPERTIES:
+  :ID:                     3dfd828f-fb73-41a6-9801-54bc17d41b57
+  :END:
+  ,#+title: Title of new note
+#+end_src
+
+As you can see, thanks to =org-roam-capture= and =org-capture= system, this
+allows expansion of formatted text as long as expansion of variables from
+capture context. Read further to learn more.
+
+**** Synchronous vs asynchronous
+
+By default capture process is 'asynchronous', meaning that it waits for user
+input and confirmation. In some cases, 'synchronous' creation is desired, so
+that note is created immediately and the created note is returned as result, so
+we can use it further. Example:
+
+#+begin_src emacs-lisp
+  > (vulpea-create
+     "immediate note"
+     "%<%Y%m%d%H%M%S>-${slug}.org"
+     :immediate-finish t)
+  #s(vulpea-note
+     :id "5733ca9e-5b42-4b6b-ace9-2fef1091d421"
+     :path "/Users/d12frosted/Dropbox/vulpea/20211119095443-immediate_note.org"
+     :level 0
+     :title "immediate note"
+     :primary-title nil
+     :aliases nil
+     :tags nil
+     :links nil
+     :properties
+     (("CATEGORY" . "20211119095443-immediate_note")
+      ("ID" . "5733ca9e-5b42-4b6b-ace9-2fef1091d421")
+      ("BLOCKED" . "")
+      ("FILE" . "/Users/d12frosted/Dropbox/vulpea/20211119095443-immediate_note.org")
+      ("PRIORITY" . "B"))
+     :meta nil)
+#+end_src
+
+And the content of created file is:
+
+#+begin_src org
+  :PROPERTIES:
+  :ID:                     5733ca9e-5b42-4b6b-ace9-2fef1091d421
+  :END:
+  ,#+title: immediate note
+#+end_src
+
+How cool is that? Pretty cool, I'd say.
+
+**** Extra content
+
+Of course, in many cases we want to add much more than that into note file. In
+general, the file has the following format:
+
+#+begin_src org
+  :PROPERTIES:
+  :ID: ID
+  PROPERTIES if present
+  :END:
+  ,#+title: TITLE
+  ,#+filetags: TAGS if present
+  HEAD if present
+
+  BODY if present
+#+end_src
+
+So you can provide the following arguments controlling content:
+
+- =properties= - a list consisting of =(key_str . val_str)= pairs added to
+  properties block;
+- =tags= is a list of strings inserted as =filetags= option (in a proper
+  format);
+- =head= - a string inserted after =title= and =filetags=;
+- =body= - a string inserted after =title=, =filetags= and =head=;
+
+Simple example to illustrate:
+
+#+begin_src emacs-lisp
+  > (vulpea-create
+     "Rich note"
+     "%<%Y%m%d%H%M%S>-${slug}.org"
+     :properties '(("COUNTER" . "1")
+                   ("STATUS" . "ignore")
+                   ("ROAM_ALIASES" . "\"Very rich note with an alias\""))
+     :tags '("documentation" "showcase")
+     :head "#+author: unknown\n#+date: today"
+     :body "It was a very nice day.\n\nBut I didn't feel that."
+     :immediate-finish t)
+  #s(vulpea-note
+     :id "568d4e29-76dd-4630-82f9-e1e2006bebdc"
+     :path "/Users/d12frosted/Dropbox/vulpea/20211119095644-rich_note.org"
+     :level 0
+     :title "Rich note"
+     :primary-title nil
+     :aliases
+     ("Very rich note with an alias")
+     :tags
+     ("documentation" "showcase")
+     :links nil
+     :properties
+     (("CATEGORY" . "20211119095644-rich_note")
+      ("ROAM_ALIASES" . "Very rich note with an alias")
+      ("STATUS" . "ignore")
+      ("COUNTER" . "1")
+      ("ID" . "568d4e29-76dd-4630-82f9-e1e2006bebdc")
+      ("BLOCKED" . "")
+      ("FILE" . "/Users/d12frosted/Dropbox/vulpea/20211119095644-rich_note.org")
+      ("PRIORITY" . "B"))
+     :meta nil)
+#+end_src
+
+This creates the following note:
+
+#+begin_src org
+  :PROPERTIES:
+  :ID:                     568d4e29-76dd-4630-82f9-e1e2006bebdc
+  :COUNTER:                1
+  :STATUS:                 ignore
+  :ROAM_ALIASES:           "Very rich note with an alias"
+  :END:
+  ,#+title: Rich note
+  ,#+filetags: :documentation:showcase:
+  ,#+author: unknown
+  ,#+date: today
+
+  It was a very nice day.
+
+  But I didn't feel that.
+#+end_src
+
+**** Context
+
+TBD
 
 ** =vulpea-select=
 
