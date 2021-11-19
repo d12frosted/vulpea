@@ -587,9 +587,99 @@ This creates the following note:
   But I didn't feel that.
 #+end_src
 
-**** Context
+**** Context variables
 
-TBD
+Any content piece (except for title) may have arbitrary amount of context
+variables in form =${VAR}= that are expanded during note creation. By default
+there are 3 context variables - =slug=, =title= and =id=. But you may add extra
+variables to the context by passing =context= variable:
+
+#+begin_src emacs-lisp
+  > (vulpea-create
+     "A Book"
+     "${slug}.org"
+     :context (list :name "Frodo")
+     :immediate-finish t
+     :properties '(("AUTHOR" . "${name}"))
+     :tags '("@${name}")
+     :head "#+author: ${name}"
+     :body "This note was create by ${name}")
+  #s(vulpea-note
+     :id "1fecedf8-ccda-4d68-875e-111b8cc5992e"
+     :path "/home/borysb/Dropbox/vulpea/a_book.org"
+     :level 0
+     :title "A Book"
+     :primary-title nil
+     :aliases nil
+     :tags
+     ("@Frodo")
+     :links nil
+     :properties
+     (("CATEGORY" . "a_book")
+      ("AUTHOR" . "Frodo")
+      ("ID" . "1fecedf8-ccda-4d68-875e-111b8cc5992e")
+      ("BLOCKED" . "")
+      ("FILE" . "/home/borysb/Dropbox/vulpea/a_book.org")
+      ("PRIORITY" . "B"))
+     :meta nil)
+#+end_src
+
+This creates the following note:
+
+#+begin_src org
+  :PROPERTIES:
+  :ID:                     1fecedf8-ccda-4d68-875e-111b8cc5992e
+  :AUTHOR:                 Frodo
+  :END:
+  ,#+title: A Book
+  ,#+filetags: :@Frodo:
+  ,#+author: Frodo
+
+  This note was create by Frodo
+#+end_src
+
+Please keep in mind that you cannot override the default context via =context=
+variable.
+
+**** Mandatory ID
+
+By default =id= is being generated for you and you can not avoid it. This is
+what allows =vulpea-create= to return created note for you. In some cases you
+might want to provide =id= upfront instead of relying on generation. And
+=vulpea-create= has an argument for that.
+
+#+begin_src emacs-lisp
+  > (vulpea-create
+   "Custom id"
+   "${slug}.org"
+   :id "xyz"
+   :immediate-finish t)
+  #s(vulpea-note
+     :id "xyz"
+     :path "/home/borysb/Dropbox/vulpea/custom_id.org"
+     :level 0
+     :title "Custom id"
+     :primary-title nil
+     :aliases nil
+     :tags nil
+     :links nil
+     :properties
+     (("CATEGORY" . "custom_id")
+      ("ID" . "xyz")
+      ("BLOCKED" . "")
+      ("FILE" . "/home/borysb/Dropbox/vulpea/custom_id.org")
+      ("PRIORITY" . "B"))
+     :meta nil)
+#+end_src
+
+This creates the following note:
+
+#+begin_src org
+  :PROPERTIES:
+  :ID:                     xyz
+  :END:
+  ,#+title: Custom id
+#+end_src
 
 ** =vulpea-select=
 
