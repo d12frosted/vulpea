@@ -290,8 +290,9 @@ just need to configure the value of =vulpea-find-default-filter= variable:
           (= (vulpea-note-level note) 0)))
 #+end_src
 
-But of course override this behaviour when =vulpea-find= is used
-programatically, just pass filtering function as =FILTER-FN= argument:
+But of course, it's possible to override this behaviour when =vulpea-find= is
+used programatically, just by passing filtering function as =FILTER-FN=
+argument:
 
 #+begin_src emacs-lisp
   ;; by default `vulpea-find' lists aliases, imagine that we want to
@@ -351,17 +352,87 @@ provided by =vulpea= as =vulpea-find-backlink=. Keep reading!
 
 *** =vulpea-find-backlink=
 
-- =vulpea-find-backlink= - select and find a backlink to the current note.
+An interactive function to select and find (visit) a note linking to the
+currently visited note. Keep in mind that outlines with assigned =ID= property
+are also treated as notes so you might want to go to beginning of buffer if you
+wish to select backlinks to current file.
 
 *** =vulpea-insert=
 
-- =vulpea-insert= - select a note and insert a link to it. When user selects
-  non-existent note, it is captured via =org-roam-capture= process (see
-  =org-roam-capture-templates=). Once the link is inserted,
-  =vulpea-insert-handle-functions= is called with inserted note as an argument,
-  so you can easily perform any necessary post-insertion actions. Selection is
-  controlled in a similar way to =vulpea-find= - via global
-  =vulpea-insert-default-filter= or local filter.
+An interactive function to select a note and insert a link to it. When user
+selects non-existent note, it is captured via =org-roam-capture= process (see
+=org-roam-capture-templates=). Once the link is inserted,
+=vulpea-insert-handle-functions= is called with inserted note as an argument, so
+you can easily perform any necessary post-insertion actions. Selection is
+controlled in a similar way to =vulpea-find= - via global
+=vulpea-insert-default-filter= or local filter.
+
+**** Filter function
+
+This argument is just a function that takes one argument - =vulpea-note= that is
+being filtered. You can configure default filtering function called
+=vulpea-insert-default-filter= (so it is applied to interactive usage) or pass
+an override for the default filtering function.
+
+For example, you wish to list only file-level notes during interactive usage of
+=vulpea-insert= (to mimic how =org-roam-find= was behaving in v1). For that you
+just need to configure the value of =vulpea-insert-default-filter= variable:
+
+#+begin_src emacs-lisp
+  (setq vulpea-insert-default-filter
+        (lambda (note)
+          (= (vulpea-note-level note) 0)))
+#+end_src
+
+But of course, it's possible to override this behaviour when =vulpea-insert= is
+used programatically, just by passing filtering function as =FILTER-FN=
+argument:
+
+#+begin_src emacs-lisp
+  ;; by default `vulpea-insert' lists aliases, imagine that we want to
+  ;; list only primary titles
+  (vulpea-insert
+   (lambda (note)
+     ;; primary-title is set only when title is one of the
+     ;; aliases
+     (null (vulpea-note-primary-title note))))
+#+end_src
+
+**** Insertion handler
+
+There are cases when you want to react somehow to link insertion. For this
+=vulpea= provides a configuration variable =vulpea-insert-handle-functions=,
+which is kind of a hook with argument - =vulpea-note= that is linked.
+
+For example, you want to tag an outline whenever a link to person is inserted
+(see some explanation of this use case in a dedicated [[https://d12frosted.io/posts/2020-07-07-task-management-with-roam-vol4.html][blog post]]). For that you
+need to define a handler function first:
+
+#+begin_src emacs-lisp
+  (defun my-vulpea-insert-handle (note)
+    "Hook to be called on NOTE after `vulpea-insert'."
+    (when-let* ((title (vulpea-note-title note))
+                (tags (vulpea-note-tags note)))
+      (when (seq-contains-p tags "people")
+        (save-excursion
+          (ignore-errors
+            (org-back-to-heading)
+            (when (eq 'todo (org-element-property
+                             :todo-type
+                             (org-element-at-point)))
+              (org-set-tags
+               (seq-uniq
+                (cons
+                 (vulpea--title-to-tag title)
+                 (org-get-tags nil t))))))))))
+#+end_src
+
+And then you just need to add it as a hook:
+
+#+begin_src emacs-lisp
+  (add-hook 'vulpea-insert-handle-functions
+            #'my-vulpea-insert-handle)
+#+end_src
 
 *** =vulpea-create=
 
