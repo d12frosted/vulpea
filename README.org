@@ -39,6 +39,7 @@ Users of this library:
     - [[#vulpea-insert][=vulpea-insert=]]
     - [[#vulpea-create][=vulpea-create=]]
   - [[#vulpea-select][=vulpea-select=]]
+    - [[#visual-configuration][Visual configuration]]
   - [[#vulpea-note-1][=vulpea-note=]]
   - [[#vulpea-db][=vulpea-db=]]
   - [[#vulpea-meta][=vulpea-meta=]]
@@ -683,6 +684,55 @@ This creates the following note:
 
 ** =vulpea-select=
 
+Common interface to select (e.g. =completing-read=) a note from the set of
+notes. Used in functions like =vulpea-find=, =vulpea-find-backlink=,
+=vulpea-insert=, etc.
+
+#+begin_html
+<div>
+  <img src="images/vulpea-select.png" width="100%"/>
+  <p align="center"><em>Narrowing by aliases and tags</em></p>
+</div>
+#+end_html
+
+There are two variants of selection: =vulpea-select-from= and =vulpea-select=.
+The difference between them is that the former accepts a list of notes to select
+from and the latter accepts a filter function which is applied to all notes in
+the database. Here are two examples to illustrate that:
+
+#+begin_src emacs-lisp
+  ;; Select a note from the list of passed notes
+  (vulpea-select-from
+   "Grape"
+   ;; this function returns only notes that are tagged as 'wine' and
+   ;; 'grape' at the same time (see `vulpea-db 'documentation for more
+   ;; information on this function).
+   (vulpea-db-query-by-tags-every '("wine" "grape"))
+   :require-match t)
+
+  ;; Select a note from all notes filtered by some predicate.
+  (vulpea-select
+   "Grape"
+   :filter-fn
+   ;; We just manually check that the note is tagged as 'wine' and
+   ;; 'grape' at the same time.
+   (lambda (note)
+     (let ((tags (vulpea-note-tags note)))
+       (and (seq-contains-p tags "wine")
+            (seq-contains-p tags "grape")))))
+#+end_src
+
+Both of these examples achieve the same goal. The only practical difference here
+is performance. Sometimes you either already have a list of notes that you want
+to select from (so there is no need to filter all the database just to select
+those notes you already have) or you have a way to fetch a list of notes in a
+much faster way than by filtering whole database. See =vulpea-db= for more
+information on performance.
+
+*** Visual configuration
+
+TBD
+
 Module containing =vulpea-select=, =vulpea-select-from= and selection
 configuration. =vulpea-select= is a function to =completing-read= a note with
 optional filter. =vulpea-select-from= is a function to =completing-read=
@@ -694,13 +744,6 @@ function, which by default formats the note in the =title (primary_title)
 - =vulpea-select-describe-fn= - description of the note (by default title).
 - =vulpea-select-annotate-fn= - annotation of the note (by default primary
   title when present and tags) with special face.
-
-#+begin_html
-<div>
-  <img src="images/vulpea-select.png" width="100%"/>
-  <p align="center"><em>Narrowing by aliases and tags</em></p>
-</div>
-#+end_html
 
 ** =vulpea-note=
 
