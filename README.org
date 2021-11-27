@@ -731,19 +731,116 @@ information on performance.
 
 *** Visual configuration
 
-TBD
+Each note is formatted using two functions - =vulpea-select-describe-fn= and
+=vulpea-select-annotate-fn=. Both of them are called by =vulpea-select=
+interface with a note as argument and their result is concatenated. The only
+difference between them is purely aesthetical - description has normal face and
+annotation has =completions-annotations= face.
 
-Module containing =vulpea-select=, =vulpea-select-from= and selection
-configuration. =vulpea-select= is a function to =completing-read= a note with
-optional filter. =vulpea-select-from= is a function to =completing-read=
-arbitrary list of notes. These functions does not use =org-roam= completion
-system, as the latter is hard to extend, configure and reuse in broader context.
-Display of notes in completion list is defined by =vulpea-select-describe=
-function, which by default formats the note in the =title (primary_title)
-#space_separated_tags= format, which is controlled by two configurable values:
-- =vulpea-select-describe-fn= - description of the note (by default title).
-- =vulpea-select-annotate-fn= - annotation of the note (by default primary
-  title when present and tags) with special face.
+By default =vulpea-select-describe-fn= is defined as =vulpea-note-title=; and
+=vulpea-select-annotate-fn= returns aliases and tags if present. To illustrate
+how it works, let's use some fake notes.
+
+#+begin_src emacs-lisp
+  (make-vulpea-note
+   :id (org-id-new)
+   :path (expand-file-name "note1.org" org-roam-directory)
+   :title "Note without aliases and without tags")
+
+  (make-vulpea-note
+   :id (org-id-new)
+   :path (expand-file-name "note2.org" org-roam-directory)
+   :title "Note with single tag"
+   :tags '("tag1"))
+
+  (make-vulpea-note
+   :id (org-id-new)
+   :path (expand-file-name "note3.org" org-roam-directory)
+   :title "Note with multiple tags"
+   :tags '("tag1" "tag2"))
+
+  (make-vulpea-note
+   :id (org-id-new)
+   :path (expand-file-name "subdir/aliases.org" org-roam-directory)
+   :title "Main title"
+   :aliases '("Alias 1" "Alias 2"))
+
+  (make-vulpea-note
+   :id (org-id-new)
+   :path (expand-file-name "subdir/aliases.org" org-roam-directory)
+   :title "Alias 1"
+   :primary-title "Main title"
+   :aliases '("Alias 1" "Alias 2"))
+
+  (make-vulpea-note
+   :id (org-id-new)
+   :path (expand-file-name "subdir/aliases.org" org-roam-directory)
+   :title "Alias 1"
+   :primary-title "Main title"
+   :aliases '("Alias 1" "Alias 2")
+   :tags '("tag1" "tag2"))
+#+end_src
+
+These notes are converted into the following lines:
+
+#+begin_example
+  "Note without aliases and without tags"
+  "Note with single tag #tag1"
+  "Note with multiple tags #tag1 #tag2"
+  "Main title"
+  "Alias 1 (Main title)"
+  "Alias 1 (Main title) #tag1 #tag2"
+#+end_example
+
+#+begin_html
+<div>
+  <img src="images/vulpea-select-example-1.png" width="50%"/>
+  <p align="center"><em>Default describe behaviour</em></p>
+</div>
+#+end_html
+
+Of course, you can configure this behaviour. For example:
+
+#+begin_src emacs-lisp
+  ;; relative path // title
+  (setq vulpea-select-describe-fn
+        (lambda (note)
+          (concat
+           (string-remove-prefix
+            org-roam-directory
+            (vulpea-note-path note))
+           " // "
+           (vulpea-note-title note))))
+
+  ;; display tags and ignore aliases
+  (setq vulpea-select-annotate-fn
+        (lambda (note)
+          (let* ((tags-str (mapconcat
+                            (lambda (x) (concat "#" x))
+                            (vulpea-note-tags note)
+                            " ")))
+            (if (string-empty-p tags-str)
+                ""
+              (concat " " tags-str)))))
+#+end_src
+
+This results in the following lines:
+
+#+begin_example
+  "note1.org // Note without aliases and without tags"
+  "note2.org // Note with single tag #tag1"
+  "note3.org // Note with multiple tags #tag1 #tag2"
+  "subdir/aliases.org // Main title"
+  "subdir/aliases.org // Alias 1"
+  "subdir/aliases.org // Alias 1 #tag1 #tag2"
+#+end_example
+
+#+begin_html
+<div>
+  <img src="images/vulpea-select-example-2.png" width="50%"/>
+  <p align="center"><em>Custom describe behaviour</em></p>
+</div>
+#+end_html
 
 ** =vulpea-note=
 
