@@ -41,6 +41,7 @@ Users of this library:
   - [[#vulpea-select][=vulpea-select=]]
     - [[#visual-configuration][Visual configuration]]
   - [[#vulpea-note-1][=vulpea-note=]]
+    - [[#accessing-meta][Accessing meta]]
   - [[#vulpea-db][=vulpea-db=]]
   - [[#vulpea-meta][=vulpea-meta=]]
   - [[#vulpea-buffer][=vulpea-buffer=]]
@@ -844,11 +845,139 @@ This results in the following lines:
 
 ** =vulpea-note=
 
-This module contains =vulpea-note= definition and few helpers to access/extract
-[[#metadata][metadata]] from =vulpea-note-meta= slot:
+This module contains =vulpea-note= definition, which is represented as a
+structure with the following slots/fields:
 
-- =vulpea-note-meta-get-list= - to get all values of given =PROP= and =TYPE=.
-- =vulpea-note-meta-get= - to get the first value of given =PROP= and =TYPE=.
+- =vulpea-note-id= - =ID= property of note (file-level or heading level).
+- =vulpea-note-path= - absolute path to the note (even if the note is actually a heading);
+- =vulpea-note-level= - level of the note inside =:path=, with =0= being a
+  file-level note and other numbers being a header;
+- =vulpea-note-title= - title of the note (it might be an alias);
+- =vulpea-note-primary-title= - primary title of the note (present only when
+  =title= is an alias);
+- =vulpea-note-aliases= - aliases of the note;
+- =vulpea-note-links= - list of links, each link being represented as =cons= of
+  type and link;
+- =vulpea-note-tags= - tags of the note;
+- =vulpea-note-meta= - associative list of [[#metadata][metadata]], where key is a string and
+  the value is a list of strings.
+
+If =ID= is not present in the note structure, this note is treated as
+non-existent. For example, =vulpea-select= returns such a note, when
+=require-match= is =nil= and the user selects non-existent note.
+
+Example of a note:
+
+#+begin_src emacs-lisp
+  > (vulpea-db-get-by-id "7705e5e4-bcd4-4e16-9ba7-fda8acdefe8c")
+  #s(vulpea-note :id "7705e5e4-bcd4-4e16-9ba7-fda8acdefe8c"
+                 :path "/Users/d12frosted/Dropbox/vulpea/20200407160812-kitsune_book.org"
+                 :level 0
+                 :title "Kitsune Book"
+                 :primary-title nil
+                 :aliases
+                 ("vulpea" "Kitsune no Hon")
+                 :tags
+                 ("personal")
+                 :links
+                 (("https" . "https://github.com/d12frosted/vulpea")
+                  ("https" . "https://github.com/d12frosted/environment")
+                  ("https" . "https://github.com/d12frosted/vino"))
+                 :properties
+                 (("CATEGORY" . "20200407160812-kitsune_book")
+                  ("ROAM_ALIASES" . "vulpea \"Kitsune no Hon\"")
+                  ("ID" . "7705e5e4-bcd4-4e16-9ba7-fda8acdefe8c")
+                  ("BLOCKED" . "")
+                  ("FILE" . "/Users/d12frosted/Dropbox/vulpea/20200407160812-kitsune_book.org")
+                  ("PRIORITY" . "B"))
+                 :meta
+                 (("link" "[[https://github.com/d12frosted/vulpea][vulpea]]")
+                  ("users" "[[https://github.com/d12frosted/environment][environment]]" "[[https://github.com/d12frosted/vino][vino]]")
+                  ("status" "stable")))
+#+end_src
+
+*** Accessing meta
+
+In most cases you should not directly access =vulpea-note-meta=, but instead you
+should use one of the helpers - =vulpea-note-meta-get= and
+=vulpea-note-meta-get-list=. The only difference between these two functions is
+how they treat repeating keys. The former returns only the first occurrence of
+the key, while the latter returns a list.
+
+Let's take the following note as example:
+
+#+begin_src emacs-lisp
+  > (vulpea-db-get-by-id "05907606-f836-45bf-bd36-a8444308eddd")
+  #s(vulpea-note :id "05907606-f836-45bf-bd36-a8444308eddd"
+                 :path "..."
+                 ...
+                 :meta
+                 (("name" "some name")
+                  ("tags" "tag 1")
+                  ("tags" "tag 2")
+                  ("tags" "tag 3")
+                  ("numbers" "12")
+                  ("numbers" "18")
+                  ("numbers" "24")
+                  ("singleton" "only value")
+                  ("symbol" "red")
+                  ("url" "[[https://en.wikipedia.org/wiki/Frappato][wikipedia.org]]")
+                  ("link" "[[id:444f94d7-61e0-4b7c-bb7e-100814c6b4bb][Note without META]]")
+                  ("references" "[[id:444f94d7-61e0-4b7c-bb7e-100814c6b4bb][Note without META]]")
+                  ("references" "[[id:5093fc4e-8c63-4e60-a1da-83fc7ecd5db7][Reference]]")
+                  ("answer" "42")))
+#+end_src
+
+As you can see, keys and values are strings. But that's not always useful,
+that's why =vulpea-note-meta-get= and =vulpea-note-meta-get-list= support string
+parsing of some common 'types': string (default), number, link (path of the link
+- either ID of the linked note or raw link), note (queries note by id from db)
+and symbol.
+
+#+begin_src emacs-lisp
+  > (vulpea-note-meta-get note "name")
+  "some name"
+
+  > (vulpea-note-meta-get note "name" 'string)
+  "some name"
+
+  > (vulpea-note-meta-get-list note "name")
+  ("some name")
+
+  > (vulpea-note-meta-get note "tags")
+  "tag 1"
+
+  > (vulpea-note-meta-get-list note "tags")
+  ("tag 1" "tag 2" "tag 3")
+
+  > (vulpea-note-meta-get note "numbers" 'number)
+  12
+
+  > (vulpea-note-meta-get-list note "numbers" 'number)
+  (12 18 24)
+
+  > (vulpea-note-meta-get note "symbol")
+  "red"
+
+  > (vulpea-note-meta-get note "symbol" 'symbol)
+  red
+
+  > (vulpea-note-meta-get note "url" 'link)
+  "https://en.wikipedia.org/wiki/Frappato"
+
+  > (vulpea-note-meta-get note "link" 'link)
+  "444f94d7-61e0-4b7c-bb7e-100814c6b4bb"
+
+  > (vulpea-note-meta-get-list note "references" 'note)
+  (#s(vulpea-note :id "444f94d7-61e0-4b7c-bb7e-100814c6b4bb"
+                  :path "..."
+                  :title "Note without META"
+                  ...)
+   #s(vulpea-note :id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"
+                  :path "..."
+                  :title "Reference"
+                  ...))
+#+end_src
 
 ** =vulpea-db=
 
