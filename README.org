@@ -49,6 +49,8 @@ Users of this library:
     - [[#other-functions][Other functions]]
   - [[#vulpea-meta][=vulpea-meta=]]
   - [[#vulpea-buffer][=vulpea-buffer=]]
+    - [[#buffer-properties][Buffer properties]]
+    - [[#metadata-1][Metadata]]
   - [[#vulpea-utils][=vulpea-utils=]]
 - [[#performance][Performance]]
   - [[#query-from-database][Query from database]]
@@ -1130,17 +1132,10 @@ Functions of interest:
 This module contains functions for prop and meta manipulations in current
 buffer.
 
+*** Buffer properties
+
 Buffer properties are key-values defined as =#+KEY: VALUE= in the header of
 buffer.
-
-Metadata is defined as the first description list in the buffer, e.g. list like:
-
-#+begin_src org-mode
-- key1 :: value1
-- key2 :: value21
-- key2 :: value22
-- key3 :: value3
-#+end_src
 
 - =vulpea-buffer-title-get= - function to get title of the current buffer.
 - =vulpea-buffer-title-set= - function to set title of the current buffer.
@@ -1159,6 +1154,18 @@ Metadata is defined as the first description list in the buffer, e.g. list like:
   =NAME= as a list separated by some =SEPARATORS=.
 - =vulpea-buffer-prop-remove= - function to remove a property with =NAME= from
   the current buffer.
+
+*** Metadata
+
+Metadata is defined as the first description list in the buffer, e.g. list like:
+
+#+begin_src org-mode
+- key1 :: value1
+- key2 :: value21
+- key2 :: value22
+- key3 :: value3
+#+end_src
+
 - =vulpea-buffer-meta= - function to get metadata from current buffer. In most
   cases you should not use this function unless performance is important. In
   this case, take a look at bang functions, e.g. =vulpea-buffer-meta-get!=.
