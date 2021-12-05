@@ -1166,18 +1166,12 @@ Metadata is defined as the first description list in the buffer, e.g. list like:
 - key3 :: value3
 #+end_src
 
-- =vulpea-buffer-meta= - function to get metadata from current buffer. In most
-  cases you should not use this function unless performance is important. In
-  this case, take a look at bang functions, e.g. =vulpea-buffer-meta-get!=.
-- =vulpea-buffer-meta-get= - function to get a value of =PROP= from current
-  buffer. Value is parsed based on the passed =TYPE= or as a string if omitted.
+- =vulpea-buffer-meta= - function to get metadata from current buffer. By it's
+  own it has little value, use the following functions to manipulate it.
 - =vulpea-buffer-meta-get!= - function to get a value of =PROP= from =META=
   (result of =vulpea-buffer-meta=). Value is parsed based on the passed =TYPE=
   or as a string if omitted. Use it performing multiple read operations in a
   row.
-- =vulpea-buffer-meta-get-list= - function to get all values of =PROP= from
-  current buffer. Values are parsed based on the passed =TYPE= or as a string if
-  omitted.
 - =vulpea-buffer-meta-get-list!= - function to get all values of =PROP= from
   =META= (result of =vulpea-buffer-meta=). Values are parsed based on the passed
   =TYPE= or as a string if omitted. Use it performing multiple read operations
@@ -1186,7 +1180,148 @@ Metadata is defined as the first description list in the buffer, e.g. list like:
   buffer. Supports multi-value properties.
 - =vulpea-buffer-meta-remove= - function to remove a =PROP= from current buffer.
 - =vulpea-buffer-meta-clean= - function to remove all meta from current buffer.
-- =vulpea-buffer-meta-format= - function to format a =VALUE=.
+- =vulpea-buffer-meta-format= - function to format a =VALUE= based in its type
+  (used for value serialization).
+
+**** Example 1 - getting values
+
+Consider the following Org Mode file.
+
+#+begin_src org
+  :PROPERTIES:
+  :ID:                     05907606-f836-45bf-bd36-a8444308eddd
+  :END:
+  ,#+title: Note with META
+
+  - name :: some name
+  - tags :: tag 1
+  - tags :: tag 2
+  - tags :: tag 3
+  - numbers :: 12
+  - numbers :: 18
+  - numbers :: 24
+  - singleton :: only value
+  - symbol :: red
+  - url :: [[https://en.wikipedia.org/wiki/Frappato][wikipedia.org]]
+  - link :: [[id:444f94d7-61e0-4b7c-bb7e-100814c6b4bb][Note without META]]
+  - references :: [[id:444f94d7-61e0-4b7c-bb7e-100814c6b4bb][Note without META]]
+  - references :: [[id:5093fc4e-8c63-4e60-a1da-83fc7ecd5db7][Reference]]
+  - answer :: 42
+
+  Don't mind me. I am a content of this note.
+#+end_src
+
+In order to get anything from meta, first you need to parse it:
+
+#+begin_src emacs-lisp
+  > (vulpea-buffer-meta)
+  (:file "/path-to/with-meta.org" :buffer (org-data ...))
+#+end_src
+
+And then you can retrieve values from parse meta:
+
+#+begin_src emacs-lisp
+  > (setq test-meta (vulpea-buffer-meta))
+
+  > (vulpea-buffer-meta-get! test-meta "name")
+  "some name"
+
+  > (vulpea-buffer-meta-get! test-meta "tags")
+  "tag 1"
+
+  > (vulpea-buffer-meta-get-list! test-meta "tags")
+  ("tag 1" "tag 2" "tag 3")
+
+  > (vulpea-buffer-meta-get-list! test-meta "numbers" 'number)
+  (12 18 24)
+
+  > (vulpea-buffer-meta-get! test-meta "symbol" 'symbol)
+  red
+
+  > (vulpea-buffer-meta-get! test-meta "url" 'link)
+  "https://en.wikipedia.org/wiki/Frappato"
+
+  > (vulpea-buffer-meta-get! test-meta "link" 'link)
+  "444f94d7-61e0-4b7c-bb7e-100814c6b4bb"
+
+  > (vulpea-buffer-meta-get-list! test-meta "references" 'note)
+  (#s(vulpea-note :id "444f94d7-61e0-4b7c-bb7e-100814c6b4bb"
+                  ...)
+   #s(vulpea-note :id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"
+                  ...))
+#+end_src
+
+**** Example 2 - setting values
+
+Consider the following Org Mode file.
+
+#+begin_src org
+  :PROPERTIES:
+  :ID:                     05907606-f836-45bf-bd36-a8444308eddd
+  :END:
+  ,#+title: Note with META
+
+  - name :: some name
+  - tags :: tag 1
+  - tags :: tag 2
+  - tags :: tag 3
+  - numbers :: 12
+  - numbers :: 18
+  - numbers :: 24
+  - singleton :: only value
+  - symbol :: red
+  - url :: [[https://en.wikipedia.org/wiki/Frappato][wikipedia.org]]
+  - link :: [[id:444f94d7-61e0-4b7c-bb7e-100814c6b4bb][Note without META]]
+  - references :: [[id:444f94d7-61e0-4b7c-bb7e-100814c6b4bb][Note without META]]
+  - references :: [[id:5093fc4e-8c63-4e60-a1da-83fc7ecd5db7][Reference]]
+  - answer :: 42
+
+  Don't mind me. I am a content of this note.
+#+end_src
+
+Imagine that we evaluated the following code in this buffer.
+
+#+begin_src emacs-lisp
+  ;; put a value in the beginning of the list
+  (vulpea-buffer-meta-set "date" "[2021-12-05]")
+
+  ;;  replace existing name value
+  (vulpea-buffer-meta-set "name" "new name")
+
+  ;;replace list of references with new one
+  (vulpea-buffer-meta-set "references" (list (vulpea-db-get-by-id "8f62b3bd-2a36-4227-a0d3-4107cd8dac19")))
+
+  ;; append to the end of list
+  (vulpea-buffer-meta-set "years" '(1993 1994) 'append)
+
+  ;; remove numbers key
+  (vulpea-buffer-meta-remove "numbers")
+#+end_src
+
+The resulting buffer will look like this:
+
+#+begin_src org
+  :PROPERTIES:
+  :ID:                     05907606-f836-45bf-bd36-a8444308eddd
+  :END:
+  ,#+title: Note with META
+
+  - date :: [2021-12-05]
+  - name :: new name
+  - tags :: tag 1
+  - tags :: tag 2
+  - tags :: tag 3
+  - singleton :: only value
+  - symbol :: red
+  - url :: [[https://en.wikipedia.org/wiki/Frappato][wikipedia.org]]
+  - link :: [[id:444f94d7-61e0-4b7c-bb7e-100814c6b4bb][Note without META]]
+  - references :: [[id:8f62b3bd-2a36-4227-a0d3-4107cd8dac19][Arianna Occhipinti]]
+  - answer :: 42
+  - years :: 1993
+  - years :: 1994
+
+  Don't mind me. I am a content of this note.
+#+end_src
 
 ** =vulpea-utils=
 
