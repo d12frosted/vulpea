@@ -311,8 +311,9 @@ which case VALUE is added at the end of the meta."
               (org-element-copy img)
               (vulpea-buffer-meta-format val)))))
          values)
-        (when (equal (length items)
-                     (length (org-element-contents pl)))
+        (when (and (equal (length items)
+                          (length (org-element-contents pl)))
+                   (> (length items) 1))
           (insert "\n")))
 
        ;; property is not yet set, simply set it
