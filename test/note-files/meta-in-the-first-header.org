@@ -1,0 +1,12 @@
+:PROPERTIES:
+:ID:                     7de1afc6-4aef-4ed3-9939-0f2e00971705
+:END:
+#+TITLE: meta in the first header
+
+* Metadata
+
+- status :: in progress
+
+* Description
+
+Some fancy description

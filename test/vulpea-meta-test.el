@@ -328,6 +328,24 @@ Just some text to make sure that meta is inserted before.
 Just some text to make sure that meta is inserted before.
 "))
 
+    (it "formats single meta inside first header"
+      (vulpea-meta-set "7de1afc6-4aef-4ed3-9939-0f2e00971705" "status" 'done)
+      (expect "meta-in-the-first-header.org"
+              :to-contain-exactly
+              ":PROPERTIES:
+:ID:                     7de1afc6-4aef-4ed3-9939-0f2e00971705
+:END:
+#+TITLE: meta in the first header
+
+* Metadata
+
+- status :: done
+
+* Description
+
+Some fancy description
+"))
+
     (it "formats multiple values upon insertion to file without meta"
       (vulpea-meta-set without-meta-id "references" '("5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"
                                                       "05907606-f836-45bf-bd36-a8444308eddd"
