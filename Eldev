@@ -3,7 +3,7 @@
 ;; explicitly set main file
 (setf eldev-project-main-file "vulpea.el")
 
-(eldev-require-version "0.7.2")
+(eldev-require-version "0.10.3")
 
 (eldev-use-package-archive 'gnu)
 (eldev-use-package-archive 'melpa-unstable)
