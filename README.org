@@ -24,6 +24,8 @@ Users of this library:
 - [[https://github.com/d12frosted/environment][d12frosted/environment]] - Emacs configurations;
 - [[https://github.com/d12frosted/vino][d12frosted/vino]] - collection of functions for cellar tracking and wine rating.
 
+*Table of Contents*
+
 #+TOC: headlines 2 local
 
 ** Reasons to use =vulpea=
