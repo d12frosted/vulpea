@@ -251,8 +251,8 @@ and the time taken by garbage collection. See also
         (expect (seq-length (nth 0 bres1)) :to-equal (seq-length (nth 0 bres2)))
         (expect (nth 1 bres1) :to-be-less-than (nth 1 bres2))))))
 
-(defun single-note-perf (runs id)
-  "Test performance of syncing a note with ID."
+(defun single-note-perf (times id)
+  "Test performance of syncing a note with ID for TIMES."
   (let* ((note (vulpea-db-get-by-id id))
          (file (vulpea-note-path note))
          (bres-bare)
@@ -261,21 +261,24 @@ and the time taken by garbage collection. See also
     (vulpea-db-autosync-disable)
     (org-roam-db-clear-file file)
     (setq bres-bare
-          (vulpea-benchmark-run runs
+          (vulpea-benchmark-run times
             #'org-roam-db-update-file
             nil
             file))
+
+    (garbage-collect)
 
     (vulpea-db-autosync-enable)
     (org-roam-db-clear-file file)
     (setq bres-vulpea
-          (vulpea-benchmark-run runs
+          (vulpea-benchmark-run times
             #'org-roam-db-update-file
             nil
             file))
 
-    ;; common sense - we expect it doesn't take more than 3 times
-    ;; of the bare org-roam sync
+    ;; common sense - we expect it doesn't take more than 3 times of
+    ;; the bare org-roam sync, but it really depends on the machine;
+    ;; usually it runs for the same time
     (expect (nth 1 bres-vulpea)
             :to-be-less-than
             (* 3 (nth 1 bres-bare)))))
