@@ -5,4 +5,4 @@
                                                  (org-with-point-at . 1)
                                                  (org-element-map . 2)))))
  (org-mode . ((fill-column . 80)
-              (vulpea-id-auto-targets nil))))
+              (vulpea-id-auto-targets . (headings)))))
