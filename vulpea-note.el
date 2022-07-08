@@ -34,6 +34,7 @@
 ;;; Code:
 
 (require 'ol)
+(require 'dash)
 
 (cl-defstruct vulpea-note
   id
@@ -48,6 +49,8 @@
   meta)
 
 (autoload 'vulpea-db-get-by-id "vulpea-db")
+
+
 
 (defun vulpea-note-meta-get-list (note prop &optional type)
   "Get all values of PROP from NOTE meta.
@@ -99,6 +102,20 @@ If the note contains multiple values for a given PROP, the first
 one is returned. In case all values are required, use
 `vulpea-note-meta-get-list'."
   (car (vulpea-note-meta-get-list note prop type)))
+
+
+
+(cl-defmethod vulpea-note-tagged-all-p ((note vulpea-note) &rest tags)
+  "Return non-nil if a NOTE is tagged by all of the TAGS."
+  (let ((note-tags (vulpea-note-tags note)))
+    (--all-p (-contains-p note-tags it) tags)))
+
+(cl-defmethod vulpea-note-tagged-any-p ((note vulpea-note) &rest tags)
+  "Return non-nil if a NOTE is tagged by any of the TAGS."
+  (let ((note-tags (vulpea-note-tags note)))
+    (--any-p (-contains-p note-tags it) tags)))
+
+
 
 (provide 'vulpea-note)
 ;;; vulpea-note.el ends here
