@@ -41,6 +41,7 @@ Users of this library:
   - [[#vulpea-select][=vulpea-select=]]
     - [[#visual-configuration][Visual configuration]]
   - [[#vulpea-note-1][=vulpea-note=]]
+    - [[#tags-predicate][Tags predicate]]
     - [[#accessing-meta][Accessing meta]]
   - [[#vulpea-db][=vulpea-db=]]
     - [[#vulpea-db-get-by-id][=vulpea-db-get-by-id=]]
@@ -900,6 +901,33 @@ Example of a note:
                  (("link" "[[https://github.com/d12frosted/vulpea][vulpea]]")
                   ("users" "[[https://github.com/d12frosted/environment][environment]]" "[[https://github.com/d12frosted/vino][vino]]")
                   ("status" "stable")))
+#+end_src
+
+*** Tags predicate
+
+In some cases you want to check if a note is tagged somehow. Vulpea provides two shortcuts for this:
+
+- =vulpea-note-tagged-all-p= - return non-nil if a NOTE is tagged by all of the TAGS.
+- =vulpea-note-tagged-any-p= - return non-nil if a NOTE is tagged by any of the TAGS.
+
+#+begin_src emacs-lisp
+  > (setq note (make-vulpea-note :tags '("tag-1" "tag-2" "tag-3")))
+  #s(vulpea-note nil nil nil nil nil nil ("tag-1" "tag-2" "tag-3") nil nil nil)
+
+  > (vulpea-note-tagged-all-p note "tag-2" "tag-3")
+  t
+
+  > (vulpea-note-tagged-all-p note "tag-2" "tag-3" "tag-4")
+  nil
+
+  > (vulpea-note-tagged-any-p note "tag-2" "tag-3")
+  t
+
+  > (vulpea-note-tagged-all-p note "tag-2" "tag-3" "tag-4")
+  nil
+
+  > (vulpea-note-tagged-all-p note "tag-4")
+  nil
 #+end_src
 
 *** Accessing meta

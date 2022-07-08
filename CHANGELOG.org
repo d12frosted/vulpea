@@ -47,6 +47,9 @@ structure.
   view table.
 - [[https://github.com/d12frosted/vulpea/issues/121][vulpea#121]] allow to configure candidates source for =vulpea-find= function via
   =vulpea-find-default-candidates-source= variable.
+- Add shortcuts for checking tags on the note:
+  - =vulpea-note-tagged-all-p= - return non-nil if a NOTE is tagged by all of the TAGS.
+  - =vulpea-note-tagged-any-p= - return non-nil if a NOTE is tagged by any of the TAGS.
 
 ** v0.2.0
 
