@@ -936,6 +936,9 @@
                             (= name $r1))]
                (emacsql-escape-identifier index-name))
               :to-equal (list (list (intern (emacsql-escape-identifier index-name))))))
+    (expect (caar (org-roam-db-query [:select version :from cache :where (= id "vulpea")]))
+            :to-equal
+            vulpea-db-version)
 
     ;; sync a file
     (message "update file")

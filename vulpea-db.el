@@ -344,6 +344,8 @@ If the FILE is relative, it is considered to be relative to
 
 
 
+(defconst vulpea-db-version 3)
+
 (defconst vulpea-db--schemata
   '((notes
      ([(id :not-null :primary-key)
@@ -366,7 +368,10 @@ If the FILE is relative, it is considered to be relative to
        :references
        nodes [id]
        :on-delete
-       :cascade))))
+       :cascade)))
+    (cache
+     ([(id :not-null :primary-key)
+       (version :not-null)])))
   "Vulpea db schemata.")
 
 (defconst vulpea-db--indices
@@ -400,8 +405,8 @@ GET-DB is a function that returns connection to database."
                                         (= name $r1))]
                            (emacsql-escape-identifier index-name))
             (emacsql db [:create-index $i1 :on $i2 $S3]
-                     index-name table columns))))
-      (setq vulpea-db--initalized t))
+                     index-name table columns)))))
+    (setq vulpea-db--initalized t)
     db))
 
 
@@ -441,7 +446,26 @@ GET-DB is a function that returns connection to database."
        :after
        #'vulpea-db-insert-outline-note)
       (advice-add
-       'org-roam-db-map-links :after #'vulpea-db-insert-links))
+       'org-roam-db-map-links :after #'vulpea-db-insert-links)
+
+      (when (file-exists-p org-roam-db-location)
+        (let ((version (or (caar (emacsql (org-roam-db)
+                                          [:select version
+                                           :from cache
+                                           :where (= id "vulpea")]))
+                           0)))
+          (when (< version vulpea-db-version)
+            (org-roam-message (format "Upgrading the vulpea database from version %d to version %d"
+                                      version vulpea-db-version))
+            (org-roam-db-sync t)
+            (let ((db (org-roam-db)))
+              (emacsql db [:update cache
+                           :set (= version $s1)
+                           :where (= id "vulpea")]
+                       vulpea-db-version)
+              (emacsql db [:insert :or :ignore :into cache [id version]
+                           :values ["vulpea" $s1]]
+                       vulpea-db-version))))))
      (t
       (setq vulpea-db--initalized nil)
       (advice-remove 'org-roam-db-map-links #'vulpea-db-insert-links)
