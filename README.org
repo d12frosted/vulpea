@@ -103,6 +103,16 @@ In case you have [[https://github.com/raxod502/straight.el/#integration-with-use
     :hook ((org-roam-db-autosync-mode . vulpea-db-autosync-enable)))
 #+end_src
 
+*** Doom Emacs
+:PROPERTIES:
+:ID:                     9ebbac14-4032-42e0-bbb6-d38342a8bf04
+:END:
+
+#+begin_src emacs-lisp
+  (use-package! vulpea
+    :hook ((org-roam-db-autosync-mode . vulpea-db-autosync-enable)))
+#+end_src
+
 ** =vulpea-note=
 :PROPERTIES:
 :ID:                     22aa7af5-fc57-4813-9e96-afdfce663e00
