@@ -52,7 +52,8 @@
                            (cons "ID" "72522ed2-9991-482e-a365-01155c172aa5")
                            (cons "BLOCKED" "")
                            (cons "FILE" (expand-file-name "note-with-alias.org" org-roam-directory))
-                           (cons "PRIORITY" "B"))))))
+                           (cons "PRIORITY" "B"))
+              :attach-dir (expand-file-name "data/72/522ed2-9991-482e-a365-01155c172aa5" org-roam-directory)))))
 
   (it "finds a note by alias"
     (expect (vulpea-db-search-by-title "Alias of the note with alias")
@@ -73,7 +74,8 @@
                            (cons "ID" "72522ed2-9991-482e-a365-01155c172aa5")
                            (cons "BLOCKED" "")
                            (cons "FILE" (expand-file-name "note-with-alias.org" org-roam-directory))
-                           (cons "PRIORITY" "B"))))))
+                           (cons "PRIORITY" "B"))
+              :attach-dir (expand-file-name "data/72/522ed2-9991-482e-a365-01155c172aa5" org-roam-directory)))))
 
   (it "finds multiple notes sharing the same title"
     (expect (vulpea-db-search-by-title "Duplicating Term")
@@ -90,7 +92,8 @@
                            (cons "ID" "ff01962f-47c2-4a32-9bf4-990e41090a9b")
                            (cons "BLOCKED" "")
                            (cons "FILE" (expand-file-name "same-name-1.org" org-roam-directory))
-                           (cons "PRIORITY" "B")))
+                           (cons "PRIORITY" "B"))
+              :attach-dir (expand-file-name "data/ff/01962f-47c2-4a32-9bf4-990e41090a9b" org-roam-directory))
              (make-vulpea-note
               :path (expand-file-name "same-name-2.org" org-roam-directory)
               :title "Duplicating Term"
@@ -102,7 +105,8 @@
                            (cons "ID" "68f11246-91e1-4d48-b3c6-801a2ef0160b")
                            (cons "BLOCKED" "")
                            (cons "FILE" (expand-file-name "same-name-2.org" org-roam-directory))
-                           (cons "PRIORITY" "B"))))))
+                           (cons "PRIORITY" "B"))
+              :attach-dir (expand-file-name "data/68/f11246-91e1-4d48-b3c6-801a2ef0160b" org-roam-directory)))))
 
   (it "returns all information about the note"
     (expect (vulpea-db-search-by-title "Reference")
@@ -119,7 +123,8 @@
                            (cons "ID" "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")
                            (cons "BLOCKED" "")
                            (cons "FILE" (expand-file-name "reference.org" org-roam-directory))
-                           (cons "PRIORITY" "B"))))))
+                           (cons "PRIORITY" "B"))
+              :attach-dir (expand-file-name "data/50/93fc4e-8c63-4e60-a1da-83fc7ecd5db7" org-roam-directory)))))
 
   (it "should use case sensitive search"
     (expect (vulpea-db-search-by-title "reference")
@@ -159,7 +164,8 @@
                            (cons "ID" "ff01962f-47c2-4a32-9bf4-990e41090a9b")
                            (cons "BLOCKED" "")
                            (cons "FILE" (expand-file-name "same-name-1.org" org-roam-directory))
-                           (cons "PRIORITY" "B")))
+                           (cons "PRIORITY" "B"))
+              :attach-dir (expand-file-name "data/ff/01962f-47c2-4a32-9bf4-990e41090a9b" org-roam-directory))
              (make-vulpea-note
               :path (expand-file-name "same-name-2.org" org-roam-directory)
               :title "Duplicating Term"
@@ -171,7 +177,8 @@
                            (cons "ID" "68f11246-91e1-4d48-b3c6-801a2ef0160b")
                            (cons "BLOCKED" "")
                            (cons "FILE" (expand-file-name "same-name-2.org" org-roam-directory))
-                           (cons "PRIORITY" "B"))))))
+                           (cons "PRIORITY" "B"))
+              :attach-dir (expand-file-name "data/68/f11246-91e1-4d48-b3c6-801a2ef0160b" org-roam-directory)))))
 
   (it "includes meta and links"
     (expect (vulpea-db-query
@@ -206,7 +213,8 @@
                 ("link" . ("[[id:444f94d7-61e0-4b7c-bb7e-100814c6b4bb][Note without META]]"))
                 ("references" . ("[[id:444f94d7-61e0-4b7c-bb7e-100814c6b4bb][Note without META]]"
                                  "[[id:5093fc4e-8c63-4e60-a1da-83fc7ecd5db7][Reference]]"))
-                ("answer" . ("42"))))))))
+                ("answer" . ("42")))
+              :attach-dir (expand-file-name "data/05/907606-f836-45bf-bd36-a8444308eddd" org-roam-directory))))))
 
 (describe "vulpea-db-query-by-tags-some"
   (before-all
@@ -233,7 +241,8 @@
                            (cons "ID" "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")
                            (cons "BLOCKED" "")
                            (cons "FILE" (expand-file-name "reference.org" org-roam-directory))
-                           (cons "PRIORITY" "B")))
+                           (cons "PRIORITY" "B"))
+              :attach-dir (expand-file-name "data/50/93fc4e-8c63-4e60-a1da-83fc7ecd5db7" org-roam-directory))
              (make-vulpea-note
               :path (expand-file-name "same-name-2.org" org-roam-directory)
               :title "Duplicating Term"
@@ -245,7 +254,8 @@
                            (cons "ID" "68f11246-91e1-4d48-b3c6-801a2ef0160b")
                            (cons "BLOCKED" "")
                            (cons "FILE" (expand-file-name "same-name-2.org" org-roam-directory))
-                           (cons "PRIORITY" "B"))))))
+                           (cons "PRIORITY" "B"))
+              :attach-dir (expand-file-name "data/68/f11246-91e1-4d48-b3c6-801a2ef0160b" org-roam-directory)))))
 
   (it "returns only notes tagged by any of tags: >1 tag"
     (expect (vulpea-db-query-by-tags-some '("tag3" "tag2"))
@@ -262,7 +272,8 @@
                            (cons "ID" "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")
                            (cons "BLOCKED" "")
                            (cons "FILE" (expand-file-name "reference.org" org-roam-directory))
-                           (cons "PRIORITY" "B")))
+                           (cons "PRIORITY" "B"))
+              :attach-dir (expand-file-name "data/50/93fc4e-8c63-4e60-a1da-83fc7ecd5db7" org-roam-directory))
              (make-vulpea-note
               :path (expand-file-name "same-name-1.org" org-roam-directory)
               :title "Duplicating Term"
@@ -274,7 +285,8 @@
                            (cons "ID" "ff01962f-47c2-4a32-9bf4-990e41090a9b")
                            (cons "BLOCKED" "")
                            (cons "FILE" (expand-file-name "same-name-1.org" org-roam-directory))
-                           (cons "PRIORITY" "B")))
+                           (cons "PRIORITY" "B"))
+              :attach-dir (expand-file-name "data/ff/01962f-47c2-4a32-9bf4-990e41090a9b" org-roam-directory))
              (make-vulpea-note
               :path (expand-file-name "same-name-2.org" org-roam-directory)
               :title "Duplicating Term"
@@ -286,7 +298,8 @@
                            (cons "ID" "68f11246-91e1-4d48-b3c6-801a2ef0160b")
                            (cons "BLOCKED" "")
                            (cons "FILE" (expand-file-name "same-name-2.org" org-roam-directory))
-                           (cons "PRIORITY" "B"))))))
+                           (cons "PRIORITY" "B"))
+              :attach-dir (expand-file-name "data/68/f11246-91e1-4d48-b3c6-801a2ef0160b" org-roam-directory)))))
 
   (it "returns the same elements as vulpea-db-query (ignoring aliases)"
     (let ((tags '("tag2" "tag3")))
@@ -329,7 +342,8 @@
                            (cons "ID" "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")
                            (cons "BLOCKED" "")
                            (cons "FILE" (expand-file-name "reference.org" org-roam-directory))
-                           (cons "PRIORITY" "B")))
+                           (cons "PRIORITY" "B"))
+              :attach-dir (expand-file-name "data/50/93fc4e-8c63-4e60-a1da-83fc7ecd5db7" org-roam-directory))
              (make-vulpea-note
               :path (expand-file-name "same-name-2.org" org-roam-directory)
               :title "Duplicating Term"
@@ -341,7 +355,8 @@
                            (cons "ID" "68f11246-91e1-4d48-b3c6-801a2ef0160b")
                            (cons "BLOCKED" "")
                            (cons "FILE" (expand-file-name "same-name-2.org" org-roam-directory))
-                           (cons "PRIORITY" "B"))))))
+                           (cons "PRIORITY" "B"))
+              :attach-dir (expand-file-name "data/68/f11246-91e1-4d48-b3c6-801a2ef0160b" org-roam-directory)))))
 
   (it "returns only notes tagged by each and every of tags: >1 tag"
     (expect (vulpea-db-query-by-tags-every '("tag3" "tag2"))
@@ -358,7 +373,8 @@
                            (cons "ID" "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")
                            (cons "BLOCKED" "")
                            (cons "FILE" (expand-file-name "reference.org" org-roam-directory))
-                           (cons "PRIORITY" "B"))))))
+                           (cons "PRIORITY" "B"))
+              :attach-dir (expand-file-name "data/50/93fc4e-8c63-4e60-a1da-83fc7ecd5db7" org-roam-directory)))))
 
   (it "behave the same as vulpea-db-query-by-tags-some with 1 tag"
     (expect (vulpea-db-query-by-tags-every '("tag3"))
@@ -420,7 +436,8 @@
                 ("link" . ("[[id:444f94d7-61e0-4b7c-bb7e-100814c6b4bb][Note without META]]"))
                 ("references" . ("[[id:444f94d7-61e0-4b7c-bb7e-100814c6b4bb][Note without META]]"
                                  "[[id:5093fc4e-8c63-4e60-a1da-83fc7ecd5db7][Reference]]"))
-                ("answer" . ("42"))))
+                ("answer" . ("42")))
+              :attach-dir (expand-file-name "data/05/907606-f836-45bf-bd36-a8444308eddd" org-roam-directory))
              (make-vulpea-note
               :path (expand-file-name "note-with-alias.org" org-roam-directory)
               :title "Note with an alias"
@@ -435,7 +452,8 @@
                            (cons "ID" "72522ed2-9991-482e-a365-01155c172aa5")
                            (cons "BLOCKED" "")
                            (cons "FILE" (expand-file-name "note-with-alias.org" org-roam-directory))
-                           (cons "PRIORITY" "B")))
+                           (cons "PRIORITY" "B"))
+              :attach-dir (expand-file-name "data/72/522ed2-9991-482e-a365-01155c172aa5" org-roam-directory))
              (make-vulpea-note
               :path (expand-file-name "note-with-alias.org" org-roam-directory)
               :title "Alias of the note with alias"
@@ -451,7 +469,8 @@
                            (cons "ID" "72522ed2-9991-482e-a365-01155c172aa5")
                            (cons "BLOCKED" "")
                            (cons "FILE" (expand-file-name "note-with-alias.org" org-roam-directory))
-                           (cons "PRIORITY" "B"))))))
+                           (cons "PRIORITY" "B"))
+              :attach-dir (expand-file-name "data/72/522ed2-9991-482e-a365-01155c172aa5" org-roam-directory)))))
 
   (it "returns only notes linking to any of destinations: >1 link"
     (expect (vulpea-db-query-by-links-some
@@ -484,7 +503,8 @@
                 ("link" . ("[[id:444f94d7-61e0-4b7c-bb7e-100814c6b4bb][Note without META]]"))
                 ("references" . ("[[id:444f94d7-61e0-4b7c-bb7e-100814c6b4bb][Note without META]]"
                                  "[[id:5093fc4e-8c63-4e60-a1da-83fc7ecd5db7][Reference]]"))
-                ("answer" . ("42"))))
+                ("answer" . ("42")))
+              :attach-dir (expand-file-name "data/05/907606-f836-45bf-bd36-a8444308eddd" org-roam-directory))
              (make-vulpea-note
               :path (expand-file-name "note-with-alias.org" org-roam-directory)
               :title "Note with an alias"
@@ -499,7 +519,8 @@
                            (cons "ID" "72522ed2-9991-482e-a365-01155c172aa5")
                            (cons "BLOCKED" "")
                            (cons "FILE" (expand-file-name "note-with-alias.org" org-roam-directory))
-                           (cons "PRIORITY" "B")))
+                           (cons "PRIORITY" "B"))
+              :attach-dir (expand-file-name "data/72/522ed2-9991-482e-a365-01155c172aa5" org-roam-directory))
              (make-vulpea-note
               :path (expand-file-name "note-with-alias.org" org-roam-directory)
               :title "Alias of the note with alias"
@@ -515,7 +536,8 @@
                            (cons "ID" "72522ed2-9991-482e-a365-01155c172aa5")
                            (cons "BLOCKED" "")
                            (cons "FILE" (expand-file-name "note-with-alias.org" org-roam-directory))
-                           (cons "PRIORITY" "B")))
+                           (cons "PRIORITY" "B"))
+              :attach-dir (expand-file-name "data/72/522ed2-9991-482e-a365-01155c172aa5" org-roam-directory))
              (make-vulpea-note
               :path (expand-file-name "note-with-link.org" org-roam-directory)
               :title "Note with link"
@@ -528,7 +550,8 @@
                            (cons "ID" "1cc15044-aedb-442e-b727-9e3f7346be95")
                            (cons "BLOCKED" "")
                            (cons "FILE" (expand-file-name "note-with-link.org" org-roam-directory))
-                           (cons "PRIORITY" "B"))))))
+                           (cons "PRIORITY" "B"))
+              :attach-dir (expand-file-name "data/1c/c15044-aedb-442e-b727-9e3f7346be95" org-roam-directory)))))
 
   (it "returns the same elements as vulpea-db-query"
     (let ((links '(("id" . "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")
@@ -585,7 +608,8 @@
                 ("link" . ("[[id:444f94d7-61e0-4b7c-bb7e-100814c6b4bb][Note without META]]"))
                 ("references" . ("[[id:444f94d7-61e0-4b7c-bb7e-100814c6b4bb][Note without META]]"
                                  "[[id:5093fc4e-8c63-4e60-a1da-83fc7ecd5db7][Reference]]"))
-                ("answer" . ("42"))))
+                ("answer" . ("42")))
+              :attach-dir (expand-file-name "data/05/907606-f836-45bf-bd36-a8444308eddd" org-roam-directory))
              (make-vulpea-note
               :path (expand-file-name "note-with-alias.org" org-roam-directory)
               :title "Note with an alias"
@@ -600,7 +624,8 @@
                            (cons "ID" "72522ed2-9991-482e-a365-01155c172aa5")
                            (cons "BLOCKED" "")
                            (cons "FILE" (expand-file-name "note-with-alias.org" org-roam-directory))
-                           (cons "PRIORITY" "B")))
+                           (cons "PRIORITY" "B"))
+              :attach-dir (expand-file-name "data/72/522ed2-9991-482e-a365-01155c172aa5" org-roam-directory))
              (make-vulpea-note
               :path (expand-file-name "note-with-alias.org" org-roam-directory)
               :title "Alias of the note with alias"
@@ -616,7 +641,8 @@
                            (cons "ID" "72522ed2-9991-482e-a365-01155c172aa5")
                            (cons "BLOCKED" "")
                            (cons "FILE" (expand-file-name "note-with-alias.org" org-roam-directory))
-                           (cons "PRIORITY" "B"))))))
+                           (cons "PRIORITY" "B"))
+              :attach-dir (expand-file-name "data/72/522ed2-9991-482e-a365-01155c172aa5" org-roam-directory)))))
 
   (it "returns only notes linking each and every of destinations: >1 tag"
     (expect (vulpea-db-query-by-links-every
@@ -649,7 +675,8 @@
                 ("link" . ("[[id:444f94d7-61e0-4b7c-bb7e-100814c6b4bb][Note without META]]"))
                 ("references" . ("[[id:444f94d7-61e0-4b7c-bb7e-100814c6b4bb][Note without META]]"
                                  "[[id:5093fc4e-8c63-4e60-a1da-83fc7ecd5db7][Reference]]"))
-                ("answer" . ("42")))))))
+                ("answer" . ("42")))
+              :attach-dir (expand-file-name "data/05/907606-f836-45bf-bd36-a8444308eddd" org-roam-directory)))))
 
   (it "behave the same as vulpea-db-query-by-links-some with 1 destination"
     (expect (vulpea-db-query-by-links-every '(("id" . "444f94d7-61e0-4b7c-bb7e-100814c6b4bb")))
@@ -697,7 +724,8 @@
                           (cons "ID" "72522ed2-9991-482e-a365-01155c172aa5")
                           (cons "BLOCKED" "")
                           (cons "FILE" (expand-file-name "note-with-alias.org" org-roam-directory))
-                          (cons "PRIORITY" "B")))))
+                          (cons "PRIORITY" "B"))
+             :attach-dir (expand-file-name "data/72/522ed2-9991-482e-a365-01155c172aa5" org-roam-directory))))
 
   (it "returns note by sub-heading id"
     (expect (vulpea-db-get-by-id "b77a4837-71d6-495e-98f1-b576464aacc1")
@@ -714,7 +742,8 @@
                           (cons "BLOCKED" "")
                           (cons "FILE" (expand-file-name "big-note.org" org-roam-directory))
                           (cons "PRIORITY" "B")
-                          (cons "ITEM" "Big note sub-heading")))))
+                          (cons "ITEM" "Big note sub-heading"))
+             :attach-dir (expand-file-name "data/b7/7a4837-71d6-495e-98f1-b576464aacc1" org-roam-directory))))
 
   (it "returns note by sub-sub-heading id"
     (expect (vulpea-db-get-by-id "cfc39858-351d-4f1e-8f98-10d16d71f49e")
@@ -731,7 +760,8 @@
                           (cons "BLOCKED" "")
                           (cons "FILE" (expand-file-name "big-note.org" org-roam-directory))
                           (cons "PRIORITY" "B")
-                          (cons "ITEM" "Big note sub-sub-heading")))))
+                          (cons "ITEM" "Big note sub-sub-heading"))
+             :attach-dir (expand-file-name "data/cf/c39858-351d-4f1e-8f98-10d16d71f49e" org-roam-directory))))
 
   (it "includes meta and links in response"
     (expect (vulpea-db-get-by-id "05907606-f836-45bf-bd36-a8444308eddd")
@@ -760,7 +790,8 @@
                      ("link" . ("[[id:444f94d7-61e0-4b7c-bb7e-100814c6b4bb][Note without META]]"))
                      ("references" . ("[[id:444f94d7-61e0-4b7c-bb7e-100814c6b4bb][Note without META]]"
                                       "[[id:5093fc4e-8c63-4e60-a1da-83fc7ecd5db7][Reference]]"))
-                     ("answer" . ("42")))))))
+                     ("answer" . ("42")))
+             :attach-dir (expand-file-name "data/05/907606-f836-45bf-bd36-a8444308eddd" org-roam-directory)))))
 
 (describe "vulpea-db-get-file-by-id"
   (before-all
@@ -938,7 +969,8 @@
                      ("link" . ("[[id:444f94d7-61e0-4b7c-bb7e-100814c6b4bb][Note without META]]"))
                      ("references" . ("[[id:444f94d7-61e0-4b7c-bb7e-100814c6b4bb][Note without META]]"
                                       "[[id:5093fc4e-8c63-4e60-a1da-83fc7ecd5db7][Reference]]"))
-                     ("answer" . ("42")))))))
+                     ("answer" . ("42")))
+             :attach-dir (expand-file-name "data/05/907606-f836-45bf-bd36-a8444308eddd" org-roam-directory)))))
 
 (provide 'vulpea-db-test)
 ;;; vulpea-db-test.el ends here

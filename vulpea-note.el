@@ -46,7 +46,8 @@
   tags
   links
   properties
-  meta)
+  meta
+  attach-dir)
 
 (autoload 'vulpea-db-get-by-id "vulpea-db")
 

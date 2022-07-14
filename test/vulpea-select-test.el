@@ -47,11 +47,12 @@
              :level 0
              :id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"
              :properties (list
-                           (cons "CATEGORY" "reference")
-                           (cons "ID" "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")
-                           (cons "BLOCKED" "")
-                           (cons "FILE" (expand-file-name "reference.org" org-roam-directory))
-                           (cons "PRIORITY" "B")))))
+                          (cons "CATEGORY" "reference")
+                          (cons "ID" "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")
+                          (cons "BLOCKED" "")
+                          (cons "FILE" (expand-file-name "reference.org" org-roam-directory))
+                          (cons "PRIORITY" "B"))
+             :attach-dir (expand-file-name "data/50/93fc4e-8c63-4e60-a1da-83fc7ecd5db7" org-roam-directory))))
 
   (it "returns only title for non-existent note"
     (spy-on 'completing-read

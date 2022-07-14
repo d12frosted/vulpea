@@ -20,49 +20,49 @@ Users of this library:
 
 **Table of Contents**
 
-1.  [Reasons to use `vulpea`](#org2f204d7)
-2.  [Install](#orgc8b72e3)
-    1.  [`use-package`](#org610c62c)
-    2.  [`straight.el`](#org2418844)
-    3.  [Doom Emacs](#org0ea2b09)
-3.  [`vulpea-note`](#orga893a9c)
-4.  [Metadata](#org7726145)
-    1.  [Why not properties drawer](#org8df5a03)
-5.  [Modules](#org9b67a5a)
-    1.  [`vulpea`](#org26654f4)
-    2.  [`vulpea-select`](#org3e5271a)
-    3.  [`vulpea-note`](#orge152eec)
-    4.  [`vulpea-db`](#orgcce2303)
-    5.  [`vulpea-meta`](#org74fa93f)
-    6.  [`vulpea-buffer`](#orga5331b6)
-    7.  [`vulpea-utils`](#orge4cd13a)
-6.  [Performance](#orgb1a1101)
-    1.  [Query from database](#orgeeaaba7)
-7.  [Coding](#org81fd0fe)
-8.  [Building and testing](#org02deff5)
-9.  [Acknowledgements](#orge7cc0fe)
+1.  [Reasons to use `vulpea`](#orge26cb63)
+2.  [Install](#orgd25119b)
+    1.  [`use-package`](#org5c6177d)
+    2.  [`straight.el`](#org581d7b2)
+    3.  [Doom Emacs](#orgcb4a867)
+3.  [`vulpea-note`](#org036c284)
+4.  [Metadata](#org37b7ba9)
+    1.  [Why not properties drawer](#org9d318d9)
+5.  [Modules](#orgbed940c)
+    1.  [`vulpea`](#org6d08a53)
+    2.  [`vulpea-select`](#org1fbb617)
+    3.  [`vulpea-note`](#orga3d5ac1)
+    4.  [`vulpea-db`](#org8c114e4)
+    5.  [`vulpea-meta`](#org714ea4a)
+    6.  [`vulpea-buffer`](#orgcc1a7f2)
+    7.  [`vulpea-utils`](#org762cef0)
+6.  [Performance](#orge2e8069)
+    1.  [Query from database](#orgef25680)
+7.  [Coding](#org902f9c6)
+8.  [Building and testing](#org6d71ab7)
+9.  [Acknowledgements](#org3de8136)
 
 
-<a id="org2f204d7"></a>
+<a id="orge26cb63"></a>
 
 ## Reasons to use `vulpea`
 
 1.  If you are automating things around Org mode files and you want to have a tested library to build upon.
 2.  While `org-roam` was greatly simplified and has adopted some ideas from `vulpea` starting from `v2`, it still lacks certain pieces for programmatic usage. Just to name few of them:
-    1.  `vulpea-db-query` is a great interface for quick database search without knowing its scheme. In many cases you just want to have a fully materialized note instead of a structure that lacks, say tags or aliases. So you don't need to write any extra SQL. See [Performance](#orgb1a1101) for more information.
-    2.  `vulpea-select` is a configurable interface for selecting a note with an optional filter. See [vulpea-select](#org3e5271a) for more information.
-    3.  `vulpea-create` is a wrapper around `org-roam-capture-` allowing to easily provide extra properties, tags and context when creating a new note. And most importantly - it returns a newly created note. See [vulpea-create](#org0c13587) for more information.
+    1.  `vulpea-db-query` is a great interface for quick database search without knowing its scheme. In many cases you just want to have a fully materialized note instead of a structure that lacks, say tags or aliases. So you don't need to write any extra SQL. See [Performance](#orge2e8069) for more information.
+    2.  `vulpea-select` is a configurable interface for selecting a note with an optional filter. See [vulpea-select](#org1fbb617) for more information.
+    3.  `vulpea-create` is a wrapper around `org-roam-capture-` allowing to easily provide extra properties, tags and context when creating a new note. And most importantly - it returns a newly created note. See [vulpea-create](#orge650cf5) for more information.
 3.  Several interactive functions:
     1.  `vulpea-find` that acts like `org-roam-node-find`, but (a) uses `vulpea-select` for consistent experience and (b)
-        allows to configure default and on-use filtering and candidates source. See [vulpea-find](#org9a8fc91) for more information.
+        allows to configure default and on-use filtering and candidates source. See [vulpea-find](#orgf34bcd7) for more information.
     2.  `vulpea-find-backlink` is just a convenient function to find a note linking currently opened one. For those who don't want to use `org-roam` buffer.
-    3.  `vulpea-insert` that acts like `org-roam-node-insert`, but (a) uses `vulpea-select` for consistent experience, (b) allows to set `vulpea-insert-default-filter` (see `vulpea-find` for examples) and (c) allows to provide an insertion handler via `vulpea-insert-handle-functions`, which is called with inserted note. See [vulpea-insert](#org63c3708) for more information.
+    3.  `vulpea-insert` that acts like `org-roam-node-insert`, but (a) uses `vulpea-select` for consistent experience, (b) allows to set `vulpea-insert-default-filter` (see `vulpea-find` for examples) and (c) allows to provide an insertion handler via `vulpea-insert-handle-functions`, which is called with inserted note. See [vulpea-insert](#orgacf6cea) for more information.
 4.  `vulpea` is more than just a wrapper around `org-roam`, it contains more stuff:
     1.  Utilities for dealing with buffer properties (e.g. `#+KEY: VALUE`).
-    2.  Utilities for dealing with [metadata](#orgb596662) (e.g. first description list in the buffer).
+    2.  Utilities for dealing with [metadata](#org74ad68c) (e.g. first description list in the buffer).
 
 
-<a id="orgc8b72e3"></a>
+<a id="orgd25119b"></a>
 
 ## Install
 
@@ -75,7 +75,7 @@ In short, installation process is simple:
 3.  Before first usage you need to re-sync `org-roam-db` from scratch, e.g. `(org-roam-db-sync 'force)`. This is because `vulpea` has several custom tables in addition to what `org-roam` provides.
 
 
-<a id="org610c62c"></a>
+<a id="org5c6177d"></a>
 
 ### `use-package`
 
@@ -87,7 +87,7 @@ In short, installation process is simple:
       :hook ((org-roam-db-autosync-mode . vulpea-db-autosync-enable)))
 
 
-<a id="org2418844"></a>
+<a id="org581d7b2"></a>
 
 ### `straight.el`
 
@@ -112,7 +112,7 @@ In case you have [integration](https://github.com/raxod502/straight.el/#integrat
       :hook ((org-roam-db-autosync-mode . vulpea-db-autosync-enable)))
 
 
-<a id="org0ea2b09"></a>
+<a id="orgcb4a867"></a>
 
 ### Doom Emacs
 
@@ -120,7 +120,7 @@ In case you have [integration](https://github.com/raxod502/straight.el/#integrat
       :hook ((org-roam-db-autosync-mode . vulpea-db-autosync-enable)))
 
 
-<a id="orga893a9c"></a>
+<a id="org036c284"></a>
 
 ## `vulpea-note`
 
@@ -135,9 +135,10 @@ slots/fields:
 -   `vulpea-note-aliases` - aliases of the note;
 -   `vulpea-note-links` - list of links, each link being represented as `cons` of type and link;
 -   `vulpea-note-tags` - tags of the note;
--   `vulpea-note-meta` - associative list of [metadata](#orgb596662), where key is a string and the value is a list of strings. There are also two utilities to access/query metadata from note:
+-   `vulpea-note-meta` - associative list of [metadata](#org74ad68c), where key is a string and the value is a list of strings. There are also two utilities to access/query metadata from note:
     -   `vulpea-note-meta-get-list` - to get all values of given `PROP` and `TYPE`.
     -   `vulpea-note-meta-get` - to get the first value of given `PROP` and `TYPE`.
+-   `vulpea-note-attach-dir` - path to attachment directory. It respect all the [attachment options](https://orgmode.org/manual/Attachment-options.html). This directory may not exist.
 
 If `ID` is not present in the note structure, this note is treated as non-existent. For example, `vulpea-select` returns such a note, when `require-match` is `nil` and the user selects non-existent note.
 
@@ -170,7 +171,7 @@ Example of a note:
                     ("status" "stable")))
 
 
-<a id="org7726145"></a>
+<a id="org37b7ba9"></a>
 
 ## Metadata
 
@@ -186,7 +187,7 @@ It can be manipulated programatically by using functions from either `vulpea-met
 Currently metadata is limited to file-level only, e.g. description lists in outlines are not handled by `vulpea`. Vote for [vulpea#75](https://github.com/d12frosted/vulpea/issues/75) to bring it faster.
 
 
-<a id="org8df5a03"></a>
+<a id="org9d318d9"></a>
 
 ### Why not properties drawer
 
@@ -201,12 +202,12 @@ Of course you can use [properties drawer](https://orgmode.org/manual/Properties-
 Metadata provided by library is just a part of your note content, meaning that it incorporates well into existing tools. Sure enough it's not as rich as properties and is not as battle tested as properties, but you can give them a try.
 
 
-<a id="org9b67a5a"></a>
+<a id="orgbed940c"></a>
 
 ## Modules
 
 
-<a id="org26654f4"></a>
+<a id="org6d08a53"></a>
 
 ### `vulpea`
 
@@ -539,13 +540,13 @@ This one-stop module contains some generic functions that didn't find their plac
             #+title: Custom id
 
 
-<a id="org3e5271a"></a>
+<a id="org1fbb617"></a>
 
 ### `vulpea-select`
 
 Common interface to select (e.g. `completing-read`) a note from the set of notes. Used in functions like `vulpea-find`, `vulpea-find-backlink`, `vulpea-insert`, etc.
 
-<div class="html" id="org1180c0f">
+<div class="html" id="org6de4361">
 <p>
 &lt;div&gt;
   &lt;img src="images/vulpea-select.png" width="100%"/&gt;
@@ -632,7 +633,7 @@ Both of these examples achieve the same goal. The only practical difference here
         "Alias 1 (Main title)"
         "Alias 1 (Main title) #tag1 #tag2"
     
-    <div class="html" id="org698f346">
+    <div class="html" id="org807e0fb">
     <p>
     &lt;div&gt;
       &lt;img src="images/vulpea-select-example-1.png" width="50%"/&gt;
@@ -674,7 +675,7 @@ Both of these examples achieve the same goal. The only practical difference here
         "subdir/aliases.org // Alias 1"
         "subdir/aliases.org // Alias 1 #tag1 #tag2"
     
-    <div class="html" id="orgb4ee9b9">
+    <div class="html" id="orgf4b5b46">
     <p>
     &lt;div&gt;
       &lt;img src="images/vulpea-select-example-2.png" width="50%"/&gt;
@@ -685,7 +686,7 @@ Both of these examples achieve the same goal. The only practical difference here
     </div>
 
 
-<a id="orge152eec"></a>
+<a id="orga3d5ac1"></a>
 
 ### `vulpea-note`
 
@@ -702,7 +703,7 @@ This module contains `vulpea-note` definition, which is represented as a structu
 -   `vulpea-note-links` - list of links, each link being represented as `cons` of
     type and link;
 -   `vulpea-note-tags` - tags of the note;
--   `vulpea-note-meta` - associative list of [metadata](#orgb596662), where key is a string and
+-   `vulpea-note-meta` - associative list of [metadata](#org74ad68c), where key is a string and
     the value is a list of strings.
 
 If `ID` is not present in the note structure, this note is treated as non-existent. For example, `vulpea-select` returns such a note, when `require-match` is `nil` and the user selects non-existent note.
@@ -832,14 +833,14 @@ Example of a note:
                         ...))
 
 
-<a id="orgcce2303"></a>
+<a id="org8c114e4"></a>
 
 ### `vulpea-db`
 
-This module contains functions to query notes from data base. In order for most of these functions to operate, one needs to enable `vulpea-db-autosync-mode` (see [Install](#orgc8b72e3) section), for example, by using `vulpea-db-autosync-enable`. This hooks into `org-roam.db` by adding two extra tables:
+This module contains functions to query notes from data base. In order for most of these functions to operate, one needs to enable `vulpea-db-autosync-mode` (see [Install](#orgd25119b) section), for example, by using `vulpea-db-autosync-enable`. This hooks into `org-roam.db` by adding two extra tables:
 
--   `meta` - for storing [Metadata](#orgb596662);
--   `notes` - a view table of fully materialized note (see [Performance](#orgb1a1101)).
+-   `meta` - for storing [Metadata](#org74ad68c);
+-   `notes` - a view table of fully materialized note (see [Performance](#orge2e8069)).
 
 **Important!** You might need to perform a full re-sync of `org-roam.db`.
 
@@ -922,11 +923,11 @@ This module contains functions to query notes from data base. In order for most 
     -   `vulpea-db-search-by-title` - function to query notes with `TITLE`.
 
 
-<a id="org74fa93f"></a>
+<a id="org714ea4a"></a>
 
 ### `vulpea-meta`
 
-This module contains functions for manipulating note [metadata](#orgb596662) represented by the first description list in the note, e.g. list like:
+This module contains functions for manipulating note [metadata](#org74ad68c) represented by the first description list in the note, e.g. list like:
 
     - key1 :: value1
     - key2 :: value21
@@ -945,7 +946,7 @@ Functions of interest:
 -   `vulpea-meta-clean` - interactive function to remove all meta for `NOTE-OR-ID`.
 
 
-<a id="orga5331b6"></a>
+<a id="orgcc1a7f2"></a>
 
 ### `vulpea-buffer`
 
@@ -1113,7 +1114,7 @@ This module contains functions for prop and meta manipulations in current buffer
             Don't mind me. I am a content of this note.
 
 
-<a id="orge4cd13a"></a>
+<a id="org762cef0"></a>
 
 ### `vulpea-utils`
 
@@ -1126,12 +1127,12 @@ This module contains various utilities used by other modules. Functions of inter
 -   `vulpea-utils-repeat-while` - utility to repeat some function and return first unfiltered result. Example of usage - you want to enforce some validation on value and keep prompting user until valid value is typed.
 
 
-<a id="orgb1a1101"></a>
+<a id="orge2e8069"></a>
 
 ## Performance
 
 
-<a id="orgeeaaba7"></a>
+<a id="orgef25680"></a>
 
 ### Query from database
 
@@ -1273,14 +1274,14 @@ In order to make these functions as fast as possible, `vulpea-db` module builds 
 </table>
 
 
-<a id="org81fd0fe"></a>
+<a id="org902f9c6"></a>
 
 ## Coding
 
 Vulpea is developed using [eldev](https://github.com/doublep/eldev/). If you are using `flycheck`, it is advised to also use [flycheck-eldev](https://github.com/flycheck/flycheck-eldev), as it makes dependencies and project files available thus mitigating false negative results from default Emacs Lisp checker.
 
 
-<a id="org02deff5"></a>
+<a id="org6d71ab7"></a>
 
 ## Building and testing
 
@@ -1293,7 +1294,7 @@ Please note, that the linter is used in this project, so you might want to run i
     $ make lint
 
 
-<a id="orge7cc0fe"></a>
+<a id="org3de8136"></a>
 
 ## Acknowledgements
 
