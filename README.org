@@ -20,7 +20,8 @@ A collection of functions for note taking based on =org= and =org-roam=. This re
 Users of this library:
 
 - [[https://github.com/d12frosted/environment][d12frosted/environment]] - Emacs configurations;
-- [[https://github.com/d12frosted/vino][d12frosted/vino]] - collection of functions for cellar tracking and wine rating.
+- [[https://github.com/d12frosted/vino][d12frosted/vino]] - collection of functions for cellar tracking and wine rating;
+- [[https://github.com/d12frosted/publicatorg][d12frosted/publicatorg]] - a tool to make your Vulpea notes public.
 
 *Table of Contents*
 
