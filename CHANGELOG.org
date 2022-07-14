@@ -12,12 +12,14 @@
 :ID:                     32a267f4-dd27-44b9-a045-5835a5c8503f
 :END:
 
-This release main feature is dedicate view table to boost performance of query
-operations. In addition, it provides some specialized queries for situations
-when set of notes can be narrowed down by tags or links.
+** v0.3.0
+:PROPERTIES:
+:ID:                     40e2d01c-9100-4619-b771-c3df79d98f36
+:END:
 
-In addition, =vulpea-note= now has properties, meta and links as part of its
-structure.
+This release's main feature is a dedicated view table to boost the performance of query operations. In addition, it provides some specialized queries for situations when the set of notes can be narrowed down by tags or links.
+
+In addition, =vulpea-note= now has properties, meta and links as part of its structure.
 
 *Features*
 
@@ -29,86 +31,59 @@ structure.
 - New function to remove buffer properties - =vulpea-buffer-prop-remove=.
 - Improve =filetags= handling:
   - Property format them with =:= as separator;
-  - Remove property when setting them to empty list instead of leaving empty
-    property.
-- New function to select on arbitrary list of notes as opposed to relying on
-  filter - =vulpea-select-from=.
+  - Remove property when setting them to empty list instead of leaving empty property.
+- New function to select on arbitrary list of notes as opposed to relying on filter - =vulpea-select-from=.
 - [[https://github.com/d12frosted/vulpea/discussions/106][vulpea#106]] Include links in =vulpea-note=.
 - [[https://github.com/d12frosted/vulpea/discussions/106][vulpea#106]] Provide more functions to query notes in efficient manner:
-  - =vulpea-db-query-by-tags-some= - return all notes tagged with one of the
-    provided =TAGS=;
-  - =vulpea-db-query-by-tags-every= - return all notes tagged by every tag from
-    the list of provided =TAGS=;
-  - =vulpea-db-query-by-links-some= - return all notes linking at least one of
-    the provided =DESTINATIONS=;
-  - =vulpea-db-query-by-links-every= - return all notes linking each and every
-    provided =DESTINATIONS=;
-- [[https://github.com/d12frosted/vulpea/pull/116][vulpea#116]] improve query performance by building and maintaining a separate
-  view table.
-- [[https://github.com/d12frosted/vulpea/issues/121][vulpea#121]] allow to configure candidates source for =vulpea-find= function via
-  =vulpea-find-default-candidates-source= variable.
+  - =vulpea-db-query-by-tags-some= - return all notes tagged with one of the provided =TAGS=;
+  - =vulpea-db-query-by-tags-every= - return all notes tagged by every tag from the list of provided =TAGS=;
+  - =vulpea-db-query-by-links-some= - return all notes linking at least one of the provided =DESTINATIONS=;
+  - =vulpea-db-query-by-links-every= - return all notes linking each and every provided =DESTINATIONS=;
+- [[https://github.com/d12frosted/vulpea/pull/116][vulpea#116]] improve query performance by building and maintaining a separate view table.
+- [[https://github.com/d12frosted/vulpea/issues/121][vulpea#121]] allow to configure candidates source for =vulpea-find= function via =vulpea-find-default-candidates-source= variable.
 - Add shortcuts for checking tags on the note:
   - =vulpea-note-tagged-all-p= - return non-nil if a NOTE is tagged by all of the TAGS.
   - =vulpea-note-tagged-any-p= - return non-nil if a NOTE is tagged by any of the TAGS.
 
 ** v0.2.0
+:PROPERTIES:
+:ID:                     d7dd89d9-40aa-4e7c-933e-61bb5cd3e953
+:END:
 
-Primarily migration to =org-roam= v2 that has many improvements and breaking
-changes.
+Primarily migration to =org-roam= v2 that has many improvements and breaking changes.
 
 *Features*
 
 - Allow to provide extra properties in =vulpea-create=.
-- New function to manipulate =#+title=: =vulpea-buffer-title-set= and
-  =vulpea-buffer-title-get=.
+- New function to manipulate =#+title=: =vulpea-buffer-title-set= and =vulpea-buffer-title-get=.
 - New functions to manipulate =#+filetags=:
   - =vulpea-buffer-tags-get= - function to get list of tags.
-  - =vulpea-buffer-tags-set= - function to set/replace the value of
-    =#+filetags=.
+  - =vulpea-buffer-tags-set= - function to set/replace the value of =#+filetags=.
   - =vulpea-buffer-tags-add= - function to add a tag to =#+filetags=.
   - =vulpea-buffer-tags-remove= - function to remove a tag from =#+filetags=.
-- New functions to manipulate buffer-wide properties in the buffer header using
-  =#+NAME: value= format:
-  - =vulpea-buffer-prop-set= - function to set a =VALUE= of property with =NAME=
-    in the current buffer.
-  - =vulpea-buffer-prop-set-list= - function to set a value of property with
-    =NAME= to the list of =VALUES= in the current buffer.
-  - =vulpea-buffer-prop-get= - function to get a value of property with =NAME=
-    from the current buffer.
-  - =vulpea-buffer-prop-get-list= - function to get a value of property with
-    =NAME= as a list separated by some =SEPARATORS=.
-- Extract buffer related functions (prop and meta related) to separate module.
-  Basically, this means that now it's possible to manipulate meta lists that are
-  located in any org file, not necessarily part of =vulpea=.
+- New functions to manipulate buffer-wide properties in the buffer header using =#+NAME: value= format:
+  - =vulpea-buffer-prop-set= - function to set a =VALUE= of property with =NAME= in the current buffer.
+  - =vulpea-buffer-prop-set-list= - function to set a value of property with =NAME= to the list of =VALUES= in the current buffer.
+  - =vulpea-buffer-prop-get= - function to get a value of property with =NAME= from the current buffer.
+  - =vulpea-buffer-prop-get-list= - function to get a value of property with =NAME= as a list separated by some =SEPARATORS=.
+- Extract buffer related functions (prop and meta related) to separate module. Basically, this means that now it's possible to manipulate meta lists that are located in any org file, not necessarily part of =vulpea=.
 - Add =aliases= and =primary-title= slots to =vulpea-note=.
-- Use custom completion in =vulpea-select= instead of one provided by
-  =org-roam=. See documentation for more information.
+- Use custom completion in =vulpea-select= instead of one provided by =org-roam=. See documentation for more information.
 - New functionality to select and find a note:
-  - =vulpea-find= - just a wrapper around =vulpea-select= to provide a
-    consistent experience; selection can be narrowed down by
-    =vulpea-find-default-filter= or by passing explicit filter.
+  - =vulpea-find= - just a wrapper around =vulpea-select= to provide a consistent experience; selection can be narrowed down by =vulpea-find-default-filter= or by passing explicit filter.
   - =vulpea-find-backlink= - select and find a backlink to current note.
-- New functionality to insert a link to the note via =vulpea-insert=, which
-  accepts global and local filter (just like =vulpea-find=) and allows to hook
-  into finalisation (e.g. call your custom handler after the link was inserted
-  regardless involvement of capture process). See documentation for more
-  information.
+- New functionality to insert a link to the note via =vulpea-insert=, which accepts global and local filter (just like =vulpea-find=) and allows to hook into finalisation (e.g. call your custom handler after the link was inserted regardless involvement of capture process). See documentation for more information.
 - New utilities to repeat functions:
   - =vulpea-utils-collect-while=;
   - =vulpea-utils-repeat-while=.
 - [[https://github.com/d12frosted/vulpea/issues/98][vulpea#98]] Make it possible to use =vulpea-meta-remove= interactively.
 - [[https://github.com/d12frosted/vulpea/issues/98][vulpea#98]] Make it possible to use =vulpea-meta-clean= interactively.
-- [[https://github.com/d12frosted/vulpea/issues/98][vulpea#98]] Provide interactive variant of =vulpea-meta-set=:
-  =vulpea-meta-add= and =vulpea-meta-add-list=.
+- [[https://github.com/d12frosted/vulpea/issues/98][vulpea#98]] Provide interactive variant of =vulpea-meta-set=: =vulpea-meta-add= and =vulpea-meta-add-list=.
 - All features of =org-roam= apply to =vulpea=.
 
 *Breaking changes*
 
-- Flatten template in =vulpea-create=, meaning that instead of passing a
-  template in format =(:body :file-name :head :unnarrowed :immediate-finish)=,
-  all values should be passed as arguments to =vulpea-create=. Also, there is no
-  need to provide =#+title: ${title}= in =:head= anymore. See =vulpea-create=
-  documentation for more information.
+- Flatten template in =vulpea-create=, meaning that instead of passing a template in format =(:body :file-name :head :unnarrowed :immediate-finish)=, all values should be passed as arguments to =vulpea-create=. Also, there is no need to provide =#+title: ${title}= in =:head= anymore. See =vulpea-create= documentation for more information.
   #+begin_src emacs-lisp
     ;; instead of
     (vulpea-create title
@@ -130,10 +105,8 @@ changes.
                    :context
                    (list :url "https://example.org"))
   #+end_src
-- Remove =vulpea-setup= because =org-roam= v2 already provides all information
-  to get resulting file of capture process.
-- Remove =vulpea-note-meta=. It was only used for =vulpea-select=, but now it is
-  not needed anymore.
+- Remove =vulpea-setup= because =org-roam= v2 already provides all information to get resulting file of capture process.
+- Remove =vulpea-note-meta=. It was only used for =vulpea-select=, but now it is not needed anymore.
 - All breaking changes of =org-roam= apply to =vulpea=.
 
 ** v0.1.1
@@ -145,24 +118,13 @@ Primarily a stabilization and bug-fix release.
 
 *Features*
 
-- [[https://github.com/d12frosted/vulpea/pull/84][vulpea#84]] Support passing extra context for templates to =vulpea-create=. This
-  is a /breaking change/, now instead of passing =id= argument, you should pass
-  =(list (cons 'id id))=. While being more verbose it gives much more power.
-- [[https://github.com/d12frosted/vulpea/pull/85][vulpea#85]] Support require match in =vulpea-select=. This is a /breaking
-  change/, as arguments to =vulpea-select= are passed as keys. In my experience,
-  most of the times first two arguments are =nil= and they are rarely needed. In
-  this way, API of this function is cleaner and opens a way to add new
-  functionality there.
+- [[https://github.com/d12frosted/vulpea/pull/84][vulpea#84]] Support passing extra context for templates to =vulpea-create=. This is a /breaking change/, now instead of passing =id= argument, you should pass =(list (cons 'id id))=. While being more verbose it gives much more power.
+- [[https://github.com/d12frosted/vulpea/pull/85][vulpea#85]] Support require match in =vulpea-select=. This is a /breaking change/, as arguments to =vulpea-select= are passed as keys. In my experience, most of the times first two arguments are =nil= and they are rarely needed. In this way, API of this function is cleaner and opens a way to add new functionality there.
 - [[https://github.com/d12frosted/vulpea/pull/86][vulpea#86]] New function =vulpea-db-query= to query notes with generic predicate.
-- [[https://github.com/d12frosted/vulpea/pull/86][vulpea#86]] Add metadata to =vulpea-note= consisting of access time and
-  modification time.
-- [[https://github.com/d12frosted/vulpea/pull/86][vulpea#86]] Use =vulpea-db-query= in =vulpea-select= instead of heavy
-  =org-roam-db-query=.
-- [[https://github.com/d12frosted/vulpea/pull/89][vulpea#89]] =vulpea-utils-note-hash= function to calculate =sha1= of a given
-  =NOTE=.
-- [[https://github.com/d12frosted/vulpea/issues/90][vulpea#90]] =vulpea-create= automatically adds a property block with id into
-  created file (formatted according to =org-property-format=). This also breaks
-  API, see breaking changes section for more information.
+- [[https://github.com/d12frosted/vulpea/pull/86][vulpea#86]] Add metadata to =vulpea-note= consisting of access time and modification time.
+- [[https://github.com/d12frosted/vulpea/pull/86][vulpea#86]] Use =vulpea-db-query= in =vulpea-select= instead of heavy =org-roam-db-query=.
+- [[https://github.com/d12frosted/vulpea/pull/89][vulpea#89]] =vulpea-utils-note-hash= function to calculate =sha1= of a given =NOTE=.
+- [[https://github.com/d12frosted/vulpea/issues/90][vulpea#90]] =vulpea-create= automatically adds a property block with id into created file (formatted according to =org-property-format=). This also breaks API, see breaking changes section for more information.
 
 *Fixes*
 
@@ -172,12 +134,8 @@ Primarily a stabilization and bug-fix release.
 
 - [[https://github.com/d12frosted/vulpea/pull/82][vulpea#82]] Remove all autoloads.
 - [[https://github.com/d12frosted/vulpea/pull/86][vulpea#86]] =vulpea-select= does not allow to pass =completions= anymore.
-- [[https://github.com/d12frosted/vulpea/pull/87][vulpea#87]] =org-roam-capture--new-file= is not being adviced by default anymore. Instead
-  you should call =vulpea-setup=.
-- [[https://github.com/d12frosted/vulpea/issues/90][vulpea#90]] =vulpea-create= does not accept =org-roam-template= (whatever that
-  means), instead it accepts a structured property list =(:file-name :head
-  :unnarrowed :immediate-finish)= which is converted into something supported by
-  =org-roam=. Migration is simple - just remove irrelevant parts.
+- [[https://github.com/d12frosted/vulpea/pull/87][vulpea#87]] =org-roam-capture--new-file= is not being adviced by default anymore. Instead you should call =vulpea-setup=.
+- [[https://github.com/d12frosted/vulpea/issues/90][vulpea#90]] =vulpea-create= does not accept =org-roam-template= (whatever that means), instead it accepts a structured property list =(:file-name :head :unnarrowed :immediate-finish)= which is converted into something supported by =org-roam=. Migration is simple - just remove irrelevant parts.
 
 ** v0.1
 :PROPERTIES:
@@ -188,40 +146,24 @@ Primarily a stabilization and bug-fix release.
 
 - =vulpea= module - one stop module, importing all others.
   - =vulpea-select= - function to =completing-read= a note with optional filter.
-  - =vulpea-create= - function to create a new note file with given =TITLE= and
-    =TEMPLATE=.
+  - =vulpea-create= - function to create a new note file with given =TITLE= and =TEMPLATE=.
 - =vulpea-db= module - for querying notes data base.
-  - =vulpea-db-get-id-by-file= - function to get =ID= of a note represented by
-    =FILE=.
-  - =vulpea-db-get-by-id= - function to get note represented by =ID=. Supports
-    headings of the note.
-  - =vulpea-db-get-file-by-id= - function to get =FILE= of a note represented by
-    =ID=. Supports headings of the note.
+  - =vulpea-db-get-id-by-file= - function to get =ID= of a note represented by =FILE=.
+  - =vulpea-db-get-by-id= - function to get note represented by =ID=. Supports headings of the note.
+  - =vulpea-db-get-file-by-id= - function to get =FILE= of a note represented by =ID=. Supports headings of the note.
   - =vulpea-db-search-by-title= - function to query notes with =TITLE=.
   - =vulpea-db-update= - function to update db with =NOTE-OR-ID=.
-- =vulpea-meta= module - for manipulating note metadata represented by
-  description list:
-  - =vulpea-meta= - function to get metadata from =NOTE-OR-ID=. In most cases
-    you should not use this function unless performance is important. In this
-    case, take a look at bang functions, e.g. =vulpea-meta-get!=.
-  - =vulpea-meta-get= - function to get a value of =PROP= for note with =ID=.
-    Value is parsed based on the passed =TYPE= or as a string if omitted.
-  - =vulpea-meta-get!= - function to get a value of =PROP= from =META= (result
-    of =vulpea-meta=). Value is parsed based on the passed =TYPE= or as a string
-    if omitted. Use it performing multiple read operations in a row.
-  - =vulpea-meta-get-list= - function to get all values of =PROP= for note with
-    =ID=. Values are parsed based on the passed =TYPE= or as a string if
-    omitted.
-  - =vulpea-meta-get-list!= - function to get all values of =PROP= from =META=
-    (result of =vulpea-meta=). Values are parsed based on the passed =TYPE= or
-    as a string if omitted. Use it performing multiple read operations in a row.
-  - =vulpea-meta-set= - function to set =VALUE= of =PROP= for =NOTE-OR-ID=.
-    Supports multi-value properties.
+- =vulpea-meta= module - for manipulating note metadata represented by description list:
+  - =vulpea-meta= - function to get metadata from =NOTE-OR-ID=. In most cases you should not use this function unless performance is important. In this case, take a look at bang functions, e.g. =vulpea-meta-get!=.
+  - =vulpea-meta-get= - function to get a value of =PROP= for note with =ID=. Value is parsed based on the passed =TYPE= or as a string if omitted.
+  - =vulpea-meta-get!= - function to get a value of =PROP= from =META= (result of =vulpea-meta=). Value is parsed based on the passed =TYPE= or as a string if omitted. Use it performing multiple read operations in a row.
+  - =vulpea-meta-get-list= - function to get all values of =PROP= for note with =ID=. Values are parsed based on the passed =TYPE= or as a string if omitted.
+  - =vulpea-meta-get-list!= - function to get all values of =PROP= from =META= (result of =vulpea-meta=). Values are parsed based on the passed =TYPE= or as a string if omitted. Use it performing multiple read operations in a row.
+  - =vulpea-meta-set= - function to set =VALUE= of =PROP= for =NOTE-OR-ID=. Supports multi-value properties.
   - =vulpea-meta-remove= - function to remove a =PROP= for =NOTE-OR-ID=.
   - =vulpea-meta-remove= - function to remove all meta for =NOTE-OR-ID=.
   - =vulpea-meta-format= - function to format a =VALUE=.
 - =vulpea-utils= module.
   - =vulpea-note= type definition.
-  - =vulpea-utils-with-note= - function to execute =BODY= with point at =NOTE=.
-    Supports file-level notes as well as heading notes.
+  - =vulpea-utils-with-note= - function to execute =BODY= with point at =NOTE=. Supports file-level notes as well as heading notes.
   - =vulpea-utils-link-make-string= - make a bracket link to =NOTE=.

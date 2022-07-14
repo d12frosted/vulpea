@@ -15,9 +15,7 @@
 </p>
 #+end_export
 
-A collection of functions for note taking based on =org= and =org-roam=. This
-repository primary goal is to be a tested library for other applications and
-utilities around note taking.
+A collection of functions for note taking based on =org= and =org-roam=. This repository primary goal is to be a tested library for other applications and utilities around note taking.
 
 Users of this library:
 
@@ -33,58 +31,32 @@ Users of this library:
 :ID:                     b3a6ccac-d32f-4e27-a50a-012063fbc08e
 :END:
 
-1. If you are automating things around Org mode files and you want to have a
-   tested library to build upon.
-2. While =org-roam= was greatly simplified and has adopted some ideas from
-   =vulpea= starting from =v2=, it still lacks certain pieces for programmatic
-   usage. Just to name few of them:
-   1. =vulpea-db-query= is a great interface for quick database search without
-      knowing its scheme. In many cases you just want to have a fully
-      materialized note instead of a structure that lacks, say tags or aliases.
-      So you don't need to write any extra SQL. See  [[id:5b44d873-179a-4fcb-88df-ff8a8d328bd0][Performance]] for more
-      information.
-   2. =vulpea-select= is a configurable interface for selecting a note with an
-      optional filter. See [[id:485b4e0f-22a1-4ab5-88bd-98d002b6d69c][vulpea-select]] for more information.
-   3. =vulpea-create= is a wrapper around =org-roam-capture-= allowing to easily
-      provide extra properties, tags and context when creating a new note. And
-      most importantly - it returns a newly created note. See [[id:b75b02e2-b574-4783-81d6-03ab4ed07c10][vulpea-create]]
-      for more information.
+1. If you are automating things around Org mode files and you want to have a tested library to build upon.
+2. While =org-roam= was greatly simplified and has adopted some ideas from =vulpea= starting from =v2=, it still lacks certain pieces for programmatic usage. Just to name few of them:
+   1. =vulpea-db-query= is a great interface for quick database search without knowing its scheme. In many cases you just want to have a fully materialized note instead of a structure that lacks, say tags or aliases. So you don't need to write any extra SQL. See [[id:5b44d873-179a-4fcb-88df-ff8a8d328bd0][Performance]] for more information.
+   2. =vulpea-select= is a configurable interface for selecting a note with an optional filter. See [[id:485b4e0f-22a1-4ab5-88bd-98d002b6d69c][vulpea-select]] for more information.
+   3. =vulpea-create= is a wrapper around =org-roam-capture-= allowing to easily provide extra properties, tags and context when creating a new note. And most importantly - it returns a newly created note. See [[id:b75b02e2-b574-4783-81d6-03ab4ed07c10][vulpea-create]] for more information.
 3. Several interactive functions:
-   1. =vulpea-find= that acts like =org-roam-node-find=, but (a) uses
-      =vulpea-select= for consistent experience and (b) allows to configure
-      default and on-use filtering and candidates source. See [[id:29b53275-ec0c-4ab5-a86a-b42f4dae6c84][vulpea-find]] for
-      more information.
-   2. =vulpea-find-backlink= is just a convenient function to find a note
-      linking currently opened one. For those who don't want to use =org-roam=
-      buffer.
-   3. =vulpea-insert= that acts like =org-roam-node-insert=, but (a) uses
-      =vulpea-select= for consistent experience, (b) allows to set
-      =vulpea-insert-default-filter= (see =vulpea-find= for examples) and (c)
-      allows to provide an insertion handler via
-      =vulpea-insert-handle-functions=, which is called with inserted note. See
-      [[id:210de8cb-b340-4245-8d45-013129ce0a82][vulpea-insert]] for more information.
-4. =vulpea= is more than just a wrapper around =org-roam=, it contains more
-   stuff:
+   1. =vulpea-find= that acts like =org-roam-node-find=, but (a) uses =vulpea-select= for consistent experience and (b)
+      allows to configure default and on-use filtering and candidates source. See [[id:29b53275-ec0c-4ab5-a86a-b42f4dae6c84][vulpea-find]] for more information.
+   2. =vulpea-find-backlink= is just a convenient function to find a note linking currently opened one. For those who don't want to use =org-roam= buffer.
+   3. =vulpea-insert= that acts like =org-roam-node-insert=, but (a) uses =vulpea-select= for consistent experience, (b) allows to set =vulpea-insert-default-filter= (see =vulpea-find= for examples) and (c) allows to provide an insertion handler via =vulpea-insert-handle-functions=, which is called with inserted note. See [[id:210de8cb-b340-4245-8d45-013129ce0a82][vulpea-insert]] for more information.
+4. =vulpea= is more than just a wrapper around =org-roam=, it contains more stuff:
    1. Utilities for dealing with buffer properties (e.g. =#+KEY: VALUE=).
-   2. Utilities for dealing with [[id:e0f6439c-8818-471d-ac25-c9dda830df3a][metadata]] (e.g. first description list in the
-      buffer).
+   2. Utilities for dealing with [[id:e0f6439c-8818-471d-ac25-c9dda830df3a][metadata]] (e.g. first description list in the buffer).
 
 ** Install
 :PROPERTIES:
 :ID:                     b946c716-e3b3-4c84-8229-dde59ddd55ae
 :END:
 
-=vulpea= is available via [[https://melpa.org/#/vulpea][MELPA]], but you can still install it manually, using
-[[https://github.com/raxod502/straight][straight]], [[https://github.com/quelpa/quelpa][quelpa]], or any package management tool of alike.
+=vulpea= is available via [[https://melpa.org/#/vulpea][MELPA]], but you can still install it manually, using [[https://github.com/raxod502/straight][straight]], [[https://github.com/quelpa/quelpa][quelpa]], or any package management tool of alike.
 
 In short, installation process is simple:
 
 1. Download =vulpea= package via any preferred way.
-2. Call =vulpea-db-autosync-enable= (either via adding a hook to
-   =org-roam-db-autosync-mode= or directly).
-3. Before first usage you need to re-sync =org-roam-db= from scratch, e.g.
-   =(org-roam-db-sync 'force)=. This is because =vulpea= has several custom
-   tables in addition to what =org-roam= provides.
+2. Call =vulpea-db-autosync-enable= (either via adding a hook to =org-roam-db-autosync-mode= or directly).
+3. Before first usage you need to re-sync =org-roam-db= from scratch, e.g. =(org-roam-db-sync 'force)=. This is because =vulpea= has several custom tables in addition to what =org-roam= provides.
 
 *** =use-package=
 :PROPERTIES:
@@ -140,24 +112,17 @@ slots/fields:
 
 - =vulpea-note-id= - =ID= property of note (file-level or heading level).
 - =vulpea-note-path= - absolute path to the note (even if the note is actually a heading);
-- =vulpea-note-level= - level of the note inside =:path=, with =0= being a
-  file-level note and other numbers being a header;
+- =vulpea-note-level= - level of the note inside =:path=, with =0= being a file-level note and other numbers being a header;
 - =vulpea-note-title= - title of the note (it might be an alias);
-- =vulpea-note-primary-title= - primary title of the note (present only when
-  =title= is an alias);
+- =vulpea-note-primary-title= - primary title of the note (present only when =title= is an alias);
 - =vulpea-note-aliases= - aliases of the note;
-- =vulpea-note-links= - list of links, each link being represented as =cons= of
-  type and link;
+- =vulpea-note-links= - list of links, each link being represented as =cons= of type and link;
 - =vulpea-note-tags= - tags of the note;
-- =vulpea-note-meta= - associative list of [[id:e0f6439c-8818-471d-ac25-c9dda830df3a][metadata]], where key is a string and
-  the value is a list of strings. There are also two utilities to access/query
-  metadata from note:
+- =vulpea-note-meta= - associative list of [[id:e0f6439c-8818-471d-ac25-c9dda830df3a][metadata]], where key is a string and the value is a list of strings. There are also two utilities to access/query metadata from note:
   - =vulpea-note-meta-get-list= - to get all values of given =PROP= and =TYPE=.
   - =vulpea-note-meta-get= - to get the first value of given =PROP= and =TYPE=.
 
-If =ID= is not present in the note structure, this note is treated as
-non-existent. For example, =vulpea-select= returns such a note, when
-=require-match= is =nil= and the user selects non-existent note.
+If =ID= is not present in the note structure, this note is treated as non-existent. For example, =vulpea-select= returns such a note, when =require-match= is =nil= and the user selects non-existent note.
 
 Example of a note:
 
@@ -194,8 +159,7 @@ Example of a note:
 :ID:                     6b5ef4a4-4cf9-49fb-9141-8858fef3a189
 :END:
 
-In general, metadata is a list of key value pairs that is represented by the
-first description list in the note, e.g. list like:
+In general, metadata is a list of key value pairs that is represented by the first description list in the note, e.g. list like:
 
 #+begin_src org-mode
 - key1 :: value1
@@ -204,40 +168,26 @@ first description list in the note, e.g. list like:
 - key3 :: value3
 #+end_src
 
-It can be manipulated programatically by using functions from either
-=vulpea-meta= module or from =vulpea-buffer= module (those prefixed by
-=vulpea-buffer-meta=). This data is also persisted in Org roam database for your
-convenience and is part of =vulpea-note= returned by =vulpea-db= module. See
-respective module documentation to find out all available functions.
+It can be manipulated programatically by using functions from either =vulpea-meta= module or from =vulpea-buffer= module (those prefixed by =vulpea-buffer-meta=). This data is also persisted in Org roam database for your convenience and is part of =vulpea-note= returned by =vulpea-db= module. See respective module documentation to find out all available functions.
 
-Currently metadata is limited to file-level only, e.g. description lists in
-outlines are not handled by =vulpea=. Vote for [[https://github.com/d12frosted/vulpea/issues/75][vulpea#75]] to bring it faster.
+Currently metadata is limited to file-level only, e.g. description lists in outlines are not handled by =vulpea=. Vote for [[https://github.com/d12frosted/vulpea/issues/75][vulpea#75]] to bring it faster.
 
 *** Why not properties drawer
 :PROPERTIES:
 :ID:                     1914d0a4-6e68-47b7-8d54-fc49cef24bf3
 :END:
 
-In many cases, properties are far better choice for storing technical
-'metadata', like =ID=, =DATE=, =TAGS=, etc. - something that is not really part
-of note content. After all, properties drawer is a drawer:
+In many cases, properties are far better choice for storing technical 'metadata', like =ID=, =DATE=, =TAGS=, etc. - something that is not really part of note content. After all, properties drawer is a drawer:
 
 #+begin_quote
-Sometimes you want to keep information associated with an entry, but you
-normally do not want to see it. For this, Org mode has drawers.
+Sometimes you want to keep information associated with an entry, but you normally do not want to see it. For this, Org mode has drawers.
 
 [[https://orgmode.org/manual/Drawers.html#Drawers][orgmode.org]]
 #+end_quote
 
-Of course you can use [[https://orgmode.org/manual/Properties-and-Columns.html#Properties-and-Columns][properties drawer]] to implement simple database
-capabilities, but it has one important limitation - values are mere text, so you
-can't have real Org mode links there, meaning that [[https://orgmode.org/worg/dev/org-element-api.html][Element API]], Org roam and
-some other tools *do not* recognise them as links.
+Of course you can use [[https://orgmode.org/manual/Properties-and-Columns.html#Properties-and-Columns][properties drawer]] to implement simple database capabilities, but it has one important limitation - values are mere text, so you can't have real Org mode links there, meaning that [[https://orgmode.org/worg/dev/org-element-api.html][Element API]], Org roam and some other tools *do not* recognise them as links.
 
-Metadata provided by library is just a part of your note content, meaning that
-it incorporates well into existing tools. Sure enough it's not as rich as
-properties and is not as battle tested as properties, but you can give them a
-try.
+Metadata provided by library is just a part of your note content, meaning that it incorporates well into existing tools. Sure enough it's not as rich as properties and is not as battle tested as properties, but you can give them a try.
 
 ** Modules
 :PROPERTIES:
@@ -249,51 +199,37 @@ try.
 :ID:                     b042b560-a2e4-451d-b44a-a290d1b0604d
 :END:
 
-This one-stop module contains some generic functions that didn't find their
-place in separate modules. It also imports every other module.
+This one-stop module contains some generic functions that didn't find their place in separate modules. It also imports every other module.
 
 **** =vulpea-find=
 :PROPERTIES:
 :ID:                     29b53275-ec0c-4ab5-a86a-b42f4dae6c84
 :END:
 
-A one stop function to select and find (visit) a note that can be used both
-interactively (e.g. =M-x vulpea-find=) and programatically. In the later case it
-provides multiple configuration bits.
+A one stop function to select and find (visit) a note that can be used both interactively (e.g. =M-x vulpea-find=) and programatically. In the later case it provides multiple configuration bits.
 
-When =OTHER-WINDOW= argument is nil (default), the note is visited in the
-current window. In order to use the /other/ window, you may use universal
-argument during interactive usage (e.g. =C-u M-x vulpea-find=) or pass a non-nil
-value as argument:
+When =OTHER-WINDOW= argument is nil (default), the note is visited in the current window. In order to use the /other/ window, you may use universal argument during interactive usage (e.g. =C-u M-x vulpea-find=) or pass a non-nil value as argument:
 
 #+begin_src emacs-lisp
   (vulpea-find :other-window t)
 #+end_src
 
-When =REQUIRE-MATCH= argument is nil (default), user may select a non-existent
-note and the capture process is started. In order to disallow selection of
-non-existent note, pass non-nil value:
+When =REQUIRE-MATCH= argument is nil (default), user may select a non-existent note and the capture process is started. In order to disallow selection of non-existent note, pass non-nil value:
 
 #+begin_src emacs-lisp
   (vulpea-find :require-match t)
 #+end_src
 
-=vulpea-find= allows to configure candidates for selection in two ways - by
-controlling source of candidates and by controlling filtering function.
+=vulpea-find= allows to configure candidates for selection in two ways - by controlling source of candidates and by controlling filtering function.
 
 ***** Filter function
 :PROPERTIES:
 :ID:                     4278719d-56ce-4724-aaf3-b8323bdcc930
 :END:
 
-Filtering is easy. It's just a function that takes one argument - =vulpea-note=
-that is being filtered. You can configure default filtering function called
-=vulpea-find-default-filter= (so it is applied to interactive usage) or pass an
-override for the default filtering function.
+Filtering is easy. It's just a function that takes one argument - =vulpea-note= that is being filtered. You can configure default filtering function called =vulpea-find-default-filter= (so it is applied to interactive usage) or pass an override for the default filtering function.
 
-For example, you wish to list only file-level notes during interactive usage of
-=vulpea-find= (to mimic how =org-roam-find= was behaving in v1). For that you
-just need to configure the value of =vulpea-find-default-filter= variable:
+For example, you wish to list only file-level notes during interactive usage of =vulpea-find= (to mimic how =org-roam-find= was behaving in v1). For that you just need to configure the value of =vulpea-find-default-filter= variable:
 
 #+begin_src emacs-lisp
   (setq vulpea-find-default-filter
@@ -301,9 +237,7 @@ just need to configure the value of =vulpea-find-default-filter= variable:
           (= (vulpea-note-level note) 0)))
 #+end_src
 
-But of course, it's possible to override this behaviour when =vulpea-find= is
-used programatically, just by passing filtering function as =FILTER-FN=
-argument:
+But of course, it's possible to override this behaviour when =vulpea-find= is used programatically, just by passing filtering function as =FILTER-FN= argument:
 
 #+begin_src emacs-lisp
   ;; by default `vulpea-find' lists aliases, imagine that we want to
@@ -320,15 +254,9 @@ argument:
 :ID:                     3b13b477-896e-4117-b580-8ba60066cc35
 :END:
 
-As it was already mentioned, =vulpea-find= allows to configure the source of
-candidates. This may be needed for performance considerations (e.g. to avoid
-filtering EVERY existing note in your database) or for some 'esoteric' features
-(like ordering).
+As it was already mentioned, =vulpea-find= allows to configure the source of candidates. This may be needed for performance considerations (e.g. to avoid filtering EVERY existing note in your database) or for some 'esoteric' features (like ordering).
 
-By default =vulpea-db-query= is used as a source of candidates. Default source
-is controlled by =vulpea-find-default-candidates-source= variable. You should
-change it only when your intention is to configure behaviour of =vulpea-find=
-interactive usage. For example (an 'esoteric' one):
+By default =vulpea-db-query= is used as a source of candidates. Default source is controlled by =vulpea-find-default-candidates-source= variable. You should change it only when your intention is to configure behaviour of =vulpea-find= interactive usage. For example (an 'esoteric' one):
 
 #+begin_src emacs-lisp
   (setq vulpea-find-default-candidates-source
@@ -341,12 +269,7 @@ interactive usage. For example (an 'esoteric' one):
            (vulpea-db-query filter))))
 #+end_src
 
-But in most cases you should not touch the configuration variable and instead
-apply an override via =CANDIDATES-FN= argument. For example, if you wish to
-'find' a note linking to some specific note. Of course this can be achieved with
-a filtering function, but in this particular case performance can be drastically
-improved by overriding candidates source. You can achieve this by something
-along the lines:
+But in most cases you should not touch the configuration variable and instead apply an override via =CANDIDATES-FN= argument. For example, if you wish to 'find' a note linking to some specific note. Of course this can be achieved with a filtering function, but in this particular case performance can be drastically improved by overriding candidates source. You can achieve this by something along the lines:
 
 #+begin_src emacs-lisp
   ;; Let's say we have a note in the context. First, we use a
@@ -361,45 +284,30 @@ along the lines:
      :require-match t))
 #+end_src
 
-Please don't rush into saving this function into your collection. It's already
-provided by =vulpea= as =vulpea-find-backlink=. Keep reading!
+Don't rush into saving this function into your collection. It's already provided by =vulpea= as =vulpea-find-backlink=. Keep reading!
 
 **** =vulpea-find-backlink=
 :PROPERTIES:
 :ID:                     a8152294-d4e0-41bf-8e11-e58c6d6f7adf
 :END:
 
-An interactive function to select and find (visit) a note linking to the
-currently visited note. Keep in mind that outlines with assigned =ID= property
-are also treated as notes so you might want to go to beginning of buffer if you
-wish to select backlinks to current file.
+An interactive function to select and find (visit) a note linking to the currently visited note. Keep in mind that outlines with assigned =ID= property are also treated as notes so you might want to go to beginning of buffer if you wish to select backlinks to current file.
 
 **** =vulpea-insert=
 :PROPERTIES:
 :ID:                     210de8cb-b340-4245-8d45-013129ce0a82
 :END:
 
-An interactive function to select a note and insert a link to it. When user
-selects non-existent note, it is captured via =org-roam-capture= process (see
-=org-roam-capture-templates=). Once the link is inserted,
-=vulpea-insert-handle-functions= is called with inserted note as an argument, so
-you can easily perform any necessary post-insertion actions. Selection is
-controlled in a similar way to =vulpea-find= - via global
-=vulpea-insert-default-filter= or local filter.
+An interactive function to select a note and insert a link to it. When user selects non-existent note, it is captured via =org-roam-capture= process (see =org-roam-capture-templates=). Once the link is inserted, =vulpea-insert-handle-functions= is called with inserted note as an argument, so you can easily perform any necessary post-insertion actions. Selection is controlled in a similar way to =vulpea-find= - via global =vulpea-insert-default-filter= or local filter.
 
 ***** Filter function
 :PROPERTIES:
 :ID:                     b1162e36-b632-4b4a-a420-17e232364fd0
 :END:
 
-This argument is just a function that takes one argument - =vulpea-note= that is
-being filtered. You can configure default filtering function called
-=vulpea-insert-default-filter= (so it is applied to interactive usage) or pass
-an override for the default filtering function.
+This argument is just a function that takes one argument - =vulpea-note= that is being filtered. You can configure default filtering function called =vulpea-insert-default-filter= (so it is applied to interactive usage) or pass an override for the default filtering function.
 
-For example, you wish to list only file-level notes during interactive usage of
-=vulpea-insert= (to mimic how =org-roam-find= was behaving in v1). For that you
-just need to configure the value of =vulpea-insert-default-filter= variable:
+For example, you wish to list only file-level notes during interactive usage of =vulpea-insert= (to mimic how =org-roam-find= was behaving in v1). For that you just need to configure the value of =vulpea-insert-default-filter= variable:
 
 #+begin_src emacs-lisp
   (setq vulpea-insert-default-filter
@@ -407,9 +315,7 @@ just need to configure the value of =vulpea-insert-default-filter= variable:
           (= (vulpea-note-level note) 0)))
 #+end_src
 
-But of course, it's possible to override this behaviour when =vulpea-insert= is
-used programatically, just by passing filtering function as =FILTER-FN=
-argument:
+But of course, it's possible to override this behaviour when =vulpea-insert= is used programatically, just by passing filtering function as =FILTER-FN= argument:
 
 #+begin_src emacs-lisp
   ;; by default `vulpea-insert' lists aliases, imagine that we want to
@@ -426,13 +332,9 @@ argument:
 :ID:                     558e6704-76d0-4b6c-bd6c-28d91a5e0d89
 :END:
 
-There are cases when you want to react somehow to link insertion. For this
-=vulpea= provides a configuration variable =vulpea-insert-handle-functions=,
-which is kind of a hook with argument - =vulpea-note= that is linked.
+There are cases when you want to react somehow to link insertion. For this =vulpea= provides a configuration variable =vulpea-insert-handle-functions=, which is kind of a hook with argument - =vulpea-note= that is linked.
 
-For example, you want to tag an outline whenever a link to person is inserted
-(see some explanation of this use case in a dedicated [[https://d12frosted.io/posts/2020-07-07-task-management-with-roam-vol4.html][blog post]]). For that you
-need to define a handler function first:
+For example, you want to tag an outline whenever a link to person is inserted (see some explanation of this use case in a dedicated [[https://d12frosted.io/posts/2020-07-07-task-management-with-roam-vol4.html][blog post]]). For that you need to define a handler function first:
 
 #+begin_src emacs-lisp
   (defun my-vulpea-insert-handle (note)
@@ -465,11 +367,7 @@ And then you just need to add it as a hook:
 :ID:                     b75b02e2-b574-4783-81d6-03ab4ed07c10
 :END:
 
-This function enables programmatic creation of new notes without the need to
-configure =org-roam-capture-templaces=, but instead providing various bits to be
-inserted into new note. And yes, it returns you the created note. This function
-is heavily used in [[https://github.com/d12frosted/vino][vino]] and you can find several real world usage examples
-there.
+This function enables programmatic creation of new notes without the need to configure =org-roam-capture-templaces=, but instead providing various bits to be inserted into new note. And yes, it returns you the created note. This function is heavily used in [[https://github.com/d12frosted/vino][vino]] and you can find several real world usage examples there.
 
 The minimal usage example:
 
@@ -490,19 +388,14 @@ content:
   ,#+title: Title of new note
 #+end_src
 
-As you can see, thanks to =org-roam-capture= and =org-capture= system, this
-allows expansion of formatted text as long as expansion of variables from
-capture context. Read further to learn more.
+As you can see, thanks to =org-roam-capture= and =org-capture= system, this allows expansion of formatted text as long as expansion of variables from capture context. Read further to learn more.
 
 ***** Synchronous vs asynchronous
 :PROPERTIES:
 :ID:                     6cbb1043-18b8-47f1-a33b-9e0cea976188
 :END:
 
-By default capture process is 'asynchronous', meaning that it waits for user
-input and confirmation. In some cases, 'synchronous' creation is desired, so
-that note is created immediately and the created note is returned as result, so
-we can use it further. Example:
+By default capture process is 'asynchronous', meaning that it waits for user input and confirmation. In some cases, 'synchronous' creation is desired, so that note is created immediately and the created note is returned as result, so we can use it further. Example:
 
 #+begin_src emacs-lisp
   > (vulpea-create
@@ -543,8 +436,7 @@ How cool is that? Pretty cool, I'd say.
 :ID:                     3872d1e9-e5c8-4944-814f-ad03c1fb0967
 :END:
 
-Of course, in many cases we want to add much more than that into note file. In
-general, the file has the following format:
+Of course, in many cases we want to add much more than that into note file. In general, the file has the following format:
 
 #+begin_src org
   :PROPERTIES:
@@ -560,10 +452,8 @@ general, the file has the following format:
 
 So you can provide the following arguments controlling content:
 
-- =properties= - a list consisting of =(key_str . val_str)= pairs added to
-  properties block;
-- =tags= is a list of strings inserted as =filetags= option (in a proper
-  format);
+- =properties= - a list consisting of =(key_str . val_str)= pairs added to properties block;
+- =tags= is a list of strings inserted as =filetags= option (in a proper format);
 - =head= - a string inserted after =title= and =filetags=;
 - =body= - a string inserted after =title=, =filetags= and =head=;
 
@@ -627,10 +517,7 @@ This creates the following note:
 :ID:                     3cbca770-aa36-4f99-8dec-14d8552d0001
 :END:
 
-Any content piece (except for title) may have arbitrary amount of context
-variables in form =${VAR}= that are expanded during note creation. By default
-there are 3 context variables - =slug=, =title= and =id=. But you may add extra
-variables to the context by passing =context= variable:
+Any content piece (except for title) may have arbitrary amount of context variables in form =${VAR}= that are expanded during note creation. By default there are 3 context variables - =slug=, =title= and =id=. But you may add extra variables to the context by passing =context= variable:
 
 #+begin_src emacs-lisp
   > (vulpea-create
@@ -676,18 +563,14 @@ This creates the following note:
   This note was create by Frodo
 #+end_src
 
-Please keep in mind that you cannot override the default context via =context=
-variable.
+Please keep in mind that you cannot override the default context via =context= variable.
 
 ***** Mandatory ID
 :PROPERTIES:
 :ID:                     7b3880e4-4aff-4b4f-8574-78886e4c03a4
 :END:
 
-By default =id= is being generated for you and you can not avoid it. This is
-what allows =vulpea-create= to return created note for you. In some cases you
-might want to provide =id= upfront instead of relying on generation. And
-=vulpea-create= has an argument for that.
+By default =id= is being generated for you and you can not avoid it. This is what allows =vulpea-create= to return created note for you. In some cases you might want to provide =id= upfront instead of relying on generation. And =vulpea-create= has an argument for that.
 
 #+begin_src emacs-lisp
   > (vulpea-create
@@ -727,9 +610,7 @@ This creates the following note:
 :ID:                     485b4e0f-22a1-4ab5-88bd-98d002b6d69c
 :END:
 
-Common interface to select (e.g. =completing-read=) a note from the set of
-notes. Used in functions like =vulpea-find=, =vulpea-find-backlink=,
-=vulpea-insert=, etc.
+Common interface to select (e.g. =completing-read=) a note from the set of notes. Used in functions like =vulpea-find=, =vulpea-find-backlink=, =vulpea-insert=, etc.
 
 #+begin_html
 <div>
@@ -738,10 +619,7 @@ notes. Used in functions like =vulpea-find=, =vulpea-find-backlink=,
 </div>
 #+end_html
 
-There are two variants of selection: =vulpea-select-from= and =vulpea-select=.
-The difference between them is that the former accepts a list of notes to select
-from and the latter accepts a filter function which is applied to all notes in
-the database. Here are two examples to illustrate that:
+There are two variants of selection: =vulpea-select-from= and =vulpea-select=. The difference between them is that the former accepts a list of notes to select from and the latter accepts a filter function which is applied to all notes in the database. Here are two examples to illustrate that:
 
 #+begin_src emacs-lisp
   ;; Select a note from the list of passed notes
@@ -765,27 +643,16 @@ the database. Here are two examples to illustrate that:
             (seq-contains-p tags "grape")))))
 #+end_src
 
-Both of these examples achieve the same goal. The only practical difference here
-is performance. Sometimes you either already have a list of notes that you want
-to select from (so there is no need to filter all the database just to select
-those notes you already have) or you have a way to fetch a list of notes in a
-much faster way than by filtering whole database. See =vulpea-db= for more
-information on performance.
+Both of these examples achieve the same goal. The only practical difference here is performance. Sometimes you either already have a list of notes that you want to select from (so there is no need to filter all the database just to select those notes you already have) or you have a way to fetch a list of notes in a much faster way than by filtering whole database. See =vulpea-db= for more information on performance.
 
 **** Visual configuration
 :PROPERTIES:
 :ID:                     555650a9-fbaf-4841-a93e-c8fc81d06047
 :END:
 
-Each note is formatted using two functions - =vulpea-select-describe-fn= and
-=vulpea-select-annotate-fn=. Both of them are called by =vulpea-select=
-interface with a note as argument and their result is concatenated. The only
-difference between them is purely aesthetical - description has normal face and
-annotation has =completions-annotations= face.
+Each note is formatted using two functions - =vulpea-select-describe-fn= and =vulpea-select-annotate-fn=. Both of them are called by =vulpea-select= interface with a note as argument and their result is concatenated. The only difference between them is purely aesthetical - description has normal face and annotation has =completions-annotations= face.
 
-By default =vulpea-select-describe-fn= is defined as =vulpea-note-title=; and
-=vulpea-select-annotate-fn= returns aliases and tags if present. To illustrate
-how it works, let's use some fake notes.
+By default =vulpea-select-describe-fn= is defined as =vulpea-note-title=; and =vulpea-select-annotate-fn= returns aliases and tags if present. To illustrate how it works, let's use some fake notes.
 
 #+begin_src emacs-lisp
   (make-vulpea-note
@@ -893,8 +760,7 @@ This results in the following lines:
 :ID:                     c8f81d7b-84fc-4e06-a17f-03dce4bf8dcc
 :END:
 
-This module contains =vulpea-note= definition, which is represented as a
-structure with the following slots/fields:
+This module contains =vulpea-note= definition, which is represented as a structure with the following slots/fields:
 
 - =vulpea-note-id= - =ID= property of note (file-level or heading level).
 - =vulpea-note-path= - absolute path to the note (even if the note is actually a heading);
@@ -910,9 +776,7 @@ structure with the following slots/fields:
 - =vulpea-note-meta= - associative list of [[id:e0f6439c-8818-471d-ac25-c9dda830df3a][metadata]], where key is a string and
   the value is a list of strings.
 
-If =ID= is not present in the note structure, this note is treated as
-non-existent. For example, =vulpea-select= returns such a note, when
-=require-match= is =nil= and the user selects non-existent note.
+If =ID= is not present in the note structure, this note is treated as non-existent. For example, =vulpea-select= returns such a note, when =require-match= is =nil= and the user selects non-existent note.
 
 Example of a note:
 
@@ -979,11 +843,7 @@ In some cases you want to check if a note is tagged somehow. Vulpea provides two
 :ID:                     ebf96ea5-50f0-473d-be21-77526ee601b9
 :END:
 
-In most cases you should not directly access =vulpea-note-meta=, but instead you
-should use one of the helpers - =vulpea-note-meta-get= and
-=vulpea-note-meta-get-list=. The only difference between these two functions is
-how they treat repeating keys. The former returns only the first occurrence of
-the key, while the latter returns a list.
+In most cases you should not directly access =vulpea-note-meta=, but instead you should use one of the helpers - =vulpea-note-meta-get= and =vulpea-note-meta-get-list=. The only difference between these two functions is how they treat repeating keys. The former returns only the first occurrence of the key, while the latter returns a list.
 
 Let's take the following note as example:
 
@@ -1009,11 +869,7 @@ Let's take the following note as example:
                   ("answer" "42")))
 #+end_src
 
-As you can see, keys and values are strings. But that's not always useful,
-that's why =vulpea-note-meta-get= and =vulpea-note-meta-get-list= support string
-parsing of some common 'types': string (default), number, link (path of the link
-- either ID of the linked note or raw link), note (queries note by id from db)
-and symbol.
+As you can see, keys and values are strings. But that's not always useful, that's why =vulpea-note-meta-get= and =vulpea-note-meta-get-list= support string parsing of some common 'types': string (default), number, link (path of the link - either ID of the linked note or raw link), note (queries note by id from db) and symbol.
 
 #+begin_src emacs-lisp
   > (vulpea-note-meta-get note "name")
@@ -1065,10 +921,7 @@ and symbol.
 :ID:                     fe123255-686a-4c71-91cc-30e2e68387b4
 :END:
 
-This module contains functions to query notes from data base. In order for most
-of these functions to operate, one needs to enable =vulpea-db-autosync-mode=
-(see [[id:b946c716-e3b3-4c84-8229-dde59ddd55ae][Install]] section), for example, by using =vulpea-db-autosync-enable=. This
-hooks into =org-roam.db= by adding two extra tables:
+This module contains functions to query notes from data base. In order for most of these functions to operate, one needs to enable =vulpea-db-autosync-mode= (see [[id:b946c716-e3b3-4c84-8229-dde59ddd55ae][Install]] section), for example, by using =vulpea-db-autosync-enable=. This hooks into =org-roam.db= by adding two extra tables:
 
 - =meta= - for storing [[id:e0f6439c-8818-471d-ac25-c9dda830df3a][Metadata]];
 - =notes= - a view table of fully materialized note (see [[id:5b44d873-179a-4fcb-88df-ff8a8d328bd0][Performance]]).
@@ -1120,21 +973,16 @@ nil otherwise.
 :ID:                     2188a950-26ef-4f04-9e1b-e1dcd0de9ebb
 :END:
 
-Function to query notes from database with optional predicate. This function is
-very powerful as it allows to apply Emacs Lisp predicate on /every/
-=vulpea-note= in your database. This might be not very efficient on big set of
-notes, in such cases use specialized query functions.
+Function to query notes from database with optional predicate. This function is very powerful as it allows to apply Emacs Lisp predicate on /every/ =vulpea-note= in your database. This might be not very efficient on big set of notes, in such cases use specialized query functions.
 
-When predicate is not passed, =vulpea-db-query= returns ALL notes from your
-database.
+When predicate is not passed, =vulpea-db-query= returns ALL notes from your database.
 
 #+begin_src emacs-lisp
   > (seq-length (vulpea-db-query))
   9554
 #+end_src
 
-Since =vulpea-note= contains so much information, you can do many complex
-things, with =vulpea-db-query=.
+Since =vulpea-note= contains so much information, you can do many complex things, with =vulpea-db-query=.
 
 #+begin_src emacs-lisp
   > (vulpea-db-query
@@ -1152,9 +1000,7 @@ things, with =vulpea-db-query=.
 :ID:                     60480c99-5d52-4aee-95ff-e625b98b1a77
 :END:
 
-As you can see, =vulpea-db-query= doesn't allow to pass any custom SQL for
-filtering or whatnot. For future-proof code you should avoid querying stuff
-manually from database, but in case you need to, just use =org-roam-db-query=:
+As you can see, =vulpea-db-query= doesn't allow to pass any custom SQL for filtering or whatnot. For future-proof code you should avoid querying stuff manually from database, but in case you need to, just use =org-roam-db-query=:
 
 #+begin_src emacs-lisp
   > (org-roam-db-query
@@ -1169,24 +1015,18 @@ manually from database, but in case you need to, just use =org-roam-db-query=:
 :ID:                     8ef13d04-9f66-4cda-a03f-92cc44557ccc
 :END:
 
-- =vulpea-db-query-by-tags-some= - return all notes tagged with one of the
-  provided =TAGS=.
-- =vulpea-db-query-by-tags-every= - return all notes tagged by every tag from
-  the list of provided =TAGS=.
-- =vulpea-db-query-by-links-some= - return all notes linking at least one of the
-  provided =DESTINATIONS=.
-- =vulpea-db-query-by-links-every= - return all notes linking each and every
-  provided =DESTINATIONS=.
+- =vulpea-db-query-by-tags-some= - return all notes tagged with one of the provided =TAGS=.
+- =vulpea-db-query-by-tags-every= - return all notes tagged by every tag from the list of provided =TAGS=.
+- =vulpea-db-query-by-links-some= - return all notes linking at least one of the provided =DESTINATIONS=.
+- =vulpea-db-query-by-links-every= - return all notes linking each and every provided =DESTINATIONS=.
 
 **** Other functions
 :PROPERTIES:
 :ID:                     6ccde3bb-010a-439c-a7b3-c5188f1f0d91
 :END:
 
-- =vulpea-db-get-id-by-file= - function to get =ID= of a note represented by
-  =FILE=.
-- =vulpea-db-get-file-by-id= - function to get =FILE= of a note represented by
-  =ID=. Supports headings of the note.
+- =vulpea-db-get-id-by-file= - function to get =ID= of a note represented by =FILE=.
+- =vulpea-db-get-file-by-id= - function to get =FILE= of a note represented by =ID=. Supports headings of the note.
 - =vulpea-db-search-by-title= - function to query notes with =TITLE=.
 
 *** =vulpea-meta=
@@ -1194,8 +1034,7 @@ manually from database, but in case you need to, just use =org-roam-db-query=:
 :ID:                     9bb0311f-c257-46f1-8e1f-68c735a1a07c
 :END:
 
-This module contains functions for manipulating note [[id:e0f6439c-8818-471d-ac25-c9dda830df3a][metadata]] represented by the
-first description list in the note, e.g. list like:
+This module contains functions for manipulating note [[id:e0f6439c-8818-471d-ac25-c9dda830df3a][metadata]] represented by the first description list in the note, e.g. list like:
 
 #+begin_src org-mode
 - key1 :: value1
@@ -1206,38 +1045,28 @@ first description list in the note, e.g. list like:
 
 Functions of interest:
 
-- =vulpea-meta= - function to get metadata from =NOTE-OR-ID=. In most cases you
-  should not use this function unless performance is important. In this case,
-  take a look at bang functions, e.g. =vulpea-meta-get!=.
-- =vulpea-meta-get= - function to get a value of =PROP= for note with =ID=.
-  Value is parsed based on the passed =TYPE= or as a string if omitted.
-- =vulpea-meta-get-list= - function to get all values of =PROP= for note with
-  =ID=. Values are parsed based on the passed =TYPE= or as a string if omitted.
-- =vulpea-meta-set= - function to set =VALUE= of =PROP= for =NOTE-OR-ID=.
-  Supports multi-value properties.
+- =vulpea-meta= - function to get metadata from =NOTE-OR-ID=. In most cases you should not use this function unless performance is important. In this case, take a look at bang functions, e.g. =vulpea-meta-get!=.
+- =vulpea-meta-get= - function to get a value of =PROP= for note with =ID=. Value is parsed based on the passed =TYPE= or as a string if omitted.
+- =vulpea-meta-get-list= - function to get all values of =PROP= for note with =ID=. Values are parsed based on the passed =TYPE= or as a string if omitted.
+- =vulpea-meta-set= - function to set =VALUE= of =PROP= for =NOTE-OR-ID=. Supports multi-value properties.
 - =vulpea-meta-add= - interactive version of =vulpea-meta-set=.
-- =vulpea-meta-add-list= - interactive version of =vulpea-meta-set= that
-  operates on list values.
-- =vulpea-meta-remove= - interactive function to remove a =PROP= for
-  =NOTE-OR-ID=.
-- =vulpea-meta-clean= - interactive function to remove all meta for
-  =NOTE-OR-ID=.
+- =vulpea-meta-add-list= - interactive version of =vulpea-meta-set= that operates on list values.
+- =vulpea-meta-remove= - interactive function to remove a =PROP= for =NOTE-OR-ID=.
+- =vulpea-meta-clean= - interactive function to remove all meta for =NOTE-OR-ID=.
 
 *** =vulpea-buffer=
 :PROPERTIES:
 :ID:                     6f01bc38-414d-455f-99ad-c8ae73476a49
 :END:
 
-This module contains functions for prop and meta manipulations in current
-buffer.
+This module contains functions for prop and meta manipulations in current buffer.
 
 **** Buffer properties
 :PROPERTIES:
 :ID:                     0af66e12-5653-4e1e-8cef-e583db6c0f1c
 :END:
 
-Buffer properties are key-values defined as =#+KEY: VALUE= in the header of
-buffer.
+Buffer properties are key-values defined as =#+KEY: VALUE= in the header of buffer.
 
 - =vulpea-buffer-title-get= - function to get title of the current buffer.
 - =vulpea-buffer-title-set= - function to set title of the current buffer.
@@ -1245,17 +1074,11 @@ buffer.
 - =vulpea-buffer-tags-set= - function to set/replace the value of =#+filetags=.
 - =vulpea-buffer-tags-add= - function to add a tag to =#+filetags=.
 - =vulpea-buffer-tags-remove= - function to remove a tag from =#+filetags=.
-- =vulpea-buffer-prop-set= - function to set a =VALUE= of property with =NAME=
-  in the current buffer, e.g. property in the buffer header using =#+NAME:
-  value= format.
-- =vulpea-buffer-prop-set-list= - function to set a value of property with
-  =NAME= to the list of =VALUES= in the current buffer.
-- =vulpea-buffer-prop-get= - function to get a value of property with =NAME=
-  from the current buffer.
-- =vulpea-buffer-prop-get-list= - function to get a value of property with
-  =NAME= as a list separated by some =SEPARATORS=.
-- =vulpea-buffer-prop-remove= - function to remove a property with =NAME= from
-  the current buffer.
+- =vulpea-buffer-prop-set= - function to set a =VALUE= of property with =NAME= in the current buffer, e.g. property in the buffer header using =#+NAME: value= format.
+- =vulpea-buffer-prop-set-list= - function to set a value of property with =NAME= to the list of =VALUES= in the current buffer.
+- =vulpea-buffer-prop-get= - function to get a value of property with =NAME= from the current buffer.
+- =vulpea-buffer-prop-get-list= - function to get a value of property with =NAME= as a list separated by some =SEPARATORS=.
+- =vulpea-buffer-prop-remove= - function to remove a property with =NAME= from the current buffer.
 
 **** Metadata
 :PROPERTIES:
@@ -1271,22 +1094,13 @@ Metadata is defined as the first description list in the buffer, e.g. list like:
 - key3 :: value3
 #+end_src
 
-- =vulpea-buffer-meta= - function to get metadata from current buffer. By it's
-  own it has little value, use the following functions to manipulate it.
-- =vulpea-buffer-meta-get!= - function to get a value of =PROP= from =META=
-  (result of =vulpea-buffer-meta=). Value is parsed based on the passed =TYPE=
-  or as a string if omitted. Use it performing multiple read operations in a
-  row.
-- =vulpea-buffer-meta-get-list!= - function to get all values of =PROP= from
-  =META= (result of =vulpea-buffer-meta=). Values are parsed based on the passed
-  =TYPE= or as a string if omitted. Use it performing multiple read operations
-  in a row.
-- =vulpea-buffer-meta-set= - function to set =VALUE= of =PROP= in current
-  buffer. Supports multi-value properties.
+- =vulpea-buffer-meta= - function to get metadata from current buffer. By it's own it has little value, use the following functions to manipulate it.
+- =vulpea-buffer-meta-get!= - function to get a value of =PROP= from =META= (result of =vulpea-buffer-meta=). Value is parsed based on the passed =TYPE= or as a string if omitted. Use it performing multiple read operations in a row.
+- =vulpea-buffer-meta-get-list!= - function to get all values of =PROP= from =META= (result of =vulpea-buffer-meta=). Values are parsed based on the passed =TYPE= or as a string if omitted. Use it performing multiple read operations in a row.
+- =vulpea-buffer-meta-set= - function to set =VALUE= of =PROP= in current buffer. Supports multi-value properties.
 - =vulpea-buffer-meta-remove= - function to remove a =PROP= from current buffer.
 - =vulpea-buffer-meta-clean= - function to remove all meta from current buffer.
-- =vulpea-buffer-meta-format= - function to format a =VALUE= based in its type
-  (used for value serialization).
+- =vulpea-buffer-meta-format= - function to format a =VALUE= based in its type (used for value serialization).
 
 ***** Example 1 - getting values
 :PROPERTIES:
@@ -1439,20 +1253,13 @@ The resulting buffer will look like this:
 :ID:                     b904b2fd-3ae2-4cad-9ed5-d0c196d9cffa
 :END:
 
-This module contains various utilities used by other modules. Functions of
-interest:
+This module contains various utilities used by other modules. Functions of interest:
 
-- =vulpea-utils-with-note= - function to execute =BODY= with point at =NOTE=.
-  Supports file-level notes as well as heading notes.
+- =vulpea-utils-with-note= - function to execute =BODY= with point at =NOTE=. Supports file-level notes as well as heading notes.
 - =vulpea-utils-link-make-string= - make a bracket link to =NOTE=.
 - =vulpea-utils-note-hash= - function to calculate =sha1= of a given =NOTE=.
-- =vulpea-utils-collect-while= - utility to repeat some function and collect
-  it's results until ~C-g~ is used or passed filter returns =nil=. Example of
-  usage - you want to collect multiple values from user and be able to quit the
-  process.
-- =vulpea-utils-repeat-while= - utility to repeat some function and return first
-  unfiltered result. Example of usage - you want to enforce some validation on
-  value and keep prompting user until valid value is typed.
+- =vulpea-utils-collect-while= - utility to repeat some function and collect it's results until ~C-g~ is used or passed filter returns =nil=. Example of usage - you want to collect multiple values from user and be able to quit the process.
+- =vulpea-utils-repeat-while= - utility to repeat some function and return first unfiltered result. Example of usage - you want to enforce some validation on value and keep prompting user until valid value is typed.
 
 ** Performance
 :PROPERTIES:
@@ -1464,42 +1271,26 @@ interest:
 :ID:                     b5069fa7-28ea-4bc1-bfce-32710d4cabc9
 :END:
 
-This library provides multiple functions to query notes from the database.
-Basically, there is one powerful =vulpea-db-query= allowing to filter notes by
-any =vulpea-note= based predicate. The only downside of this power is
-performance and memory penalty as all notes are loaded into memory. In cases
-when performance is critical and the set of notes can be narrowed down, one can
-use specialized queries:
+This library provides multiple functions to query notes from the database. Basically, there is one powerful =vulpea-db-query= allowing to filter notes by any =vulpea-note= based predicate. The only downside of this power is performance and memory penalty as all notes are loaded into memory. In cases when performance is critical and the set of notes can be narrowed down, one can use specialized queries:
 
-- =vulpea-db-query-by-tags-some= - return all notes tagged with one of the
-  provided =TAGS=.
-- =vulpea-db-query-by-tags-every= - return all notes tagged by every tag from
-  the list of provided =TAGS=.
-- =vulpea-db-query-by-links-some= - return all notes linking at least one of the
-  provided =DESTINATIONS=.
-- =vulpea-db-query-by-links-every= - return all notes linking each and every
-  provided =DESTINATIONS=.
+- =vulpea-db-query-by-tags-some= - return all notes tagged with one of the provided =TAGS=.
+- =vulpea-db-query-by-tags-every= - return all notes tagged by every tag from the list of provided =TAGS=.
+- =vulpea-db-query-by-links-some= - return all notes linking at least one of the provided =DESTINATIONS=.
+- =vulpea-db-query-by-links-every= - return all notes linking each and every provided =DESTINATIONS=.
 
-The following table displays time required to query notes by using
-=vulpea-db-query= vs specialized query on the database of 9554 [[https://github.com/d12frosted/vulpea-test-notes/][generated notes]].
-The difference between various test cases is partially explained by the fact
-that filtering functions result in different amount of notes. Since we need to
-retrieve full note structure, the more notes we have, the more time it takes.
+The following table displays time required to query notes by using =vulpea-db-query= vs specialized query on the database of 9554 [[https://github.com/d12frosted/vulpea-test-notes/][generated notes]]. The difference between various test cases is partially explained by the fact that filtering functions result in different amount of notes. Since we need to retrieve full note structure, the more notes we have, the more time it takes.
 
-| test          | result size |            generic |        specialized |
-|---------------+-------------+--------------------+--------------------|
-| =tags-some=   | 30 notes    |       1.0112478712 |       0.0066033426 |
-| =tags-every=  | 3168 notes  |       1.0059819176 | 0.5709392964999999 |
-| =links-some=  | 1657 notes  | 1.0462236128999999 |       0.4248580532 |
-| =links-every= | 92 notes    |       1.0204833089 |       0.0545313596 |
+| test          | result size |            generic |        specialized |     ratio |
+|---------------+-------------+--------------------+--------------------+-----------|
+| =tags-some=   | 30 notes    |       1.0112478712 |       0.0066033426 | 153.14182 |
+| =tags-every=  | 3168 notes  |       1.0059819176 | 0.5709392964999999 | 1.7619770 |
+| =links-some=  | 1657 notes  | 1.0462236128999999 |       0.4248580532 | 2.4625251 |
+| =links-every= | 92 notes    |       1.0204833089 |       0.0545313596 | 18.713696 |
+#+TBLFM: $5=$3/$4
 
 See [[https://github.com/d12frosted/vulpea/discussions/106#discussioncomment-1601429][this comment]] for more background on why these functions where created.
 
-In order to make these functions as fast as possible, =vulpea-db= module builds
-and maintains a view table called =notes=. While it does drastically improve
-query performance (see the table below), it adds a small footprint on
-synchronisation time. See [[https://github.com/d12frosted/vulpea/pull/116][vulpea#116]] for more information on this feature and
-measurements.
+In order to make these functions as fast as possible, =vulpea-db= module builds and maintains a view table called =notes=. While it does drastically improve query performance (see the table below), it adds a small footprint on synchronisation time. See [[https://github.com/d12frosted/vulpea/pull/116][vulpea#116]] for more information on this feature and measurements.
 
 | test          | result size |            [[https://github.com/d12frosted/vulpea/blob/551495a59fb8c3bcd49a091b233e24e4cb8b584c/vulpea-db.el#L76-L187][regular]] |         view table |     ratio |
 |---------------+-------------+--------------------+--------------------+-----------|
@@ -1507,31 +1298,27 @@ measurements.
 | =tags-every=  | 3168 notes  | 4.7333844436999996 |       1.0059819176 | 4.7052381 |
 | =links-some=  | 1657 notes  |       4.8095771283 | 1.0462236128999999 | 4.5970833 |
 | =links-every= | 92 notes    | 4.5517473337999995 |       1.0204833089 | 4.4603839 |
+#+TBLFM: $5=$3/$4
 
 ** Coding
 :PROPERTIES:
 :ID:                     74fe6b58-e289-4c8d-ad0b-49203227c905
 :END:
 
-Vulpea is developed using [[https://github.com/doublep/eldev/][eldev]]. If you are using =flycheck=, it is advised to
-also use [[https://github.com/flycheck/flycheck-eldev][flycheck-eldev]], as it makes dependencies and project files available
-thus mitigating false negative results from default Emacs Lisp checker.
+Vulpea is developed using [[https://github.com/doublep/eldev/][eldev]]. If you are using =flycheck=, it is advised to also use [[https://github.com/flycheck/flycheck-eldev][flycheck-eldev]], as it makes dependencies and project files available thus mitigating false negative results from default Emacs Lisp checker.
 
 ** Building and testing
 :PROPERTIES:
 :ID:                     7a68aea9-315a-4415-a619-0c088772b3f4
 :END:
 
-Vulpea tests are written using [[https://github.com/jorgenschaefer/emacs-buttercup/][buttercup]] testing framework. And [[https://github.com/doublep/eldev/][eldev]] is used to
-run them both locally and on CI. In order to run the tests locally, first
-[[https://github.com/doublep/eldev/id:b946c716-e3b3-4c84-8229-dde59ddd55aeation][install]] =eldev= and then run:
+Vulpea tests are written using [[https://github.com/jorgenschaefer/emacs-buttercup/][buttercup]] testing framework. And [[https://github.com/doublep/eldev/][eldev]] is used to run them both locally and on CI. In order to run the tests locally, first [[https://github.com/doublep/eldev/id:b946c716-e3b3-4c84-8229-dde59ddd55aeation][install]] =eldev= and then run:
 
 #+begin_src bash
   $ make test
 #+end_src
 
-Please note, that the linter is used in this project, so you might want to run
-it as well:
+Please note, that the linter is used in this project, so you might want to run it as well:
 
 #+begin_src bash
   $ make lint
