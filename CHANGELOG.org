@@ -12,6 +12,8 @@
 :ID:                     32a267f4-dd27-44b9-a045-5835a5c8503f
 :END:
 
+- Include attachment directory in =vulpea-note= and =notes= table.
+
 ** v0.3.0
 :PROPERTIES:
 :ID:                     40e2d01c-9100-4619-b771-c3df79d98f36

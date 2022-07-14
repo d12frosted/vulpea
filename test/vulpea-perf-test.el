@@ -38,7 +38,7 @@
 (require 'org-roam)
 (require 'vulpea)
 
-(defconst vulpea-perf-zip-branch "master")
+(defconst vulpea-perf-zip-branch "attach-dir")
 
 (defconst vulpea-perf-zip-url
   (format
@@ -82,6 +82,8 @@ When DISABLE-VULPEA-AUTOSYNC is non-nil,
         (emacsql db (format "update files set file = '\"' || '%s' || replace(file, '\"', '') || '\"'"
                             (file-name-as-directory org-roam-directory)))
         (emacsql db (format "update notes set path = '\"' || '%s' || replace(path, '\"', '') || '\"'"
+                            (file-name-as-directory org-roam-directory)))
+        (emacsql db (format "update notes set attach = '\"' || '%s' || replace(attach, '\"', '') || '\"'"
                             (file-name-as-directory org-roam-directory)))))
     (unless disable-vulpea-autosync
       (vulpea-db-autosync-enable))

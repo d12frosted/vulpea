@@ -132,6 +132,7 @@ slots/fields:
 - =vulpea-note-meta= - associative list of [[id:e0f6439c-8818-471d-ac25-c9dda830df3a][metadata]], where key is a string and the value is a list of strings. There are also two utilities to access/query metadata from note:
   - =vulpea-note-meta-get-list= - to get all values of given =PROP= and =TYPE=.
   - =vulpea-note-meta-get= - to get the first value of given =PROP= and =TYPE=.
+- =vulpea-note-attach-dir= - path to attachment directory. It respect all the [[https://orgmode.org/manual/Attachment-options.html][attachment options]]. This directory may not exist.
 
 If =ID= is not present in the note structure, this note is treated as non-existent. For example, =vulpea-select= returns such a note, when =require-match= is =nil= and the user selects non-existent note.
 

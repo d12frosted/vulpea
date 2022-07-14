@@ -36,6 +36,7 @@
 (require 'org-roam)
 (require 'org-roam-db)
 (require 'vulpea-utils)
+(require 's)
 
 ;;
 ;; Searching
@@ -85,7 +86,8 @@ The secret ingredient is list of aliases!"
         (aliases (nth 5 row))
         (tags (nth 6 row))
         (meta (nth 7 row))
-        (links (nth 8 row)))
+        (links (nth 8 row))
+        (attach (nth 9 row)))
     (seq-map
      (lambda (name)
        (make-vulpea-note
@@ -105,7 +107,8 @@ The secret ingredient is list of aliases!"
         :meta (seq-map
                (lambda (row)
                  (cons (nth 0 row) (nth 1 row)))
-               meta)))
+               meta)
+        :attach-dir attach))
      (cons title aliases))))
 
 (defun vulpea-db-query (&optional filter-fn)
@@ -124,7 +127,8 @@ returned."
   aliases,
   tags,
   meta,
-  links
+  links,
+  attach
 from notes")))
     (seq-filter
      (or filter-fn #'identity)
@@ -146,7 +150,8 @@ from notes")))
   aliases,
   tags,
   meta,
-  links
+  links,
+  attach
 from notes
 where notes.id in %s"
             (emacsql-escape-vector (apply #'vector ids))))))
@@ -239,7 +244,8 @@ Supports headings in the note."
   aliases,
   tags,
   meta,
-  links
+  links,
+  attach
 from notes
 where notes.id = '\"%s\"'"
                 id))))
@@ -308,7 +314,13 @@ If the FILE is relative, it is considered to be relative to
                    [:select [type dest]
                     :from links
                     :where (and (= source $s1))]
-                   id))))
+                   id)))
+          (attach-dir (caar
+                       (org-roam-db-query
+                        [:select attach
+                         :from notes
+                         :where (= id $s1)]
+                        id))))
       (make-vulpea-note
        :id id
        :path (org-roam-node-file node)
@@ -318,7 +330,8 @@ If the FILE is relative, it is considered to be relative to
        :tags (org-roam-node-tags node)
        :links (seq-uniq links)
        :properties (org-roam-node-properties node)
-       :meta meta))))
+       :meta meta
+       :attach-dir attach-dir))))
 
 (defun vulpea-db--parse-link-pair (link)
   "Parse LINK pair."
@@ -341,7 +354,8 @@ If the FILE is relative, it is considered to be relative to
        aliases
        tags
        meta
-       links]
+       links
+       attach]
       (:foreign-key [path] :references files [file] :on-delete :cascade)))
     (meta
      ([(node-id :not-null)
@@ -485,6 +499,7 @@ GET-DB is a function that returns connection to database."
                            (file-relative-name
                             file org-roam-directory))))
                (level 0)
+               (attach (org-attach-dir nil 'no-fs-check))
                (aliases (org-entry-get (point) "ROAM_ALIASES"))
                (aliases (when aliases
                           (split-string-and-unquote aliases)))
@@ -534,7 +549,8 @@ GET-DB is a function that returns connection to database."
                     (lambda (kvp)
                       (list (car kvp) (cdr kvp)))
                     kvps)
-                   nil))
+                   nil
+                   attach))
           (when kvps
             (org-roam-db-query
              [:insert :into meta
@@ -548,6 +564,7 @@ GET-DB is a function that returns connection to database."
   "Insert outline level note into `vulpea' database."
   (when-let ((id (org-id-get)))
     (let* ((file (buffer-file-name (buffer-base-buffer)))
+           (attach (org-attach-dir nil 'no-fs-check))
            (heading-components (org-heading-components))
            (level (nth 1 heading-components))
            (title
@@ -585,7 +602,8 @@ GET-DB is a function that returns connection to database."
                aliases
                tags
                nil
-               nil)))))
+               nil
+               attach)))))
 
 (defun vulpea-db-insert-links (&rest _)
   "Insert links into `vulpea' database."

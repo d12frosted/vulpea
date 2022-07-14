@@ -230,11 +230,13 @@
              :level 0
              :id (vulpea-note-id note)
              :properties (list
-                           (cons "CATEGORY" "prefix-slarina")
-                           (cons "ID" (vulpea-note-id note))
-                           (cons "BLOCKED" "")
-                           (cons "FILE" (expand-file-name "prefix-slarina.org" org-roam-directory))
-                           (cons "PRIORITY" "B"))))
+                          (cons "CATEGORY" "prefix-slarina")
+                          (cons "ID" (vulpea-note-id note))
+                          (cons "BLOCKED" "")
+                          (cons "FILE" (expand-file-name "prefix-slarina.org" org-roam-directory))
+                          (cons "PRIORITY" "B"))
+             :attach-dir (let ((default-directory org-roam-directory))
+                           (org-attach-dir-from-id (vulpea-note-id note) 'try-all))))
     (expect (vulpea-db-get-by-id (vulpea-note-id note))
             :to-equal
             note))
@@ -244,7 +246,7 @@
           (vulpea-create
            "Frappato"
            "prefix-${slug}.org"
-           :id "xyz"
+           :id "00000000-0000-0000-0000-000000000000"
            :unnarrowed t
            :immediate-finish t))
     (expect note
@@ -254,14 +256,15 @@
              :title "Frappato"
              :tags nil
              :level 0
-             :id "xyz"
+             :id "00000000-0000-0000-0000-000000000000"
              :properties (list
-                           (cons "CATEGORY" "prefix-frappato")
-                           (cons "ID" "xyz")
-                           (cons "BLOCKED" "")
-                           (cons "FILE" (expand-file-name "prefix-frappato.org" org-roam-directory))
-                           (cons "PRIORITY" "B"))))
-    (expect (vulpea-db-get-by-id "xyz")
+                          (cons "CATEGORY" "prefix-frappato")
+                          (cons "ID" "00000000-0000-0000-0000-000000000000")
+                          (cons "BLOCKED" "")
+                          (cons "FILE" (expand-file-name "prefix-frappato.org" org-roam-directory))
+                          (cons "PRIORITY" "B"))
+             :attach-dir (expand-file-name "data/00/000000-0000-0000-0000-000000000000" org-roam-directory)))
+    (expect (vulpea-db-get-by-id "00000000-0000-0000-0000-000000000000")
             :to-equal
             note))
 
@@ -284,11 +287,13 @@
              :level 0
              :id (vulpea-note-id note)
              :properties (list
-                           (cons "CATEGORY" "prefix-nerello_mascalese")
-                           (cons "ID" (vulpea-note-id note))
-                           (cons "BLOCKED" "")
-                           (cons "FILE" (expand-file-name "prefix-nerello_mascalese.org" org-roam-directory))
-                           (cons "PRIORITY" "B"))))
+                          (cons "CATEGORY" "prefix-nerello_mascalese")
+                          (cons "ID" (vulpea-note-id note))
+                          (cons "BLOCKED" "")
+                          (cons "FILE" (expand-file-name "prefix-nerello_mascalese.org" org-roam-directory))
+                          (cons "PRIORITY" "B"))
+             :attach-dir (let ((default-directory org-roam-directory))
+                           (org-attach-dir-from-id (vulpea-note-id note) 'try-all))))
     (expect (vulpea-db-get-by-id (vulpea-note-id note))
             :to-equal
             note))
@@ -321,7 +326,9 @@
                           (cons "ID" (vulpea-note-id note))
                           (cons "BLOCKED" "")
                           (cons "FILE" (expand-file-name "prefix-aglianico.org" org-roam-directory))
-                          (cons "PRIORITY" "B"))))
+                          (cons "PRIORITY" "B"))
+             :attach-dir (let ((default-directory org-roam-directory))
+                           (org-attach-dir-from-id (vulpea-note-id note) 'try-all))))
     (expect (vulpea-db-get-by-id (vulpea-note-id note))
             :to-equal
             note)
