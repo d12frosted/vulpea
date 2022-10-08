@@ -22,6 +22,17 @@
 (require 'org-roam)
 (require 'vulpea)
 
+(when (version<= "29" emacs-version)
+  (defun buttercup-format-spec (format specification)
+    "Return a string based on FORMAT and SPECIFICATION.
+
+This is a wrapper around `format-spec', which see. This also adds
+a call to `save-match-data', as `format-spec' modifies that."
+    (save-match-data
+      (format-spec format (--map
+                           (cons (car it) (lambda () (cdr it)))
+                           specification)))))
+
 (defvar vulpea-test-directory (expand-file-name "test/note-files")
   "Directory containing test notes.")
 
