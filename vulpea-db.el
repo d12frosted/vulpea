@@ -344,10 +344,16 @@ If the FILE is relative, it is considered to be relative to
 
 
 
-(defconst vulpea-db-version 3)
+(defconst vulpea-db-reserved-names
+  '(notes meta versions
+    files nodes aliases citations refs tags links)
+  "List of reserved table names.
 
-(defconst vulpea-db--schemata
+Includes Vulpea tables as well as Org roam tables.")
+
+(defvar vulpea-db--tables
   '((notes
+     1
      ([(id :not-null :primary-key)
        (path :not-null)
        (level :not-null)
@@ -360,6 +366,7 @@ If the FILE is relative, it is considered to be relative to
        attach]
       (:foreign-key [path] :references files [file] :on-delete :cascade)))
     (meta
+     1
      ([(node-id :not-null)
        (prop :not-null)
        (value :not-null)]
@@ -368,15 +375,44 @@ If the FILE is relative, it is considered to be relative to
        :references
        nodes [id]
        :on-delete
-       :cascade)))
-    (cache
+       :cascade))
+     ((meta-node-id [node-id])))
+    (versions
+     1
      ([(id :not-null :primary-key)
-       (version :not-null)])))
-  "Vulpea db schemata.")
+       (version :not-null)]))))
 
-(defconst vulpea-db--indices
-  '((meta-node-id meta [node-id]))
-  "Vulpea db indices.")
+(defun vulpea-db-define-table (name version schema &optional indices)
+  "Define a table with NAME in `org-roam-db'.
+
+Keep in mind that the names defined in `vulpea-db-reserved-names'
+are not allowed.
+
+VERSION is used to automatically upgrade whenever SCHEMA or
+INDICES change.
+
+A table SCHEMA is a list whose first element is a vector of
+column specifications. The rest of the list specifies table
+constraints. A column identifier is a symbol and a column's
+specification can either be just this symbol or it can include
+constraints as a list. Because EmacSQL stores entire Lisp objects
+as values, the only relevant (and allowed) types are integer,
+float, and object (default).
+
+Optionally you may define INDICES for this table - an association
+list, where car is a unique name of the index and cdr is vector
+of columns to be indexed.
+
+Consult with `emacsql' documentation to learn more about SCHEMA
+and INDICES."
+  (when (seq-contains-p vulpea-db-reserved-names name)
+    (user-error "Name %s is reserved and can't be used" name))
+  (when (seq-contains-p (seq-map #'car vulpea-db--tables) name)
+    (user-error "Name %s is already in use" name))
+  (add-to-list
+   'vulpea-db--tables
+   `(name ,version ,schema ,indices)
+   'append))
 
 (defvar vulpea-db--initalized nil
   "Non-nil when database was initialized.")
@@ -388,24 +424,25 @@ GET-DB is a function that returns connection to database."
   (when-let ((db (funcall get-db)))
     (unless vulpea-db--initalized
       (emacsql-with-transaction db
-        (pcase-dolist (`(,table ,schema) vulpea-db--schemata)
-          (unless (emacsql db
-                           [:select name
-                            :from sqlite_master
-                            :where (and (= type 'table)
-                                        (= name $r1))]
-                           (emacsql-escape-identifier table))
-            (emacsql db [:create-table $i1 $S2] table schema)))
-        (pcase-dolist (`(,index-name ,table ,columns)
-                       vulpea-db--indices)
-          (unless (emacsql db
-                           [:select name
-                            :from sqlite_master
-                            :where (and (= type 'index)
-                                        (= name $r1))]
-                           (emacsql-escape-identifier index-name))
-            (emacsql db [:create-index $i1 :on $i2 $S3]
-                     index-name table columns)))))
+        (-each vulpea-db--tables
+          (-lambda ((table-name _ schema indices))
+            (unless (emacsql db
+                             [:select name
+                              :from sqlite_master
+                              :where (and (= type 'table)
+                                          (= name $r1))]
+                             (emacsql-escape-identifier table-name))
+              (emacsql db [:create-table $i1 $S2] table-name schema))
+            (-each indices
+              (-lambda ((index-name columns))
+                (unless (emacsql db
+                                 [:select name
+                                  :from sqlite_master
+                                  :where (and (= type 'index)
+                                              (= name $r1))]
+                                 (emacsql-escape-identifier index-name))
+                  (emacsql db [:create-index $i1 :on $i2 $S3]
+                           index-name table-name columns))))))))
     (setq vulpea-db--initalized t)
     db))
 
@@ -421,17 +458,13 @@ GET-DB is a function that returns connection to database."
     (cond
      (enabled
       (setq vulpea-db--initalized nil)
-      ;; attach custom schemata
-      (seq-each
-       (lambda (schema)
-         (add-to-list 'org-roam-db--table-schemata schema 'append))
-       vulpea-db--schemata)
-
-      ;; attach custom indices
-      (seq-each
-       (lambda (index)
-         (add-to-list 'org-roam-db--table-indices index 'append))
-       vulpea-db--indices)
+      ;; attach custom schemata and indices
+      (-each vulpea-db--tables
+        (-lambda ((table-name _ schema indices))
+          (add-to-list 'org-roam-db--table-schemata `(,table-name ,schema) 'append)
+          (-each indices
+            (-lambda ((index-name columns))
+              (add-to-list 'org-roam-db--table-indices `(,index-name ,table-name ,columns) 'append)))))
 
       ;; make sure that extra tables exist table exists
       (advice-add 'org-roam-db :around #'vulpea-db--init)
@@ -449,23 +482,33 @@ GET-DB is a function that returns connection to database."
        'org-roam-db-map-links :after #'vulpea-db-insert-links)
 
       (when (file-exists-p org-roam-db-location)
-        (let ((version (or (caar (emacsql (org-roam-db)
-                                          [:select version
-                                           :from cache
-                                           :where (= id "vulpea")]))
-                           0)))
-          (when (< version vulpea-db-version)
-            (org-roam-message (format "Upgrading the vulpea database from version %d to version %d"
-                                      version vulpea-db-version))
-            (org-roam-db-sync t)
-            (let ((db (org-roam-db)))
-              (emacsql db [:update cache
-                           :set (= version $s1)
-                           :where (= id "vulpea")]
-                       vulpea-db-version)
-              (emacsql db [:insert :or :ignore :into cache [id version]
-                           :values ["vulpea" $s1]]
-                       vulpea-db-version))))))
+        (when-let* ((db (org-roam-db))
+                    (changed (-find
+                              (-lambda ((table-name version1))
+                                (let ((version0 (or (caar (emacsql
+                                                           (org-roam-db)
+                                                           [:select version
+                                                            :from versions
+                                                            :where (= id $s1)]
+                                                           table-name))
+                                                    0)))
+                                  (when (< version0 version1)
+                                    (org-roam-message
+                                     (format
+                                      "Doing vulpea database sync to upgrade '%s' table from version %d to version %d"
+                                      table-name version0 version1)))))
+                              vulpea-db--tables)))
+          (org-roam-db-sync t)
+          (let ((db (org-roam-db)))
+            (-each vulpea-db--tables
+              (-lambda ((table-name version))
+                (emacsql db [:update versions
+                             :set (= version $s2)
+                             :where (= id $s1)]
+                         table-name version)
+                (emacsql db [:insert :or :ignore :into versions [id version]
+                             :values [$s1 $s2]]
+                         table-name version)))))))
      (t
       (setq vulpea-db--initalized nil)
       (advice-remove 'org-roam-db-map-links #'vulpea-db-insert-links)
@@ -474,16 +517,14 @@ GET-DB is a function that returns connection to database."
       (advice-remove
        'org-roam-db-insert-file-node #'vulpea-db-insert-file-note)
       (advice-remove 'org-roam-db #'vulpea-db--init)
-      (seq-each
-       (lambda (schema)
-         (setq org-roam-db--table-schemata
-               (delete schema org-roam-db--table-schemata)))
-       vulpea-db--schemata)
-      (seq-each
-       (lambda (index)
-         (setq org-roam-db--table-indices
-               (delete index org-roam-db--table-indices)))
-       vulpea-db--indices)))))
+      (-each vulpea-db--tables
+        (-lambda ((table-name _ schema indices))
+          (setq org-roam-db--table-schemata
+                (delete `(,table-name ,schema) org-roam-db--table-schemata))
+          (-each indices
+            (-lambda ((index-name columns))
+              (setq org-roam-db--table-indices
+                    (delete `(,index-name ,table-name ,columns) org-roam-db--table-indices))))))))))
 
 ;;;###autoload
 (defun vulpea-db-autosync-enable ()
