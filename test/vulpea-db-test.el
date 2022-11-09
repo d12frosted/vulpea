@@ -898,47 +898,50 @@
     (org-roam-db-sync 'force)
 
     ;; initially there are no vulpea specific tables
-    (pcase-dolist (`(,table ,_) vulpea-db--schemata)
-      (expect (org-roam-db-query
-               [:select name
-                :from sqlite_master
-                :where (and (= type 'table)
-                            (= name $r1))]
-               (emacsql-escape-identifier table))
-              :to-equal nil))
-    (pcase-dolist (`(,index-name ,_ ,_) vulpea-db--indices)
-      (expect (org-roam-db-query
-               [:select name
-                :from sqlite_master
-                :where (and (= type 'index)
-                            (= name $r1))]
-               (emacsql-escape-identifier index-name))
-              :to-equal nil))
+    (-each vulpea-db--tables
+      (-lambda ((table _ _ indices))
+        (expect (org-roam-db-query
+                 [:select name
+                  :from sqlite_master
+                  :where (and (= type 'table)
+                              (= name $r1))]
+                 (emacsql-escape-identifier table))
+                :to-equal nil)
+        (-each indices
+          (-lambda ((index-name))
+            (expect (org-roam-db-query
+                     [:select name
+                      :from sqlite_master
+                      :where (and (= type 'index)
+                                  (= name $r1))]
+                     (emacsql-escape-identifier index-name))
+                    :to-equal nil)))))
 
     ;; then we setup vulpea-db
     (message "vulpea-db-setup")
     (vulpea-db-autosync-enable)
 
     ;; and vulpea specific tables should exist
-    (pcase-dolist (`(,table ,_) vulpea-db--schemata)
-      (expect (org-roam-db-query
-               [:select name
-                :from sqlite_master
-                :where (and (= type 'table)
-                            (= name $r1))]
-               (emacsql-escape-identifier table))
-              :to-equal (list (list (intern (emacsql-escape-identifier table))))))
-    (pcase-dolist (`(,index-name ,_ ,_) vulpea-db--indices)
-      (expect (org-roam-db-query
-               [:select name
-                :from sqlite_master
-                :where (and (= type 'index)
-                            (= name $r1))]
-               (emacsql-escape-identifier index-name))
-              :to-equal (list (list (intern (emacsql-escape-identifier index-name))))))
-    (expect (caar (org-roam-db-query [:select version :from cache :where (= id "vulpea")]))
-            :to-equal
-            vulpea-db-version)
+    (-each vulpea-db--tables
+      (-lambda ((table version _ indices))
+        (expect (org-roam-db-query
+                 [:select name
+                  :from sqlite_master
+                  :where (and (= type 'table)
+                              (= name $r1))]
+                 (emacsql-escape-identifier table))
+                :to-equal (list (list (intern (emacsql-escape-identifier table)))))
+        (-each indices
+          (-lambda ((index-name))
+            (expect (org-roam-db-query
+                     [:select name
+                      :from sqlite_master
+                      :where (and (= type 'index)
+                                  (= name $r1))]
+                     (emacsql-escape-identifier index-name))
+                    :to-equal (list (list (intern (emacsql-escape-identifier index-name)))))))
+        (expect (caar (org-roam-db-query [:select version :from versions :where (= id $s1)] table))
+                :to-equal version)))
 
     ;; sync a file
     (message "update file")
