@@ -351,7 +351,7 @@ If the FILE is relative, it is considered to be relative to
 
 Includes Vulpea tables as well as Org roam tables.")
 
-(defvar vulpea-db--tables
+(defvar vulpea-db--tables-default
   '((notes
      1
      ([(id :not-null :primary-key)
@@ -382,6 +382,15 @@ Includes Vulpea tables as well as Org roam tables.")
      ([(id :not-null :primary-key)
        (version :not-null)]))))
 
+(defvar vulpea-db--tables vulpea-db--tables-default)
+
+(defvar vulpea-db--initalized nil
+  "Non-nil when database was initialized.")
+
+(defun vulpea-db-reset-tables ()
+  "Reset defined tables."
+  (setq vulpea-db--tables vulpea-db--tables-default))
+
 (defun vulpea-db-define-table (name version schema &optional indices)
   "Define a table with NAME in `org-roam-db'.
 
@@ -411,11 +420,9 @@ and INDICES."
     (user-error "Name %s is already in use" name))
   (add-to-list
    'vulpea-db--tables
-   `(name ,version ,schema ,indices)
-   'append))
-
-(defvar vulpea-db--initalized nil
-  "Non-nil when database was initialized.")
+   `(,name ,version ,schema ,indices)
+   'append)
+  (setq vulpea-db--initalized nil))
 
 (defun vulpea-db--init (get-db)
   "Initialize database by creating missing tables if needed.
