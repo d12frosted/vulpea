@@ -344,6 +344,26 @@ If the FILE is relative, it is considered to be relative to
 
 
 
+(defvar vulpea-db-insert-note-functions nil
+  "Abnormal hooks to run after a `vulpea-note' is inserted to DB.
+
+The hook is called with a single argument - an inserted
+`vulpea-note'. Keep in mind that due to Org Roam implementation
+details, links are not present in passed `vulpea-note'.
+
+Use it to update any custom tables you added via
+`vulpea-db-define-table'. Keep in mind that you should not expect
+any entries to be present in database. The synchronisation order
+is _not_ defined.
+
+There is no similar hook for removal, because it can be handled
+by using combination of :foreign-key and :on-delete :cascade
+options in table schema. See `vulpea-db--tables-default' for
+example.
+
+Each function accepts a note that was inserted via
+`vulpea-insert'.")
+
 (defconst vulpea-db-reserved-names
   '(notes meta versions
     files nodes aliases citations refs tags links)
@@ -477,16 +497,9 @@ GET-DB is a function that returns connection to database."
       (advice-add 'org-roam-db :around #'vulpea-db--init)
 
       ;; make sure that all data is inserted into table
-      (advice-add
-       'org-roam-db-insert-file-node
-       :after
-       #'vulpea-db-insert-file-note)
-      (advice-add
-       'org-roam-db-insert-node-data
-       :after
-       #'vulpea-db-insert-outline-note)
-      (advice-add
-       'org-roam-db-map-links :after #'vulpea-db-insert-links)
+      (advice-add 'org-roam-db-insert-file-node :after #'vulpea-db-insert-file-note)
+      (advice-add 'org-roam-db-insert-node-data :after #'vulpea-db-insert-outline-note)
+      (advice-add 'org-roam-db-map-links :after #'vulpea-db-insert-links)
 
       (when (file-exists-p org-roam-db-location)
         (when-let* ((db (org-roam-db))
@@ -519,10 +532,8 @@ GET-DB is a function that returns connection to database."
      (t
       (setq vulpea-db--initalized nil)
       (advice-remove 'org-roam-db-map-links #'vulpea-db-insert-links)
-      (advice-remove
-       'org-roam-db-insert-node-data #'vulpea-db-insert-outline-note)
-      (advice-remove
-       'org-roam-db-insert-file-node #'vulpea-db-insert-file-note)
+      (advice-remove 'org-roam-db-insert-node-data #'vulpea-db-insert-outline-note)
+      (advice-remove 'org-roam-db-insert-file-node #'vulpea-db-insert-file-note)
       (advice-remove 'org-roam-db #'vulpea-db--init)
       (-each vulpea-db--tables
         (-lambda ((table-name _ schema indices))
@@ -630,7 +641,23 @@ GET-DB is a function that returns connection to database."
              (seq-map
               (lambda (kvp)
                 (vector id (car kvp) (cdr kvp)))
-              kvps))))))))
+              kvps)))
+          (run-hook-with-args
+           'vulpea-db-insert-note-functions
+           (make-vulpea-note
+            :id id
+            :path file
+            :level level
+            :title title
+            :aliases aliases
+            :tags tags
+            :links nil
+            :properties properties
+            :meta (seq-map
+                   (lambda (kvp)
+                     (cons (car kvp) (cdr kvp)))
+                   kvps)
+            :attach-dir attach)))))))
 
 (defun vulpea-db-insert-outline-note ()
   "Insert outline level note into `vulpea' database."
@@ -675,7 +702,20 @@ GET-DB is a function that returns connection to database."
                tags
                nil
                nil
-               attach)))))
+               attach))
+      (run-hook-with-args
+       'vulpea-db-insert-note-functions
+       (make-vulpea-note
+        :id id
+        :path file
+        :level level
+        :title title
+        :aliases aliases
+        :tags tags
+        :links nil
+        :properties properties
+        :meta nil
+        :attach-dir attach)))))
 
 (defun vulpea-db-insert-links (&rest _)
   "Insert links into `vulpea' database."

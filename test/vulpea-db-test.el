@@ -978,5 +978,72 @@
                      ("answer" . ("42")))
              :attach-dir (expand-file-name "data/05/907606-f836-45bf-bd36-a8444308eddd" org-roam-directory)))))
 
+(describe "vulpea-db-insert-note-functions"
+  (before-each
+    (vulpea-test--init)
+    (spy-on 'insert-handle-fn)
+    (add-hook 'vulpea-db-insert-note-functions #'insert-handle-fn))
+
+  (after-each
+    (vulpea-test--teardown)
+    (remove-hook 'vulpea-db-insert-note-functions #'insert-handle-fn))
+
+  (it "calls insert hook on file level note"
+    (let* ((id "1cc15044-aedb-442e-b727-9e3f7346be95")
+           (note (vulpea-db-get-by-id id))
+           (file (vulpea-note-path note)))
+      ;; force sync of a single file by clearing it and syncing manually
+      (org-roam-db-clear-file file)
+      (org-roam-db-sync)
+      (expect 'insert-handle-fn :to-have-been-called-times 1)
+      (expect 'insert-handle-fn :to-have-been-called-with
+              (make-vulpea-note
+               :path (expand-file-name "note-with-link.org" org-roam-directory)
+               :title "Note with link"
+               :tags nil
+               :level 0
+               :id "1cc15044-aedb-442e-b727-9e3f7346be95"
+               :links nil               ; not supported in this hook
+               :properties (list
+                            (cons "CATEGORY" "note-with-link")
+                            (cons "ID" "1cc15044-aedb-442e-b727-9e3f7346be95")
+                            (cons "BLOCKED" "")
+                            (cons "FILE" (expand-file-name "note-with-link.org" org-roam-directory))
+                            (cons "PRIORITY" "B"))
+               :attach-dir (expand-file-name "data/1c/c15044-aedb-442e-b727-9e3f7346be95" org-roam-directory)))))
+
+  (it "calls insert hook on outline level note"
+    (let* ((id "1cc15044-aedb-442e-b727-9e3f7346be95"))
+      ;; force sync by adding a new header to the end of existing note
+      (vulpea-utils-with-note (vulpea-db-get-by-id id)
+        (goto-char (point-max))
+        (insert
+         "\n"
+         "* I was added\n")
+        (setf id (org-id-get-create))
+        (save-buffer))
+      (expect 'insert-handle-fn :to-have-been-called-times 2)
+      (expect 'insert-handle-fn :to-have-been-called-with
+              (make-vulpea-note
+               :path (expand-file-name "note-with-link.org" org-roam-directory)
+               :title "I was added"
+               :tags nil
+               :level 1
+               :id id
+               :links nil               ; not supported in this hook
+               :properties (list
+                            (cons "CATEGORY" "note-with-link")
+                            (cons "ID" id)
+                            (cons "BLOCKED" "")
+                            (cons "FILE" (expand-file-name "note-with-link.org" org-roam-directory))
+                            (cons "PRIORITY" "B")
+                            (cons "ITEM" "I was added"))
+               :attach-dir (expand-file-name
+                            (concat "data/"
+                                    (substring-no-properties id 0 2)
+                                    "/"
+                                    (substring-no-properties id 2))
+                            org-roam-directory))))))
+
 (provide 'vulpea-db-test)
 ;;; vulpea-db-test.el ends here
