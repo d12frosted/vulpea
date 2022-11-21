@@ -1041,6 +1041,33 @@ As you can see, =vulpea-db-query= doesn't allow to pass any custom SQL for filte
 - =vulpea-db-get-file-by-id= - function to get =FILE= of a note represented by =ID=. Supports headings of the note.
 - =vulpea-db-search-by-title= - function to query notes with =TITLE=.
 
+**** Extending database
+:PROPERTIES:
+:ID:                     8d0b72a8-b5ee-4be8-a17f-84b151ad85fc
+:END:
+
+You may extend database by adding custom tables using =vulpea-db-define-table=:
+
+#+begin_src emacs-lisp
+  (vulpea-db-define-table
+   ;; name
+   'my-custom-table
+   ;; version
+   1
+   ;; schema
+   '([(note-id :unique :primary-key)
+      (some-column :not-null)
+      (some-other-column)]
+     ;; useful to automatically cleanup your table whenever a note/node/file is removed
+     (:foreign-key [note-id] :references nodes [id] :on-delete :cascade))
+   ;; index
+   '((custom-node-id-index [note-id])))
+#+end_src
+
+Consult with [[https://github.com/magit/emacsql/][magit/emacsql]] documentation to learn more about schema and indices.
+
+In order to populate your table with data, you should add a hook to =vulpea-db-insert-note-functions=. It is called with a single argument of type =vulpea-note= (keep in mind that =vulpea-note-links= slot is empty, open a ticket if you need it).
+
 *** =vulpea-meta=
 :PROPERTIES:
 :ID:                     9bb0311f-c257-46f1-8e1f-68c735a1a07c
