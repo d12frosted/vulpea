@@ -436,13 +436,12 @@ Consult with `emacsql' documentation to learn more about SCHEMA
 and INDICES."
   (when (seq-contains-p vulpea-db-reserved-names name)
     (user-error "Name %s is reserved and can't be used" name))
-  (when (seq-contains-p (seq-map #'car vulpea-db--tables) name)
-    (user-error "Name %s is already in use" name))
-  (add-to-list
-   'vulpea-db--tables
-   `(,name ,version ,schema ,indices)
-   'append)
-  (setq vulpea-db--initalized nil))
+  (unless (seq-contains-p (seq-map #'car vulpea-db--tables) name)
+    (add-to-list
+     'vulpea-db--tables
+     `(,name ,version ,schema ,indices)
+     'append)
+    (setq vulpea-db--initalized nil)))
 
 (defun vulpea-db--init (get-db)
   "Initialize database by creating missing tables if needed.
