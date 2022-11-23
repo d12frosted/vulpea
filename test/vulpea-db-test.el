@@ -888,10 +888,10 @@
               :to-be nil))))
 
 (describe "vulpea-db-setup"
-  (before-all
+  (before-each
     (vulpea-test--init 'no-setup))
 
-  (after-all
+  (after-each
     (vulpea-test--teardown))
 
   (it "applies cleanly on existing database"
@@ -918,7 +918,6 @@
                     :to-equal nil)))))
 
     ;; then we setup vulpea-db
-    (message "vulpea-db-setup")
     (vulpea-db-autosync-enable)
 
     ;; and vulpea specific tables should exist
@@ -943,12 +942,7 @@
         (expect (caar (org-roam-db-query [:select version :from versions :where (= id $s1)] table))
                 :to-equal version)))
 
-    ;; sync a file
-    (message "update file")
-    (org-roam-db-clear-file (expand-file-name "with-meta.org" org-roam-directory))
-    (org-roam-db-update-file (expand-file-name "with-meta.org" org-roam-directory))
-
-    ;; and now everything is available
+    ;; and data is synced
     (expect (vulpea-db-get-by-id "05907606-f836-45bf-bd36-a8444308eddd")
             :to-equal
             (make-vulpea-note
@@ -976,7 +970,22 @@
                      ("references" . ("[[id:444f94d7-61e0-4b7c-bb7e-100814c6b4bb][Note without META]]"
                                       "[[id:5093fc4e-8c63-4e60-a1da-83fc7ecd5db7][Reference]]"))
                      ("answer" . ("42")))
-             :attach-dir (expand-file-name "data/05/907606-f836-45bf-bd36-a8444308eddd" org-roam-directory)))))
+             :attach-dir (expand-file-name "data/05/907606-f836-45bf-bd36-a8444308eddd" org-roam-directory))))
+
+  (it "survives (org-roam-db-sync 'force)"
+    (message "enable autosync")
+    (vulpea-db-autosync-enable)
+    (-each vulpea-db--tables
+      (-lambda ((table version))
+        (expect (caar (org-roam-db-query [:select version :from versions :where (= id $s1)] table))
+                :to-equal version)))
+
+    (message "force sync")
+    (org-roam-db-sync 'force)
+    (-each vulpea-db--tables
+      (-lambda ((table version))
+        (expect (caar (org-roam-db-query [:select version :from versions :where (= id $s1)] table))
+                :to-equal version)))))
 
 (describe "vulpea-db-insert-note-functions"
   (before-each
