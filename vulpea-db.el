@@ -472,6 +472,33 @@ GET-DB is a function that returns connection to database."
     (setq vulpea-db--initalized t)
     db))
 
+(defun vulpea-db--sync (sync &optional force)
+  "Wrapper for SYNC function.
+
+See `org-roam-db-sync' for more information on the implication of
+FORCE argument."
+  ;; Enforce creation of extra table whenever `org-roam-db' is called.
+  ;; But do it only if FORCE argument is non-nil, otherwise there is
+  ;; no need to modify anything.
+  (when force (setq vulpea-db--initalized nil))
+
+  ;; Call the SYNC function.
+  (funcall sync force)
+
+  ;; If the sync was forced, setup version values to avoid endless
+  ;; force sync cycle.
+  (when force
+    (let ((db (org-roam-db)))
+      (-each vulpea-db--tables
+        (-lambda ((table-name version))
+          (emacsql db [:update versions
+                       :set (= version $s2)
+                       :where (= id $s1)]
+                   table-name version)
+          (emacsql db [:insert :or :ignore :into versions [id version]
+                       :values [$s1 $s2]]
+                   table-name version))))))
+
 
 
 ;;;###autoload
@@ -495,6 +522,9 @@ GET-DB is a function that returns connection to database."
       ;; make sure that extra tables exist table exists
       (advice-add 'org-roam-db :around #'vulpea-db--init)
 
+      ;; make sure that extra tables are restored during force sync
+      (advice-add 'org-roam-db-sync :around #'vulpea-db--sync)
+
       ;; make sure that all data is inserted into table
       (advice-add 'org-roam-db-insert-file-node :after #'vulpea-db-insert-file-note)
       (advice-add 'org-roam-db-insert-node-data :after #'vulpea-db-insert-outline-note)
@@ -517,22 +547,13 @@ GET-DB is a function that returns connection to database."
                                       "Doing vulpea database sync to upgrade '%s' table from version %d to version %d"
                                       table-name version0 version1)))))
                               vulpea-db--tables)))
-          (org-roam-db-sync t)
-          (let ((db (org-roam-db)))
-            (-each vulpea-db--tables
-              (-lambda ((table-name version))
-                (emacsql db [:update versions
-                             :set (= version $s2)
-                             :where (= id $s1)]
-                         table-name version)
-                (emacsql db [:insert :or :ignore :into versions [id version]
-                             :values [$s1 $s2]]
-                         table-name version)))))))
+          (org-roam-db-sync t))))
      (t
       (setq vulpea-db--initalized nil)
       (advice-remove 'org-roam-db-map-links #'vulpea-db-insert-links)
       (advice-remove 'org-roam-db-insert-node-data #'vulpea-db-insert-outline-note)
       (advice-remove 'org-roam-db-insert-file-node #'vulpea-db-insert-file-note)
+      (advice-remove 'org-roam-db-sync #'vulpea-db--sync)
       (advice-remove 'org-roam-db #'vulpea-db--init)
       (-each vulpea-db--tables
         (-lambda ((table-name _ schema indices))
