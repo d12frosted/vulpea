@@ -545,7 +545,8 @@ FORCE argument."
                                     (org-roam-message
                                      (format
                                       "Doing vulpea database sync to upgrade '%s' table from version %d to version %d"
-                                      table-name version0 version1)))))
+                                      table-name version0 version1))
+                                    t)))
                               vulpea-db--tables)))
           (org-roam-db-sync t))))
      (t
