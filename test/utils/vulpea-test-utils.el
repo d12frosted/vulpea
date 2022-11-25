@@ -53,6 +53,9 @@ a call to `save-match-data', as `format-spec' modifies that."
 Unless NO-SETUP is non-nil, setup vulpea db."
   (let ((original-dir vulpea-test-directory)
         (new-dir (expand-file-name (make-temp-name "note-files") temporary-file-directory)))
+    (message "init test directory %s setup in %s"
+             (if no-setup "without" "with")
+             new-dir)
     (copy-directory original-dir new-dir)
     (setq org-roam-directory new-dir
           org-roam-db-location (expand-file-name "org-roam.db" new-dir))
