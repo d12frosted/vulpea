@@ -323,7 +323,7 @@ Optionally, run INIT-HOOK after test env initialisation."
       (single-note-perf "eeec8f05-927f-4c61-b39e-2fb8228cf484" 1000))
 
     (it "synchronisation of huge note is fast"
-      (single-note-perf "b0dae07d-8789-4737-b830-db775715cbf0" 100
+      (single-note-perf "b0dae07d-8789-4737-b830-db775715cbf0" 10
                         (lambda ()
                           (copy-file "test/note-files-extra/sicily.org"
                                      (expand-file-name "sicily.org" org-roam-directory))
