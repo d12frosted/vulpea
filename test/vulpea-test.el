@@ -325,6 +325,7 @@
                           (cons "MY_TAG" "super-tag")
                           (cons "ID" (vulpea-note-id note))
                           (cons "BLOCKED" "")
+                          (cons "ALLTAGS" ":tag1:tag2:")
                           (cons "FILE" (expand-file-name "prefix-aglianico.org" org-roam-directory))
                           (cons "PRIORITY" "B"))
              :attach-dir (let ((default-directory org-roam-directory))
