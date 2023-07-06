@@ -273,6 +273,10 @@ Some body.
     (expect (vulpea-buffer-meta-format "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")
             :to-equal "[[id:5093fc4e-8c63-4e60-a1da-83fc7ecd5db7][Reference]]"))
 
+  (it "formats an attachment with UUID in name"
+    (expect (vulpea-buffer-meta-format "[[attachment:5093fc4e-8c63-4e60-a1da-83fc7ecd5db7.png]]")
+            :to-equal "[[attachment:5093fc4e-8c63-4e60-a1da-83fc7ecd5db7.png]]"))
+
   (it "formats regular string"
     (expect (vulpea-buffer-meta-format "hello")
             :to-equal "hello"))

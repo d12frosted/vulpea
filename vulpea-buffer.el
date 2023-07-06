@@ -399,7 +399,7 @@ which case VALUE is added at the end of the meta."
    ((vulpea-note-p value)
     (vulpea-utils-link-make-string value))
    ((and (stringp value)
-         (string-match-p vulpea-utils--uuid-regexp value))
+         (string-match-p (concat "^" vulpea-utils--uuid-regexp "$") value))
     (if-let* ((note (vulpea-db-get-by-id value)))
         (vulpea-utils-link-make-string note)
       (user-error "Note with id \"%s\" does not exist" value)))
