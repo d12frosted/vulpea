@@ -248,8 +248,15 @@ Each element value depends on TYPE:
               (when (equal 'link
                            (org-element-type el))
                 (pcase (org-element-property :type el)
-                  ("id" (vulpea-db-get-by-id
-                         (org-element-property :path el)))))))
+                  ("id"
+                   (let* ((id (org-element-property :path el))
+                          (desc (substring-no-properties
+                                 (car (org-element-contents el))))
+                          (note (vulpea-db-get-by-id id)))
+                     (when (seq-contains-p (vulpea-note-aliases note) desc)
+                       (setf (vulpea-note-primary-title note) (vulpea-note-title note))
+                       (setf (vulpea-note-title note) desc))
+                     note))))))
            (`link
             (let ((el (car (org-element-contents val))))
               (when (equal 'link

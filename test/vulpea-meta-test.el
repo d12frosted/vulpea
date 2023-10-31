@@ -61,6 +61,20 @@
     (expect (vulpea-meta-get "05907606-f836-45bf-bd36-a8444308eddd" "link" 'note)
             :to-equal (vulpea-db-get-by-id "444f94d7-61e0-4b7c-bb7e-100814c6b4bb")))
 
+  (it "extracts note value respecting alias"
+    (expect (vulpea-note-title
+             (vulpea-meta-get
+              (vulpea-db-get-by-id "05907606-f836-45bf-bd36-a8444308eddd")
+              "link with alias" 'note))
+            :to-equal "Alias of the note without meta"))
+
+  (it "extracts note value ignoring unknown title"
+    (expect (vulpea-note-title
+             (vulpea-meta-get
+              (vulpea-db-get-by-id "05907606-f836-45bf-bd36-a8444308eddd")
+              "link with arbitrary desc" 'note))
+            :to-equal "Note without META"))
+
   (it "extracts symbol value"
     (expect (vulpea-meta-get "05907606-f836-45bf-bd36-a8444308eddd" "symbol" 'symbol)
             :to-equal 'red))
@@ -237,7 +251,7 @@
                         (plist-get (vulpea-meta with-meta-id)
                                    :pl)
                         'item #'identity))
-            :to-equal 14)
+            :to-equal 16)
     (vulpea-meta-clean with-meta-id)
     (expect (length (org-element-map
                         (plist-get (vulpea-meta with-meta-id)
@@ -278,6 +292,7 @@
               :to-contain-exactly
               ":PROPERTIES:
 :ID:                     444f94d7-61e0-4b7c-bb7e-100814c6b4bb
+:ROAM_ALIASES:           \"Alias of the note without meta\"
 :END:
 #+title: Note without META
 
@@ -292,6 +307,7 @@ Just some text to make sure that meta is inserted before.
               :to-contain-exactly
               ":PROPERTIES:
 :ID:                     444f94d7-61e0-4b7c-bb7e-100814c6b4bb
+:ROAM_ALIASES:           \"Alias of the note without meta\"
 :END:
 #+title: Note without META
 
@@ -306,6 +322,7 @@ Just some text to make sure that meta is inserted before.
               :to-contain-exactly
               ":PROPERTIES:
 :ID:                     444f94d7-61e0-4b7c-bb7e-100814c6b4bb
+:ROAM_ALIASES:           \"Alias of the note without meta\"
 :END:
 #+title: Note without META
 
@@ -320,6 +337,7 @@ Just some text to make sure that meta is inserted before.
               :to-contain-exactly
               ":PROPERTIES:
 :ID:                     444f94d7-61e0-4b7c-bb7e-100814c6b4bb
+:ROAM_ALIASES:           \"Alias of the note without meta\"
 :END:
 #+title: Note without META
 
@@ -355,6 +373,7 @@ Some fancy description
               :to-contain-exactly
               ":PROPERTIES:
 :ID:                     444f94d7-61e0-4b7c-bb7e-100814c6b4bb
+:ROAM_ALIASES:           \"Alias of the note without meta\"
 :END:
 #+title: Note without META
 
@@ -376,6 +395,7 @@ Just some text to make sure that meta is inserted before.
               :to-contain-exactly
               ":PROPERTIES:
 :ID:                     444f94d7-61e0-4b7c-bb7e-100814c6b4bb
+:ROAM_ALIASES:           \"Alias of the note without meta\"
 :END:
 #+title: Note without META
 
@@ -397,6 +417,7 @@ Just some text to make sure that meta is inserted before.
               :to-contain-exactly
               ":PROPERTIES:
 :ID:                     444f94d7-61e0-4b7c-bb7e-100814c6b4bb
+:ROAM_ALIASES:           \"Alias of the note without meta\"
 :END:
 #+title: Note without META
 
@@ -460,10 +481,10 @@ Just some text to make sure that meta is inserted before.
     (it "inserts values with respect to trailing new lines in file with body"
       (vulpea-test--map-file (lambda (_)
                                ;; first line after the body
-                               (goto-char 168)
+                               (goto-char 226)
                                (insert "\n\n\n")
                                ;; first line after the header
-                               (goto-char 109)
+                               (goto-char 167)
                                (insert "\n\n\n\n\n"))
                              without-meta-file)
       (vulpea-meta-set without-meta-id
@@ -476,6 +497,7 @@ Just some text to make sure that meta is inserted before.
               :to-contain-exactly
               ":PROPERTIES:
 :ID:                     444f94d7-61e0-4b7c-bb7e-100814c6b4bb
+:ROAM_ALIASES:           \"Alias of the note without meta\"
 :END:
 #+title: Note without META
 

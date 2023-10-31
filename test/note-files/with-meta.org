@@ -14,6 +14,8 @@
 - symbol :: red
 - url :: [[https://en.wikipedia.org/wiki/Frappato][wikipedia.org]]
 - link :: [[id:444f94d7-61e0-4b7c-bb7e-100814c6b4bb][Note without META]]
+- link with alias :: [[id:444f94d7-61e0-4b7c-bb7e-100814c6b4bb][Alias of the note without meta]]
+- link with arbitrary desc :: [[id:444f94d7-61e0-4b7c-bb7e-100814c6b4bb][haha]]
 - references :: [[id:444f94d7-61e0-4b7c-bb7e-100814c6b4bb][Note without META]]
 - references :: [[id:5093fc4e-8c63-4e60-a1da-83fc7ecd5db7][Reference]]
 - answer :: 42

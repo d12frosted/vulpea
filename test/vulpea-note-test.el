@@ -67,6 +67,20 @@
     (expect (vulpea-note-meta-get (vulpea-db-get-by-id "05907606-f836-45bf-bd36-a8444308eddd") "link" 'note)
             :to-equal (vulpea-db-get-by-id "444f94d7-61e0-4b7c-bb7e-100814c6b4bb")))
 
+  (it "extracts note value respecting alias"
+    (expect (vulpea-note-title
+             (vulpea-note-meta-get
+              (vulpea-db-get-by-id "05907606-f836-45bf-bd36-a8444308eddd")
+              "link with alias" 'note))
+            :to-equal "Alias of the note without meta"))
+
+  (it "extracts note value ignoring unknown title"
+    (expect (vulpea-note-title
+             (vulpea-note-meta-get
+              (vulpea-db-get-by-id "05907606-f836-45bf-bd36-a8444308eddd")
+              "link with arbitrary desc" 'note))
+            :to-equal "Note without META"))
+
   (it "extracts symbol value"
     (expect (vulpea-note-meta-get (vulpea-db-get-by-id "05907606-f836-45bf-bd36-a8444308eddd") "symbol" 'symbol)
             :to-equal 'red))
