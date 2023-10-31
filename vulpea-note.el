@@ -73,10 +73,15 @@ Each element value depends on TYPE:
          (`symbol (intern item))
          (`number (string-to-number item))
          (`note (if (string-match org-link-bracket-re item)
-                    (let ((link (match-string 1 item)))
+                    (let ((link (match-string 1 item))
+                          (desc (match-string 2 item)))
                       (if (string-prefix-p "id:" link)
-                          (vulpea-db-get-by-id
-                           (string-remove-prefix "id:" link))
+                          (let* ((id (string-remove-prefix "id:" link))
+                                 (note (vulpea-db-get-by-id id)))
+                            (when (seq-contains-p (vulpea-note-aliases note) desc)
+                              (setf (vulpea-note-primary-title note) (vulpea-note-title note))
+                              (setf (vulpea-note-title note) desc))
+                            note)
                         (user-error "Expected id link, but got '%s'"
                                     item)))
                   (user-error "Expected link, but got '%s'" item)))
