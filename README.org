@@ -7,7 +7,7 @@
 
 #+begin_html
 <p align="center">
-  <img width="256px" src="https://barberry.io/images/vulpea-logo.png" alt="Banner">
+  <img width="256px" src="./images/logo.png" alt="Banner">
 </p>
 <p align="center">
   <a href="https://melpa.org/#/vulpea"><img alt="MELPA" src="https://melpa.org/packages/vulpea-badge.svg"/></a>
