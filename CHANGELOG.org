@@ -18,6 +18,7 @@
 - Handle forced database sync. Whenever it happens, make sure that all the extra tables are initialized and versions are set accordingly.
 - Respect aliases used in the meta blocks when extracting value as a note.
 - Introduce =vulpea-insert-default-candidates-source=.
+- Introduce =vulpea-db-query-by-tags-none=.
 
 ** v0.3.0
 :PROPERTIES:
