@@ -190,6 +190,23 @@ TAGS are returned."
          tags)
         "\nintersect\n"))))))
 
+(defun vulpea-db-query-by-tags-none (tags)
+  "Query a list of `vulpea-note' from database.
+
+Only notes that are NOT tagged by any tag from the list of TAGS
+are returned."
+  (emacsql-with-transaction (org-roam-db)
+    (vulpea-db-query-by-ids
+     (seq-map
+      #'car
+      (org-roam-db-query
+       [:select :distinct [id]
+        :from nodes
+        :where id :not :in [:select :distinct [node_id]
+                            :from tags
+                            :where tag :in $v1]]
+       (apply #'vector tags))))))
+
 (defun vulpea-db-query-by-links-some (destinations)
   "Query a list of `vulpea-note' from database.
 

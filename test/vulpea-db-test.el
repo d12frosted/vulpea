@@ -411,6 +411,26 @@
                 (seq-contains-p note-tags tag))
               tags)))))))))
 
+(describe "vulpea-db-query-by-tags-none"
+  (before-all
+    (vulpea-test--init))
+
+  (after-all
+    (vulpea-test--teardown))
+
+  (it "acts as vulpea-db-query when no tags are provided"
+    (expect (seq-length (vulpea-db-query-by-tags-none nil))
+            :to-equal
+            (seq-length (vulpea-db-query))))
+
+  (it "returns the same elements as vulpea-db-query"
+    (expect
+     (vulpea-db-query-by-tags-none '("tag2" "tag3"))
+     :to-have-same-items-as
+     (vulpea-db-query
+      (lambda (note)
+        (not (vulpea-note-tagged-any-p note "tag2" "tag3")))))))
+
 (describe "vulpea-db-query-by-links-some"
   (before-all
     (vulpea-test--init))
