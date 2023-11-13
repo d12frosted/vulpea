@@ -124,6 +124,12 @@ start the capture process."
 (defvar vulpea-insert-default-filter nil
   "Default filter to use in `vulpea-insert'.")
 
+(defvar vulpea-insert-default-candidates-source #'vulpea-db-query
+  "Default source to get the list of candidates in `vulpea-insert'.
+
+Must be a function that accepts one argument - optional note
+filter function.")
+
 (defvar vulpea-insert-handle-functions nil
   "Abnormal hooks to run after `vulpea-note' is inserted.
 
@@ -160,12 +166,10 @@ as its argument a `vulpea-note'. Unless specified,
                      (org-link-display-format
                       (buffer-substring-no-properties
                        beg end)))))
-               (note (vulpea-select
-                      "Note"
-                      :filter-fn
-                      (or filter-fn
-                          vulpea-insert-default-filter)
-                      :initial-prompt region-text))
+               (notes (funcall vulpea-insert-default-candidates-source
+                               (or filter-fn vulpea-insert-default-filter)))
+               (note (vulpea-select-from "Note" notes
+                                         :initial-prompt region-text))
                (description (or region-text
                                 (vulpea-note-title note))))
           (if (vulpea-note-id note)

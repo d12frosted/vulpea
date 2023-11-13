@@ -17,6 +17,7 @@
 - [[https://github.com/d12frosted/vulpea/pull/158][vulpea#158]] Introduce mechanism to define more tables in Org Roam database (see =vulpea-db-define-table=). And provide a hook to fill defined tables with data (see =vulpea-db-insert-note-functions=).
 - Handle forced database sync. Whenever it happens, make sure that all the extra tables are initialized and versions are set accordingly.
 - Respect aliases used in the meta blocks when extracting value as a note.
+- Introduce =vulpea-insert-default-candidates-source=.
 
 ** v0.3.0
 :PROPERTIES:

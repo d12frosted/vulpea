@@ -335,6 +335,26 @@ But of course, it's possible to override this behaviour when =vulpea-insert= is 
      (null (vulpea-note-primary-title note))))
 #+end_src
 
+***** Candidates function
+:PROPERTIES:
+:ID:                     3b13b477-896e-4117-b580-8ba60066cc35
+:END:
+
+Just like =vulpea-find=, =vulpea-insert= allows to configure the source of candidates. This may be needed for performance considerations (e.g. to avoid filtering EVERY existing note in your database) or for some 'esoteric' features (like ordering).
+
+By default =vulpea-db-query= is used as a source of candidates. Default source is controlled by =vulpea-insert-default-candidates-source= variable. You should change it only when your intention is to configure behaviour of =vulpea-insert= interactive usage. For example (an 'esoteric' one):
+
+#+begin_src emacs-lisp
+  (setq vulpea-insert-default-candidates-source
+        (lambda (filter)
+          ;; sort notes by title, but keep in mind that your completion
+          ;; framework might override this sorting, it's just an example
+          (seq-sort-by
+           #'vulpea-note-title
+           #'string<
+           (vulpea-db-query filter))))
+#+end_src
+
 ***** Insertion handler
 :PROPERTIES:
 :ID:                     558e6704-76d0-4b6c-bd6c-28d91a5e0d89
