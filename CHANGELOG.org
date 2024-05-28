@@ -19,6 +19,7 @@
 - Respect aliases used in the meta blocks when extracting value as a note.
 - Introduce =vulpea-insert-default-candidates-source=.
 - Introduce =vulpea-db-query-by-tags-none=.
+- Include =outline-path= in =vulpea-note= and bump =notes= table version (i.e. a full rebuild is required).
 
 ** v0.3.0
 :PROPERTIES:

@@ -47,7 +47,8 @@
   links
   properties
   meta
-  attach-dir)
+  attach-dir
+  outline-path)
 
 (autoload 'vulpea-db-get-by-id "vulpea-db")
 

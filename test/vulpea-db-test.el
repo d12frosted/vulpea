@@ -804,7 +804,8 @@
                           (cons "FILE" (expand-file-name "big-note.org" org-roam-directory))
                           (cons "PRIORITY" "B")
                           (cons "ITEM" "Big note sub-sub-heading"))
-             :attach-dir (expand-file-name "data/cf/c39858-351d-4f1e-8f98-10d16d71f49e" org-roam-directory))))
+             :attach-dir (expand-file-name "data/cf/c39858-351d-4f1e-8f98-10d16d71f49e" org-roam-directory)
+             :outline-path '("Big note sub-heading"))))
 
   (it "includes meta and links in response"
     (expect (vulpea-db-get-by-id "05907606-f836-45bf-bd36-a8444308eddd")
