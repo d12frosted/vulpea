@@ -246,6 +246,32 @@ DESTINATIONS are returned."
          destinations)
         "\nintersect\n"))))))
 
+(defun vulpea-db-query-by-level (level)
+  "Query a list of `vulpea-note' from database.
+
+Only notes that have their level equal to LEVEL are returned."
+  (let* ((rows
+          (org-roam-db-query
+           (format
+            "select
+  id,
+  path,
+  \"level\",
+  title,
+  properties,
+  aliases,
+  tags,
+  meta,
+  links,
+  attach,
+  outline_path
+from notes
+where notes.level = %s"
+            level))))
+    (seq-mapcat
+     #'vulpea-db--notes-from-row
+     rows)))
+
 ;;
 ;; Exchanging ID to X
 

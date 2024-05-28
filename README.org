@@ -1049,6 +1049,7 @@ As you can see, =vulpea-db-query= doesn't allow to pass any custom SQL for filte
 - =vulpea-db-query-by-tags-none= - return all notes not tagged by any tag from the list of provided =TAGS=.
 - =vulpea-db-query-by-links-some= - return all notes linking at least one of the provided =DESTINATIONS=.
 - =vulpea-db-query-by-links-every= - return all notes linking each and every provided =DESTINATIONS=.
+- =vulpea-db-query-by-level= - return all notes of a given =LEVEL=.
 
 **** Other functions
 :PROPERTIES:

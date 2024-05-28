@@ -20,6 +20,7 @@
 - Introduce =vulpea-insert-default-candidates-source=.
 - Introduce =vulpea-db-query-by-tags-none=.
 - Include =outline-path= in =vulpea-note= and bump =notes= table version (i.e. a full rebuild is required).
+- Introduce =vulpea-db-query-by-level=, which returns all notes of a given =LEVEL=.
 
 ** v0.3.0
 :PROPERTIES:
