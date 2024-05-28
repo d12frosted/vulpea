@@ -87,7 +87,8 @@ The secret ingredient is list of aliases!"
         (tags (nth 6 row))
         (meta (nth 7 row))
         (links (nth 8 row))
-        (attach (nth 9 row)))
+        (attach (nth 9 row))
+        (outline-path (nth 10 row)))
     (seq-map
      (lambda (name)
        (make-vulpea-note
@@ -108,7 +109,8 @@ The secret ingredient is list of aliases!"
                (lambda (row)
                  (cons (nth 0 row) (nth 1 row)))
                meta)
-        :attach-dir attach))
+        :attach-dir attach
+        :outline-path outline-path))
      (cons title aliases))))
 
 (defun vulpea-db-query (&optional filter-fn)
@@ -128,7 +130,8 @@ returned."
   tags,
   meta,
   links,
-  attach
+  attach,
+  outline_path
 from notes")))
     (seq-filter
      (or filter-fn #'identity)
@@ -151,7 +154,8 @@ from notes")))
   tags,
   meta,
   links,
-  attach
+  attach,
+  outline_path
 from notes
 where notes.id in %s"
             (emacsql-escape-vector (apply #'vector ids))))))
@@ -262,7 +266,8 @@ Supports headings in the note."
   tags,
   meta,
   links,
-  attach
+  attach,
+  outline_path
 from notes
 where notes.id = '\"%s\"'"
                 id))))
@@ -348,7 +353,8 @@ If the FILE is relative, it is considered to be relative to
        :links (seq-uniq links)
        :properties (org-roam-node-properties node)
        :meta meta
-       :attach-dir attach-dir))))
+       :attach-dir attach-dir
+       :outline-path (org-roam-node-olp node)))))
 
 (defun vulpea-db--parse-link-pair (link)
   "Parse LINK pair."
@@ -390,7 +396,7 @@ Includes Vulpea tables as well as Org roam tables.")
 
 (defvar vulpea-db--tables-default
   '((notes
-     1
+     2
      ([(id :not-null :primary-key)
        (path :not-null)
        (level :not-null)
@@ -400,7 +406,8 @@ Includes Vulpea tables as well as Org roam tables.")
        tags
        meta
        links
-       attach]
+       attach
+       outline-path]
       (:foreign-key [path] :references files [file] :on-delete :cascade)))
     (meta
      1
@@ -671,7 +678,8 @@ FORCE argument."
                       (list (car kvp) (cdr kvp)))
                     kvps)
                    nil
-                   attach))
+                   attach
+                   nil))
           (when kvps
             (org-roam-db-query
              [:insert :into meta
@@ -695,7 +703,8 @@ FORCE argument."
                    (lambda (kvp)
                      (cons (car kvp) (cdr kvp)))
                    kvps)
-            :attach-dir attach)))))))
+            :attach-dir attach
+            :outline-path nil)))))))
 
 (defun vulpea-db-insert-outline-note ()
   "Insert outline level note into `vulpea' database."
@@ -719,7 +728,8 @@ FORCE argument."
            (title (org-link-display-format title))
            (aliases (org-entry-get (point) "ROAM_ALIASES"))
            (aliases (when aliases (split-string-and-unquote aliases)))
-           (tags (org-get-tags)))
+           (tags (org-get-tags))
+           (outline-path (org-get-outline-path nil 'use-cache)))
       (org-roam-db-query
        [:delete :from notes
         :where (= id $s1)]
@@ -740,7 +750,8 @@ FORCE argument."
                tags
                nil
                nil
-               attach))
+               attach
+               outline-path))
       (run-hook-with-args
        'vulpea-db-insert-note-functions
        (make-vulpea-note
@@ -753,7 +764,8 @@ FORCE argument."
         :links nil
         :properties properties
         :meta nil
-        :attach-dir attach)))))
+        :attach-dir attach
+        :outline-path outline-path)))))
 
 (defun vulpea-db-insert-links (&rest _)
   "Insert links into `vulpea' database."

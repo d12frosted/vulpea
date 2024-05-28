@@ -129,6 +129,7 @@ slots/fields:
   - =vulpea-note-meta-get-list= - to get all values of given =PROP= and =TYPE=.
   - =vulpea-note-meta-get= - to get the first value of given =PROP= and =TYPE=.
 - =vulpea-note-attach-dir= - path to attachment directory. It respect all the [[https://orgmode.org/manual/Attachment-options.html][attachment options]]. This directory may not exist.
+- =vulpea-note-outline-path= - full outline path to the note excluding file title and the note title itself, so it non-nil for notes with =vulpea-note-level= bigger than =1=.
 
 If =ID= is not present in the note structure, this note is treated as non-existent. For example, =vulpea-select= returns such a note, when =require-match= is =nil= and the user selects non-existent note.
 
