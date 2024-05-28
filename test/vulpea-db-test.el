@@ -739,6 +739,21 @@
                (seq-contains-p note-links tag))
              links))))))))
 
+(describe "vulpea-db-query-by-level"
+  (before-all
+    (vulpea-test--init))
+
+  (after-all
+    (vulpea-test--teardown))
+
+  (it "returns the same elements as vulpea-db-query"
+    (expect
+     (vulpea-db-query-by-level 0)
+     :to-have-same-items-as
+     (vulpea-db-query
+      (lambda (note)
+        (= 0 (vulpea-note-level note)))))))
+
 (describe "vulpea-db-get-by-id"
   (before-all
     (vulpea-test--init))
