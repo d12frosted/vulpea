@@ -50,7 +50,7 @@
   attach-dir
   outline-path)
 
-(autoload 'vulpea-db-get-by-id "vulpea-db")
+(autoload 'vulpea-db-query-by-ids "vulpea-db")
 
 
 
@@ -67,31 +67,37 @@ Each element value depends on TYPE:
 - symbol - an interned symbol."
   (setq type (or type 'string))
   (let ((items (cdr (assoc prop (vulpea-note-meta note)))))
-    (seq-map
-     (lambda (item)
-       (pcase type
-         (`string item)
-         (`symbol (intern item))
-         (`number (string-to-number item))
-         (`note (if (string-match org-link-bracket-re item)
-                    (let ((link (match-string 1 item))
-                          (desc (match-string 2 item)))
-                      (if (string-prefix-p "id:" link)
-                          (let* ((id (string-remove-prefix "id:" link))
-                                 (note (vulpea-db-get-by-id id)))
-                            (when (seq-contains-p (vulpea-note-aliases note) desc)
-                              (setf (vulpea-note-primary-title note) (vulpea-note-title note))
-                              (setf (vulpea-note-title note) desc))
-                            note)
-                        (user-error "Expected id link, but got '%s'"
-                                    item)))
-                  (user-error "Expected link, but got '%s'" item)))
-         (`link (if (string-match org-link-bracket-re item)
-                    (let ((link (match-string 1 item)))
-                      (if (string-prefix-p "id:" link)
-                          (string-remove-prefix "id:" link)
-                        link))))))
-     items)))
+    (if (eq type 'note)
+        (let* ((kvps (cl-loop for it in items
+                              collect (if (string-match org-link-bracket-re it)
+                                          (let ((link (match-string 1 it))
+                                                (desc (match-string 2 it)))
+                                            (if (string-prefix-p "id:" link)
+                                                (cons (string-remove-prefix "id:" link) desc)
+                                              (user-error "Expected id link, but got '%s'" it)))
+                                        (user-error "Expected link, but got '%s'" it))))
+               (ids (mapcar #'car kvps))
+               (notes (cl-loop for note in (vulpea-db-query-by-ids ids)
+                               unless (vulpea-note-primary-title note)
+                               collect note)))
+          (cl-loop for it in kvps
+                   collect (let* ((id (car it))
+                                  (desc (cdr it))
+                                  (note (--find (string-equal id (vulpea-note-id it)) notes)))
+                             (when (seq-contains-p (vulpea-note-aliases note) desc)
+                               (setf (vulpea-note-primary-title note) (vulpea-note-title note))
+                               (setf (vulpea-note-title note) desc))
+                             note)))
+      (cl-loop for it in items
+               collect (pcase type
+                         (`string it)
+                         (`symbol (intern it))
+                         (`number (string-to-number it))
+                         (`link (if (string-match org-link-bracket-re it)
+                                    (let ((link (match-string 1 it)))
+                                      (if (string-prefix-p "id:" link)
+                                          (string-remove-prefix "id:" link)
+                                        link)))))))))
 
 (defun vulpea-note-meta-get (note prop &optional type)
   "Get value of PROP from NOTE meta.

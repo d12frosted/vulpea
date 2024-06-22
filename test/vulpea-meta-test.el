@@ -140,10 +140,22 @@
             :to-equal '("444f94d7-61e0-4b7c-bb7e-100814c6b4bb"
                         "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")))
 
-  (it "extracts list of notes"
-    (expect (vulpea-meta-get-list "05907606-f836-45bf-bd36-a8444308eddd" "references" 'note)
-            :to-equal (list (vulpea-db-get-by-id "444f94d7-61e0-4b7c-bb7e-100814c6b4bb")
-                            (vulpea-db-get-by-id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")))))
+  (it "extracts list of notes and maintains order and used aliases"
+    (expect (vulpea-meta-get-list "05907606-f836-45bf-bd36-a8444308eddd" "many links" 'note)
+            :to-equal
+            (list
+             (vulpea-db-get-by-id "1cc15044-aedb-442e-b727-9e3f7346be95")
+             (let ((note (vulpea-db-get-by-id "444f94d7-61e0-4b7c-bb7e-100814c6b4bb")))
+               (setf (vulpea-note-primary-title note) (vulpea-note-title note))
+               (setf (vulpea-note-title note) "Alias of the note without meta")
+               note)
+             (vulpea-db-get-by-id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")
+             (vulpea-db-get-by-id "68f11246-91e1-4d48-b3c6-801a2ef0160b")
+             (vulpea-db-get-by-id "6fccd4ff-d1af-43b0-840e-66f636280acb")
+             (vulpea-db-get-by-id "72522ed2-9991-482e-a365-01155c172aa5")
+             (vulpea-db-get-by-id "7de1afc6-4aef-4ed3-9939-0f2e00971705")
+             (vulpea-db-get-by-id "eeec8f05-927f-4c61-b39e-2fb8228cf484")
+             (vulpea-db-get-by-id "ff01962f-47c2-4a32-9bf4-990e41090a9b")))))
 
 (describe "vulpea-meta-set"
   :var ((without-meta-id "444f94d7-61e0-4b7c-bb7e-100814c6b4bb")
@@ -251,7 +263,7 @@
                         (plist-get (vulpea-meta with-meta-id)
                                    :pl)
                         'item #'identity))
-            :to-equal 16)
+            :to-equal 25)
     (vulpea-meta-clean with-meta-id)
     (expect (length (org-element-map
                         (plist-get (vulpea-meta with-meta-id)
@@ -358,7 +370,6 @@ Just some text to make sure that meta is inserted before.
 * Metadata
 
 - status :: done
-
 * Description
 
 Some fancy description
