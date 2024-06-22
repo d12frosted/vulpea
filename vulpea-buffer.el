@@ -221,50 +221,57 @@ Each element value depends on TYPE:
   (setq type (or type 'string))
   (let* ((meta (vulpea-buffer-meta--get meta prop))
          (items (plist-get meta :items)))
-    (seq-map
-     (lambda (item)
-       (let ((val (car (org-element-contents item))))
-         (pcase type
-           (`raw val)
-           (`symbol
-            (intern
-             (s-trim-right
-              (substring-no-properties
-               (org-element-interpret-data
-                (org-element-contents val))))))
-           (`string
-            (s-trim-right
-             (substring-no-properties
-              (org-element-interpret-data
-               (org-element-contents val)))))
-           (`number
-            (string-to-number
-             (s-trim-right
-              (substring-no-properties
-               (org-element-interpret-data
-                (org-element-contents val))))))
-           (`note
-            (let ((el (car (org-element-contents val))))
-              (when (equal 'link
-                           (org-element-type el))
-                (pcase (org-element-property :type el)
-                  ("id"
-                   (let* ((id (org-element-property :path el))
-                          (desc (substring-no-properties
-                                 (car (org-element-contents el))))
-                          (note (vulpea-db-get-by-id id)))
+    (if (eq type 'note)
+        (let* ((kvps (cl-loop
+                      for item in items
+                      for val = (car (org-element-contents item))
+                      for el = (car (org-element-contents val))
+                      when (equal 'link (org-element-type el))
+                      when (string-equal (org-element-property :type el) "id")
+                      collect (cons (org-element-property :path el)
+                                    (substring-no-properties (car (org-element-contents el))))))
+               (ids (mapcar #'car kvps))
+               (notes (cl-loop for note in (vulpea-db-query-by-ids ids)
+                               unless (vulpea-note-primary-title note)
+                               collect note)))
+          (cl-loop
+           for it in kvps
+           collect (let* ((id (car it))
+                          (desc (cdr it))
+                          (note (--find (string-equal id (vulpea-note-id it)) notes)))
                      (when (seq-contains-p (vulpea-note-aliases note) desc)
                        (setf (vulpea-note-primary-title note) (vulpea-note-title note))
                        (setf (vulpea-note-title note) desc))
-                     note))))))
-           (`link
-            (let ((el (car (org-element-contents val))))
-              (when (equal 'link
-                           (org-element-type el))
-                (pcase (org-element-property :type el)
-                  ("id" (org-element-property :path el))
-                  (_ (org-element-property :raw-link el)))))))))
-     items)))
+                     note)))
+      (cl-loop
+       for item in items
+       collect (let ((val (car (org-element-contents item))))
+                 (pcase type
+                   (`raw val)
+                   (`symbol
+                    (intern
+                     (s-trim-right
+                      (substring-no-properties
+                       (org-element-interpret-data
+                        (org-element-contents val))))))
+                   (`string
+                    (s-trim-right
+                     (substring-no-properties
+                      (org-element-interpret-data
+                       (org-element-contents val)))))
+                   (`number
+                    (string-to-number
+                     (s-trim-right
+                      (substring-no-properties
+                       (org-element-interpret-data
+                        (org-element-contents val))))))
+                   (`link
+                    (let ((el (car (org-element-contents val))))
+                      (when (equal 'link
+                                   (org-element-type el))
+                        (pcase (org-element-property :type el)
+                          ("id" (org-element-property :path el))
+                          (_ (org-element-property :raw-link el))))))))))))
 
 (defun vulpea-buffer-meta-get! (meta prop &optional type)
   "Get value of PROP from META.

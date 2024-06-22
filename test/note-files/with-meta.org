@@ -18,6 +18,15 @@
 - link with arbitrary desc :: [[id:444f94d7-61e0-4b7c-bb7e-100814c6b4bb][haha]]
 - references :: [[id:444f94d7-61e0-4b7c-bb7e-100814c6b4bb][Note without META]]
 - references :: [[id:5093fc4e-8c63-4e60-a1da-83fc7ecd5db7][Reference]]
+- many links :: [[id:1cc15044-aedb-442e-b727-9e3f7346be95][Note with link]]
+- many links :: [[id:444f94d7-61e0-4b7c-bb7e-100814c6b4bb][Alias of the note without meta]]
+- many links :: [[id:5093fc4e-8c63-4e60-a1da-83fc7ecd5db7][Reference]]
+- many links :: [[id:68f11246-91e1-4d48-b3c6-801a2ef0160b][Duplicating Term]]
+- many links :: [[id:6fccd4ff-d1af-43b0-840e-66f636280acb][Old reference]]
+- many links :: [[id:72522ed2-9991-482e-a365-01155c172aa5][Note with an alias]]
+- many links :: [[id:7de1afc6-4aef-4ed3-9939-0f2e00971705][meta in the first header]]
+- many links :: [[id:eeec8f05-927f-4c61-b39e-2fb8228cf484][Big note]]
+- many links :: [[id:ff01962f-47c2-4a32-9bf4-990e41090a9b][Duplicating Term]]
 - answer :: 42
 
 Don't mind me. I am a content of this note.
