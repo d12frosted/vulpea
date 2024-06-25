@@ -22,6 +22,7 @@
 - Include =outline-path= in =vulpea-note= and bump =notes= table version (i.e. a full rebuild is required).
 - Introduce =vulpea-db-query-by-level=, which returns all notes of a given =LEVEL=.
 - Improve performance of =vulpea-meta-get-list= and =vulpea-note-meta-get-list= for notes by using single call to db.
+- Allow to pass meta when creating a new note.
 
 ** v0.3.0
 :PROPERTIES:

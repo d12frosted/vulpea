@@ -121,6 +121,20 @@ start the capture process."
 
 
 
+(defun vulpea-visit (note-or-id &optional other-window)
+  "Visit NOTE-OR-ID.
+
+If OTHER-WINDOW, visit the NOTE in another window."
+  (let ((id (if (vulpea-note-p note-or-id)
+                (vulpea-note-id note-or-id)
+              note-or-id)))
+    (org-roam-node-visit
+     (org-roam-node-from-id id)
+     (or current-prefix-arg
+         other-window))))
+
+
+
 (defvar vulpea-insert-default-filter nil
   "Default filter to use in `vulpea-insert'.")
 
@@ -211,6 +225,7 @@ as its argument a `vulpea-note'. Unless specified,
                          &key
                          id
                          head
+                         meta
                          body
                          unnarrowed
                          immediate-finish
@@ -232,6 +247,8 @@ Structure of the generated file is:
   #+title: TITLE
   #+filetags: TAGS if present
   HEAD if present
+
+  META if present
 
   BODY if present
 
@@ -275,7 +292,19 @@ Available variables in the capture context are:
                           (string-join tags ":")
                           ":"
                           "\n"))
-                       head))
+                       head
+                       (when meta
+                        (concat
+                         "\n\n"
+                         (mapconcat
+                          (lambda (kvp)
+                            (if (listp (cdr kvp))
+                                (mapconcat
+                                 (lambda (val)
+                                   (concat "- " (car kvp) " :: " (vulpea-buffer-meta-format val)))
+                                 (cdr kvp) "\n")
+                              (concat "- " (car kvp) " :: " (vulpea-buffer-meta-format (cdr kvp)))))
+                          meta "\n")))))
             :unnarrowed ,unnarrowed
             :immediate-finish ,immediate-finish
             :empty-lines-before 1)))
