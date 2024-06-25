@@ -311,13 +311,17 @@
             :to-equal
             note))
 
-  (it "creates new file with additional head, tags, body, context and properties"
+  (it "creates new file with additional head, tags, meta, body, context and properties"
     (setq note
           (vulpea-create
            "Aglianico"
            "prefix-${slug}.org"
            :head "#+author: ${name}"
            :tags '("tag1" "tag2")
+           :meta `(("category" . "sample")
+                   ("age" . 42)
+                   ("links" . (,(vulpea-db-get-by-id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")
+                               ,(vulpea-db-get-by-id "444f94d7-61e0-4b7c-bb7e-100814c6b4bb"))))
            :body "Well, I am a grape!"
            :unnarrowed t
            :immediate-finish t
@@ -341,6 +345,12 @@
                           (cons "ALLTAGS" ":tag1:tag2:")
                           (cons "FILE" (expand-file-name "prefix-aglianico.org" org-roam-directory))
                           (cons "PRIORITY" "B"))
+             :links '(("id" . "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")
+                      ("id" . "444f94d7-61e0-4b7c-bb7e-100814c6b4bb"))
+             :meta '(("category" . ("sample"))
+                     ("age" . ("42"))
+                     ("links" . ("[[id:5093fc4e-8c63-4e60-a1da-83fc7ecd5db7][Reference]]"
+                                 "[[id:444f94d7-61e0-4b7c-bb7e-100814c6b4bb][Note without META]]")))
              :attach-dir (let ((default-directory org-roam-directory))
                            (org-attach-dir-from-id (vulpea-note-id note) 'try-all))))
     (expect (vulpea-db-get-by-id (vulpea-note-id note))
@@ -356,6 +366,11 @@
 #+title: Aglianico
 #+filetags: :tag1:tag2:
 #+author: frodo
+
+- category :: sample
+- age :: 42
+- links :: [[id:5093fc4e-8c63-4e60-a1da-83fc7ecd5db7][Reference]]
+- links :: [[id:444f94d7-61e0-4b7c-bb7e-100814c6b4bb][Note without META]]
 
 Well, I am a grape!
 "
