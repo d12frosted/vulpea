@@ -130,5 +130,17 @@ one is returned. In case all values are required, use
 
 
 
+(cl-defmethod vulpea-note-links-to-all-p ((note vulpea-note) &rest links)
+  "Return non-nil if a NOTE links to all LINKS."
+  (let ((note-links (vulpea-note-links note)))
+    (--all-p (-contains-p note-links it) links)))
+
+(cl-defmethod vulpea-note-links-to-any-p ((note vulpea-note) &rest links)
+  "Return non-nil if a NOTE links to at least one of LINKS."
+  (let ((note-links (vulpea-note-links note)))
+    (--any-p (-contains-p note-links it) links)))
+
+
+
 (provide 'vulpea-note)
 ;;; vulpea-note.el ends here
