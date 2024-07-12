@@ -154,7 +154,7 @@ The current point is the point of the new node. The hooks must
 not move the point.")
 
 ;;;###autoload
-(defun vulpea-insert (&optional filter-fn)
+(defun vulpea-insert (&optional filter-fn create-fn)
   "Select a note and insert a link to it.
 
 Allows capturing new notes. After link is inserted,
@@ -164,7 +164,12 @@ process.
 
 FILTER-FN is the function to apply on the candidates, which takes
 as its argument a `vulpea-note'. Unless specified,
-`vulpea-insert-default-filter' is used."
+`vulpea-insert-default-filter' is used.
+
+CREATE-FN allows to control how a new note is created when user picks a
+non-existent note. This function is called with two arguments - title
+and capture properties. When CREATE-FN is nil, default implementation is
+used."
   (interactive)
   (unwind-protect
       (atomic-change-group
@@ -198,17 +203,19 @@ as its argument a `vulpea-note'. Unless specified,
                 (run-hook-with-args
                  'vulpea-insert-handle-functions
                  note))
-            (org-roam-capture-
-             :node (org-roam-node-create
-                    :title (vulpea-note-title note))
-             :props
-             (append
-              (when (and beg end)
-                (list :region (cons beg end)))
-              (list
-               :insert-at (point-marker)
-               :link-description description
-               :finalize #'vulpea-insert--capture-finalize))))))
+            (let ((props (append
+                          (when (and beg end)
+                            (list :region (cons beg end)))
+                          (list
+                           :insert-at (point-marker)
+                           :link-description description
+                           :finalize #'vulpea-insert--capture-finalize))))
+              (if create-fn
+                  (funcall create-fn (vulpea-note-title note) props)
+                (org-roam-capture-
+                 :node (org-roam-node-create
+                        :title (vulpea-note-title note))
+                 :props props))))))
     (deactivate-mark)))
 
 (defun vulpea-insert--capture-finalize ()
@@ -231,7 +238,8 @@ as its argument a `vulpea-note'. Unless specified,
                          immediate-finish
                          context
                          properties
-                         tags)
+                         tags
+                         capture-properties)
   "Create a new note file with TITLE in FILE-NAME.
 
 Returns created `vulpea-note'.
@@ -263,7 +271,10 @@ Available variables in the capture context are:
 - slug
 - title
 - id (passed via CONTEXT or generated)
-- all other values from CONTEXT"
+- all other values from CONTEXT
+
+CAPTURE-PROPERTIES are used by capture mechanism. See 'Template
+elements' of Org Capture feature for more information."
   (let* ((id (or id (org-id-new)))
          (node (org-roam-node-create
                 :id id
@@ -314,7 +325,8 @@ Available variables in the capture context are:
     (org-roam-capture-
      :info context
      :node node
-     :props (list :immediate-finish immediate-finish)
+     :props (append (list :immediate-finish immediate-finish)
+                    capture-properties)
      :templates (list roam-template))
     (vulpea-db-get-by-id id)))
 
