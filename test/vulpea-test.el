@@ -311,6 +311,59 @@
             :to-equal
             note))
 
+  ;; this is needed to make sure formatting is working properly
+  (it "creates new file with additional meta but no extra head"
+    (setq note
+          (vulpea-create
+           "Barbera"
+           "prefix-${slug}.org"
+           :meta `(("category" . "sample")
+                   ("age" . 42)
+                   ("links" . (,(vulpea-db-get-by-id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")
+                               ,(vulpea-db-get-by-id "444f94d7-61e0-4b7c-bb7e-100814c6b4bb"))))
+           :unnarrowed t
+           :immediate-finish t))
+    (expect note
+            :to-equal
+            (make-vulpea-note
+             :path (expand-file-name "prefix-barbera.org" org-roam-directory)
+             :title "Barbera"
+             :level 0
+             :id (vulpea-note-id note)
+             :properties (list
+                          (cons "CATEGORY" "prefix-barbera")
+                          (cons "ID" (vulpea-note-id note))
+                          (cons "BLOCKED" "")
+                          (cons "FILE" (expand-file-name "prefix-barbera.org" org-roam-directory))
+                          (cons "PRIORITY" "B"))
+             :links '(("id" . "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")
+                      ("id" . "444f94d7-61e0-4b7c-bb7e-100814c6b4bb"))
+             :meta '(("category" . ("sample"))
+                     ("age" . ("42"))
+                     ("links" . ("[[id:5093fc4e-8c63-4e60-a1da-83fc7ecd5db7][Reference]]"
+                                 "[[id:444f94d7-61e0-4b7c-bb7e-100814c6b4bb][Note without META]]")))
+             :attach-dir (let ((default-directory org-roam-directory))
+                           (org-attach-dir-from-id (vulpea-note-id note) 'try-all))))
+    (expect (vulpea-db-get-by-id (vulpea-note-id note))
+            :to-equal
+            note)
+    (expect (vulpea-note-path note)
+            :to-contain-exactly
+            (format
+             ":PROPERTIES:
+:ID:       %s
+:END:
+#+title: Barbera
+
+- category :: sample
+- age :: 42
+- links :: [[id:5093fc4e-8c63-4e60-a1da-83fc7ecd5db7][Reference]]
+- links :: [[id:444f94d7-61e0-4b7c-bb7e-100814c6b4bb][Note without META]]
+
+
+"
+             (vulpea-note-id note))))
+
   (it "creates new file with additional head, tags, meta, body, context and properties"
     (setq note
           (vulpea-create
