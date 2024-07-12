@@ -268,43 +268,46 @@ Available variables in the capture context are:
          (node (org-roam-node-create
                 :id id
                 :title title))
+         (content (string-join
+                   (append
+                    (list
+                     ":PROPERTIES:"
+                     (format org-property-format ":ID:" id))
+                    (seq-map
+                     (lambda (data)
+                       (format org-property-format
+                               (concat ":" (car data) ":")
+                               (cdr data)))
+                     properties)
+                    (list
+                     ":END:"
+                     "#+title: ${title}")
+                    (when tags
+                      (list (concat
+                             "#+filetags: :"
+                             (string-join tags ":")
+                             ":")))
+                    (when head (list head))
+                    (when meta
+                      ;; extra newline
+                      (list ""))
+                    (when meta
+                      (seq-map
+                       (lambda (kvp)
+                         (if (listp (cdr kvp))
+                             (mapconcat
+                              (lambda (val)
+                                (concat "- " (car kvp) " :: " (vulpea-buffer-meta-format val)))
+                              (cdr kvp) "\n")
+                           (concat "- " (car kvp) " :: " (vulpea-buffer-meta-format (cdr kvp)))))
+                       meta)))
+                   "\n"))
          (roam-template
           `("d" "default" plain
             ,(or body "%?")
             :if-new (file+head
                      ,file-name
-                     ,(concat
-                       ":PROPERTIES:\n"
-                       (format org-property-format ":ID:" id)
-                       (when properties
-                         "\n")
-                       (mapconcat
-                        (lambda (data)
-                          (format org-property-format
-                                  (concat ":" (car data) ":")
-                                  (cdr data)))
-                        properties "\n")
-                       "\n:END:\n"
-                       "#+title: ${title}\n"
-                       (when tags
-                         (concat
-                          "#+filetags: :"
-                          (string-join tags ":")
-                          ":"
-                          "\n"))
-                       head
-                       (when meta
-                        (concat
-                         "\n\n"
-                         (mapconcat
-                          (lambda (kvp)
-                            (if (listp (cdr kvp))
-                                (mapconcat
-                                 (lambda (val)
-                                   (concat "- " (car kvp) " :: " (vulpea-buffer-meta-format val)))
-                                 (cdr kvp) "\n")
-                              (concat "- " (car kvp) " :: " (vulpea-buffer-meta-format (cdr kvp)))))
-                          meta "\n")))))
+                     ,content)
             :unnarrowed ,unnarrowed
             :immediate-finish ,immediate-finish
             :empty-lines-before 1)))
