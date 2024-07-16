@@ -27,6 +27,7 @@
 - Allow to pass Org capture properties when creating a new note.
 - Introduce shortcuts for checking of a note links to all/any of the given links.
 - Allow to override description in =vulpea-utils-link-make-string=.
+- Function to sort metadata in a buffer.
 
 ** v0.3.0
 :PROPERTIES:

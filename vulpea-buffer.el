@@ -429,6 +429,24 @@ which case VALUE is added at the end of the meta."
     (symbol-name value))
    (t (user-error "Unsupported type of \"%s\"" value))))
 
+(defun vulpea-buffer-meta-sort (props)
+  "Sort meta in current buffer using list of PROPS.
+
+Whatever is not part of PROPS is left in the same order but appended to
+the end after PROPS."
+  (let* ((meta (vulpea-buffer-meta))
+         (props-all (->> (org-element-map (plist-get meta :pl) 'item #'identity)
+                         (--map (substring-no-properties
+                                 (org-element-interpret-data
+                                  (org-element-contents
+                                   (org-element-property :tag it)))))))
+         (props-extra (-difference props-all props)))
+    (vulpea-buffer-meta-clean)
+    (--each props
+      (vulpea-buffer-meta-set it (vulpea-buffer-meta-get-list! meta it) 'append))
+    (--each props-extra
+      (vulpea-buffer-meta-set it (vulpea-buffer-meta-get-list! meta it) 'append))))
+
 
 
 (provide 'vulpea-buffer)
