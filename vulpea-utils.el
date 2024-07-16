@@ -71,11 +71,14 @@ beginning of the buffer. Otherwise at the heading with note id."
        (goto-char (org-find-entry-with-id (vulpea-note-id ,note))))
      ,@body))
 
-(defun vulpea-utils-link-make-string (note)
-  "Make a bracket link to NOTE."
+(defun vulpea-utils-link-make-string (note &optional description)
+  "Make a bracket link to NOTE.
+
+By default `vulpea-note-title' is used as description unless DESCRIPTION
+is provided explicitly."
   (org-link-make-string
    (concat "id:" (vulpea-note-id note))
-   (vulpea-note-title note)))
+   (or description (vulpea-note-title note))))
 
 (defun vulpea-utils-note-hash (note)
   "Compute the hash of NOTE."

@@ -26,6 +26,7 @@
 - Allow to control how new note is created when a non-existent one is picked in the insert flow.
 - Allow to pass Org capture properties when creating a new note.
 - Introduce shortcuts for checking of a note links to all/any of the given links.
+- Allow to override description in =vulpea-utils-link-make-string=.
 
 ** v0.3.0
 :PROPERTIES:
