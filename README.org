@@ -684,7 +684,10 @@ This function behaves like =vulpea-select-from=, but allows to select multiple n
 If you want to allow selecting the same note multiple times, you can use the following snippet:
 
 #+begin_src emacs-lisp
-  (vulpea-utils-collect-while #'vulpea-select-from nil prompt notes :require-match require-match)
+  (vulpea-utils-collect-while
+   #'vulpea-select-from nil prompt notes
+   :require-match require-match
+   :initial-prompt initial-prompt)
 #+end_src
 
 **** Visual configuration

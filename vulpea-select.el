@@ -134,5 +134,51 @@ INITIAL-PROMPT is the initial title prompt."
            :title (substring-no-properties note)
            :level 0)))))
 
+(cl-defun vulpea-select-multiple-from (prompt
+                                       notes
+                                       &key
+                                       require-match
+                                       initial-prompt
+                                       select-fn)
+  "Collect multiple elements from list of NOTES.
+
+When REQUIRE-MATCH is non-nil, use may select only existing note.
+
+PROMPT is a message to present.
+
+INITIAL-PROMPT is the initial title prompt.
+
+It behaves the same as the following code
+
+  (vulpea-utils-collect-while
+    #'vulpea-select-from nil prompt notes
+    :require-match require-match
+    :initial-prompt initial-prompt)
+
+The only difference, it allows to select a single note only once, i.e.
+the next prompt iteration doesn't contain already selected notes.
+
+Optionally, an interactive SELECT-FN can be provided to be used instead
+of `vulpea-select-from'. Signatures must match."
+  (let (result
+        value
+        (continue t)
+        (inhibit-quit t))
+    (with-local-quit
+      (while continue
+        (setq value
+              (funcall-interactively
+               (or select-fn #'vulpea-select-from)
+               (concat prompt " (C-g to stop)")
+               notes
+               :require-match require-match
+               :initial-prompt initial-prompt))
+        (setq notes (--remove (string-equal (vulpea-note-id it)
+                                            (vulpea-note-id value))
+                              notes))
+        (setq result (cons value result))))
+    (setq quit-flag nil)
+    (reverse result)))
+
 (provide 'vulpea-select)
 ;;; vulpea-select.el ends here
