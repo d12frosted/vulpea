@@ -151,7 +151,7 @@ INITIAL-PROMPT is the initial title prompt.
 It behaves the same as the following code
 
   (vulpea-utils-collect-while
-    #'vulpea-select-from nil prompt notes
+    #\='vulpea-select-from nil prompt notes
     :require-match require-match
     :initial-prompt initial-prompt)
 
