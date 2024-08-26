@@ -51,6 +51,70 @@
    "\\)")
   "UUID regexp.")
 
+(defmacro vulpea-utils-process-notes (notes &rest body)
+  "Evaluate BODY for each element of NOTES.
+
+Each element of NOTE in turn is bound to `it' and its index within NOTES
+to `it-index' before evaluating BODY.
+
+This function can be used for simple migrations as it provides some
+useful features and properties:
+
+- Visibility. Each step is logged, so the progress is visible.
+
+- While result of BODY evaluation is discarded, any changes to the
+  buffer are saved. For better performance, *all* Org mode buffers are
+  *killed* after each step. Based on benchmarks, saving and killing
+  buffers after each step is times faster than saving after all
+  modifications.
+
+- Each (id . file) pair is processed only once, meaning that BODY is not
+  called multiple times on the same node. Despite this, keep your BODY
+  idempotent.
+
+- Point is placed at the beginning of note. Meaning that for
+  file-level notes the point is at the beginning of buffer; and
+  for heading-level notes the point is at the beginning of
+  heading."
+  (declare (debug (form body)) (indent 1))
+  (let ((l (make-symbol "notes"))
+        (i (make-symbol "i"))
+        (count (make-symbol "count"))
+        (countl (make-symbol "countl"))
+        (level (make-symbol "level"))
+        (file-name (make-symbol "file-name")))
+    `(let* ((,l (-remove #'vulpea-note-primary-title ,notes))
+            (,count (seq-length ,l))
+            (,countl (number-to-string (length (number-to-string ,count))))
+            (,i 0))
+      (pcase ,count
+       (`0 (message "No notes to process"))
+       (`1 (message "Processing 1 note"))
+       (_ (message "Processing %d notes" ,count)))
+      (while ,l
+       (let* ((it (pop ,l))
+              (it-index ,i)
+              (,level (vulpea-note-level it))
+              (,file-name (file-name-nondirectory (vulpea-note-path it))))
+        (message
+         (s-truncate
+          80
+          (format
+           (concat
+            "[%" ,countl ".d/%d] Processing %s")
+           (+ it-index 1)
+           ,count
+           (if (= 0 ,level)
+               ,file-name
+             (concat ,file-name "#" (vulpea-note-title it))))))
+        (cl-letf (((symbol-function 'message) (lambda (&rest _))))
+         (vulpea-visit it))
+        (ignore it it-index)
+        ,@body
+        (save-some-buffers t)
+        (kill-matching-buffers-no-ask ".*\\.org$"))
+       (setq ,i (1+ ,i))))))
+
 (defmacro vulpea-utils-with-file (file &rest body)
   "Execute BODY in `org-mode' FILE.
 
