@@ -674,6 +674,19 @@ There are two variants of selection: =vulpea-select-from= and =vulpea-select=. T
 
 Both of these examples achieve the same goal. The only practical difference here is performance. Sometimes you either already have a list of notes that you want to select from (so there is no need to filter all the database just to select those notes you already have) or you have a way to fetch a list of notes in a much faster way than by filtering whole database. See =vulpea-db= for more information on performance.
 
+*** =vulpea-select-multiple-from=
+:PROPERTIES:
+:ID:                     8b14b943-22be-4654-ab52-79b5198bb44a
+:END:
+
+This function behaves like =vulpea-select-from=, but allows to select multiple notes at once. In order to stop iterating, use ~C-g~. It's important to note that it doesn't allow to select the same note more than once - already selected notes are removed from the prompt.
+
+If you want to allow selecting the same note multiple times, you can use the following snippet:
+
+#+begin_src emacs-lisp
+  (vulpea-utils-collect-while #'vulpea-select-from nil prompt notes :require-match require-match)
+#+end_src
+
 **** Visual configuration
 :PROPERTIES:
 :ID:                     555650a9-fbaf-4841-a93e-c8fc81d06047
