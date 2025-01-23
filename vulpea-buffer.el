@@ -189,6 +189,10 @@ functions, e.g. `vulpea-buffer-meta-get!'."
           :buffer buf
           :pl pl)))
 
+(defsubst vulpea-buffer-meta-get (prop)
+  "Get all values of metadata PROP from buffer."
+  (vulpea-buffer-meta-get! (vulpea-buffer-meta) prop))
+
 (defun vulpea-buffer-meta--get (meta prop)
   "Get all values of PROP from META.
 
@@ -205,6 +209,10 @@ Return plist (:file :buffer :pl :items)"
                 (org-element-property :tag item)))))
            items-all)))
     (plist-put meta :items items)))
+
+(defsubst vulpea-buffer-meta-get-list (prop &optional type)
+  "Get all values of metadata PROP as a list from buffer."
+  (vulpea-buffer-meta-get-list! (vulpea-buffer-meta) prop type))
 
 (defun vulpea-buffer-meta-get-list! (meta prop &optional type)
   "Get all values of PROP from META.
