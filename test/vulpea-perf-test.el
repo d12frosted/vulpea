@@ -73,7 +73,7 @@ When DISABLE-VULPEA-AUTOSYNC is non-nil,
     (message "Initializing vulpea in %s" org-roam-directory)
     ;; fix file path values
     (when (file-exists-p org-roam-db-location)
-      (let ((db (emacsql-sqlite org-roam-db-location)))
+      (let ((db (emacsql-sqlite-open org-roam-db-location)))
         (message "Count of notes: %s"
                  (caar (emacsql db "select count(*) from nodes")))
         (emacsql db [:pragma (= foreign_keys 0)])
