@@ -273,8 +273,8 @@ Available variables in the capture context are:
 - id (passed via CONTEXT or generated)
 - all other values from CONTEXT
 
-CAPTURE-PROPERTIES are used by capture mechanism. See 'Template
-elements' of Org Capture feature for more information."
+CAPTURE-PROPERTIES are used by capture mechanism. See Template
+elements of Org Capture feature for more information."
   (let* ((id (or id (org-id-new)))
          (node (org-roam-node-create
                 :id id
