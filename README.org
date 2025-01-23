@@ -1169,6 +1169,8 @@ Metadata is defined as the first description list in the buffer, e.g. list like:
 #+end_src
 
 - =vulpea-buffer-meta= - function to get metadata from current buffer. By it's own it has little value, use the following functions to manipulate it.
+- =vulpea-buffer-meta-get= - function to get a value of =PROP= from current buffer. Value is parsed based on the passed =TYPE= or as a string if omitted. Use it when you need to get a single meta =PROP= from current buffer, if you need to extract more, it's better to use =vulpea-buffer-meta-get!= for performance reasons.
+- =vulpea-buffer-meta-get-list= function to get all values of =PROP= from current buffer. Values are parsed based on the passed =TYPE= or as a string if omitted. Use it when you need to get a single meta =PROP= from current buffer, if you need to extract more, it's better to use =vulpea-buffer-meta-get-list!= for performance reasons.
 - =vulpea-buffer-meta-get!= - function to get a value of =PROP= from =META= (result of =vulpea-buffer-meta=). Value is parsed based on the passed =TYPE= or as a string if omitted. Use it performing multiple read operations in a row.
 - =vulpea-buffer-meta-get-list!= - function to get all values of =PROP= from =META= (result of =vulpea-buffer-meta=). Values are parsed based on the passed =TYPE= or as a string if omitted. Use it performing multiple read operations in a row.
 - =vulpea-buffer-meta-set= - function to set =VALUE= of =PROP= in current buffer. Supports multi-value properties.
