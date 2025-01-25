@@ -213,12 +213,16 @@ Possible values:
                     ,@(mapcar #'expand-file-name vulpea-directories))
          :filter (lambda (_proc output)
                    (let ((file (string-trim-right output)))
-                     (message "output = %S" output)
                      (when (and (string-match-p "\\.org$" file)
                                 (file-exists-p file)
                                 (not (string-match-p "/\\.git/" file)))
                        (vulpea-sync-handle-file-event
-                        (list 'external 'changed file nil))))))))
+                        (list 'external 'changed file nil)))))
+         :sentinel (lambda (_process event)
+                    (when (string-match-p "\\(?:finished\\|exited\\)" event)
+                      (if vulpea-sync-mode
+                          (run-with-timer 1 nil #'vulpea-sync-setup-fswatch)
+                        (setq vulpea-sync-fswatch-process nil)))))))
 
 (defun vulpea-sync-update-file-attributes ()
   "Update cache of file attributes."
