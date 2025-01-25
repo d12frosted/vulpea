@@ -72,9 +72,9 @@ Possible values:
 - `poll' - use only polling
 - nil - disable external file monitoring"
   :type '(choice (const :tag "Automatic" auto)
-                (const :tag "FSWatch" fswatch)
-                (const :tag "Polling" poll)
-                (const :tag "Disabled" nil))
+          (const :tag "FSWatch" fswatch)
+          (const :tag "Polling" poll)
+          (const :tag "Disabled" nil))
   :group 'vulpea-sync)
 
 (defcustom vulpea-sync-poll-interval 2
@@ -100,7 +100,7 @@ Possible values:
    (status :initform 'pending
            :accessor vulpea-sync-transaction-status)
    (callbacks :initform nil
-             :accessor vulpea-sync-transaction-callbacks))
+              :accessor vulpea-sync-transaction-callbacks))
   "A transaction representing a file modification and sync operation.")
 
 (defvar vulpea-sync-transactions (make-hash-table :test 'equal)
@@ -126,11 +126,11 @@ Possible values:
   (declare (indent 1))
   `(let* ((transaction (make-instance 'vulpea-sync-transaction :file ,file))
           (promise (vulpea-sync-queue-transaction transaction)))
-     (vulpea-sync-transaction-add-callback
-      transaction
-      (lambda ()
-        ,@body))
-     promise))
+    (vulpea-sync-transaction-add-callback
+     transaction
+     (lambda ()
+       ,@body))
+    promise))
 
 (defun vulpea-sync-queue-transaction (transaction)
   "Add TRANSACTION to queue and return a promise."
@@ -182,15 +182,15 @@ Possible values:
     (dolist (dir vulpea-directories)
       (when (file-exists-p dir)
         (dolist (subdir (cons dir
-                             (seq-filter #'file-directory-p
-                                       (directory-files-recursively dir "" t))))
+                              (seq-filter #'file-directory-p
+                                          (directory-files-recursively dir "" t))))
           (unless (seq-find (lambda (watched)
-                             (string-prefix-p watched subdir))
-                           watched-dirs)
+                              (string-prefix-p watched subdir))
+                            watched-dirs)
             (let ((desc (file-notify-add-watch
-                        subdir
-                        '(change attribute-change)
-                        #'vulpea-sync-handle-file-event)))
+                         subdir
+                         '(change attribute-change)
+                         #'vulpea-sync-handle-file-event)))
               (push (cons subdir desc) vulpea-sync-file-watchers)
               (push subdir watched-dirs)))))))
   ;; Setup external monitoring
@@ -219,28 +219,28 @@ Possible values:
                        (vulpea-sync-handle-file-event
                         (list 'external 'changed file nil)))))
          :sentinel (lambda (_process event)
-                    (when (string-match-p "\\(?:finished\\|exited\\)" event)
-                      (if vulpea-sync-mode
-                          (run-with-timer 1 nil #'vulpea-sync-setup-fswatch)
-                        (setq vulpea-sync-fswatch-process nil)))))))
+                     (when (string-match-p "\\(?:finished\\|exited\\)" event)
+                       (if vulpea-sync-mode
+                           (run-with-timer 1 nil #'vulpea-sync-setup-fswatch)
+                         (setq vulpea-sync-fswatch-process nil)))))))
 
 (defun vulpea-sync-update-file-attributes ()
   "Update cache of file attributes."
   (let ((files (cl-loop for dir in vulpea-directories
-                       append (vulpea-directory-files dir))))
+                        append (vulpea-directory-files dir))))
     (dolist (file files)
       (puthash file (file-attributes file) vulpea-sync-file-attributes))))
 
 (defun vulpea-sync-check-external-changes ()
   "Check for externally modified files."
   (let ((files (cl-loop for dir in vulpea-directories
-                       append (vulpea-directory-files dir))))
+                        append (vulpea-directory-files dir))))
     (dolist (file files)
       (let ((curr-attr (file-attributes file))
             (cached-attr (gethash file vulpea-sync-file-attributes)))
         (when (and cached-attr curr-attr
                    (not (equal (nth 5 curr-attr)     ; modification time
-                              (nth 5 cached-attr))))
+                               (nth 5 cached-attr))))
           (vulpea-sync-handle-file-event
            (list 'external 'changed file nil))
           (puthash file curr-attr vulpea-sync-file-attributes))))))
