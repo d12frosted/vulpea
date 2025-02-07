@@ -189,6 +189,13 @@ functions, e.g. `vulpea-buffer-meta-get!'."
           :buffer buf
           :pl pl)))
 
+(defun vulpea-buffer-meta-props (&optional meta)
+  "Return list of all props from META."
+  (let* ((meta (or meta (vulpea-buffer-meta)))
+         (pl (plist-get meta :pl)))
+    (->> (org-element-map pl 'item #'identity)
+         (--map (org-element-interpret-data (org-element-contents (org-element-property :tag it)))))))
+
 (defsubst vulpea-buffer-meta-get (prop type)
   "Get all values of metadata PROP of TYPE from buffer."
   (vulpea-buffer-meta-get! (vulpea-buffer-meta) prop type))
