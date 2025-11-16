@@ -1,0 +1,653 @@
+#+TITLE: Vulpea v2 Architecture Decisions
+#+AUTHOR: Boris Buliga
+#+DATE: 2025-11-16
+
+* Overview
+
+This document captures all architectural decisions for Vulpea v2 rewrite, the rationale behind them, and implementation context. The goal is to create a robust, performant, extensible note management system that can scale to 100k+ notes without blocking normal Emacs usage.
+
+* Core Problems with v1
+
+** Dependency on org-roam
+- Not extensible: Hard to add new tables, impossible to reuse parsed data
+- Advice-based integration is fragile across org-roam versions
+- Forced to repeat parsing operations (see vulpea-db implementation)
+
+** Performance Issues
+- Save hooks are obtrusive and block user during normal usage
+- No handling of external file changes (git pulls, sync tools)
+- Full buffer re-parsing on every save
+
+** Database Design
+- Not optimized for read-heavy workloads (most common operation)
+- No materialized views in org-roam (though vulpea added them)
+- Generic queries load entire database into memory
+
+* Key Decisions
+
+** DECISION 1: Clean Break from org-roam
+*** Decision
+Vulpea v2 will NOT depend on org-roam. Compatibility layer will be provided as separate package.
+
+*** Rationale
+- Allows complete control over database schema
+- No fragile advice-based integration
+- Can optimize for our specific use cases
+- Org-roam compatibility can be added later via adapter layer that populates org-roam tables
+
+*** Implementation
+- Version bump to 2.0.0
+- Separate package: =vulpea-compat-org-roam.el= (future work)
+- Users can run old vulpea in one Emacs session, new in another during transition
+
+** DECISION 2: Hybrid Database Schema
+*** Decision
+Use BOTH materialized view table AND normalized tables.
+
+*** Rationale
+Performance testing shows materialized views provide 4-5x improvement for common operations:
+- Single query to get complete note (no JOINs)
+- Simpler query code for application development
+- Proven to handle 25k+ notes in <0.5s (org-roam/org-roam#2474)
+
+However, normalized tables enable:
+- Efficient filtering by tags/links using proper indices
+- Fast specialized queries (backlinks, tag intersections)
+- No JSON parsing in SQL WHERE clauses
+
+*** Query Pattern
+#+begin_src elisp
+;; Use normalized tables to FILTER
+;; Then fetch complete data from materialized table
+(defun vulpea-db-query-by-tags (tags)
+  (let ((ids (emacsql db [:select [note-id] :from tags
+                          :where (in tag $v1)] tags)))
+    ;; Single query to get complete notes
+    (emacsql db [:select * :from notes
+                 :where (in id $v1)] ids)))
+#+end_src
+
+*** Trade-offs
+- Storage: ~2x overhead (acceptable on modern SSDs)
+- Write complexity: Must update both materialized and normalized tables
+- Read performance: Optimal (combine benefits of both approaches)
+
+** DECISION 3: Async-First Architecture
+*** Decision
+Use file watchers + async queue instead of save hooks.
+
+*** Rationale
+- Non-blocking: Emacs UI never waits for database updates
+- Handles external changes: git pulls, Dropbox sync, etc.
+- Batching opportunity: 100 file changes = 1 transaction
+- Easy to add backpressure/throttling
+
+*** Implementation
+Based on existing =vulpea-sync.el= prototype (PR #194):
+- =file-notify-add-watch= for internal changes
+- =fswatch= process for external changes (with fallback to polling)
+- Transaction queue with batching delay (configurable)
+- Process updates in idle timer bursts
+
+*** Dual-Mode Support
+#+begin_src elisp
+;; Normal operation - async
+(vulpea-db-autosync-mode +1)
+
+;; Programmatic usage - sync
+(vulpea-with-sync-db
+  (dotimes (i 100)
+    (vulpea-create :title (format "Note %d" i))))
+;; Blocks until all updates complete
+#+end_src
+
+** DECISION 4: Plugin/Extractor System
+*** Decision
+Design plugin architecture from day one for extensibility.
+
+*** Rationale
+Current vulpea requires repeating org-roam parsing operations because parsed data cannot be reused. v2 will parse ONCE and pass to all extractors.
+
+*** Architecture
+#+begin_src elisp
+(vulpea-db-register-extractor
+  (make-vulpea-extractor
+   :name 'citations
+   :version 1
+   :schema '((citations [(note-id :not-null) (citekey :not-null)]))
+   :extract-fn #'my-extract-citations
+   :priority 100))
+
+;; Parse context shared across all extractors
+(cl-defstruct vulpea-parse-ctx
+  path ast file-node heading-nodes properties hash mtime)
+
+;; Single parse, multiple extractors
+(defun vulpea-db--update-file (path)
+  (let ((ctx (vulpea-db--parse-file path)))  ; Parse ONCE
+    (emacsql-with-transaction (vulpea-db)
+      (dolist (ext (vulpea-db--sorted-extractors))
+        (funcall (vulpea-extractor-fn ext) ctx)))))
+#+end_src
+
+*** Benefits
+- Parse once, extract many times
+- Plugins can add their own tables
+- Controlled execution order (priority)
+- Easy migration via version tracking
+
+** DECISION 5: Configurable Heading-Level Indexing
+*** Decision
+Support both file-level and heading-level notes, but make heading-level opt-in/configurable.
+
+*** Rationale
+- Many users need heading-level (org-roam compatibility)
+- Some users only need file-level (2-3x performance improvement)
+- 100k heading-level notes vs 100k file-level = significant difference
+
+*** Implementation
+#+begin_src elisp
+(defcustom vulpea-db-index-heading-level t
+  "Whether to index heading-level notes.
+Can be:
+- t: index all headings
+- nil: index only file-level
+- function: predicate (path) -> boolean"
+  :type '(choice boolean function))
+
+;; Example: index headings only for project files
+(setq vulpea-db-index-heading-level
+      (lambda (path)
+        (string-prefix-p "/path/to/projects/" path)))
+#+end_src
+
+** DECISION 6: SQLite via EmacsQL
+*** Decision
+Continue using SQLite through EmacsQL.
+
+*** Rationale
+- No better alternatives in Emacs ecosystem
+- Proven to work well (current vulpea scales to 10k notes)
+- Built-in transaction support
+- Foreign key cascades
+- JSON functions available (SQLite 3.38+)
+
+*** Alternatives Considered
+- Pure Elisp hash tables: No persistence, no transactions
+- External DB (PostgreSQL): Overkill, requires server
+- Custom binary format: Too much work, reinventing wheel
+
+** DECISION 7: org-element for Parsing
+*** Decision
+Use org-element-parse-buffer for now.
+
+*** Rationale
+- Standard, well-tested
+- Has built-in caching
+- Robust handling of all org syntax
+- Can optimize later if needed
+
+*** Future Optimization
+If org-element becomes bottleneck:
+- Write lightweight parser for common cases
+- Fall back to org-element for complex syntax
+- Cache AST more aggressively
+
+*** Performance Target
+- Single note parse: <10ms
+- 100 note batch parse: <1s
+- Full 100k database sync: <5 minutes
+
+** DECISION 8: Namespace-Based Partitioning
+*** Decision
+Provide built-in support for partitioning notes by tags/predicates.
+
+*** Rationale
+User has 100k+ notes growing daily. Needs ability to:
+- Query only wine-related notes
+- Query only non-wine notes
+- Fast completion within namespace
+
+*** Implementation
+#+begin_src elisp
+(defcustom vulpea-namespaces
+  '((wine :tags ("wine") :key "w")
+    (work :tags ("work") :key "W")
+    (personal :exclude-tags ("wine" "work")))
+  "Namespace definitions for partitioning notes.")
+
+(defun vulpea-find-in-namespace (namespace)
+  "Find note in NAMESPACE with fast completion."
+  (interactive ...)
+  (let* ((config (alist-get namespace vulpea-namespaces))
+         (notes (vulpea-db-query-namespace config)))
+    (vulpea-select-from notes)))
+#+end_src
+
+*** Performance
+Using normalized tags table + indices, filtering 100k notes to 10k wine notes should take <100ms.
+
+* Database Schema
+
+** Materialized Notes Table
+#+begin_src sql
+CREATE TABLE notes (
+  id TEXT PRIMARY KEY,
+  path TEXT NOT NULL,
+  level INTEGER NOT NULL,
+  pos INTEGER NOT NULL,
+  title TEXT NOT NULL,
+  properties TEXT NOT NULL,  -- JSON blob
+  tags TEXT,                 -- JSON array
+  aliases TEXT,              -- JSON array
+  meta TEXT,                 -- JSON object
+  links TEXT,                -- JSON array
+  todo TEXT,
+  priority TEXT,
+  scheduled TEXT,
+  deadline TEXT,
+  closed TEXT,
+  outline_path TEXT,
+  attach_dir TEXT,
+  created_at TEXT,
+  modified_at TEXT NOT NULL,
+  UNIQUE(path, level, pos)
+);
+#+end_src
+
+** Normalized Tables
+#+begin_src sql
+CREATE TABLE tags (
+  note_id TEXT NOT NULL,
+  tag TEXT NOT NULL,
+  PRIMARY KEY (note_id, tag),
+  FOREIGN KEY (note_id) REFERENCES notes(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_tags_tag ON tags(tag);
+
+CREATE TABLE links (
+  source TEXT NOT NULL,
+  dest TEXT NOT NULL,
+  type TEXT NOT NULL,
+  PRIMARY KEY (source, dest, type),
+  FOREIGN KEY (source) REFERENCES notes(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_links_dest ON links(dest);
+CREATE INDEX idx_links_source ON links(source);
+
+CREATE TABLE meta (
+  note_id TEXT NOT NULL,
+  key TEXT NOT NULL,
+  value TEXT NOT NULL,
+  type TEXT,
+  FOREIGN KEY (note_id) REFERENCES notes(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_meta_key ON meta(key);
+CREATE INDEX idx_meta_note ON meta(note_id);
+#+end_src
+
+** Supporting Tables
+#+begin_src sql
+-- Track file changes for external monitoring
+CREATE TABLE files (
+  path TEXT PRIMARY KEY,
+  hash TEXT NOT NULL,
+  mtime INTEGER NOT NULL,
+  size INTEGER NOT NULL
+);
+
+-- Schema versioning for migrations
+CREATE TABLE schema_registry (
+  name TEXT PRIMARY KEY,
+  version INTEGER NOT NULL,
+  created_at TEXT NOT NULL
+);
+#+end_src
+
+* Performance Targets
+
+** Read Operations (Primary Optimization)
+| Operation                    | Current v1 | Target v2 | Scale    |
+|------------------------------+------------+-----------+----------|
+| Get note by ID               | ~1ms       | <1ms      | Any      |
+| Query by tags (some)         | ~100ms     | <50ms     | 100k     |
+| Query by tags (every)        | ~200ms     | <100ms    | 100k     |
+| Query backlinks              | ~50ms      | <25ms     | 100k     |
+| Generic query (load all)     | ~1s        | ~500ms    | 100k     |
+| Completion candidates        | ~2s        | <500ms    | 100k     |
+
+** Write Operations
+| Operation                    | Current v1 | Target v2 | Notes              |
+|------------------------------+------------+-----------+--------------------|
+| Sync single note             | 5-10ms     | <5ms      | Async, non-blocking|
+| Sync 100 notes (batch)       | ~1s        | <500ms    | Single transaction |
+| Full DB rebuild              | ~30s       | <5min     | 100k notes         |
+
+** Memory Usage
+| Scenario                     | Current v1 | Target v2 |
+|------------------------------+------------+-----------|
+| Idle (DB closed)             | ~1MB       | ~1MB      |
+| DB open (no cache)           | ~5MB       | ~5MB      |
+| Generic query (all notes)    | ~100MB     | ~50MB     |
+| Specialized query (1k notes) | ~10MB      | ~5MB      |
+
+* Migration Plan
+
+** Phase 1: Database Core (Week 1)
+- [ ] Schema creation and versioning
+- [ ] Basic CRUD operations
+- [ ] Insert/update/delete for notes table
+- [ ] Insert into normalized tables
+- [ ] Test cascade deletes
+- [ ] Basic queries (by-id, by-tags-some, by-tags-every)
+
+** Phase 2: Parser + Extractors (Week 2)
+- [ ] Parse context structure
+- [ ] File-level note extraction
+- [ ] Heading-level note extraction (configurable)
+- [ ] Tag extractor
+- [ ] Link extractor
+- [ ] Meta extractor
+- [ ] Extractor registry
+
+** Phase 3: File Watching (Week 3)
+- [ ] Port vulpea-sync.el to v2
+- [ ] Integrate with new database layer
+- [ ] Batching with configurable delay
+- [ ] Handle external changes (fswatch/polling)
+- [ ] Transaction queue
+- [ ] Sync vs async mode
+
+** Phase 4: High-Level API (Week 4)
+- [ ] =vulpea-find= (with completion)
+- [ ] =vulpea-create= (programmatic)
+- [ ] =vulpea-update=
+- [ ] Namespace queries
+- [ ] Selection interface
+- [ ] Buffer operations (reuse from v1)
+
+** Phase 5: Plugin System (Week 5)
+- [ ] Extractor registration
+- [ ] Schema migration system
+- [ ] Example plugin (citations)
+- [ ] Documentation for plugin authors
+
+** Phase 6: Testing & Performance (Week 6)
+- [ ] Unit tests (90% coverage target)
+- [ ] Integration tests
+- [ ] Performance tests with 100k notes
+- [ ] Benchmark vs v1
+- [ ] Optimize slow queries
+- [ ] Memory profiling
+
+* Testing Strategy
+
+** Test Infrastructure
+- Keep using Eldev for development
+- Maintain existing test framework
+- Add performance benchmarks
+
+** Coverage Targets
+| Module              | Coverage Target |
+|---------------------+-----------------|
+| vulpea-db.el        | 95%             |
+| vulpea-db-query.el  | 90%             |
+| vulpea-db-extract.el| 90%             |
+| vulpea-sync.el      | 85%             |
+| vulpea.el (API)     | 95%             |
+
+** Test Categories
+1. Unit tests: Individual functions
+2. Integration tests: End-to-end workflows
+3. Performance tests: Scale testing (1k, 10k, 100k notes)
+4. Regression tests: Ensure v2 matches v1 behavior where applicable
+
+** Performance Test Suite
+#+begin_src elisp
+(ert-deftest vulpea-perf-scale-1k ()
+  :tags '(perf scale)
+  ...)
+
+(ert-deftest vulpea-perf-scale-10k ()
+  :tags '(perf scale)
+  ...)
+
+(ert-deftest vulpea-perf-scale-100k ()
+  :tags '(perf scale benchmark)
+  ...)
+#+end_src
+
+* API Compatibility & Migration
+
+** DECISION 9: V1 Plugin API Compatibility
+*** Decision
+Provide 100% backward-compatible shim for v1 plugin API.
+
+*** Rationale
+Usage analysis shows d12frosted/environment uses the plugin system for attachment tracking:
+#+begin_src elisp
+(vulpea-db-define-table 'attachments 1 schema indices)
+(add-hook 'vulpea-db-insert-note-functions #'vulpea-db-insert-attachments)
+#+end_src
+
+This is CRITICAL infrastructure that must work without changes.
+
+*** Implementation
+#+begin_src elisp
+;; Compatibility shim in vulpea-db.el
+(defvar vulpea-db-insert-note-functions nil
+  "Hook run when inserting note (v1 compatibility).
+Each function receives the vulpea-note being inserted.")
+
+(defun vulpea-db-define-table (name version schema &optional indices)
+  "Define custom table (v1 compatibility shim).
+Translates to new extractor system."
+  (let ((extractor
+         (make-vulpea-extractor
+          :name name
+          :version version
+          :schema schema
+          :indices (or indices '())
+          :extract-fn
+          (lambda (ctx)
+            ;; Run v1-style hooks with note
+            (let ((note (vulpea-parse-ctx-file-node ctx)))
+              (run-hook-with-args 'vulpea-db-insert-note-functions note)))
+          :priority 1000)))  ; Run after core extractors
+    (vulpea-db-register-extractor extractor)))
+#+end_src
+
+*** Trade-offs
+- Pros: Seamless migration, no user code changes needed
+- Cons: Maintains old API surface, slight complexity
+- Verdict: Worth it for critical user code
+
+*** Status
+ACCEPTED - Critical for existing users
+
+** DECISION 10: Metadata Type System
+*** Decision
+Preserve and enhance metadata type coercion from v1.
+
+*** Rationale
+vino extensively uses typed metadata:
+#+begin_src elisp
+(vulpea-note-meta-get note "country" 'note)    ; Returns vulpea-note
+(vulpea-note-meta-get note "price" 'number)    ; Returns number
+(vulpea-note-meta-get note "vintage" 'string)  ; Returns string
+#+end_src
+
+This is fundamental to the vino domain model.
+
+*** Implementation
+Store type in meta table:
+#+begin_src sql
+CREATE TABLE meta (
+  note_id TEXT NOT NULL,
+  key TEXT NOT NULL,
+  value TEXT NOT NULL,
+  type TEXT,  -- 'note', 'number', 'string', 'link', NULL (default)
+  FOREIGN KEY (note_id) REFERENCES notes(id) ON DELETE CASCADE
+);
+#+end_src
+
+Conversion in query layer:
+#+begin_src elisp
+(defun vulpea-note-meta-get (note prop &optional type)
+  "Get metadata PROP from NOTE, optionally coercing to TYPE."
+  (when-let* ((entries (alist-get prop (vulpea-note-meta note)))
+              (entry (car entries)))
+    (pcase (or type (plist-get entry :type))
+      ('note (vulpea-db-get-by-id (plist-get entry :value)))
+      ('number (string-to-number (plist-get entry :value)))
+      ('link (plist-get entry :value))
+      (_ (plist-get entry :value)))))
+#+end_src
+
+*** Status
+ACCEPTED - Critical for vino
+
+** DECISION 11: Performance Targets from Real Usage
+*** Decision
+Update performance targets based on actual d12frosted/environment usage (10k+ notes).
+
+*** Rationale
+Usage analysis reveals these operations run frequently:
+1. =vulpea-agenda-files-update= - before EVERY agenda view
+2. =vulpea-ensure-filetag= - on EVERY save and buffer change
+3. =vulpea-find-candidates= - on EVERY completion
+
+These must be fast or cached.
+
+*** Performance Requirements
+| Operation | Frequency | Current v1 | Target v2 | Critical? |
+|---|---|---|---|---|
+| query-by-tags-some | High | ~200ms | <50ms | YES |
+| query-by-tags-every | High | ~300ms | <100ms | YES |
+| query-by-tags-none | Medium | ~200ms | <50ms | YES |
+| get-by-id | Very High | ~1ms | <1ms | YES |
+| agenda-files-update | Every agenda | ~500ms | <200ms | CRITICAL |
+| ensure-filetag | Every save | ~100ms | <50ms | CRITICAL |
+| generic query (all) | Low | ~1s | <500ms | Medium |
+
+*** Caching Strategy
+For frequently-called operations that run on hooks:
+#+begin_src elisp
+(defvar vulpea-db--query-cache nil
+  "Cache for frequent queries. Alist of (query-key . (timestamp . results)).")
+
+(defun vulpea-db-query-by-tags-some (tags)
+  "Query with caching for frequent operations."
+  (let* ((cache-key (cons 'tags-some tags))
+         (cached (alist-get cache-key vulpea-db--query-cache))
+         (db-mtime (vulpea-db--last-modified)))
+    (if (and cached (time-less-p db-mtime (car cached)))
+        (cdr cached)  ; Use cache
+      ;; Query and cache
+      (let ((results (vulpea-db--query-by-tags-some-impl tags)))
+        (setf (alist-get cache-key vulpea-db--query-cache)
+              (cons (current-time) results))
+        results))))
+#+end_src
+
+Invalidate cache on any DB update.
+
+*** Status
+ACCEPTED - Based on real usage data
+
+* Open Questions
+
+** Q1: JSON vs S-expressions for storage?
+*** Context
+SQLite supports JSON functions, but Elisp reads s-expressions faster.
+
+*** Options
+1. JSON: Portable, standard, SQLite can query inside JSON
+2. S-expressions: Faster in Elisp, not portable
+
+*** Recommendation
+Use JSON for now. If reading becomes bottleneck, switch to s-expressions.
+
+*** Status
+PROPOSED
+
+** Q2: Should we support incremental updates?
+*** Context
+Current approach: DELETE + INSERT. Alternative: UPDATE for changed fields.
+
+*** Trade-offs
+- DELETE+INSERT: Simple, handles all changes
+- UPDATE: More efficient, but complex logic to track changes
+
+*** Recommendation
+Start with DELETE+INSERT. Optimize to UPDATE if benchmarks show it matters.
+
+*** Status
+PROPOSED
+
+** Q3: Async UI updates?
+*** Context
+When DB updates complete, should we notify open buffers to refresh?
+
+*** Options
+1. No updates: User manually refreshes
+2. Hook-based: Buffers register hooks to update
+3. Timer-based: Periodic refresh
+
+*** Recommendation
+Start with hooks. Buffers that care (e.g., agenda) can register update hooks.
+
+*** Status
+PROPOSED
+
+* References
+
+** Performance Discussions
+- [[https://github.com/org-roam/org-roam/issues/2474][org-roam#2474]]: Performance issues and materialized view discussion
+- [[https://github.com/d12frosted/vulpea/pull/194][vulpea#194]]: Native synchronisation prototype
+
+** Existing Code
+- Current vulpea-db.el: Materialized view implementation
+- vulpea-sync.el (PR #194): File watching prototype
+- Performance tests: vulpea-perf-test.el
+
+** Documentation
+- README.org: Performance benchmarks
+- CHANGELOG.org: Evolution of features
+
+* Decision Log Format
+
+Each decision should follow this template:
+
+#+begin_example
+** DECISION N: Short Title
+*** Decision
+What was decided (1-2 sentences)
+
+*** Rationale
+Why this decision was made (3-5 points)
+
+*** Implementation
+How it will be implemented (code examples)
+
+*** Trade-offs
+Pros and cons
+
+*** Status
+[PROPOSED | ACCEPTED | IMPLEMENTED | SUPERSEDED]
+
+*** Date
+YYYY-MM-DD
+
+*** Revisit
+Conditions under which to revisit this decision
+#+end_example
+
+* Changelog
+
+| Date       | Change                                    | Author |
+|------------+-------------------------------------------+--------|
+| 2025-11-16 | Initial architecture decisions documented | Boris  |
