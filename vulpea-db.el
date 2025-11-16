@@ -345,16 +345,16 @@ Cascades to normalized tables automatically via foreign keys."
   "Update file tracking info for PATH."
   (emacsql (vulpea-db)
            [:insert :or :replace :into files :values $v1]
-           (vector (vector path hash mtime size))))
+           (list (vector path hash mtime size))))
 
 (defun vulpea-db--get-file-hash (path)
   "Get stored hash for PATH.
 
 Returns plist with :hash, :mtime, :size or nil if not tracked."
-  (when-let ((row (caar (emacsql (vulpea-db)
-                                 [:select [hash mtime size] :from files
-                                  :where (= path $s1)]
-                                 path))))
+  (when-let ((row (car (emacsql (vulpea-db)
+                                [:select [hash mtime size] :from files
+                                 :where (= path $s1)]
+                                path))))
     (list :hash (elt row 0)
           :mtime (elt row 1)
           :size (elt row 2))))
