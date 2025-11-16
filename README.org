@@ -156,50 +156,50 @@ eldev test
 
 Vulpea supports three methods for detecting external file changes:
 
-**1. Auto (Recommended)**
+1. *Auto (Recommended)*
 
-Tries =fswatch= first, falls back to polling if unavailable:
+   Tries =fswatch= first, falls back to polling if unavailable:
 
-#+begin_src emacs-lisp
-(setq vulpea-db-sync-external-method 'auto)  ; default
-#+end_src
+   #+begin_src emacs-lisp
+   (setq vulpea-db-sync-external-method 'auto)  ; default
+   #+end_src
 
-**2. FSWatch (Most Reliable)**
+2. *FSWatch (Most Reliable)*
 
-Uses external =fswatch= process for real-time monitoring:
+   Uses external =fswatch= process for real-time monitoring:
 
-#+begin_src bash
-# Install fswatch first
-brew install fswatch  # macOS
-apt install fswatch   # Ubuntu/Debian
-#+end_src
+   #+begin_src bash
+   # Install fswatch first
+   brew install fswatch  # macOS
+   apt install fswatch   # Ubuntu/Debian
+   #+end_src
 
-#+begin_src emacs-lisp
-(setq vulpea-db-sync-external-method 'fswatch)
-#+end_src
+   #+begin_src emacs-lisp
+   (setq vulpea-db-sync-external-method 'fswatch)
+   #+end_src
 
-Features:
-- Real-time change detection
-- Low CPU usage
-- Auto-restart if process dies
-- Filters out temporary/backup files
+   Features:
+   - Real-time change detection
+   - Low CPU usage
+   - Auto-restart if process dies
+   - Filters out temporary/backup files
 
-**3. Polling (No Dependencies)**
+3. *Polling (No Dependencies)*
 
-Pure Elisp fallback using mtime comparison:
+   Pure Elisp fallback using mtime comparison:
 
-#+begin_src emacs-lisp
-(setq vulpea-db-sync-external-method 'poll)
-(setq vulpea-db-sync-poll-interval 2)  ; check every 2 seconds
-#+end_src
+   #+begin_src emacs-lisp
+   (setq vulpea-db-sync-external-method 'poll)
+   (setq vulpea-db-sync-poll-interval 2)  ; check every 2 seconds
+   #+end_src
 
-**4. Filenotify Only (Unreliable)**
+4. *Filenotify Only (Unreliable)*
 
-#+begin_src emacs-lisp
-(setq vulpea-db-sync-external-method nil)  ; not recommended
-#+end_src
+   #+begin_src emacs-lisp
+   (setq vulpea-db-sync-external-method nil)  ; not recommended
+   #+end_src
 
-Only detects changes from within Emacs. External changes (git, sync tools) may be missed on some systems.
+   Only detects changes from within Emacs. External changes (git, sync tools) may be missed on some systems.
 
 *** Synchronous Batch Operations
 
