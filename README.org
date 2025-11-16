@@ -59,11 +59,13 @@ A high-performance, async-first note-taking library for Emacs. v2 is a complete 
 - Extractor registry for plugins
 
 *** File Watching & Sync (=vulpea-db-sync.el=)
-- filenotify-based watchers
+- Internal: filenotify-based watchers
+- External: fswatch process or polling fallback
 - Async update queue with batching
 - Debouncing (2s delay, configurable)
 - Batch processing (100 files/batch)
 - Idle timer processing (0.5s delay)
+- Auto-restart for crashed fswatch processes
 
 ** Current Status
 
@@ -131,12 +133,12 @@ eldev test
 #+begin_src emacs-lisp
 (require 'vulpea-db-sync)
 
-;; Enable automatic file watching and async updates
-(vulpea-db-autosync-mode +1)
-
 ;; Configure directories to watch
 (setq vulpea-db-sync-directories
       '("~/org-roam/"))
+
+;; Enable automatic file watching and async updates
+(vulpea-db-autosync-mode +1)
 
 ;; Manually update a file (queues if autosync enabled)
 (vulpea-db-sync-update-file (buffer-file-name))
@@ -144,6 +146,60 @@ eldev test
 ;; Update entire directory
 (vulpea-db-sync-update-directory "~/org-roam/")
 #+end_src
+
+*Note:* By default, autosync uses filenotify which may not detect external changes (git pulls, Dropbox sync). See [[#external-monitoring][External Change Detection]] for reliable monitoring.
+
+**** External Change Detection
+:PROPERTIES:
+:CUSTOM_ID: external-monitoring
+:END:
+
+Vulpea supports three methods for detecting external file changes:
+
+**1. Auto (Recommended)**
+
+Tries =fswatch= first, falls back to polling if unavailable:
+
+#+begin_src emacs-lisp
+(setq vulpea-db-sync-external-method 'auto)  ; default
+#+end_src
+
+**2. FSWatch (Most Reliable)**
+
+Uses external =fswatch= process for real-time monitoring:
+
+#+begin_src bash
+# Install fswatch first
+brew install fswatch  # macOS
+apt install fswatch   # Ubuntu/Debian
+#+end_src
+
+#+begin_src emacs-lisp
+(setq vulpea-db-sync-external-method 'fswatch)
+#+end_src
+
+Features:
+- Real-time change detection
+- Low CPU usage
+- Auto-restart if process dies
+- Filters out temporary/backup files
+
+**3. Polling (No Dependencies)**
+
+Pure Elisp fallback using mtime comparison:
+
+#+begin_src emacs-lisp
+(setq vulpea-db-sync-external-method 'poll)
+(setq vulpea-db-sync-poll-interval 2)  ; check every 2 seconds
+#+end_src
+
+**4. Filenotify Only (Unreliable)**
+
+#+begin_src emacs-lisp
+(setq vulpea-db-sync-external-method nil)  ; not recommended
+#+end_src
+
+Only detects changes from within Emacs. External changes (git, sync tools) may be missed on some systems.
 
 *** Synchronous Batch Operations
 
@@ -209,6 +265,10 @@ eldev test
 (setq vulpea-db-sync-batch-delay 2.0)     ; Debounce delay (seconds)
 (setq vulpea-db-sync-batch-size 100)      ; Max files per batch
 (setq vulpea-db-sync-idle-delay 0.5)      ; Idle timer delay
+
+;; External change detection
+(setq vulpea-db-sync-external-method 'auto)  ; auto, fswatch, poll, or nil
+(setq vulpea-db-sync-poll-interval 2)        ; Polling interval (if used)
 #+end_src
 
 ** Design Documentation
