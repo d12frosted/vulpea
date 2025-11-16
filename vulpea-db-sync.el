@@ -84,6 +84,27 @@ If non-nil, recursively watch these directories for .org files."
   :type '(repeat directory)
   :group 'vulpea-db-sync)
 
+(defcustom vulpea-db-sync-external-method 'auto
+  "Method to use for detecting external file changes.
+
+Possible values:
+- `auto' - try fswatch first, fallback to polling
+- `fswatch' - use only fswatch (error if not available)
+- `poll' - use only polling
+- nil - rely only on filenotify (unreliable for external changes)"
+  :type '(choice (const :tag "Automatic (fswatch or poll)" auto)
+                 (const :tag "FSWatch only" fswatch)
+                 (const :tag "Polling only" poll)
+                 (const :tag "Filenotify only (unreliable)" nil))
+  :group 'vulpea-db-sync)
+
+(defcustom vulpea-db-sync-poll-interval 2
+  "Interval in seconds for polling external changes.
+Only used when `vulpea-db-sync-external-method' is `poll' or `auto'
+(when fswatch is not available)."
+  :type 'number
+  :group 'vulpea-db-sync)
+
 ;;; Variables
 
 (defvar vulpea-db-sync--watchers nil
@@ -101,6 +122,15 @@ Each entry is (path . timestamp).")
 
 (defvar vulpea-db-sync--processing nil
   "Non-nil when currently processing updates.")
+
+(defvar vulpea-db-sync--fswatch-process nil
+  "Process handle for fswatch external monitoring.")
+
+(defvar vulpea-db-sync--poll-timer nil
+  "Timer for polling-based external monitoring.")
+
+(defvar vulpea-db-sync--file-attributes (make-hash-table :test 'equal)
+  "Cache of file attributes for external change detection.")
 
 ;;; Mode
 
@@ -133,6 +163,9 @@ When disabled:
     (dolist (dir vulpea-db-sync-directories)
       (vulpea-db-sync--watch-directory dir)))
 
+  ;; Start external monitoring (fswatch or polling)
+  (vulpea-db-sync--setup-external-monitoring)
+
   ;; Start idle timer for processing
   (unless vulpea-db-sync--idle-timer
     (setq vulpea-db-sync--idle-timer
@@ -145,6 +178,9 @@ When disabled:
   (dolist (entry vulpea-db-sync--watchers)
     (file-notify-rm-watch (cdr entry)))
   (setq vulpea-db-sync--watchers nil)
+
+  ;; Stop external monitoring
+  (vulpea-db-sync--stop-external-monitoring)
 
   ;; Cancel timers
   (when vulpea-db-sync--timer
@@ -329,6 +365,117 @@ Use this for programmatic operations that create many notes."
          (while vulpea-db-sync--queue
            (vulpea-db-sync--process-queue))
          (vulpea-db-autosync-mode +1)))))
+
+;;; External Monitoring
+
+(defun vulpea-db-sync--setup-external-monitoring ()
+  "Setup external file monitoring based on `vulpea-db-sync-external-method'."
+  (pcase vulpea-db-sync-external-method
+    ('auto
+     (if (executable-find "fswatch")
+         (vulpea-db-sync--setup-fswatch)
+       (message "Vulpea: fswatch not found, using polling for external changes")
+       (vulpea-db-sync--setup-polling)))
+    ('fswatch
+     (if (executable-find "fswatch")
+         (vulpea-db-sync--setup-fswatch)
+       (user-error "Vulpea: fswatch is not available. Install it or use 'auto or 'poll")))
+    ('poll
+     (vulpea-db-sync--setup-polling))
+    (_ nil)))
+
+(defun vulpea-db-sync--stop-external-monitoring ()
+  "Stop all external file monitoring."
+  ;; Stop fswatch process
+  (when vulpea-db-sync--fswatch-process
+    (when (process-live-p vulpea-db-sync--fswatch-process)
+      (delete-process vulpea-db-sync--fswatch-process))
+    (setq vulpea-db-sync--fswatch-process nil))
+
+  ;; Stop polling timer
+  (when vulpea-db-sync--poll-timer
+    (cancel-timer vulpea-db-sync--poll-timer)
+    (setq vulpea-db-sync--poll-timer nil))
+
+  ;; Clear file attributes cache
+  (clrhash vulpea-db-sync--file-attributes))
+
+(defun vulpea-db-sync--setup-fswatch ()
+  "Setup file monitoring using fswatch process."
+  (when vulpea-db-sync-directories
+    (setq vulpea-db-sync--fswatch-process
+          (make-process
+           :name "vulpea-fswatch"
+           :buffer nil
+           :command `("fswatch"
+                      "--recursive"
+                      "--event=Updated"
+                      "--event=Created"
+                      "--event=Removed"
+                      "--exclude" "\\.#.*$"      ; exclude auto-save files
+                      "--exclude" "#.*#$"        ; exclude backup files
+                      "--exclude" ".*~$"         ; exclude backup files
+                      "--exclude" "\\.git/"      ; exclude .git directory
+                      "--format" "%p"            ; only output the path
+                      ,@(mapcar #'expand-file-name vulpea-db-sync-directories))
+           :filter #'vulpea-db-sync--fswatch-filter
+           :sentinel #'vulpea-db-sync--fswatch-sentinel))
+    (message "Vulpea: Started fswatch monitoring")))
+
+(defun vulpea-db-sync--fswatch-filter (_proc output)
+  "Process fswatch OUTPUT."
+  (let ((file (string-trim-right output)))
+    (when (and (string-match-p "\\.org$" file)
+               (file-exists-p file)
+               (not (string-match-p "/\\.git/" file))
+               (not (string-match-p "/\\.#" file))  ; auto-save
+               (not (string-match-p "#$" file))     ; backup
+               (not (string-match-p "~$" file)))    ; backup
+      (vulpea-db-sync--enqueue file))))
+
+(defun vulpea-db-sync--fswatch-sentinel (proc event)
+  "Handle fswatch PROC sentinel EVENT."
+  (unless (process-live-p proc)
+    (message "Vulpea: fswatch process died (%s), restarting..." (string-trim event))
+    (setq vulpea-db-sync--fswatch-process nil)
+    ;; Restart after a delay
+    (run-at-time 2 nil #'vulpea-db-sync--setup-fswatch)))
+
+(defun vulpea-db-sync--setup-polling ()
+  "Setup polling-based external monitoring."
+  (when vulpea-db-sync-directories
+    ;; Initialize file attributes cache
+    (vulpea-db-sync--update-file-attributes-cache)
+    ;; Start polling timer
+    (setq vulpea-db-sync--poll-timer
+          (run-with-timer vulpea-db-sync-poll-interval
+                          vulpea-db-sync-poll-interval
+                          #'vulpea-db-sync--check-external-changes))
+    (message "Vulpea: Started polling for external changes every %s seconds"
+             vulpea-db-sync-poll-interval)))
+
+(defun vulpea-db-sync--update-file-attributes-cache ()
+  "Update cache of file attributes for all org files."
+  (dolist (dir vulpea-db-sync-directories)
+    (when (file-directory-p dir)
+      (dolist (file (directory-files-recursively dir "\\.org$" t))
+        (when (file-exists-p file)
+          (puthash file (file-attributes file) vulpea-db-sync--file-attributes))))))
+
+(defun vulpea-db-sync--check-external-changes ()
+  "Check for externally modified files by comparing mtimes."
+  (dolist (dir vulpea-db-sync-directories)
+    (when (file-directory-p dir)
+      (dolist (file (directory-files-recursively dir "\\.org$" t))
+        (when (file-exists-p file)
+          (let ((curr-attr (file-attributes file))
+                (cached-attr (gethash file vulpea-db-sync--file-attributes)))
+            (when (and cached-attr curr-attr
+                       (not (equal (file-attribute-modification-time curr-attr)
+                                   (file-attribute-modification-time cached-attr))))
+              ;; File changed, update cache and enqueue
+              (puthash file curr-attr vulpea-db-sync--file-attributes)
+              (vulpea-db-sync--enqueue file))))))))
 
 ;;; Provide
 
