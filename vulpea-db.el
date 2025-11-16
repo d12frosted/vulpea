@@ -232,8 +232,8 @@ Use with caution!"
   (emacsql db [:insert :or :replace :into schema-registry
                :values $v1]
            (list (vector (symbol-name name)
-                        version
-                        (format-time-string "%Y-%m-%d %H:%M:%S")))))
+                         version
+                         (format-time-string "%Y-%m-%d %H:%M:%S")))))
 
 ;;; Utilities
 
@@ -242,7 +242,7 @@ Use with caution!"
   (let ((result (emacsql (vulpea-db)
                          [:select name :from sqlite-master
                           :where (and (= type 'table)
-                                     (= name $s1))]
+                                      (= name $s1))]
                          (symbol-name table))))
     (not (null result))))
 
@@ -251,7 +251,7 @@ Use with caution!"
   (let ((result (emacsql (vulpea-db)
                          [:select name :from sqlite-master
                           :where (and (= type 'index)
-                                     (= name $s1))]
+                                      (= name $s1))]
                          (symbol-name index))))
     (not (null result))))
 
@@ -275,7 +275,8 @@ Arguments:
   PROPERTIES - alist of properties
   TAGS - list of tags
   ALIASES - list of aliases
-  META - alist of (key . values) where values is list of plists with :type and :value
+  META - alist of (key . values) where values is list of plists with
+    :type and :value
   LINKS - list of plists with :dest and :type
   TODO - TODO state
   PRIORITY - priority level
@@ -342,7 +343,9 @@ Cascades to normalized tables automatically via foreign keys."
            id))
 
 (defun vulpea-db--update-file-hash (path hash mtime size)
-  "Update file tracking info for PATH."
+  "Update file tracking info for PATH.
+
+HASH, MTIME and SIZE as inserted as values."
   (emacsql (vulpea-db)
            [:insert :or :replace :into files :values $v1]
            (list (vector path hash mtime size))))
