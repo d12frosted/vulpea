@@ -341,14 +341,19 @@ The extractor:
 3. Adds them to note-data (optional, for completeness)"
   (let* ((ast (vulpea-parse-ctx-ast ctx))
          (note-id (plist-get note-data :id))
-         (citations nil))
-    ;; Extract citations from the AST
-    ;; Simple regex-based extraction for demonstration
-    (org-element-map ast 'paragraph
-      (lambda (para)
-        (let ((content (org-element-interpret-data para)))
-          (when (string-match "\\[@\\([^]]+\\)\\]" content)
-            (push (match-string 1 content) citations)))))
+         ;; Extract citations from the AST
+         ;; Simple regex-based extraction for demonstration
+         (citations
+          (apply #'append
+                 (org-element-map ast 'paragraph
+                   (lambda (para)
+                     (let ((content (org-element-interpret-data para))
+                           (result nil)
+                           (pos 0))
+                       (while (string-match "\\[@\\([^]]+\\)\\]" content pos)
+                         (push (substring-no-properties (match-string 1 content)) result)
+                         (setq pos (match-end 0)))
+                       result))))))
 
     ;; Insert citations into custom table
     (when citations

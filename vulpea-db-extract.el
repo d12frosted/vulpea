@@ -507,28 +507,31 @@ Returns number of notes updated (file-level + headings)."
   "Insert note from DATA plist at PATH with LEVEL and POS.
 
 CTX is the parse context containing AST and other metadata.
-Runs registered extractors before insertion."
-  (let* ((enriched-data (vulpea-db--run-extractors ctx data))
-         (modified-at (format-time-string "%Y-%m-%d %H:%M:%S")))
+Runs registered extractors after insertion."
+  (let* ((modified-at (format-time-string "%Y-%m-%d %H:%M:%S")))
+    ;; First insert the note so foreign keys can reference it
     (vulpea-db--insert-note
-     :id (plist-get enriched-data :id)
+     :id (plist-get data :id)
      :path path
      :level level
      :pos pos
-     :title (plist-get enriched-data :title)
-     :properties (plist-get enriched-data :properties)
-     :tags (plist-get enriched-data :tags)
-     :aliases (plist-get enriched-data :aliases)
-     :meta (plist-get enriched-data :meta)
-     :links (plist-get enriched-data :links)
-     :todo (plist-get enriched-data :todo)
-     :priority (plist-get enriched-data :priority)
-     :scheduled (plist-get enriched-data :scheduled)
-     :deadline (plist-get enriched-data :deadline)
-     :closed (plist-get enriched-data :closed)
-     :outline-path (plist-get enriched-data :outline-path)
-     :attach-dir (plist-get enriched-data :attach-dir)
-     :modified-at modified-at)))
+     :title (plist-get data :title)
+     :properties (plist-get data :properties)
+     :tags (plist-get data :tags)
+     :aliases (plist-get data :aliases)
+     :meta (plist-get data :meta)
+     :links (plist-get data :links)
+     :todo (plist-get data :todo)
+     :priority (plist-get data :priority)
+     :scheduled (plist-get data :scheduled)
+     :deadline (plist-get data :deadline)
+     :closed (plist-get data :closed)
+     :outline-path (plist-get data :outline-path)
+     :attach-dir (plist-get data :attach-dir)
+     :modified-at modified-at)
+
+    ;; Then run extractors that may insert into foreign-keyed tables
+    (vulpea-db--run-extractors ctx data)))
 
 ;;; Provide
 
