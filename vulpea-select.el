@@ -33,7 +33,6 @@
 ;;
 ;;; Code:
 
-(require 'org-roam)
 (require 'vulpea-utils)
 (require 'vulpea-db)
 

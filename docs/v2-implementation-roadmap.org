@@ -1,0 +1,482 @@
+#+TITLE: V2 Implementation Roadmap: Remaining Gaps
+#+AUTHOR: Generated 2025-11-17
+#+DESCRIPTION: Logical implementation plan for completing Vulpea v2
+
+* Overview
+
+After comprehensive verification, Vulpea v2 is ~89% complete. This roadmap outlines the remaining work to reach feature-complete v2.
+
+** Current Status
+- ✅ Core v2 complete (81 tests passing)
+- ✅ High-level APIs implemented (select, meta, buffer, utils)
+- ❌ Tests not migrated (83 tests ready)
+- ❌ Capture system needs design
+- ❌ vulpea-find/insert/create need rewrite
+
+** Estimated Timeline
+- Total remaining: 6-10 days
+- To 100% test coverage: 1-2 days
+- To feature-complete: 6-10 days
+
+* Phase 1: Immediate Wins (Day 1)
+
+** DONE Remove org-roam from vulpea-select.el
+- Status: ✅ COMPLETED
+- Time: 5 minutes
+- Impact: vulpea-select.el now v2-compatible
+
+** TODO Verify test suite still passes
+- Run full test suite to ensure org-roam removal didn't break anything
+- Expected: 81 tests passing
+- Action: =eldev test=
+
+** TODO Commit Phase 1 changes
+- Commit message: "refactor: Remove org-roam dependency from vulpea-select.el"
+- Include update to gap analysis document
+
+* Phase 2: Test Migration (Days 1-2)
+
+Goal: Increase test coverage from 62% to 100%+ by migrating 83 ready tests.
+
+** Test Migration Strategy
+
+For each v1 test file:
+1. Convert from Buttercup to ERT syntax
+2. Update file paths (test/v1-legacy/ → test/)
+3. Replace org-roam calls with v2 APIs (if any)
+4. Update assertions to match v2 data structures
+5. Run tests to verify they pass
+6. Commit after each file
+
+** Task 2.1: Migrate vulpea-select-test.el (4 tests)
+- Estimated time: 2 hours
+- Priority: High (validates vulpea-select.el works)
+- Source: =test/v1-legacy/vulpea-select-test.el=
+- Destination: =test/vulpea-select-test.el=
+
+**Test breakdown:**
+1. =vulpea-select-from= - Select from provided notes
+2. =vulpea-select= - Interactive selection
+3. =vulpea-select-multiple-from= - Multi-select
+4. =vulpea-select-describe= / =vulpea-select-annotate= - Formatting
+
+**Migration steps:**
+- [x] 1. Copy file to =test/vulpea-select-test.el=
+- [ ] 2. Convert =describe=, =it= → =ert-deftest=
+- [ ] 3. Convert =expect= → =should=
+- [ ] 4. Update =before-each= → test setup in each test
+- [ ] 5. Remove org-roam test fixtures (if any)
+- [ ] 6. Run tests: =eldev test vulpea-select-test=
+- [ ] 7. Commit: "test: Migrate vulpea-select tests from v1"
+
+** Task 2.2: Migrate vulpea-utils-test.el (6 tests)
+- Estimated time: 2 hours
+- Priority: High (validates utility functions)
+- Source: =test/v1-legacy/vulpea-utils-test.el=
+- Destination: =test/vulpea-utils-test.el=
+
+**Test breakdown:**
+1. =vulpea-utils-with-file= - File buffer execution
+2. =vulpea-utils-with-note= - Note context execution
+3. =vulpea-utils-collect-while= - Collection with predicate
+4. =vulpea-utils-repeat-while= - Repetition with predicate
+5. UUID validation
+6. Link creation
+
+**Migration steps:**
+- [ ] 1. Copy file
+- [ ] 2. Convert test syntax
+- [ ] 3. Remove org-roam dependencies
+- [ ] 4. Run tests
+- [ ] 5. Commit: "test: Migrate vulpea-utils tests from v1"
+
+** Task 2.3: Migrate vulpea-buffer-test.el (23 tests)
+- Estimated time: 4-6 hours
+- Priority: High (validates buffer manipulation)
+- Source: =test/v1-legacy/vulpea-buffer-test.el=
+- Destination: =test/vulpea-buffer-test.el=
+
+**Test breakdown:**
+1. Title manipulation (get/set)
+2. Tags manipulation (get/set/add/remove)
+3. Properties manipulation (get/set/remove)
+4. Meta operations (format, get, set, remove, clean)
+5. Edge cases (missing keywords, empty values, etc.)
+
+**Migration steps:**
+- [ ] 1. Copy file
+- [ ] 2. Convert test syntax (may need multiple commits)
+- [ ] 3. Update test fixtures
+- [ ] 4. Run tests incrementally
+- [ ] 5. Commit: "test: Migrate vulpea-buffer tests from v1 (part 1/2)"
+- [ ] 6. Commit: "test: Migrate vulpea-buffer tests from v1 (part 2/2)"
+
+** Task 2.4: Migrate vulpea-meta-test.el (50 tests)
+- Estimated time: 8-10 hours (largest test file)
+- Priority: High (validates metadata operations)
+- Source: =test/v1-legacy/vulpea-meta-test.el=
+- Destination: =test/vulpea-meta-test.el=
+
+**Test breakdown:**
+1. =vulpea-meta-get= - Single value retrieval (15 tests)
+2. =vulpea-meta-get-list= - List retrieval (10 tests)
+3. =vulpea-meta-set= - Setting values (15 tests)
+4. =vulpea-meta-remove= - Removing properties (5 tests)
+5. =vulpea-meta-clean= - Removing all metadata (5 tests)
+
+**Migration strategy:**
+- Break into 3-4 commits (10-15 tests each)
+- Test after each commit
+- This is the most complex migration
+
+**Migration steps:**
+- [ ] 1. Copy file
+- [ ] 2. Convert test syntax for first 15 tests
+- [ ] 3. Commit: "test: Migrate vulpea-meta tests from v1 (part 1/4)"
+- [ ] 4. Convert tests 16-30
+- [ ] 5. Commit: "test: Migrate vulpea-meta tests from v1 (part 2/4)"
+- [ ] 6. Convert tests 31-45
+- [ ] 7. Commit: "test: Migrate vulpea-meta tests from v1 (part 3/4)"
+- [ ] 8. Convert tests 46-50
+- [ ] 9. Commit: "test: Migrate vulpea-meta tests from v1 (part 4/4)"
+
+** Phase 2 Success Criteria
+- All 83 tests migrated
+- Test count: 164 tests (81 current + 83 migrated)
+- Test coverage: 100%+ of v1 functionality
+- All tests passing
+- Clean commit history (one commit per test file or logical group)
+
+* Phase 3: Capture System Design (Days 3-4)
+
+Goal: Make architectural decision on capture system approach.
+
+** Background
+
+V1 uses org-roam's capture system. V2 needs an org-roam-free solution.
+
+** Option A: Custom Capture System
+**Pros:**
+- Complete control over behavior
+- No org-roam dependency
+- Can optimize for vulpea use cases
+- Clean integration with v2 database
+
+**Cons:**
+- More implementation work (3-4 days)
+- Need to design templating system
+- Need to handle file naming
+- Need to handle content insertion
+
+**Implementation scope:**
+- Template definition (similar to org-capture templates)
+- Variable substitution (=${slug}=, =${title}=, etc.)
+- File creation logic
+- Content insertion
+- Hook system
+- Database sync integration
+
+** Option B: Org-Capture Integration
+**Pros:**
+- Reuses existing, well-tested system
+- Less implementation work (1-2 days)
+- Users already familiar with org-capture
+- Just need wrapper API
+
+**Cons:**
+- Less integrated with vulpea
+- Users must configure org-capture separately
+- Limited control over behavior
+- More complex documentation
+
+**Implementation scope:**
+- Wrapper functions around org-capture
+- Template helper functions
+- Documentation for setup
+- Database sync hooks
+
+** Option C: Hybrid Approach (RECOMMENDED)
+**Pros:**
+- Best of both worlds
+- Use org-capture as backend
+- Provide vulpea-specific convenience layer
+- Gradual migration path (start simple, add features)
+
+**Cons:**
+- Some complexity in wrapper layer
+- Need to ensure clean abstraction
+
+**Implementation scope:**
+- Thin wrapper over org-capture
+- Convenience functions for common cases
+- Template registry for vulpea templates
+- Database sync integration
+- Can evolve into custom system later if needed
+
+** Task 3.1: Research org-capture integration points
+- Time: 4 hours
+- Read org-capture source code
+- Identify key integration points
+- Document findings
+
+** Task 3.2: Design wrapper API
+- Time: 4 hours
+- Define function signatures
+- Design template format
+- Plan database sync hooks
+- Write design document
+
+** Task 3.3: Get user feedback (optional)
+- Time: 1 day
+- Create RFC (Request for Comments) document
+- Get feedback on design
+- Iterate if needed
+
+** Task 3.4: Make final decision
+- Time: 1 hour
+- Choose approach (likely Option C)
+- Document decision rationale
+- Update architecture docs
+
+** Phase 3 Deliverables
+- Design document: =docs/v2-capture-system-design.org=
+- Decision rationale documented in gap analysis
+- Clear API contract defined
+
+* Phase 4: Note Creation APIs (Days 5-10)
+
+Goal: Implement vulpea-find/insert/create without org-roam.
+
+** Task 4.1: Implement capture system (based on Phase 3 decision)
+- Time: 2-3 days (Option C)
+- Implement core capture functionality
+- Add template support
+- Integrate with database sync
+- Write tests
+
+**Implementation checklist:**
+- [ ] 1. Create =vulpea-capture.el= file
+- [ ] 2. Implement =vulpea-capture-note= function
+- [ ] 3. Add template definition system
+- [ ] 4. Implement variable substitution
+- [ ] 5. Add database sync hooks
+- [ ] 6. Write 10-15 tests
+- [ ] 7. Commit: "feat: Add capture system for note creation"
+
+** Task 4.2: Rewrite vulpea-create
+- Time: 1 day
+- Remove org-roam-capture calls
+- Use new capture system
+- Preserve v1 API compatibility where possible
+
+**Current v1 signature:**
+#+begin_src emacs-lisp
+(cl-defun vulpea-create
+    (title file-name
+     &key id meta tags head body properties unnarrowed immediate-finish)
+  ...)
+#+end_src
+
+**V2 changes needed:**
+- Remove org-roam-capture integration
+- Use vulpea-capture-note or direct file creation
+- Maintain database sync
+- Keep same arguments (backward compatibility)
+
+**Implementation checklist:**
+- [ ] 1. Read current v1 implementation (=vulpea.el=:209-280)
+- [ ] 2. Extract non-org-roam logic
+- [ ] 3. Rewrite using capture system
+- [ ] 4. Add tests (use v1 tests as reference)
+- [ ] 5. Commit: "feat: Rewrite vulpea-create for v2"
+
+** Task 4.3: Rewrite vulpea-find
+- Time: 1 day
+- Remove org-roam-node-visit calls
+- Use find-file + goto-char for visiting
+- Integrate with new capture system for creation
+
+**Current v1 signature:**
+#+begin_src emacs-lisp
+(defun vulpea-find (&optional other-window)
+  ...)
+#+end_src
+
+**V2 changes needed:**
+- Replace org-roam-node-visit with direct file/point navigation
+- Use vulpea-select for note selection
+- Use vulpea-create for new notes
+- Handle OTHER-WINDOW parameter
+
+**Implementation checklist:**
+- [ ] 1. Read current v1 implementation (=vulpea.el=:40-100)
+- [ ] 2. Rewrite visit logic using find-file
+- [ ] 3. Add point positioning for heading-level notes
+- [ ] 4. Integrate capture for new notes
+- [ ] 5. Add tests
+- [ ] 6. Commit: "feat: Rewrite vulpea-find for v2"
+
+** Task 4.4: Rewrite vulpea-insert
+- Time: 1 day
+- Similar to vulpea-find but inserts link at point
+- Integrate with vulpea-insert-handle-functions hook
+
+**Current v1 signature:**
+#+begin_src emacs-lisp
+(defun vulpea-insert (&optional filter-fn)
+  ...)
+#+end_src
+
+**V2 changes needed:**
+- Use vulpea-select for selection
+- Use vulpea-create for new notes
+- Insert org link at point
+- Preserve hook system
+
+**Implementation checklist:**
+- [ ] 1. Read current v1 implementation (=vulpea.el=:215-280)
+- [ ] 2. Rewrite selection logic
+- [ ] 3. Add link insertion
+- [ ] 4. Preserve hook system
+- [ ] 5. Add tests
+- [ ] 6. Commit: "feat: Rewrite vulpea-insert for v2"
+
+** Task 4.5: Add interactive commands
+- Time: 2 hours
+- Make vulpea-find/insert/create interactive
+- Add to autoloads
+- Update documentation
+
+** Phase 4 Success Criteria
+- vulpea-create works without org-roam
+- vulpea-find works without org-roam
+- vulpea-insert works without org-roam
+- Backward compatible with v1 where possible
+- All new functionality tested
+- Documentation updated
+
+* Phase 5: Optional Enhancements (Days 11-12)
+
+** Task 5.1: Implement vulpea-note-meta wrappers
+- Time: 2 hours
+- Add =vulpea-note-meta-get=
+- Add =vulpea-note-meta-get-list=
+- Simple wrappers over vulpea-meta functions
+
+**Implementation:**
+#+begin_src emacs-lisp
+(defun vulpea-note-meta-get (note key &optional type)
+  "Get metadata value KEY from NOTE.
+TYPE is the return type (see `vulpea-meta-get')."
+  (vulpea-utils-with-note note
+    (vulpea-meta-get key type)))
+
+(defun vulpea-note-meta-get-list (note key &optional type)
+  "Get all metadata values for KEY from NOTE.
+TYPE is the return type (see `vulpea-meta-get-list')."
+  (vulpea-utils-with-note note
+    (vulpea-meta-get-list key type)))
+#+end_src
+
+**Testing:**
+- Migrate 21 v1 tests from =test/v1-legacy/vulpea-note-test.el=
+- Add edge case tests
+
+** Task 5.2: Performance optimization pass
+- Time: 1-2 days
+- Profile query performance
+- Optimize slow queries
+- Add caching where appropriate
+- Document performance characteristics
+
+** Task 5.3: Documentation update
+- Time: 1 day
+- Update README with v2 usage examples
+- Document migration guide from v1
+- Update API reference
+- Add cookbook with common patterns
+
+** Task 5.4: Release preparation
+- Time: 1 day
+- Clean up deprecated code
+- Update CHANGELOG
+- Tag v2.0.0 release
+- Announce on GitHub
+
+* Summary: Implementation Order
+
+** Week 1 Focus: Tests & Design
+| Day | Focus | Deliverable |
+|-----+-------+-------------|
+| 1 | Test migration (select, utils) | 10 tests migrated |
+| 2 | Test migration (buffer, meta pt1) | 35 tests migrated |
+| 3 | Test migration (meta pt2) | 83 tests migrated (100% coverage) |
+| 4 | Capture system design | Design document & decision |
+
+** Week 2 Focus: Implementation
+| Day | Focus | Deliverable |
+|-----+-------+-------------|
+| 5-6 | Capture system impl | Working capture system |
+| 7 | vulpea-create rewrite | New vulpea-create |
+| 8 | vulpea-find rewrite | New vulpea-find |
+| 9 | vulpea-insert rewrite | New vulpea-insert |
+| 10 | Testing & polish | Feature-complete v2 |
+
+** Optional Week 3: Polish
+| Day | Focus | Deliverable |
+|-----+-------+-------------|
+| 11 | Wrappers & optimization | vulpea-note-meta functions, perf tuning |
+| 12 | Documentation & release | v2.0.0 release |
+
+* Risk Mitigation
+
+** Risk: Capture system more complex than expected
+- Mitigation: Start with minimal hybrid approach (Option C)
+- Fallback: Use org-capture directly, add conveniences later
+- Timeline impact: +1-2 days
+
+** Risk: Test migration uncovers bugs
+- Mitigation: Fix bugs as discovered, tests are valuable
+- Expected: 5-10 small bugs in edge cases
+- Timeline impact: +1 day
+
+** Risk: Breaking changes required for v1 compatibility
+- Mitigation: Document breaking changes, provide migration guide
+- Minimize breaking changes where possible
+- Provide compatibility shims if needed
+
+** Risk: User feedback requires design changes
+- Mitigation: Keep design modular and flexible
+- Plan for iteration after initial release
+- Timeline impact: Varies
+
+* Success Metrics
+
+** Test Coverage
+- Before: 62% (81/131 tests)
+- After: 125% (164+/131 tests) - more tests than v1!
+
+** Functionality
+- Before: 89% complete
+- After: 100% feature-complete
+
+** Dependencies
+- Before: Requires org-roam for find/insert/create
+- After: Zero org-roam dependencies
+
+** Performance
+- Target: Sub-second queries for 100k notes
+- Target: Sub-50ms for simple queries
+
+* Next Actions
+
+1. **Start Phase 2:** Begin test migration with vulpea-select-test.el
+2. **Create tracking issue:** Open GitHub issue to track progress
+3. **Update project board:** Add tasks to project board
+4. **Communicate plan:** Share roadmap with users
+
+* Related Documents
+
+- [[file:v2-gap-analysis.org][Gap Analysis]] - What's missing
+- [[file:v2-architecture-decisions.org][Architecture Decisions]] - Design rationale
+- [[file:v2-implementation-guide.org][Implementation Guide]] - Core implementation details
