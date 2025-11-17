@@ -74,6 +74,34 @@ Slots:
   mtime
   size)
 
+;;; Extractor Definition
+
+(cl-defstruct vulpea-extractor
+  "Definition of a plugin extractor.
+
+Slots:
+  name       - Symbol identifying the extractor (required, unique)
+  version    - Integer version number for migrations (default: 1)
+  schema     - Database schema for plugin tables (optional)
+  priority   - Execution priority, lower runs first (default: 100)
+  extract-fn - Function (ctx note-data) -> note-data (required)
+
+Example:
+  (make-vulpea-extractor
+   :name 'citations
+   :version 1
+   :priority 50
+   :schema '((citations [(note-id :not-null)
+                         (citekey :not-null)]
+              (:foreign-key [note-id] :references notes [id]
+               :on-delete :cascade)))
+   :extract-fn #'my-extract-citations)"
+  name
+  (version 1)
+  schema
+  (priority 100)
+  extract-fn)
+
 ;;; Core Parsing
 
 (defun vulpea-db--parse-file (path)
@@ -273,37 +301,122 @@ with :value and :type."
 (defvar vulpea-db--extractors nil
   "List of registered extractors.
 
-Each extractor is a plist with:
-  :name - symbol identifying the extractor
-  :fn   - function taking (ctx note-data) and returning updated note-data")
+Each extractor is a `vulpea-extractor' struct.")
 
-(defun vulpea-db-register-extractor (name fn)
-  "Register extractor with NAME and function FN.
+(defun vulpea-db--apply-plugin-schema (extractor)
+  "Apply database schema from EXTRACTOR if present.
+
+Creates tables and indices defined in the extractor's :schema field.
+Schema format matches `vulpea-db--schema':
+  ((table-name
+    [(column-name :constraints...)]
+    (:unique [columns])
+    (:foreign-key [columns] :references table [columns]))
+   ...)
+
+Also registers the schema version in schema-registry table."
+  (when-let ((schema (vulpea-extractor-schema extractor))
+             (name (vulpea-extractor-name extractor))
+             (version (vulpea-extractor-version extractor)))
+    (let ((db (vulpea-db)))
+      ;; Check if schema already applied at this version
+      (let ((existing-version
+             (caar (emacsql db
+                            [:select [version] :from schema-registry
+                             :where (= name $s1)]
+                            (symbol-name name)))))
+        (unless (and existing-version (>= existing-version version))
+          ;; Create tables from schema
+          (dolist (table-spec schema)
+            (emacsql db [:create-table :if-not-exists $i1 $S2]
+                     (car table-spec)
+                     (cdr table-spec)))
+
+          ;; Register schema version
+          (emacsql db [:insert :or :replace :into schema-registry
+                       :values $v1]
+                   (list (vector (symbol-name name)
+                                 version
+                                 (format-time-string "%Y-%m-%d %H:%M:%S")))))))))
+
+(defun vulpea-db-register-extractor (extractor-or-name &optional fn)
+  "Register an extractor.
+
+EXTRACTOR-OR-NAME can be:
+- A `vulpea-extractor' struct (recommended)
+- A symbol NAME with FN function (backward compatible)
+
+When using the struct form:
+  (vulpea-db-register-extractor
+   (make-vulpea-extractor
+    :name 'my-extractor
+    :version 1
+    :priority 50
+    :extract-fn #'my-extract-fn))
+
+When using the simple form (backward compatible):
+  (vulpea-db-register-extractor 'my-extractor #'my-extract-fn)
 
 FN should be a function taking (ctx note-data) where:
 - ctx is a `vulpea-parse-ctx' structure
 - note-data is the plist being built for the note
 
-FN should return updated note-data plist.
+FN should return updated note-data plist."
+  (let ((extractor
+         (cond
+          ;; New struct form
+          ((vulpea-extractor-p extractor-or-name)
+           extractor-or-name)
+          ;; Old simple form (backward compatible)
+          ((and (symbolp extractor-or-name) fn)
+           (make-vulpea-extractor
+            :name extractor-or-name
+            :extract-fn fn))
+          (t
+           (error "Invalid extractor: %S" extractor-or-name)))))
+    ;; Validate extractor
+    (unless (vulpea-extractor-name extractor)
+      (error "Extractor must have a :name"))
+    (unless (vulpea-extractor-extract-fn extractor)
+      (error "Extractor must have an :extract-fn"))
+    ;; Apply schema if present
+    (vulpea-db--apply-plugin-schema extractor)
 
-Extractors are called in registration order after core extraction."
-  (setq vulpea-db--extractors
-        (append (cl-remove name vulpea-db--extractors
-                           :key (lambda (e) (plist-get e :name)))
-                (list (list :name name :fn fn)))))
+    ;; Remove existing extractor with same name
+    (setq vulpea-db--extractors
+          (cl-remove (vulpea-extractor-name extractor)
+                     vulpea-db--extractors
+                     :key #'vulpea-extractor-name))
+    ;; Add new extractor
+    (push extractor vulpea-db--extractors)
+    ;; Sort by priority (lower priority runs first)
+    (setq vulpea-db--extractors
+          (sort vulpea-db--extractors
+                (lambda (a b)
+                  (< (vulpea-extractor-priority a)
+                     (vulpea-extractor-priority b)))))
+    extractor))
 
 (defun vulpea-db-unregister-extractor (name)
   "Unregister extractor with NAME."
   (setq vulpea-db--extractors
         (cl-remove name vulpea-db--extractors
-                   :key (lambda (e) (plist-get e :name)))))
+                   :key #'vulpea-extractor-name)))
+
+(defun vulpea-db-get-extractor (name)
+  "Get registered extractor by NAME.
+
+Returns `vulpea-extractor' struct or nil if not found."
+  (cl-find name vulpea-db--extractors
+           :key #'vulpea-extractor-name))
 
 (defun vulpea-db--run-extractors (ctx note-data)
   "Run all registered extractors on NOTE-DATA with CTX.
 
+Extractors are run in priority order (lower priority first).
 Returns updated note-data after all extractors have run."
   (cl-reduce (lambda (data extractor)
-               (funcall (plist-get extractor :fn) ctx data))
+               (funcall (vulpea-extractor-extract-fn extractor) ctx data))
              vulpea-db--extractors
              :initial-value note-data))
 

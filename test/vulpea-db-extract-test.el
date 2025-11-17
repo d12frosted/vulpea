@@ -220,7 +220,7 @@ Returns absolute path. Caller responsible for cleanup."
     (vulpea-db-register-extractor 'test-extractor
                                   (lambda (ctx data) data))
     (should (= (length vulpea-db--extractors) 1))
-    (should (eq (plist-get (car vulpea-db--extractors) :name)
+    (should (eq (vulpea-extractor-name (car vulpea-db--extractors))
                 'test-extractor))))
 
 (ert-deftest vulpea-db-extract-registry-unregister ()
@@ -256,6 +256,76 @@ Returns absolute path. Caller responsible for cleanup."
                    (make-vulpea-parse-ctx)
                    (list :id "test"))))
       (should (equal (plist-get result :custom) "enriched")))))
+
+(ert-deftest vulpea-db-extract-schema-registration ()
+  "Test plugin schema is applied when extractor is registered."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((vulpea-db--extractors nil))
+      ;; Register extractor with schema
+      (vulpea-db-register-extractor
+       (make-vulpea-extractor
+        :name 'test-citations
+        :version 1
+        :schema '((citations
+                   [(note-id :not-null)
+                    (citekey :not-null)]
+                   (:foreign-key [note-id] :references notes [id]
+                    :on-delete :cascade)))
+        :extract-fn (lambda (ctx data) data)))
+
+      ;; Verify table was created
+      (should (vulpea-db--table-exists-p 'citations))
+
+      ;; Verify schema version was registered
+      (let ((row (car (emacsql (vulpea-db)
+                               [:select [version] :from schema-registry
+                                :where (= name $s1)]
+                               "test-citations"))))
+        (should (equal (car row) 1))))))
+
+(ert-deftest vulpea-db-extract-schema-versioning ()
+  "Test schema versioning prevents re-application."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((vulpea-db--extractors nil))
+      ;; Register extractor v1
+      (vulpea-db-register-extractor
+       (make-vulpea-extractor
+        :name 'test-versioned
+        :version 1
+        :schema '((test-table [(id :not-null)]))
+        :extract-fn (lambda (ctx data) data)))
+
+      ;; Verify version 1 registered
+      (let ((v1 (caar (emacsql (vulpea-db)
+                               [:select [version] :from schema-registry
+                                :where (= name $s1)]
+                               "test-versioned"))))
+        (should (= v1 1)))
+
+      ;; Re-register same version (should not error)
+      (vulpea-db-register-extractor
+       (make-vulpea-extractor
+        :name 'test-versioned
+        :version 1
+        :schema '((test-table [(id :not-null)]))
+        :extract-fn (lambda (ctx data) data)))
+
+      ;; Register higher version
+      (vulpea-db-register-extractor
+       (make-vulpea-extractor
+        :name 'test-versioned
+        :version 2
+        :schema '((test-table [(id :not-null) (name)]))
+        :extract-fn (lambda (ctx data) data)))
+
+      ;; Verify version updated to 2
+      (let ((v2 (caar (emacsql (vulpea-db)
+                               [:select [version] :from schema-registry
+                                :where (= name $s1)]
+                               "test-versioned"))))
+        (should (= v2 2))))))
 
 ;;; Integration Tests
 
