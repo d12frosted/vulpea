@@ -327,6 +327,105 @@ Returns absolute path. Caller responsible for cleanup."
                                "test-versioned"))))
         (should (= v2 2))))))
 
+;;; Plugin Example: Citation Extractor
+
+(defun vulpea-test--extract-citations (ctx note-data)
+  "Example citation extractor for demonstration.
+
+Extracts citations from org content in format [@citekey].
+This is a complete working example showing how to write a plugin.
+
+The extractor:
+1. Extracts citations from the AST
+2. Stores them in the custom citations table
+3. Adds them to note-data (optional, for completeness)"
+  (let* ((ast (vulpea-parse-ctx-ast ctx))
+         (note-id (plist-get note-data :id))
+         (citations nil))
+    ;; Extract citations from the AST
+    ;; Simple regex-based extraction for demonstration
+    (org-element-map ast 'paragraph
+      (lambda (para)
+        (let ((content (org-element-interpret-data para)))
+          (when (string-match "\\[@\\([^]]+\\)\\]" content)
+            (push (match-string 1 content) citations)))))
+
+    ;; Insert citations into custom table
+    (when citations
+      (let ((unique-citations (delete-dups (nreverse citations))))
+        (emacsql (vulpea-db)
+                 [:insert :into citations :values $v1]
+                 (mapcar (lambda (citekey)
+                           (vector note-id citekey))
+                         unique-citations))
+
+        ;; Optionally add to note-data for other extractors
+        (plist-put note-data :citations unique-citations)))
+
+    note-data))
+
+(ert-deftest vulpea-db-extract-plugin-example-citations ()
+  "Complete example: citation extractor plugin with schema and queries.
+
+This test demonstrates a complete working plugin that:
+1. Defines a custom schema for citations table
+2. Extracts citation data from notes
+3. Stores citations in the database
+4. Queries citation data
+
+This serves as documentation for plugin authors."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((vulpea-db--extractors nil))
+      ;; Step 1: Register the citation extractor with schema
+      (vulpea-db-register-extractor
+       (make-vulpea-extractor
+        :name 'citations
+        :version 1
+        :priority 50
+        :schema '((citations
+                   [(note-id :not-null)
+                    (citekey :not-null)]
+                   (:primary-key [note-id citekey])
+                   (:foreign-key [note-id] :references notes [id]
+                    :on-delete :cascade)))
+        :extract-fn #'vulpea-test--extract-citations))
+
+      ;; Verify schema was created
+      (should (vulpea-db--table-exists-p 'citations))
+
+      ;; Step 2: Create a test note with citations
+      (let ((path (vulpea-test--create-temp-org-file
+                   "#+TITLE: Research Paper\n#+ID: paper-id\n\nThis work builds on [@smith2020] and [@jones2019].\n")))
+        (unwind-protect
+            (progn
+              ;; Step 3: Update file (triggers extractor)
+              (vulpea-db-update-file path)
+
+              ;; Step 4: Verify citations were extracted and stored
+              (let ((citations (emacsql (vulpea-db)
+                                        [:select [citekey] :from citations
+                                         :where (= note-id $s1)
+                                         :order-by [(asc citekey)]]
+                                        "paper-id")))
+                (should (= (length citations) 2))
+                (should (equal (caar citations) "jones2019"))
+                (should (equal (caadr citations) "smith2020")))
+
+              ;; Step 5: Query notes by citation (demonstrates plugin queries)
+              (let* ((citing-notes
+                      (emacsql (vulpea-db)
+                               [:select [notes:id notes:title]
+                                :from notes
+                                :inner :join citations
+                                :on (= notes:id citations:note-id)
+                                :where (= citations:citekey $s1)]
+                               "smith2020")))
+                (should (= (length citing-notes) 1))
+                (should (equal (caar citing-notes) "paper-id"))
+                (should (equal (cadar citing-notes) "Research Paper"))))
+          (delete-file path))))))
+
 ;;; Integration Tests
 
 (ert-deftest vulpea-db-extract-update-file-basic ()
