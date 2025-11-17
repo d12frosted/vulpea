@@ -1,0 +1,551 @@
+#+TITLE: Vulpea v2 Plugin Guide
+#+AUTHOR: Boris Buliga
+#+DATE: 2025-11-17
+
+* Overview
+
+Vulpea v2 features a plugin system that allows you to extend the database with
+custom extractors and tables. The system is designed around a *parse-once
+architecture*: files are parsed once using =org-element=, and the resulting AST
+is shared across all extractors.
+
+** Key Features
+
+- *Parse-once architecture*: Single org-element parse shared across all
+  extractors
+- *Custom database schemas*: Define your own tables with foreign key
+  constraints
+- *Priority-based execution*: Control the order in which extractors run
+- *Version tracking*: Built-in schema versioning for migration support
+- *Automatic schema creation*: Tables and indices created automatically
+- *Transactional updates*: All extractors run within a single transaction
+
+** When to Write a Plugin
+
+Write a plugin when you need to:
+
+1. Extract domain-specific data from notes (citations, TODOs, code blocks, etc.)
+2. Create relationships between notes beyond standard links
+3. Add computed properties or derived data
+4. Integrate with external systems
+5. Build specialized queries not covered by core functionality
+
+* The Plugin System Architecture
+
+** Parse Context (=vulpea-parse-ctx=)
+
+Every extractor receives a parse context with:
+
+- =:file-path= - absolute path to the org file
+- =:file-hash= - content hash for change detection
+- =:file-mtime= - modification time
+- =:file-size= - file size in bytes
+- =:ast= - complete org-element AST for the file
+- =:file-node= - parsed file-level note data
+- =:heading-nodes= - list of parsed heading-level notes
+
+Access context data using:
+
+#+begin_src emacs-lisp
+(vulpea-parse-ctx-ast ctx)          ; Get the AST
+(vulpea-parse-ctx-file-node ctx)    ; Get file-level note
+(vulpea-parse-ctx-heading-nodes ctx) ; Get all headings
+#+end_src
+
+** Note Data (=note-data=)
+
+Each extractor receives and returns =note-data=, a plist containing:
+
+- =:id= - note ID (UUID)
+- =:path= - file path
+- =:level= - heading level (0 = file-level)
+- =:pos= - position in file
+- =:title= - note title
+- =:properties= - alist of org properties
+- =:tags= - list of tags
+- =:aliases= - list of aliases
+- =:meta= - metadata alist
+- =:links= - list of links
+- =:todo= - TODO state
+- =:priority= - priority level
+- =:scheduled=, =:deadline=, =:closed= - timestamps
+- =:outline-path= - path to heading
+- =:attach-dir= - attachment directory
+
+Extractors can add custom keys to =note-data= for other extractors to use.
+
+* Creating a Plugin
+
+** Step 1: Define the Extractor Struct
+
+Use =make-vulpea-extractor= to create an extractor:
+
+#+begin_src emacs-lisp
+(make-vulpea-extractor
+ :name 'my-extractor          ; Symbol identifying the extractor
+ :version 1                   ; Schema version for migrations
+ :priority 50                 ; Execution order (lower = earlier)
+ :schema '(...)               ; Database schema definition
+ :extract-fn #'my-extract-fn) ; Extraction function
+#+end_src
+
+** Step 2: Define the Schema
+
+Define custom database tables using the same syntax as =vulpea-db--schema=:
+
+#+begin_src emacs-lisp
+:schema '((my_table
+           [(note-id :not-null)
+            (my-field :not-null)
+            (my-value)]
+           (:primary-key [note-id my-field])
+           (:foreign-key [note-id] :references notes [id]
+            :on-delete :cascade)))
+#+end_src
+
+*Important:* Always use =:on-delete :cascade= for foreign keys to =notes=.
+This ensures your data is cleaned up when notes are deleted.
+
+** Step 3: Write the Extractor Function
+
+Extractor functions have the signature:
+
+#+begin_src emacs-lisp
+(defun my-extractor-fn (ctx note-data)
+  "Extract custom data from CTX and NOTE-DATA.
+
+CTX is the parse context (vulpea-parse-ctx).
+NOTE-DATA is the plist of note data being processed.
+
+Returns NOTE-DATA, possibly with additional keys added."
+  ;; 1. Extract data from the AST
+  (let* ((ast (vulpea-parse-ctx-ast ctx))
+         (note-id (plist-get note-data :id))
+         (my-data (extract-my-data ast)))
+
+    ;; 2. Insert into custom table
+    (when my-data
+      (emacsql (vulpea-db)
+               [:insert :into my-table :values $v1]
+               (mapcar (lambda (item)
+                         (vector note-id item))
+                       my-data)))
+
+    ;; 3. Optionally add to note-data for other extractors
+    (when my-data
+      (plist-put note-data :my-custom-key my-data))
+
+    ;; 4. Return note-data
+    note-data))
+#+end_src
+
+** Step 4: Register the Extractor
+
+Register your extractor during initialization:
+
+#+begin_src emacs-lisp
+(vulpea-db-register-extractor
+ (make-vulpea-extractor
+  :name 'my-extractor
+  :version 1
+  :priority 50
+  :schema '((my_table [...]))
+  :extract-fn #'my-extractor-fn))
+#+end_src
+
+* Priorities and Execution Order
+
+Extractors run in priority order (lower numbers first):
+
+- 0-9: Reserved for future core extractors
+- 10: =notes= extractor (core data)
+- 20-99: High-priority plugins that other plugins may depend on
+- 100-999: Normal priority plugins
+- 1000+: Low-priority plugins
+
+Choose priority based on:
+
+1. *Dependencies*: If plugin B uses data from plugin A, A should have lower
+   priority
+2. *Performance*: Heavy extractors should run later (higher priority)
+3. *Importance*: Critical data extraction should run earlier
+
+Example:
+
+#+begin_src emacs-lisp
+;; Citations: other plugins might query citation data
+:priority 30
+
+;; Backlinks: depends on links being extracted first
+:priority 50
+
+;; Statistics: aggregate data from other extractors
+:priority 900
+#+end_src
+
+* Version Tracking and Migrations
+
+** Schema Versioning
+
+Each extractor has a version number tracked in the =schema-registry= table:
+
+#+begin_src emacs-lisp
+(make-vulpea-extractor
+ :name 'my-extractor
+ :version 2  ; Incremented from 1
+ :schema '(...))
+#+end_src
+
+When the version changes, you can check the old version and migrate:
+
+#+begin_src emacs-lisp
+(defun my-extractor-fn (ctx note-data)
+  (let ((old-version (vulpea-db--get-schema-version 'my-extractor)))
+    (when (and old-version (< old-version 2))
+      ;; Perform migration from version 1 to 2
+      (my-migrate-v1-to-v2)))
+
+  ;; Normal extraction logic...
+  note-data)
+#+end_src
+
+** Migration Helpers
+
+#+begin_src emacs-lisp
+;; Check if table exists
+(vulpea-db--table-exists-p 'my-table)
+
+;; Check current version
+(vulpea-db--get-schema-version 'my-extractor)
+
+;; Manual schema updates (within transaction)
+(emacsql (vulpea-db)
+         [:alter :table my-table :add :column new-field])
+#+end_src
+
+* Complete Working Example: Citation Extractor
+
+This example extracts citations in the format =[@citekey]= from notes and
+stores them in a custom table.
+
+** 1. Define the Extractor Function
+
+#+begin_src emacs-lisp
+(defun my-extract-citations (ctx note-data)
+  "Extract citations from org content in format [@citekey]."
+  (let* ((ast (vulpea-parse-ctx-ast ctx))
+         (note-id (plist-get note-data :id))
+         (citations nil))
+
+    ;; Extract citations from all paragraphs
+    (org-element-map ast 'paragraph
+      (lambda (para)
+        (let ((content (org-element-interpret-data para)))
+          (when (string-match "\\[@\\([^]]+\\)\\]" content)
+            (push (match-string 1 content) citations)))))
+
+    ;; Insert unique citations into custom table
+    (when citations
+      (let ((unique-citations (delete-dups (nreverse citations))))
+        (emacsql (vulpea-db)
+                 [:insert :into citations :values $v1]
+                 (mapcar (lambda (citekey)
+                           (vector note-id citekey))
+                         unique-citations))
+
+        ;; Add to note-data for other extractors
+        (plist-put note-data :citations unique-citations)))
+
+    note-data))
+#+end_src
+
+** 2. Register the Extractor
+
+#+begin_src emacs-lisp
+(vulpea-db-register-extractor
+ (make-vulpea-extractor
+  :name 'citations
+  :version 1
+  :priority 50
+  :schema '((citations
+             [(note-id :not-null)
+              (citekey :not-null)]
+             (:primary-key [note-id citekey])
+             (:foreign-key [note-id] :references notes [id]
+              :on-delete :cascade)))
+  :extract-fn #'my-extract-citations))
+#+end_src
+
+** 3. Query Citation Data
+
+After extraction, you can query the data:
+
+#+begin_src emacs-lisp
+;; Find all notes that cite a specific paper
+(emacsql (vulpea-db)
+         [:select [notes:id notes:title]
+          :from notes
+          :inner :join citations
+          :on (= notes:id citations:note-id)
+          :where (= citations:citekey $s1)]
+         "smith2020")
+;; => (("paper-1-id" "My Paper") ("paper-2-id" "Another Paper"))
+
+;; Get all citations from a note
+(emacsql (vulpea-db)
+         [:select [citekey] :from citations
+          :where (= note-id $s1)]
+         "my-note-id")
+;; => (("smith2020") ("jones2019"))
+
+;; Count citations per paper
+(emacsql (vulpea-db)
+         [:select [citekey (funcall count note-id)]
+          :from citations
+          :group :by citekey
+          :order :by [(desc (funcall count note-id))]])
+;; => (("smith2020" 5) ("jones2019" 3))
+#+end_src
+
+** 4. Test Your Extractor
+
+See =test/vulpea-db-extract-test.el= for the complete test:
+=vulpea-db-extract-plugin-example-citations=
+
+* Best Practices
+
+** Database Design
+
+1. *Always use foreign key constraints*: Ensures data integrity
+2. *Use composite primary keys*: =(note-id, field)= prevents duplicates
+3. *Add indices for query performance*: On columns used in WHERE clauses
+4. *Use =:on-delete :cascade=*: Automatic cleanup when notes deleted
+5. *Normalize data*: Separate tables for many-to-many relationships
+
+** Extraction Logic
+
+1. *Use =org-element-map=*: Efficient AST traversal
+2. *Handle missing data gracefully*: Check for nil before inserting
+3. *Use =delete-dups=*: Remove duplicate entries before insertion
+4. *Batch inserts*: Use =:values $v1= with vector list
+5. *Keep extractors focused*: One table/concept per extractor
+
+** Performance
+
+1. *Minimize AST traversals*: Extract all needed data in one pass
+2. *Use prepared statements*: Let emacsql handle parameterization
+3. *Avoid deep recursion*: Use =org-element-map= instead
+4. *Test with large files*: Ensure extractor scales
+5. *Profile if needed*: Use =benchmark-run= to measure
+
+** Error Handling
+
+1. *Use transactions*: Extractors run within =emacsql-with-transaction=
+2. *Don't catch errors*: Let transaction rollback on failure
+3. *Validate data*: Check types before insertion
+4. *Log warnings*: Use =lwarn= for non-critical issues
+5. *Test edge cases*: Empty files, malformed content, etc.
+
+** Documentation
+
+1. *Document the schema*: Explain what each table/column represents
+2. *Show query examples*: How to retrieve the extracted data
+3. *Explain use cases*: When/why to use the extractor
+4. *Provide tests*: Executable documentation
+5. *Version changes*: Document migration steps in comments
+
+* Advanced Topics
+
+** Extractor Dependencies
+
+If extractor B depends on data from extractor A:
+
+1. Set A's priority lower than B's (A runs first)
+2. Have A add data to =note-data=
+3. Have B read from =note-data=
+
+#+begin_src emacs-lisp
+;; Extractor A: priority 30
+(defun extractor-a (ctx note-data)
+  (let ((data (extract-something ctx)))
+    (plist-put note-data :a-data data)
+    note-data))
+
+;; Extractor B: priority 50 (runs after A)
+(defun extractor-b (ctx note-data)
+  (let ((a-data (plist-get note-data :a-data)))
+    (when a-data
+      (process-a-data a-data))
+    note-data))
+#+end_src
+
+** Conditional Extraction
+
+Skip extraction based on file properties:
+
+#+begin_src emacs-lisp
+(defun my-conditional-extractor (ctx note-data)
+  ;; Only extract from files in specific directory
+  (let ((path (vulpea-parse-ctx-file-path ctx)))
+    (if (string-match-p "/projects/" path)
+        (progn
+          ;; Do extraction
+          note-data)
+      ;; Skip extraction
+      note-data)))
+#+end_src
+
+** Aggregate Data
+
+Extract summary data across the entire file:
+
+#+begin_src emacs-lisp
+(defun my-summary-extractor (ctx note-data)
+  (let* ((file-node (vulpea-parse-ctx-file-node ctx))
+         (heading-nodes (vulpea-parse-ctx-heading-nodes ctx))
+         (all-nodes (cons file-node heading-nodes)))
+
+    ;; Calculate aggregate data
+    (let ((total-todos (seq-count
+                        (lambda (n) (plist-get n :todo))
+                        all-nodes)))
+      ;; Store summary for file-level note only
+      (when (= (plist-get note-data :level) 0)
+        (emacsql (vulpea-db)
+                 [:insert :into file-summaries :values $v1]
+                 (list (vector (plist-get note-data :id)
+                              total-todos)))))
+
+    note-data))
+#+end_src
+
+** External Data Integration
+
+Fetch data from external sources:
+
+#+begin_src emacs-lisp
+(defun my-external-enrichment (ctx note-data)
+  ;; Get external data based on note properties
+  (let* ((properties (plist-get note-data :properties))
+         (external-id (alist-get "EXTERNAL_ID" properties nil nil #'equal)))
+
+    (when external-id
+      (let ((external-data (fetch-from-external-api external-id)))
+        (when external-data
+          (emacsql (vulpea-db)
+                   [:insert :or :replace :into external-cache :values $v1]
+                   (list (vector (plist-get note-data :id)
+                                external-id
+                                external-data
+                                (format-time-string "%Y-%m-%d %H:%M:%S")))))))
+
+    note-data))
+#+end_src
+
+* Debugging
+
+** Inspecting Parse Context
+
+#+begin_src emacs-lisp
+(defun my-debug-extractor (ctx note-data)
+  ;; Print context information
+  (message "Processing: %s" (vulpea-parse-ctx-file-path ctx))
+  (message "File size: %s bytes" (vulpea-parse-ctx-file-size ctx))
+  (message "Note ID: %s" (plist-get note-data :id))
+  (message "Note title: %s" (plist-get note-data :title))
+
+  ;; Inspect AST structure
+  (let ((ast (vulpea-parse-ctx-ast ctx)))
+    (message "AST type: %s" (org-element-type ast)))
+
+  note-data)
+#+end_src
+
+** Testing Extractors in Isolation
+
+#+begin_src emacs-lisp
+(ert-deftest my-extractor-test ()
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((vulpea-db--extractors nil))
+      ;; Register only your extractor
+      (vulpea-db-register-extractor
+       (make-vulpea-extractor
+        :name 'my-test
+        :version 1
+        :priority 50
+        :schema '(...)
+        :extract-fn #'my-extract-fn))
+
+      ;; Test with specific content
+      (let ((path (vulpea-test--create-temp-org-file
+                   "#+TITLE: Test\n#+ID: test-id\n\nTest content")))
+        (unwind-protect
+            (progn
+              (vulpea-db-update-file path)
+              ;; Verify extraction results
+              (should (= (my-count-extracted-data) 1)))
+          (delete-file path))))))
+#+end_src
+
+* API Reference
+
+** Registration
+
+- =(vulpea-db-register-extractor EXTRACTOR)= :: Register a new extractor
+- =(vulpea-db-unregister-extractor NAME)= :: Unregister an extractor
+- =(vulpea-db-get-extractor NAME)= :: Get registered extractor by name
+
+** Schema Utilities
+
+- =(vulpea-db--table-exists-p TABLE)= :: Check if table exists
+- =(vulpea-db--index-exists-p INDEX)= :: Check if index exists
+- =(vulpea-db--get-schema-version NAME)= :: Get registered schema version
+
+** Context Accessors
+
+- =(vulpea-parse-ctx-file-path CTX)= :: Get file path
+- =(vulpea-parse-ctx-file-hash CTX)= :: Get file hash
+- =(vulpea-parse-ctx-file-mtime CTX)= :: Get modification time
+- =(vulpea-parse-ctx-file-size CTX)= :: Get file size
+- =(vulpea-parse-ctx-ast CTX)= :: Get org-element AST
+- =(vulpea-parse-ctx-file-node CTX)= :: Get file-level note data
+- =(vulpea-parse-ctx-heading-nodes CTX)= :: Get heading-level notes
+
+** Database Access
+
+All extractors have access to:
+
+- =(vulpea-db)= :: Get database connection
+- =(emacsql DB QUERY ARGS...)= :: Execute SQL query
+
+* Resources
+
+** Example Plugins
+
+See =test/vulpea-db-extract-test.el= for:
+
+- =vulpea-db-extract-plugin-example-citations= :: Citation extraction
+
+** Related Documentation
+
+- [[file:v2-architecture-decisions.org][Architecture Decisions]] :: Design rationale
+- [[file:v2-implementation-guide.org][Implementation Guide]] :: Core implementation details
+- [[file:v2-usage-analysis.org][Usage Analysis]] :: Real-world usage patterns
+
+** External Resources
+
+- [[https://orgmode.org/worg/dev/org-element-api.html][org-element API]] :: org-element documentation
+- [[https://github.com/magit/emacsql][emacsql]] :: SQL database library
+- [[https://www.sqlite.org/lang.html][SQLite SQL]] :: SQL syntax reference
+
+* Contributing
+
+If you write a useful plugin:
+
+1. Submit a PR with the plugin in =contrib/= directory
+2. Include comprehensive tests
+3. Add documentation with usage examples
+4. Update this guide with lessons learned
+
+Popular plugins may be promoted to core extractors in future versions.
