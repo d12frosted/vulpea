@@ -168,7 +168,7 @@ Returns absolute path. Caller responsible for cleanup."
 (ert-deftest vulpea-db-extract-meta-with-types ()
   "Test metadata extraction with type coercion."
   (let ((path (vulpea-test--create-temp-org-file
-               ":PROPERTIES:\n:country_string: France\n:price_number: 25.50\n:region_note: region-id\n:url_link: https://example.com\n:END:\n#+TITLE: Wine\n")))
+               "#+TITLE: Wine\n#+ID: wine-id\n\n- country_string :: France\n- price_number :: 25.50\n- region_note :: [[id:region-id][Region Name]]\n- url_link :: https://example.com\n")))
     (unwind-protect
         (let* ((ctx (vulpea-db--parse-file path))
                (node (vulpea-parse-ctx-file-node ctx))
@@ -201,7 +201,7 @@ Returns absolute path. Caller responsible for cleanup."
 (ert-deftest vulpea-db-extract-meta-multiple-values ()
   "Test metadata with multiple values for same key."
   (let ((path (vulpea-test--create-temp-org-file
-               ":PROPERTIES:\n:grape_note: grape-1\n:grape_note+: grape-2\n:END:\n#+TITLE: Wine\n")))
+               "#+TITLE: Wine\n#+ID: wine-multi-id\n\n- grape_note :: [[id:grape-1][Grape One]]\n- grape_note :: [[id:grape-2][Grape Two]]\n")))
     (unwind-protect
         (let* ((ctx (vulpea-db--parse-file path))
                (node (vulpea-parse-ctx-file-node ctx))

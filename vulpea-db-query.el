@@ -429,5 +429,27 @@ Returns list of `vulpea-note' structs."
                  [:select (funcall count *) :from notes
                   :where (> level 0)])))
 
+;;; Convenience Functions
+
+(defun vulpea-db-get-file-by-id (id)
+  "Get file path for note with ID.
+
+Returns absolute path string or nil if note not found."
+  (when-let ((note (vulpea-db-get-by-id id)))
+    (vulpea-note-path note)))
+
+(defun vulpea-db-query-by-ids (ids)
+  "Get notes with IDS.
+
+IDS is a list of note ID strings.
+Returns list of `vulpea-note' structs in same order as IDS.
+Notes that don't exist are omitted from results."
+  (when ids
+    (let ((rows (emacsql (vulpea-db)
+                         [:select * :from notes
+                          :where (in id $v1)]
+                         (vconcat ids))))
+      (mapcar #'vulpea-db--row-to-note rows))))
+
 (provide 'vulpea-db-query)
 ;;; vulpea-db-query.el ends here
