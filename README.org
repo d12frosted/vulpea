@@ -77,22 +77,30 @@ A high-performance, async-first note-taking library for Emacs. v2 is a complete 
 - Title search: case-sensitive and case-insensitive
 - Statistics: count-notes, count by level
 
+*** Plugin System
+- Parse-once architecture: single org-element parse shared across extractors
+- =vulpea-extractor= struct with schema, version, priority, and extraction function
+- Automatic schema creation and version tracking
+- Priority-based execution order (0-9 reserved for core, 10+ for plugins)
+- Custom database tables with foreign key constraints
+- Example citation extractor demonstrating full plugin lifecycle
+- See [[file:docs/v2-plugin-guide.org][Plugin Guide]] for complete documentation
+
 ** Current Status
 
-*** ✅ Implemented (Phases 1-4)
+*** ✅ Implemented (Phases 1-5)
 - [X] Database Core (11 tests passing)
 - [X] Parser & Extractors (18 tests passing)
 - [X] File Watching & Async Updates (12 tests passing)
 - [X] Query Layer & High-Level API (30 tests passing)
+- [X] Plugin System (7 tests passing)
 - *Total: 78/78 tests passing (100%)*
 
 *** 🚧 In Progress
-- [ ] Plugin system refinement
 - [ ] Performance testing & optimization
 
 *** 📅 Planned
 - [ ] Migration utilities from v1
-- [ ] Documentation & examples
 - [ ] Integration tests with real-world note collections
 
 ** Installation (Development)
@@ -287,17 +295,45 @@ Vulpea supports three methods for detecting external file changes:
 ;;   ("url" . ((:value "https://example.com" :type "link"))))
 #+end_src
 
-*** Register Custom Extractor
+*** Write Custom Plugins
 
 #+begin_src emacs-lisp
+;; Define extractor function
+(defun my-extract-citations (ctx note-data)
+  "Extract citations in format [@citekey] from notes."
+  (let* ((ast (vulpea-parse-ctx-ast ctx))
+         (note-id (plist-get note-data :id))
+         (citations nil))
+    ;; Extract citations from AST
+    (org-element-map ast 'paragraph
+      (lambda (para)
+        (let ((content (org-element-interpret-data para)))
+          (when (string-match "\\[@\\([^]]+\\)\\]" content)
+            (push (match-string 1 content) citations)))))
+    ;; Store in custom table
+    (when citations
+      (emacsql (vulpea-db)
+               [:insert :into citations :values $v1]
+               (mapcar (lambda (key) (vector note-id key))
+                       (delete-dups citations))))
+    note-data))
+
+;; Register plugin with schema
 (vulpea-db-register-extractor
- 'my-citations
- (lambda (ctx note-data)
-   ;; Extract citations from parse context
-   ;; Add to note-data
-   (plist-put note-data :citations (my-extract-citations ctx))
-   note-data))
+ (make-vulpea-extractor
+  :name 'citations
+  :version 1
+  :priority 50
+  :schema '((citations
+             [(note-id :not-null)
+              (citekey :not-null)]
+             (:primary-key [note-id citekey])
+             (:foreign-key [note-id] :references notes [id]
+              :on-delete :cascade)))
+  :extract-fn #'my-extract-citations))
 #+end_src
+
+See [[file:docs/v2-plugin-guide.org][Plugin Guide]] for comprehensive documentation on writing plugins.
 
 ** Configuration
 
@@ -331,6 +367,7 @@ Comprehensive design documentation is available in =docs/=:
 - [[file:docs/v2-architecture-decisions.org][Architecture Decisions]] - 11 key decisions with rationale
 - [[file:docs/v2-usage-analysis.org][Usage Analysis]] - Real-world usage patterns from vino and d12frosted/environment
 - [[file:docs/v2-implementation-guide.org][Implementation Guide]] - Step-by-step implementation details
+- [[file:docs/v2-plugin-guide.org][Plugin Guide]] - Complete guide for writing custom extractors
 
 ** Performance Targets
 
