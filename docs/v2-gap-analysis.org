@@ -1,0 +1,500 @@
+#+TITLE: V2 Gap Analysis: V1 Functionality vs V2 Implementation
+#+AUTHOR: Analysis Date 2025-11-17
+
+* Overview
+
+This document compares Vulpea v1 functionality (as documented in legacy tests) against the current v2 implementation to identify what needs to be migrated, removed, or reimplemented.
+
+** V2 Design Philosophy
+
+V2 is a *clean break* from v1:
+- No org-roam dependency
+- Custom database schema optimized for read-heavy workloads
+- Parse-once architecture
+- Async-first design
+- Plugin system for extensibility
+
+Some v1 functionality is *intentionally removed* as it was org-roam-specific or doesn't fit the v2 architecture.
+
+* Current V2 Implementation Status
+
+** ✅ Fully Implemented (Phases 1-5)
+
+*** Database Core (vulpea-db.el)
+- SQLite via emacsql-sqlite-builtin
+- Hybrid schema: materialized + normalized tables
+- CRUD operations
+- Transaction support
+- Schema versioning
+- *Status: Complete (11 tests passing)*
+
+*** Parser & Extractors (vulpea-db-extract.el)
+- org-element-based parsing
+- Parse context sharing
+- Core extractors: notes, tags, links, metadata
+- Metadata type coercion: note, number, string, link
+- Plugin/extractor registry
+- Schema definition system
+- *Status: Complete (18 tests passing)*
+
+*** File Watching & Sync (vulpea-db-sync.el)
+- Internal: filenotify-based watchers
+- External: fswatch process or polling fallback
+- Async update queue with batching
+- Debouncing and idle processing
+- Auto-restart for crashed watchers
+- *Status: Complete (12 tests passing)*
+
+*** Query Layer (vulpea-db-query.el)
+- Get by ID: =vulpea-db-get-by-id=
+- Query with predicate: =vulpea-db-query=
+- Tag queries: =vulpea-db-query-by-tags-some/every/none=
+- Link queries: =vulpea-db-query-by-links-some/every=
+- Meta queries: =vulpea-db-query-by-meta-key=, =vulpea-db-query-by-meta=
+- Level queries: =vulpea-db-query-by-level=
+- Title search: =vulpea-db-search-by-title=
+- Statistics: =vulpea-db-count-notes=, etc.
+- *Status: Complete (30 tests passing)*
+
+*** Plugin System (vulpea-db-extract.el)
+- =vulpea-extractor= struct
+- Priority-based execution
+- Custom schema definitions
+- Version tracking for migrations
+- *Status: Complete (7 tests passing)*
+
+*** Note Structure (vulpea-note.el)
+- =vulpea-note= cl-defstruct with fields:
+  - :id, :path, :level, :pos, :title
+  - :properties, :tags, :aliases, :meta, :links
+  - :todo, :priority, :scheduled, :deadline, :closed
+  - :outline-path, :attach-dir
+- *Status: Complete*
+
+** ❌ Not Yet Implemented
+
+*** High-Level User APIs (vulpea.el)
+
+**** =vulpea-find=
+**V1 Capability:**
+- Interactive note finding with completing-read
+- Capture integration for new notes
+- Filter customization (=vulpea-find-default-filter=)
+- Candidates source customization (=vulpea-find-default-candidates-source=)
+- Visits existing notes via org-roam-node-visit
+- Creates new notes via org-roam-capture
+
+**V2 Status:** ❌ Not implemented
+**V2 Decision:** Needs reimplementation without org-roam
+**Complexity:** High (requires capture system design)
+**Priority:** High (core user-facing feature)
+
+---
+
+**** =vulpea-select=
+**V1 Capability:**
+- Select note with completing-read
+- Returns =vulpea-note= struct
+- Filter function support
+- Returns minimal struct for non-existent notes
+
+**V2 Status:** ❌ Not implemented
+**V2 Decision:** Needs reimplementation
+**Complexity:** Medium (simpler than vulpea-find)
+**Priority:** High (used by other APIs)
+
+---
+
+**** =vulpea-insert=
+**V1 Capability:**
+- Insert note link at point with completing-read
+- =vulpea-insert-handle-functions= hook system
+- Filter and candidates source customization
+- Capture integration for new notes
+
+**V2 Status:** ❌ Not implemented
+**V2 Decision:** Needs reimplementation
+**Complexity:** High (requires capture system)
+**Priority:** Medium (editor integration)
+
+---
+
+**** =vulpea-create=
+**V1 Capability:**
+- Programmatic note creation
+- Custom or generated IDs
+- Metadata initialization
+- Tag setting
+- Custom headers with template variables (=${slug}=)
+- Body content
+- Custom properties
+- Immediate database sync
+
+**V2 Status:** ❌ Not implemented
+**V2 Decision:** Needs reimplementation
+**Complexity:** High (file creation, templating)
+**Priority:** High (programmatic note creation)
+
+---
+
+*** Buffer Manipulation (vulpea-buffer.el)
+
+**** =vulpea-buffer-title-set=
+**V1 Capability:**
+- Set/update =#+title:= keyword
+- Position-independent operation
+- Database sync after save
+
+**V2 Status:** ❌ Not implemented
+**V2 Decision:** Needs reimplementation
+**Complexity:** Low (simple keyword manipulation)
+**Priority:** Medium
+
+---
+
+**** =vulpea-buffer-tags-{get,set,add,remove}=
+**V1 Capability:**
+- Manipulate =#+filetags:= keyword
+- Format: =:tag1:tag2:=
+- Create/remove filetags line as needed
+
+**V2 Status:** ❌ Not implemented
+**V2 Decision:** Needs reimplementation
+**Complexity:** Low (keyword manipulation)
+**Priority:** Medium
+
+---
+
+**** =vulpea-buffer-prop-{get,set,remove}=
+**V1 Capability:**
+- Manage file-level keywords (=#+key: value=)
+- Case-insensitive property access
+- List value support with quoting
+
+**V2 Status:** ❌ Not implemented
+**V2 Decision:** Needs reimplementation
+**Complexity:** Low (keyword manipulation)
+**Priority:** Low
+
+---
+
+**** =vulpea-buffer-meta-format=
+**V1 Capability:**
+- Format values for meta section
+- URL → =[[url][domain]]=
+- Note ID → =[[id:uuid][title]]=
+- Error handling for invalid values
+
+**V2 Status:** ❌ Not implemented
+**V2 Decision:** Needs reimplementation
+**Complexity:** Low (formatting utility)
+**Priority:** Low (used by meta operations)
+
+---
+
+*** Metadata Operations (vulpea-meta.el)
+
+**** =vulpea-meta-get=
+**V1 Capability:**
+- Get single metadata value by key
+- Type conversions: raw, string, number, link, url, note, symbol
+- Alias resolution in note links
+- Returns first value from multi-value properties
+
+**V2 Status:** ⚠️ Partial (database support exists)
+**V2 Decision:** Needs API layer
+**Complexity:** Medium (type conversion, note resolution)
+**Priority:** High (core metadata feature)
+
+**V2 Notes:**
+- Database already stores meta with types
+- =vulpea-db-query-by-meta= can query meta
+- Need API to get/set meta from buffers
+- Need type conversion utilities
+
+---
+
+**** =vulpea-meta-get-list=
+**V1 Capability:**
+- Get all metadata values as list
+- Same type conversions as =vulpea-meta-get=
+- Order preservation
+
+**V2 Status:** ⚠️ Partial (database support exists)
+**V2 Decision:** Needs API layer
+**Complexity:** Medium
+**Priority:** High
+
+---
+
+**** =vulpea-meta-set=
+**V1 Capability:**
+- Set metadata values
+- Creates meta section if needed
+- Format: =- key :: value= or =- key :: [[link][title]]=
+- Insert position control (append/prepend)
+- Newline handling
+
+**V2 Status:** ⚠️ Partial (extractor handles reading)
+**V2 Decision:** Needs buffer manipulation API
+**Complexity:** High (parsing, formatting, positioning)
+**Priority:** High
+
+---
+
+**** =vulpea-meta-remove=
+**V1 Capability:**
+- Remove metadata property
+- Handles missing properties gracefully
+
+**V2 Status:** ❌ Not implemented
+**V2 Decision:** Needs buffer manipulation API
+**Complexity:** Medium
+**Priority:** Medium
+
+---
+
+**** =vulpea-meta-clean=
+**V1 Capability:**
+- Remove all metadata from note
+- Preserves body and headings
+
+**V2 Status:** ❌ Not implemented
+**V2 Decision:** Needs buffer manipulation API
+**Complexity:** Medium
+**Priority:** Low
+
+---
+
+*** Note Operations (vulpea-note.el)
+
+**** =vulpea-note-meta-get= / =vulpea-note-meta-get-list=
+**V1 Capability:**
+- Convenience wrappers that accept =vulpea-note= struct
+- Same as =vulpea-meta-*= but with note parameter
+
+**V2 Status:** ⚠️ Partial (can be implemented as wrappers)
+**V2 Decision:** Implement as thin wrappers over =vulpea-meta-*=
+**Complexity:** Low (wrapper functions)
+**Priority:** Medium
+
+---
+
+*** Utility Functions (vulpea-utils.el)
+
+**** =vulpea-utils-with-note=
+**V1 Capability:**
+- Execute code with note's buffer
+- Smart point positioning (file-level vs. heading)
+- Buffer management
+
+**V2 Status:** ❌ Not implemented
+**V2 Decision:** Needs reimplementation
+**Complexity:** Medium (buffer + point management)
+**Priority:** Medium (used by other APIs)
+
+---
+
+**** UUID and iteration utilities
+**V1 Capability:**
+- =vulpea-utils--uuid-regexp= - UUID validation
+- =vulpea-utils-collect-while= - Collect with predicate
+- =vulpea-utils-repeat-while= - Repeat with predicate
+
+**V2 Status:** ❌ Not implemented
+**V2 Decision:** Reimplement if needed
+**Complexity:** Low (simple utilities)
+**Priority:** Low
+
+---
+
+* V1 Functionality: Keep vs. Remove
+
+** ✅ Keep - Core Functionality
+
+These are essential features that should be reimplemented in v2:
+
+1. **Note Selection** (=vulpea-select=, =vulpea-find=)
+   - Core user interaction
+   - Needs v2 reimplementation without org-roam
+
+2. **Note Creation** (=vulpea-create=)
+   - Programmatic note creation
+   - Critical for automation
+
+3. **Metadata Operations** (=vulpea-meta-*=)
+   - Core feature of Vulpea
+   - Database already supports it, need API
+
+4. **Buffer Manipulation** (=vulpea-buffer-*=)
+   - Essential for interactive editing
+   - Relatively simple to reimplement
+
+5. **Utility Functions** (=vulpea-utils-with-note=)
+   - Support infrastructure for other APIs
+
+** ❌ Remove - Org-Roam Dependencies
+
+These are tightly coupled to org-roam and should be removed or redesigned:
+
+1. **Org-Roam Integration**
+   - =org-roam-node-visit= calls
+   - =org-roam-capture-= calls
+   - =org-roam-db-query= calls
+
+   **V2 Approach:** Use v2 native APIs (=vulpea-db-query=, etc.)
+
+2. **Capture System Integration**
+   - Currently uses =org-roam-capture-templates=
+   - Needs custom capture system design for v2
+
+** 🤔 Decide - Design Questions
+
+1. **Capture System**
+   - Should v2 have its own capture system?
+   - Or rely on org-capture with v2-specific templates?
+   - Decision needed before implementing =vulpea-find=, =vulpea-insert=, =vulpea-create=
+
+2. **File Naming**
+   - V1 uses template variables (=${slug}=)
+   - Should v2 preserve this?
+   - Or use a different approach?
+
+3. **Hook System**
+   - V1 has =vulpea-insert-handle-functions=
+   - Should v2 preserve hooks?
+   - Or use a different extension mechanism (plugins)?
+
+* Implementation Priority
+
+Based on importance and dependencies:
+
+** Phase 6: Essential APIs (High Priority)
+
+1. **=vulpea-select=** - Select note with completing-read
+   - Depends on: v2 query layer ✅
+   - Complexity: Medium
+   - Time: 1-2 days
+
+2. **=vulpea-meta-get/get-list=** - Read metadata
+   - Depends on: database ✅, note struct ✅
+   - Complexity: Medium
+   - Time: 2-3 days
+
+3. **=vulpea-utils-with-note=** - Note context utility
+   - Depends on: note struct ✅
+   - Complexity: Low
+   - Time: 1 day
+
+** Phase 7: Buffer Operations (Medium Priority)
+
+4. **=vulpea-buffer-title-set=** - Title manipulation
+   - Depends on: nothing
+   - Complexity: Low
+   - Time: 1 day
+
+5. **=vulpea-buffer-tags-*=** - Tag manipulation
+   - Depends on: nothing
+   - Complexity: Low
+   - Time: 1 day
+
+6. **=vulpea-meta-set/remove/clean=** - Write metadata
+   - Depends on: =vulpea-buffer-meta-format=
+   - Complexity: High
+   - Time: 3-4 days
+
+** Phase 8: Note Creation (High Priority, High Complexity)
+
+7. **Capture System Design**
+   - Design decision: custom vs. org-capture integration
+   - Complexity: High
+   - Time: 1-2 days design
+
+8. **=vulpea-create=** - Programmatic creation
+   - Depends on: capture system design
+   - Complexity: High
+   - Time: 3-4 days
+
+9. **=vulpea-find=** - Interactive finding with capture
+   - Depends on: =vulpea-select=, capture system
+   - Complexity: High
+   - Time: 2-3 days
+
+10. **=vulpea-insert=** - Insert with capture
+    - Depends on: =vulpea-find=
+    - Complexity: Medium
+    - Time: 1-2 days
+
+** Phase 9: Optional Features (Low Priority)
+
+11. **=vulpea-buffer-prop-*=** - Keyword manipulation
+    - Complexity: Low
+    - Time: 1 day
+
+12. **Additional utilities**
+    - UUID validation, iteration helpers
+    - Complexity: Low
+    - Time: 1 day
+
+* Estimated Timeline
+
+| Phase | Features | Days | Status |
+|-------+----------+------+--------|
+| 1-5   | Core v2  | Done | ✅ Complete |
+| 6     | Essential APIs | 4-6 | ❌ Not started |
+| 7     | Buffer Ops | 5-6 | ❌ Not started |
+| 8     | Note Creation | 6-9 | ❌ Not started |
+| 9     | Optional | 2 | ❌ Not started |
+| *Total* | *Full v2* | *17-23 days* | *65% complete* |
+
+* Test Migration Strategy
+
+** Current Test Status
+
+- V2 tests: 78 tests passing (100%)
+- V1 tests: 90+ tests in legacy directory (not running)
+
+** Migration Approach
+
+1. **Review v1 test** - Understand what it tests
+2. **Check v2 coverage** - Is it already tested?
+3. **Decide**:
+   - If v2 tests cover it: ✅ Delete v1 test
+   - If functionality removed by design: ✅ Delete v1 test
+   - If functionality not yet in v2: 🔄 Keep v1 test, rewrite when implementing
+   - If better testing needed: ➕ Add to v2 test suite
+
+** Test Rewriting Guidelines
+
+When migrating v1 tests to v2:
+
+1. **Convert framework**: Buttercup → ERT
+2. **Remove org-roam**: Use v2 APIs only
+3. **Update assertions**: Match v2 data structures
+4. **Add v2 features**: Test async, plugin system, etc.
+
+* Decision Log
+
+** 2025-11-17: Gap Analysis Complete
+
+***Findings:**
+- V2 core (Phases 1-5) is 100% complete and tested
+- High-level user APIs (vulpea.el) not yet migrated
+- Buffer manipulation (vulpea-buffer.el) not yet migrated
+- Metadata operations (vulpea-meta.el) partially supported (database layer exists)
+- Estimated 35% of v1 functionality needs reimplementation
+
+** Next Steps:
+
+1. **Immediate**: Document capture system requirements
+2. **Short-term**: Implement Phase 6 (Essential APIs)
+3. **Medium-term**: Implement Phase 7-8 (Buffer Ops + Creation)
+4. **Long-term**: Performance testing and optimization
+
+* Related Documentation
+
+- [[file:v2-architecture-decisions.org][Architecture Decisions]] - Design rationale
+- [[file:v2-usage-analysis.org][Usage Analysis]] - Real-world usage patterns
+- [[file:v2-implementation-guide.org][Implementation Guide]] - Core implementation
+- [[file:v2-plugin-guide.org][Plugin Guide]] - Writing custom extractors
+- [[file:../test/v1-legacy/README.md][V1 Legacy Tests]] - Test reference
