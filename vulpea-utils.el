@@ -83,7 +83,7 @@ useful features and properties:
         (countl (make-symbol "countl"))
         (level (make-symbol "level"))
         (file-name (make-symbol "file-name")))
-    `(let* ((,l (-remove #'vulpea-note-primary-title ,notes))
+    `(let* ((,l ,notes)
             (,count (seq-length ,l))
             (,countl (number-to-string (length (number-to-string ,count))))
             (,i 0))
