@@ -239,21 +239,17 @@ Use with caution!"
 
 (defun vulpea-db--table-exists-p (table)
   "Check if TABLE exists in database."
-  (let ((result (emacsql (vulpea-db)
-                         [:select name :from sqlite-master
-                          :where (and (= type 'table)
-                                      (= name $s1))]
-                         (symbol-name table))))
-    (not (null result))))
+  (let ((table-name (symbol-name table)))
+    (not (null (emacsql (vulpea-db)
+                        (format "SELECT name FROM sqlite_master WHERE type = 'table' AND name = '%s'"
+                                table-name))))))
 
 (defun vulpea-db--index-exists-p (index)
   "Check if INDEX exists in database."
-  (let ((result (emacsql (vulpea-db)
-                         [:select name :from sqlite-master
-                          :where (and (= type 'index)
-                                      (= name $s1))]
-                         (symbol-name index))))
-    (not (null result))))
+  (let ((index-name (symbol-name index)))
+    (not (null (emacsql (vulpea-db)
+                        (format "SELECT name FROM sqlite_master WHERE type = 'index' AND name = '%s'"
+                                index-name))))))
 
 ;;; CRUD Operations
 
