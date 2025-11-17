@@ -482,12 +482,13 @@ Returns number of notes updated (file-level + headings)."
       ;; Insert file-level note
       (let ((file-data (vulpea-parse-ctx-file-node ctx)))
         (when (plist-get file-data :id)
-          (vulpea-db--insert-note-from-plist path 0 0 file-data)
+          (vulpea-db--insert-note-from-plist ctx path 0 0 file-data)
           (setq count (1+ count))))
 
       ;; Insert heading-level notes
       (dolist (heading-data (vulpea-parse-ctx-heading-nodes ctx))
         (vulpea-db--insert-note-from-plist
+         ctx
          path
          (plist-get heading-data :level)
          (plist-get heading-data :pos)
@@ -502,13 +503,12 @@ Returns number of notes updated (file-level + headings)."
 
     count))
 
-(defun vulpea-db--insert-note-from-plist (path level pos data)
+(defun vulpea-db--insert-note-from-plist (ctx path level pos data)
   "Insert note from DATA plist at PATH with LEVEL and POS.
 
+CTX is the parse context containing AST and other metadata.
 Runs registered extractors before insertion."
-  (let* ((enriched-data (vulpea-db--run-extractors
-                         (make-vulpea-parse-ctx :path path)
-                         data))
+  (let* ((enriched-data (vulpea-db--run-extractors ctx data))
          (modified-at (format-time-string "%Y-%m-%d %H:%M:%S")))
     (vulpea-db--insert-note
      :id (plist-get enriched-data :id)
