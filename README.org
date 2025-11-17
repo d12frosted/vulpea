@@ -11,7 +11,7 @@
 </p>
 <p align="center">
   <a href="https://github.com/d12frosted/vulpea/tree/v2-rewrite"><img alt="v2-rewrite branch" src="https://img.shields.io/badge/branch-v2--rewrite-blue"/></a>
-  <a href="https://github.com/d12frosted/vulpea/actions"><img alt="Tests" src="https://img.shields.io/badge/tests-41%2F41%20passing-green"/></a>
+  <a href="https://github.com/d12frosted/vulpea/actions"><img alt="Tests" src="https://img.shields.io/badge/tests-78%2F78%20passing-green"/></a>
 </p>
 #+end_html
 
@@ -67,16 +67,26 @@ A high-performance, async-first note-taking library for Emacs. v2 is a complete 
 - Idle timer processing (0.5s delay)
 - Auto-restart for crashed fswatch processes
 
+*** Query Layer (=vulpea-db-query.el=)
+- Hybrid query strategy: materialized + normalized tables
+- Core queries: get-by-id, query-all with predicate
+- Tag queries: by-tags-some/every/none (indexed lookups)
+- Link queries: by-links-some/every with type filtering
+- Meta queries: by-meta-key, by-meta with type support
+- Level queries: file-level vs heading-level notes
+- Title search: case-sensitive and case-insensitive
+- Statistics: count-notes, count by level
+
 ** Current Status
 
-*** ✅ Implemented (Phases 1-3)
+*** ✅ Implemented (Phases 1-4)
 - [X] Database Core (11 tests passing)
 - [X] Parser & Extractors (18 tests passing)
 - [X] File Watching & Async Updates (12 tests passing)
-- *Total: 41/41 tests passing (100%)*
+- [X] Query Layer & High-Level API (30 tests passing)
+- *Total: 78/78 tests passing (100%)*
 
 *** 🚧 In Progress
-- [ ] High-Level API (query layer, user-facing functions)
 - [ ] Plugin system refinement
 - [ ] Performance testing & optimization
 
@@ -201,6 +211,49 @@ Vulpea supports three methods for detecting external file changes:
 
    Only detects changes from within Emacs. External changes (git, sync tools) may be missed on some systems.
 
+*** Query Notes
+
+#+begin_src emacs-lisp
+(require 'vulpea-db-query)
+
+;; Get note by ID
+(vulpea-db-get-by-id "note-id-123")
+
+;; Query all notes
+(vulpea-db-query)
+
+;; Query with predicate
+(vulpea-db-query
+ (lambda (note)
+   (and (member "wine" (vulpea-note-tags note))
+        (= (vulpea-note-level note) 0))))
+
+;; Tag queries
+(vulpea-db-query-by-tags-some '("wine" "red"))    ; notes with ANY tag
+(vulpea-db-query-by-tags-every '("wine" "red"))   ; notes with ALL tags
+(vulpea-db-query-by-tags-none '("archive"))       ; notes without tags
+
+;; Link queries
+(vulpea-db-query-by-links-some '("note-id-123"))        ; notes linking to ID
+(vulpea-db-query-by-links-some '("note-id") "id")       ; filter by link type
+(vulpea-db-query-by-links-every '("id1" "id2"))         ; links to all IDs
+
+;; Metadata queries
+(vulpea-db-query-by-meta-key "country")                 ; notes with key
+(vulpea-db-query-by-meta "country" "France")            ; key = value
+(vulpea-db-query-by-meta "region" "id-123" "note")      ; with type filter
+
+;; Other queries
+(vulpea-db-query-by-level 0)                      ; file-level notes only
+(vulpea-db-search-by-title "Wine")                ; search by title
+(vulpea-db-search-by-title "Wine" t)              ; case-sensitive
+
+;; Statistics
+(vulpea-db-count-notes)                           ; total notes
+(vulpea-db-count-file-level-notes)                ; level 0 notes
+(vulpea-db-count-heading-level-notes)             ; level > 0 notes
+#+end_src
+
 *** Synchronous Batch Operations
 
 #+begin_src emacs-lisp
@@ -285,10 +338,10 @@ Based on real-world usage with 10k+ notes:
 
 | Operation | Target | Status |
 |-----------+--------+--------|
-| Tag query (10k notes) | <50ms | 🚧 Not yet measured |
-| Get note by ID | <5ms | 🚧 Not yet measured |
-| File update (agenda) | <200ms | 🚧 Not yet measured |
-| Batch update (100 files) | <10s | 🚧 Not yet measured |
+| Tag query (10k notes) | <50ms | ✅ Implemented, not yet benchmarked |
+| Get note by ID | <5ms | ✅ Implemented, not yet benchmarked |
+| File update (agenda) | <200ms | ✅ Implemented, not yet benchmarked |
+| Batch update (100 files) | <10s | ✅ Implemented, not yet benchmarked |
 | Database rebuild (10k) | <60s | 🚧 Not yet measured |
 
 ** Migration from v1
@@ -317,8 +370,9 @@ v2 is under active development. Contributions welcome:
 
 1. Test with your note collection and report issues
 2. Review architecture decisions and provide feedback
-3. Help implement Phase 4 (Query Layer)
+3. Help with performance testing and optimization
 4. Improve documentation and examples
+5. Develop plugin system and custom extractors
 
 ** Users of This Library
 
