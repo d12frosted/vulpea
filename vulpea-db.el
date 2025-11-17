@@ -257,6 +257,32 @@ Use with caution!"
 
 ;;; CRUD Operations
 
+(defun vulpea-db--plist-to-alist (plist)
+  "Convert PLIST to alist for JSON encoding.
+Converts :key value pairs to (\"key\" . value) pairs."
+  (let (result)
+    (while plist
+      (push (cons (substring (symbol-name (car plist)) 1)
+                  (cadr plist))
+            result)
+      (setq plist (cddr plist)))
+    (nreverse result)))
+
+(defun vulpea-db--meta-to-json (meta)
+  "Convert META to JSON-compatible alist.
+META is ((key . (plist1 plist2...))...).
+Converts plists to alists so json-encode creates objects."
+  (mapcar (lambda (entry)
+            (cons (car entry)
+                  (mapcar #'vulpea-db--plist-to-alist (cdr entry))))
+          meta))
+
+(defun vulpea-db--links-to-json (links)
+  "Convert LINKS to JSON-compatible list.
+LINKS is (plist1 plist2...).
+Converts plists to alists so json-encode creates objects."
+  (mapcar #'vulpea-db--plist-to-alist links))
+
 (cl-defun vulpea-db--insert-note (&key id path level pos title
                                        properties tags aliases meta links
                                        todo priority scheduled deadline
@@ -296,8 +322,8 @@ Arguments:
                         (if properties (json-encode properties) "null")
                         (if tags (json-encode tags) "null")
                         (if aliases (json-encode aliases) "null")
-                        (if meta (json-encode meta) "null")
-                        (if links (json-encode links) "null")
+                        (if meta (json-encode (vulpea-db--meta-to-json meta)) "null")
+                        (if links (json-encode (vulpea-db--links-to-json links)) "null")
                         todo priority scheduled deadline closed
                         outline-path attach-dir
                         created-at modified-at)))
