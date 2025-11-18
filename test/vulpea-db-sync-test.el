@@ -88,7 +88,7 @@ Returns absolute path. Caller responsible for cleanup."
   (vulpea-test--with-temp-db
     (vulpea-db)
     (let* ((path (vulpea-test--create-temp-org-file
-                  "#+TITLE: Test\n#+ID: test-id\n"))
+                  ":PROPERTIES:\n:ID: test-id\n:END:\n#+TITLE: Test\n"))
            (vulpea-db-sync--queue (list (cons path (float-time))))
            (vulpea-db-sync--processing nil))
       (unwind-protect
@@ -120,7 +120,7 @@ Returns absolute path. Caller responsible for cleanup."
             ;; Create 3 files
             (dotimes (i 3)
               (let ((path (vulpea-test--create-temp-org-file
-                           (format "#+TITLE: Test %d\n#+ID: test-%d\n" i i))))
+                           (format ":PROPERTIES:\n:ID: test-%d\n:END:\n#+TITLE: Test %d\n" i i))))
                 (push path files)
                 (push (cons path (float-time)) vulpea-db-sync--queue)))
 
@@ -162,7 +162,7 @@ Returns absolute path. Caller responsible for cleanup."
   (vulpea-test--with-temp-db
     (vulpea-db)
     (let ((path (vulpea-test--create-temp-org-file
-                 "#+TITLE: New File\n#+ID: new-id\n")))
+                 ":PROPERTIES:\n:ID: new-id\n:END:\n#+TITLE: New File\n")))
       (unwind-protect
           (progn
             (vulpea-db-sync--update-file-if-changed path)
@@ -178,7 +178,7 @@ Returns absolute path. Caller responsible for cleanup."
   (vulpea-test--with-temp-db
     (vulpea-db)
     (let ((path (vulpea-test--create-temp-org-file
-                 "#+TITLE: Test\n#+ID: test-id\n")))
+                 ":PROPERTIES:\n:ID: test-id\n:END:\n#+TITLE: Test\n")))
       (unwind-protect
           (progn
             ;; First update
@@ -206,7 +206,7 @@ Returns absolute path. Caller responsible for cleanup."
   (vulpea-test--with-temp-db
     (vulpea-db)
     (let ((path (vulpea-test--create-temp-org-file
-                 "#+TITLE: Version 1\n#+ID: test-id\n")))
+                 ":PROPERTIES:\n:ID: test-id\n:END:\n#+TITLE: Version 1\n")))
       (unwind-protect
           (progn
             ;; First update
@@ -215,7 +215,7 @@ Returns absolute path. Caller responsible for cleanup."
             ;; Modify file
             (sleep-for 0.1)  ; Ensure different mtime
             (with-temp-file path
-              (insert "#+TITLE: Version 2\n#+ID: test-id\n"))
+              (insert ":PROPERTIES:\n:ID: test-id\n:END:\n#+TITLE: Version 2\n"))
 
             ;; Second update should detect change
             (vulpea-db-sync--update-file-if-changed path)
@@ -235,7 +235,7 @@ Returns absolute path. Caller responsible for cleanup."
   (vulpea-test--with-temp-db
     (vulpea-db)
     (let ((path (vulpea-test--create-temp-org-file
-                 "#+TITLE: Manual\n#+ID: manual-id\n"))
+                 ":PROPERTIES:\n:ID: manual-id\n:END:\n#+TITLE: Manual\n"))
           (vulpea-db-autosync-mode nil))
       (unwind-protect
           (progn
@@ -252,7 +252,7 @@ Returns absolute path. Caller responsible for cleanup."
   (vulpea-test--with-temp-db
     (vulpea-db)
     (let ((path (vulpea-test--create-temp-org-file
-                 "#+TITLE: Async\n#+ID: async-id\n"))
+                 ":PROPERTIES:\n:ID: async-id\n:END:\n#+TITLE: Async\n"))
           (vulpea-db-autosync-mode t)
           (vulpea-db-sync--queue nil))
       (unwind-protect
@@ -278,7 +278,7 @@ Returns absolute path. Caller responsible for cleanup."
             (vulpea-with-sync-db
               (dotimes (i 3)
                 (let ((path (vulpea-test--create-temp-org-file
-                             (format "#+TITLE: Note %d\n#+ID: note-%d\n" i i))))
+                             (format ":PROPERTIES:\n:ID: note-%d\n:END:\n#+TITLE: Note %d\n" i i))))
                   (push path files)
                   (vulpea-db-update-file path))))
 
@@ -369,7 +369,7 @@ Returns absolute path. Caller responsible for cleanup."
   (vulpea-test--with-temp-db
     (vulpea-db)
     (let* ((path (vulpea-test--create-temp-org-file
-                  "#+TITLE: Version 1\n#+ID: test-id\n"))
+                  ":PROPERTIES:\n:ID: test-id\n:END:\n#+TITLE: Version 1\n"))
            (vulpea-db-sync-directories (list (file-name-directory path)))
            (vulpea-db-sync--queue nil))
       (unwind-protect
@@ -381,7 +381,7 @@ Returns absolute path. Caller responsible for cleanup."
             ;; Modify file
             (sleep-for 0.1)  ; Ensure different mtime
             (with-temp-file path
-              (insert "#+TITLE: Version 2\n#+ID: test-id\n"))
+              (insert ":PROPERTIES:\n:ID: test-id\n:END:\n#+TITLE: Version 2\n"))
 
             ;; Check for changes
             (vulpea-db-sync--check-external-changes)
@@ -393,7 +393,7 @@ Returns absolute path. Caller responsible for cleanup."
 (ert-deftest vulpea-db-sync-polling-ignores-unchanged ()
   "Test polling skips unchanged files."
   (let* ((path (vulpea-test--create-temp-org-file
-                "#+TITLE: Test\n#+ID: test-id\n"))
+                ":PROPERTIES:\n:ID: test-id\n:END:\n#+TITLE: Test\n"))
          (vulpea-db-sync-directories (list (file-name-directory path)))
          (vulpea-db-sync--queue nil))
     (unwind-protect
