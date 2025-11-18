@@ -42,6 +42,37 @@
 (require 'vulpea-meta)
 (require 'vulpea-select)
 (require 'vulpea-db)
+(require 'vulpea-db-extract)
+(require 'org-capture)
+(require 's)
+;;; Customization
+
+(defgroup vulpea nil
+  "Vulpea note-taking system."
+  :group 'org)
+
+(defcustom vulpea-directory nil
+  "Default directory for vulpea notes.
+When nil, notes are created in `org-directory'."
+  :type '(choice (const :tag "Use org-directory" nil)
+                 (directory :tag "Custom directory"))
+  :group 'vulpea)
+
+(defcustom vulpea-file-name-template "${timestamp}_${slug}.org"
+  "Template for generating file names for new notes.
+Available variables:
+  ${title}     - Note title
+  ${slug}      - URL-friendly version of title
+  ${timestamp} - Current timestamp (format: %Y%m%d%H%M%S)
+  ${id}        - Note ID (UUID)
+
+Can be a string template or a function that accepts title and returns file name."
+  :type '(choice (string :tag "Template string")
+                 (function :tag "Function"))
+  :group 'vulpea)
+
+;;; Variables
+
 
 
 
@@ -53,6 +84,68 @@
 
 Must be a function that accepts one argument - optional note
 filter function.")
+
+;;; Helper Functions
+
+(defun vulpea--title-to-slug (title)
+  "Convert TITLE to URL-friendly slug."
+  (s-replace " " "-" 
+             (s-downcase
+              (s-replace-regexp "[^a-zA-Z0-9 -]" "" title))))
+
+(defun vulpea--expand-file-name-template (title &optional id)
+  "Expand `vulpea-file-name-template' with TITLE and optional ID.
+Returns absolute file path."
+  (let* ((slug (vulpea--title-to-slug title))
+         (timestamp (format-time-string "%Y%m%d%H%M%S"))
+         (id (or id (org-id-new)))
+         (template (if (functionp vulpea-file-name-template)
+                       (funcall vulpea-file-name-template title)
+                     vulpea-file-name-template))
+         (file-name (thread-last template
+                      (s-replace "${title}" title)
+                      (s-replace "${slug}" slug)
+                      (s-replace "${timestamp}" timestamp)
+                      (s-replace "${id}" id)))
+         (dir (or vulpea-directory org-directory)))
+    (expand-file-name file-name dir)))
+
+(defun vulpea--format-note-content (id title &optional head meta tags properties)
+  "Format note content for org-capture template.
+ID and TITLE are required. Optional: HEAD, META (alist), TAGS (list), PROPERTIES (alist)."
+  (string-join
+   (append
+    (list
+     ":PROPERTIES:"
+     (format org-property-format ":ID:" id))
+    (mapcar
+     (lambda (prop)
+       (format org-property-format
+               (concat ":" (car prop) ":")
+               (cdr prop)))
+     properties)
+    (list
+     ":END:"
+     (format "#+title: %s" title))
+    (when tags
+      (list (concat "#+filetags: :"
+                    (string-join tags ":")
+                    ":")))
+    (when head (list head))
+    (when meta
+      (list ""))  ; blank line before meta
+    (when meta
+      (mapcar
+       (lambda (kvp)
+         (if (listp (cdr kvp))
+             (mapconcat
+              (lambda (val)
+                (concat "- " (car kvp) " :: " (vulpea-buffer-meta-format val)))
+              (cdr kvp) "\n")
+           (concat "- " (car kvp) " :: " (vulpea-buffer-meta-format (cdr kvp)))))
+       meta)))
+   "\n"))
+
 
 ;;;###autoload
 (cl-defun vulpea-find (&key other-window
@@ -95,14 +188,15 @@ start the capture process."
                 :require-match require-match
                 :initial-prompt region-text)))
     (if (vulpea-note-id note)
-        (org-roam-node-visit
-         (org-roam-node-from-id (vulpea-note-id note))
-         (or current-prefix-arg
-             other-window))
+        ;; Existing note - visit it
+        (vulpea-visit note other-window)
+      ;; New note - create it
       (when (not require-match)
-        (org-roam-capture-
-         :node (org-roam-node-create :title (vulpea-note-title note))
-         :props '(:finalize find-file))))))
+        (let ((new-note (vulpea-create (vulpea-note-title note)
+                                        nil  ; Let template generate filename
+                                        :immediate-finish nil)))  ; Allow editing
+          (when new-note
+            (vulpea-visit new-note other-window)))))))
 
 ;;;###autoload
 (defun vulpea-find-backlink ()
@@ -211,6 +305,7 @@ used."
                (description (or region-text
                                 (vulpea-note-title note))))
           (if (vulpea-note-id note)
+              ;; Existing note - insert link immediately
               (progn
                 (when region-text
                   (delete-region beg end)
@@ -222,32 +317,35 @@ used."
                 (run-hook-with-args
                  'vulpea-insert-handle-functions
                  note))
-            (let ((props (append
-                          (when (and beg end)
-                            (list :region (cons beg end)))
-                          (list
-                           :insert-at (point-marker)
-                           :link-description description
-                           :finalize #'vulpea-insert--capture-finalize))))
+            ;; New note - create it then insert link
+            (let* ((insert-buffer (current-buffer))
+                   (insert-point (point-marker)))
               (if create-fn
-                  (funcall create-fn (vulpea-note-title note) props)
-                (org-roam-capture-
-                 :node (org-roam-node-create
-                        :title (vulpea-note-title note))
-                 :props props))))))
+                  (funcall create-fn (vulpea-note-title note) nil)
+                ;; Create the note
+                (let ((new-note (vulpea-create (vulpea-note-title note)
+                                                nil
+                                                :immediate-finish nil)))
+                  ;; Return to original buffer and insert link
+                  (when new-note
+                    (with-current-buffer insert-buffer
+                      (goto-char insert-point)
+                      (when region-text
+                        (delete-region beg end)
+                        (set-marker beg nil)
+                        (set-marker end nil))
+                      (insert (org-link-make-string
+                               (concat "id:" (vulpea-note-id new-note))
+                               description))
+                      (run-hook-with-args
+                       'vulpea-insert-handle-functions
+                       new-note)))))))))
     (deactivate-mark)))
-
-(defun vulpea-insert--capture-finalize ()
-  "Finalize capture process initiated by `vulpea-insert'."
-  (org-roam-capture--finalize-insert-link)
-  (when-let* ((id (org-roam-capture--get :id))
-              (note (vulpea-db-get-by-id id)))
-    (run-hook-with-args 'vulpea-insert-handle-functions note)))
 
 
 
 (cl-defun vulpea-create (title
-                         file-name
+                         &optional file-name
                          &key
                          id
                          head
@@ -255,11 +353,13 @@ used."
                          body
                          unnarrowed
                          immediate-finish
-                         context
+                         _context  ; Reserved for future use
                          properties
                          tags
-                         capture-properties)
-  "Create a new note file with TITLE in FILE-NAME.
+                         _capture-properties)  ; Reserved for future use
+  "Create a new note file with TITLE.
+
+FILE-NAME is optional. When nil, uses `vulpea-file-name-template' to generate.
 
 Returns created `vulpea-note'.
 
@@ -279,74 +379,36 @@ Structure of the generated file is:
 
   BODY if present
 
-CONTEXT is a property list of :key val.
+CONTEXT is a property list of :key val (currently unused, for future compatibility).
 
 PROPERTIES is a list of (key_str . val_str).
 
 UNNARROWED and IMMEDIATE-FINISH are passed to `org-capture'.
+IMMEDIATE-FINISH defaults to t for programmatic use.
 
-Available variables in the capture context are:
+META is an alist of (key . value) or (key . (list of values)).
 
-- slug
-- title
-- id (passed via CONTEXT or generated)
-- all other values from CONTEXT
+CAPTURE-PROPERTIES are additional properties for org-capture (currently unused).
 
-CAPTURE-PROPERTIES are used by capture mechanism. See Template
-elements of Org Capture feature for more information."
+See Info node `(org) Template elements' for BODY template syntax."
   (let* ((id (or id (org-id-new)))
-         (node (org-roam-node-create
-                :id id
-                :title title))
-         (content (string-join
-                   (append
-                    (list
-                     ":PROPERTIES:"
-                     (format org-property-format ":ID:" id))
-                    (seq-map
-                     (lambda (data)
-                       (format org-property-format
-                               (concat ":" (car data) ":")
-                               (cdr data)))
-                     properties)
-                    (list
-                     ":END:"
-                     "#+title: ${title}")
-                    (when tags
-                      (list (concat
-                             "#+filetags: :"
-                             (string-join tags ":")
-                             ":")))
-                    (when head (list head))
-                    (when meta
-                      ;; extra newline
-                      (list ""))
-                    (when meta
-                      (seq-map
-                       (lambda (kvp)
-                         (if (listp (cdr kvp))
-                             (mapconcat
-                              (lambda (val)
-                                (concat "- " (car kvp) " :: " (vulpea-buffer-meta-format val)))
-                              (cdr kvp) "\n")
-                           (concat "- " (car kvp) " :: " (vulpea-buffer-meta-format (cdr kvp)))))
-                       meta)))
-                   "\n"))
-         (roam-template
-          `("d" "default" plain
-            ,(or body "%?")
-            :if-new (file+head
-                     ,file-name
-                     ,content)
-            :unnarrowed ,unnarrowed
-            :immediate-finish ,immediate-finish
-            :empty-lines-before 1)))
-    (org-roam-capture-
-     :info context
-     :node node
-     :props (append (list :immediate-finish immediate-finish)
-                    capture-properties)
-     :templates (list roam-template))
+         (file-path (or file-name (vulpea--expand-file-name-template title id)))
+         (content (vulpea--format-note-content id title head meta tags properties))
+         (template `("v" "vulpea-note" plain
+                     ,(or body "")
+                     :target (file ,file-path)
+                     :template ,content
+                     :immediate-finish ,(if (null immediate-finish) t immediate-finish)
+                     :unnarrowed ,unnarrowed
+                     :empty-lines 1))
+         (org-capture-templates (list template)))
+    ;; Run org-capture
+    (org-capture nil "v")
+
+    ;; Update database with the new file
+    (vulpea-db-update-file file-path)
+
+    ;; Return the note
     (vulpea-db-get-by-id id)))
 
 
