@@ -77,10 +77,10 @@ Limits memory usage and transaction size."
   :type 'integer
   :group 'vulpea-db-sync)
 
-(defcustom vulpea-db-sync-directories nil
+(defcustom vulpea-db-sync-directories (list org-directory)
   "List of directories to watch for file changes.
-If nil, only watch files explicitly registered.
-If non-nil, recursively watch these directories for .org files."
+Recursively watches these directories for .org files.
+Defaults to `org-directory'."
   :type '(repeat directory)
   :group 'vulpea-db-sync)
 
