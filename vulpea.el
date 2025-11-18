@@ -108,10 +108,10 @@ start the capture process."
 (defun vulpea-find-backlink ()
   "Select and find a note linked to current note."
   (interactive)
-  (let* ((node (org-roam-node-at-point 'assert))
+  (let* ((id (or (org-entry-get nil "ID")
+                 (user-error "Current location has no ID property")))
          (backlinks (vulpea-db-query-by-links-some
-                     (list (cons "id"
-                                 (org-roam-node-id node))))))
+                     (list (cons "id" id)))))
     (unless backlinks
       (user-error "There are no backlinks to the current note"))
     (vulpea-find
@@ -124,13 +124,33 @@ start the capture process."
   "Visit NOTE-OR-ID.
 
 If OTHER-WINDOW, visit the NOTE in another window."
-  (let ((id (if (vulpea-note-p note-or-id)
-                (vulpea-note-id note-or-id)
-              note-or-id)))
-    (org-roam-node-visit
-     (org-roam-node-from-id id)
-     (or current-prefix-arg
-         other-window))))
+  (let* ((note (if (vulpea-note-p note-or-id)
+                   note-or-id
+                 (vulpea-db-get-by-id note-or-id))))
+    (unless note
+      (user-error "Cannot find note with ID: %s"
+                  (if (vulpea-note-p note-or-id)
+                      (vulpea-note-id note-or-id)
+                    note-or-id)))
+    (let ((file (vulpea-note-path note))
+          (id (vulpea-note-id note)))
+      ;; Visit the file
+      (if (or current-prefix-arg other-window)
+          (find-file-other-window file)
+        (find-file file))
+      ;; Go to the note position
+      (if (= (vulpea-note-level note) 0)
+          ;; File-level note: go to beginning
+          (goto-char (point-min))
+        ;; Heading-level note: search for the ID property
+        (goto-char (point-min))
+        (unless (re-search-forward
+                 (format "^[ \t]*:ID:[ \t]+%s[ \t]*$" (regexp-quote id))
+                 nil t)
+          (user-error "Could not find heading with ID: %s" id))
+        ;; Move to the heading
+        (org-back-to-heading t))
+      (org-show-context))))
 
 
 
