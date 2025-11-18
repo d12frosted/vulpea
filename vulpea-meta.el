@@ -44,6 +44,7 @@
 (require 's)
 (require 'vulpea-utils)
 (require 'vulpea-db)
+(require 'vulpea-db-query)
 (require 'vulpea-buffer)
 (require 'vulpea-select)
 

@@ -162,7 +162,7 @@ Returns absolute path. Caller responsible for cleanup."
 (ert-deftest vulpea-db-extract-aliases ()
   "Test alias extraction."
   (let ((path (vulpea-test--create-temp-org-file
-               (format ":PROPERTIES:\n:ID: %s\n:END:\n#+TITLE: Main Title\n#+ROAM_ALIASES: Alias1 Alias2\n" (org-id-new)))))
+               (format ":PROPERTIES:\n:ID: %s\n:ROAM_ALIASES: Alias1 Alias2\n:END:\n#+TITLE: Main Title\n" (org-id-new)))))
     (unwind-protect
         (let* ((ctx (vulpea-db--parse-file path))
                (node (vulpea-parse-ctx-file-node ctx))

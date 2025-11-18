@@ -158,7 +158,7 @@ Returns nil if:
                      (split-string filetags ":" t)))
              (meta (vulpea-db--extract-meta ast))
              (links (vulpea-db--extract-links ast))
-             (aliases (vulpea-db--extract-aliases keywords)))
+             (aliases (vulpea-db--extract-aliases properties)))
 
         (list :id id
               :title title
@@ -242,12 +242,21 @@ Respects `vulpea-db-index-heading-level' setting:
 
 ;;; Extractors
 
-(defun vulpea-db--extract-aliases (keywords)
-  "Extract aliases from KEYWORDS alist.
+(defun vulpea-db--extract-aliases (properties)
+  "Extract aliases from PROPERTIES alist.
 
-Looks for ROAM_ALIASES keyword and splits on spaces."
-  (when-let ((aliases-str (cdr (assoc "ROAM_ALIASES" keywords))))
-    (split-string aliases-str " " t)))
+Looks for ROAM_ALIASES property.
+If the value is a quoted string, returns it as a single alias.
+Otherwise, splits on spaces."
+  (when-let ((aliases-str (cdr (assoc "ROAM_ALIASES" properties))))
+    (setq aliases-str (string-trim aliases-str))
+    ;; If it's a quoted string, treat the whole thing as one alias
+    (if (and (> (length aliases-str) 1)
+             (string-prefix-p "\"" aliases-str)
+             (string-suffix-p "\"" aliases-str))
+        (list (substring aliases-str 1 -1))
+      ;; Otherwise split on spaces
+      (split-string aliases-str " " t))))
 
 (defun vulpea-db--extract-properties (ast-or-node &optional headline)
   "Extract properties from AST-OR-NODE.

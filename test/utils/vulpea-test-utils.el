@@ -65,9 +65,15 @@ Unless NO-SETUP is non-nil, setup vulpea db."
 
 (defun vulpea-test--teardown ()
   "Teardown testing environment."
-  (vulpea-db-autosync-disable)
-  (org-roam-db-autosync-disable)
-  (setq org-roam-db--connection (make-hash-table :test #'equal)))
+  ;; V2 uses minor mode, V1 uses -enable/-disable functions
+  (if (fboundp 'vulpea-db-autosync-mode)
+      (vulpea-db-autosync-mode -1)
+    (when (fboundp 'vulpea-db-autosync-disable)
+      (vulpea-db-autosync-disable)))
+  (when (fboundp 'org-roam-db-autosync-disable)
+    (org-roam-db-autosync-disable))
+  (when (boundp 'org-roam-db--connection)
+    (setq org-roam-db--connection (make-hash-table :test #'equal))))
 
 (buttercup-define-matcher :to-contain-exactly (file value)
   (cl-destructuring-bind
