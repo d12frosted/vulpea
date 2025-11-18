@@ -85,12 +85,10 @@ Downloads test notes and initializes vulpea database."
             vulpea-db-location (expand-file-name "vulpea.db" vulpea-perf--notes-dir))
       (message "Initializing vulpea database in %s" vulpea-perf--notes-dir)
 
-      ;; Initialize database
-      (vulpea-db-autosync-mode 1)
-
-      ;; Wait for initial sync to complete
-      (message "Waiting for database sync...")
-      (sleep-for 2)
+      ;; Initialize database synchronously
+      (vulpea-db)
+      (message "Syncing notes directory...")
+      (vulpea-db-sync-update-directory vulpea-perf--notes-dir)
 
       (let ((count (vulpea-db-count-notes)))
         (message "Database initialized with %d notes" count)
@@ -102,7 +100,6 @@ Downloads test notes and initializes vulpea database."
 (defun vulpea-perf--teardown ()
   "Clean up performance testing environment."
   (when vulpea-perf--initialized
-    (vulpea-db-autosync-mode -1)
     (vulpea-db-close)
     (when (and vulpea-perf--temp-loc
                (file-exists-p vulpea-perf--temp-loc))

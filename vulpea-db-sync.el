@@ -157,7 +157,19 @@ When disabled:
 ;;; Core Functions
 
 (defun vulpea-db-sync--start ()
-  "Start file watching and async updates."
+  "Start file watching and async updates.
+
+Performs initial scan to detect changes made while Emacs was closed."
+  ;; Clean up deleted files first
+  (vulpea-db-sync--cleanup-deleted-files)
+
+  ;; Initial scan: detect external changes
+  (when vulpea-db-sync-directories
+    (message "Vulpea: Checking for external changes...")
+    (dolist (dir vulpea-db-sync-directories)
+      (dolist (file (directory-files-recursively dir "\\.org$"))
+        (vulpea-db-sync--enqueue file))))
+
   ;; Start watching directories if configured
   (when vulpea-db-sync-directories
     (dolist (dir vulpea-db-sync-directories)
@@ -294,23 +306,48 @@ When disabled:
 (defun vulpea-db-sync--update-file-if-changed (path)
   "Update database for PATH only if file has changed.
 
-Uses content hash and mtime to detect changes."
+Uses content hash and mtime to detect changes.
+Returns t if file was updated, nil otherwise."
   (let* ((attrs (file-attributes path))
          (current-mtime (float-time (file-attribute-modification-time attrs)))
          (current-size (file-attribute-size attrs))
          (stored-info (vulpea-db--get-file-hash path)))
 
-    (when (or (null stored-info)
-              (not (equal (plist-get stored-info :mtime) current-mtime))
-              (not (equal (plist-get stored-info :size) current-size)))
-      ;; File changed, compute hash to verify
-      (let ((current-hash (with-temp-buffer
-                            (insert-file-contents path)
-                            (secure-hash 'sha256 (buffer-string)))))
-        (when (or (null stored-info)
+    (if (or (null stored-info)
+            (not (equal (plist-get stored-info :mtime) current-mtime))
+            (not (equal (plist-get stored-info :size) current-size)))
+        ;; File changed, compute hash to verify
+        (let ((current-hash (with-temp-buffer
+                              (insert-file-contents path)
+                              (secure-hash 'sha256 (buffer-string)))))
+          (if (or (null stored-info)
                   (not (equal (plist-get stored-info :hash) current-hash)))
-          ;; Hash differs, update database
-          (vulpea-db-update-file path))))))
+              ;; Hash differs, update database
+              (progn
+                (vulpea-db-update-file path)
+                t)
+            ;; Hash same, no update needed
+            nil))
+      ;; No change detected
+      nil)))
+
+(defun vulpea-db-sync--cleanup-deleted-files ()
+  "Remove database entries for files that no longer exist.
+
+Returns count of removed files."
+  (let* ((db (vulpea-db))
+         (all-paths (mapcar #'car (emacsql db [:select path :from files])))
+         (deleted 0))
+    (emacsql-with-transaction db
+      (dolist (path all-paths)
+        (unless (file-exists-p path)
+          (vulpea-db--delete-file-notes path)
+          (emacsql db [:delete :from files :where (= path $s1)] path)
+          (setq deleted (1+ deleted)))))
+    (when (> deleted 0)
+      (message "Vulpea: Removed %d deleted file%s from database"
+               deleted (if (= deleted 1) "" "s")))
+    deleted))
 
 ;;; Manual Update
 
@@ -325,25 +362,33 @@ Otherwise, updates immediately."
     (vulpea-db-update-file path)))
 
 (defun vulpea-db-sync-update-directory (dir)
-  "Update database for all org files in DIR recursively."
+  "Update database for all org files in DIR recursively.
+
+Only updates files that have actually changed (by checking mtime/size/hash)."
   (interactive "DDirectory: ")
   (let ((files (directory-files-recursively dir "\\.org$")))
     (if vulpea-db-autosync-mode
+        ;; Async mode: queue all files (smart detection in queue processing)
         (dolist (file files)
           (vulpea-db-sync--enqueue file))
+      ;; Sync mode: use smart detection
       (let ((db (vulpea-db))
-            (count 0))
+            (updated 0)
+            (unchanged 0))
         (emacsql-with-transaction db
           (dolist (file files)
             (condition-case err
-                (progn
-                  (vulpea-db-update-file file)
-                  (setq count (1+ count)))
+                (if (vulpea-db-sync--update-file-if-changed file)
+                    (setq updated (1+ updated))
+                  (setq unchanged (1+ unchanged)))
               (error
                (message "Vulpea: Error updating %s: %s"
                         file (error-message-string err))))))
-        (message "Vulpea: Updated %d file%s"
-                 count (if (= count 1) "" "s"))))))
+        (message "Vulpea: Checked %d file%s (%d updated, %d unchanged)"
+                 (+ updated unchanged)
+                 (if (= (+ updated unchanged) 1) "" "s")
+                 updated
+                 unchanged)))))
 
 ;;; Sync Mode
 
