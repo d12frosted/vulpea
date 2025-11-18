@@ -249,5 +249,252 @@ Returns absolute path. Caller responsible for cleanup."
         (kill-buffer (get-file-buffer path))
         (delete-file path)))))
 
+;;; Capture System Helper Function Tests
+
+(ert-deftest vulpea--title-to-slug-basic ()
+  "Test basic slug generation."
+  (should (equal (vulpea--title-to-slug "Hello World")
+                 "hello-world"))
+  (should (equal (vulpea--title-to-slug "My Great Note")
+                 "my-great-note")))
+
+(ert-deftest vulpea--title-to-slug-special-chars ()
+  "Test slug generation removes special characters."
+  (should (equal (vulpea--title-to-slug "Hello, World!")
+                 "hello-world"))
+  (should (equal (vulpea--title-to-slug "Test@Note#123")
+                 "testnote123"))
+  (should (equal (vulpea--title-to-slug "Café & Restaurant")
+                 "caf-restaurant")))
+
+(ert-deftest vulpea--expand-file-name-template-default ()
+  "Test file name template expansion with default template."
+  (let* ((vulpea-file-name-template "${slug}.org")
+         (vulpea-directory (make-temp-file "vulpea-test-" t))
+         (result (vulpea--expand-file-name-template "Test Note")))
+    (unwind-protect
+        (progn
+          (should (string-match-p "/test-note\\.org$" result))
+          (should (file-name-absolute-p result))
+          (should (string-prefix-p vulpea-directory result)))
+      (when (file-directory-p vulpea-directory)
+        (delete-directory vulpea-directory t)))))
+
+(ert-deftest vulpea--expand-file-name-template-with-timestamp ()
+  "Test file name template with timestamp."
+  (let* ((vulpea-file-name-template "${timestamp}_${slug}.org")
+         (vulpea-directory (make-temp-file "vulpea-test-" t))
+         (result (vulpea--expand-file-name-template "My Note")))
+    (unwind-protect
+        (progn
+          (should (string-match-p "/[0-9]\\{14\\}_my-note\\.org$" result))
+          (should (file-name-absolute-p result)))
+      (when (file-directory-p vulpea-directory)
+        (delete-directory vulpea-directory t)))))
+
+(ert-deftest vulpea--expand-file-name-template-with-id ()
+  "Test file name template with custom ID."
+  (let* ((vulpea-file-name-template "${id}.org")
+         (vulpea-directory (make-temp-file "vulpea-test-" t))
+         (custom-id "custom-test-id")
+         (result (vulpea--expand-file-name-template "Test" custom-id)))
+    (unwind-protect
+        (progn
+          (should (string-suffix-p "/custom-test-id.org" result))
+          (should (file-name-absolute-p result)))
+      (when (file-directory-p vulpea-directory)
+        (delete-directory vulpea-directory t)))))
+
+(ert-deftest vulpea--expand-file-name-template-function ()
+  "Test file name template as function."
+  (let* ((vulpea-file-name-template
+          (lambda (title) (concat "prefix-" (downcase title) ".org")))
+         (vulpea-directory (make-temp-file "vulpea-test-" t))
+         (result (vulpea--expand-file-name-template "TestNote")))
+    (unwind-protect
+        (should (string-suffix-p "/prefix-testnote.org" result))
+      (when (file-directory-p vulpea-directory)
+        (delete-directory vulpea-directory t)))))
+
+(ert-deftest vulpea--format-note-content-minimal ()
+  "Test minimal note content formatting."
+  (let* ((id "test-id-123")
+         (title "Test Title")
+         (content (vulpea--format-note-content id title))
+         (lines (split-string content "\n")))
+    (should (member ":PROPERTIES:" lines))
+    (should (member ":END:" lines))
+    (should (cl-some (lambda (line) (string-match-p "#\\+title: Test Title" line)) lines))
+    (should (cl-some (lambda (line) (string-match-p ":ID:.*test-id-123" line)) lines))))
+
+(ert-deftest vulpea--format-note-content-with-tags ()
+  "Test note content with tags."
+  (let* ((content (vulpea--format-note-content "id" "Title" nil nil '("tag1" "tag2"))))
+    (should (string-match-p "#\\+filetags: :tag1:tag2:" content))))
+
+(ert-deftest vulpea--format-note-content-with-properties ()
+  "Test note content with custom properties."
+  (let* ((props '(("CREATED" . "2025-01-01") ("AUTHOR" . "Test")))
+         (content (vulpea--format-note-content "id" "Title" nil nil nil props)))
+    (should (string-match-p ":CREATED:.*2025-01-01" content))
+    (should (string-match-p ":AUTHOR:.*Test" content))))
+
+(ert-deftest vulpea--format-note-content-with-head ()
+  "Test note content with head section."
+  (let* ((head "This is the head section")
+         (content (vulpea--format-note-content "id" "Title" head)))
+    (should (string-match-p "This is the head section" content))))
+
+;;; vulpea-create Tests
+
+(ert-deftest vulpea-create-basic ()
+  "Test basic note creation with default template."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((vulpea-directory (make-temp-file "vulpea-test-" t))
+           (vulpea-file-name-template "${slug}.org")
+           (title "Test Note Creation")
+           note created-file)
+      (unwind-protect
+          (progn
+            ;; Create note
+            (setq note (vulpea-create title))
+            (should note)
+            (should (vulpea-note-id note))
+            (should (equal (vulpea-note-title note) title))
+
+            ;; Verify file was created
+            (setq created-file (vulpea-note-path note))
+            (should (file-exists-p created-file))
+
+            ;; Verify content
+            (with-temp-buffer
+              (insert-file-contents created-file)
+              (should (string-match-p ":ID:" (buffer-string)))
+              (should (string-match-p "#\\+title: Test Note Creation" (buffer-string))))
+
+            ;; Verify in database
+            (let ((db-note (vulpea-db-get-by-id (vulpea-note-id note))))
+              (should db-note)
+              (should (equal (vulpea-note-title db-note) title))))
+        (when (and created-file (file-exists-p created-file))
+          (when (get-file-buffer created-file)
+            (kill-buffer (get-file-buffer created-file)))
+          (delete-file created-file))
+        (when (file-directory-p vulpea-directory)
+          (delete-directory vulpea-directory t))))))
+
+(ert-deftest vulpea-create-custom-file-name ()
+  "Test note creation with custom file name."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((vulpea-directory (make-temp-file "vulpea-test-" t))
+           (custom-file (expand-file-name "custom-note.org" vulpea-directory))
+           (title "Custom File Note")
+           note)
+      (unwind-protect
+          (progn
+            ;; Create note with custom file name
+            (setq note (vulpea-create title custom-file))
+            (should note)
+            (should (equal (vulpea-note-path note) custom-file))
+            (should (file-exists-p custom-file))
+
+            ;; Verify content
+            (with-temp-buffer
+              (insert-file-contents custom-file)
+              (should (string-match-p "#\\+title: Custom File Note" (buffer-string)))))
+        (when (file-exists-p custom-file)
+          (when (get-file-buffer custom-file)
+            (kill-buffer (get-file-buffer custom-file)))
+          (delete-file custom-file))
+        (when (file-directory-p vulpea-directory)
+          (delete-directory vulpea-directory t))))))
+
+(ert-deftest vulpea-create-with-tags ()
+  "Test note creation with tags."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((vulpea-directory (make-temp-file "vulpea-test-" t))
+           (vulpea-file-name-template "${slug}.org")
+           (title "Tagged Note")
+           (tags '("project" "important"))
+           note created-file)
+      (unwind-protect
+          (progn
+            (setq note (vulpea-create title nil :tags tags))
+            (should note)
+            (setq created-file (vulpea-note-path note))
+
+            ;; Verify tags in file
+            (with-temp-buffer
+              (insert-file-contents created-file)
+              (should (string-match-p "#\\+filetags: :project:important:" (buffer-string))))
+
+            ;; Verify tags in database
+            (let ((db-note (vulpea-db-get-by-id (vulpea-note-id note))))
+              (should (member "project" (vulpea-note-tags db-note)))
+              (should (member "important" (vulpea-note-tags db-note)))))
+        (when (and created-file (file-exists-p created-file))
+          (when (get-file-buffer created-file)
+            (kill-buffer (get-file-buffer created-file)))
+          (delete-file created-file))
+        (when (file-directory-p vulpea-directory)
+          (delete-directory vulpea-directory t))))))
+
+(ert-deftest vulpea-create-with-properties ()
+  "Test note creation with custom properties."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((vulpea-directory (make-temp-file "vulpea-test-" t))
+           (vulpea-file-name-template "${slug}.org")
+           (title "Note with Props")
+           (props '(("CATEGORY" . "work") ("PRIORITY" . "A")))
+           note created-file)
+      (unwind-protect
+          (progn
+            (setq note (vulpea-create title nil :properties props))
+            (should note)
+            (setq created-file (vulpea-note-path note))
+
+            ;; Verify properties in file
+            (with-temp-buffer
+              (insert-file-contents created-file)
+              (should (string-match-p ":CATEGORY:.*work" (buffer-string)))
+              (should (string-match-p ":PRIORITY:.*A" (buffer-string)))))
+        (when (and created-file (file-exists-p created-file))
+          (when (get-file-buffer created-file)
+            (kill-buffer (get-file-buffer created-file)))
+          (delete-file created-file))
+        (when (file-directory-p vulpea-directory)
+          (delete-directory vulpea-directory t))))))
+
+(ert-deftest vulpea-create-with-body ()
+  "Test note creation with body template."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((vulpea-directory (make-temp-file "vulpea-test-" t))
+           (vulpea-file-name-template "${slug}.org")
+           (title "Note with Body")
+           (body "* Section 1\nContent here\n\n* Section 2\nMore content")
+           note created-file)
+      (unwind-protect
+          (progn
+            (setq note (vulpea-create title nil :body body))
+            (should note)
+            (setq created-file (vulpea-note-path note))
+
+            ;; Verify body in file
+            (with-temp-buffer
+              (insert-file-contents created-file)
+              (should (string-match-p "\\* Section 1" (buffer-string)))
+              (should (string-match-p "\\* Section 2" (buffer-string)))))
+        (when (and created-file (file-exists-p created-file))
+          (when (get-file-buffer created-file)
+            (kill-buffer (get-file-buffer created-file)))
+          (delete-file created-file))
+        (when (file-directory-p vulpea-directory)
+          (delete-directory vulpea-directory t))))))
+
 (provide 'vulpea-test)
 ;;; vulpea-test.el ends here

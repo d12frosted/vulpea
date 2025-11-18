@@ -89,9 +89,15 @@ filter function.")
 
 (defun vulpea--title-to-slug (title)
   "Convert TITLE to URL-friendly slug."
-  (s-replace " " "-" 
-             (s-downcase
-              (s-replace-regexp "[^a-zA-Z0-9 -]" "" title))))
+  (thread-last title
+    (s-trim)
+    (s-downcase)
+    (s-replace-regexp "[^a-z0-9 -]" "")
+    (s-replace-regexp " +" "-")
+    (s-replace-regexp "-+" "-")
+    (s-trim)
+    (s-chop-prefix "-")
+    (s-chop-suffix "-")))
 
 (defun vulpea--expand-file-name-template (title &optional id)
   "Expand `vulpea-file-name-template' with TITLE and optional ID.
@@ -394,10 +400,12 @@ See Info node `(org) Template elements' for BODY template syntax."
   (let* ((id (or id (org-id-new)))
          (file-path (or file-name (vulpea--expand-file-name-template title id)))
          (content (vulpea--format-note-content id title head meta tags properties))
+         (full-template (if body
+                            (concat content "\n\n" body)
+                          content))
          (template `("v" "vulpea-note" plain
-                     ,(or body "")
-                     :target (file ,file-path)
-                     :template ,content
+                     (file ,file-path)
+                     ,full-template
                      :immediate-finish ,(if (null immediate-finish) t immediate-finish)
                      :unnarrowed ,unnarrowed
                      :empty-lines 1))
