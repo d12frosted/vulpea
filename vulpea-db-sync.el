@@ -435,37 +435,67 @@ Returns count of removed files."
 ;;; Manual Update
 
 ;;;###autoload
-(defun vulpea-db-sync-full-scan (&optional async)
+(defun vulpea-db-sync-full-scan (&optional arg)
   "Manually scan all sync directories for changes.
 
 This is useful when `vulpea-db-sync-scan-on-enable' is nil and you
 need to detect external changes (e.g., after git pull, Dropbox sync).
 
-With prefix argument ASYNC, scan asynchronously (queue files).
-Without prefix argument, scan synchronously (block until complete).
+Prefix argument ARG controls behavior:
+- No prefix: Synchronous scan with smart detection
+- C-u (once): Asynchronous scan with smart detection
+- C-u C-u (twice): Synchronous FORCE scan (re-index everything)
+- C-u C-u C-u (thrice): Asynchronous FORCE scan
+
+FORCE scan ignores change detection and re-indexes all files.
+Use FORCE when changing configuration like `vulpea-db-index-heading-level'.
 
 Also performs cleanup of deleted files."
   (interactive "P")
   (unless vulpea-db-sync-directories
     (user-error "No sync directories configured. Set `vulpea-db-sync-directories'"))
 
-  ;; Clean up deleted files first
-  (vulpea-db-sync--cleanup-deleted-files)
+  ;; Decode prefix argument
+  (let* ((async (or (equal arg '(4))
+                    (equal arg '(64))))
+         (force (or (equal arg '(16))
+                    (equal arg '(64)))))
 
-  ;; Scan directories
-  (if async
-      ;; Async mode: queue all files
-      (progn
-        (message "Vulpea: Queueing files for async scan...")
-        (dolist (dir vulpea-db-sync-directories)
-          (dolist (file (directory-files-recursively dir "\\.org$"))
-            (if vulpea-db-autosync-mode
-                (vulpea-db-sync--enqueue file)
-              ;; If autosync is off, we need to enable it temporarily or use sync
-              (user-error "Async scan requires autosync-mode to be enabled")))))
-    ;; Sync mode: scan each directory
-    (dolist (dir vulpea-db-sync-directories)
-      (vulpea-db-sync-update-directory dir))))
+    ;; Clean up deleted files first
+    (vulpea-db-sync--cleanup-deleted-files)
+
+    ;; Scan directories
+    (cond
+     ((and async force)
+      ;; Async + Force: queue all files, force re-index
+      (message "Vulpea: Queueing files for async FORCE scan...")
+      (unless vulpea-db-autosync-mode
+        (user-error "Async scan requires autosync-mode to be enabled"))
+      ;; Clear hash table to force re-index
+      (emacsql (vulpea-db) [:delete :from file_hashes])
+      (dolist (dir vulpea-db-sync-directories)
+        (dolist (file (directory-files-recursively dir "\\.org$"))
+          (vulpea-db-sync--enqueue file))))
+
+     (async
+      ;; Async mode: queue all files with smart detection
+      (message "Vulpea: Queueing files for async scan...")
+      (unless vulpea-db-autosync-mode
+        (user-error "Async scan requires autosync-mode to be enabled"))
+      (dolist (dir vulpea-db-sync-directories)
+        (dolist (file (directory-files-recursively dir "\\.org$"))
+          (vulpea-db-sync--enqueue file))))
+
+     (force
+      ;; Sync + Force: re-index everything
+      (message "Vulpea: Starting FORCE scan (re-indexing all files)...")
+      (dolist (dir vulpea-db-sync-directories)
+        (vulpea-db-sync-update-directory dir 'force)))
+
+     (t
+      ;; Sync mode: smart detection
+      (dolist (dir vulpea-db-sync-directories)
+        (vulpea-db-sync-update-directory dir))))))
 
 (defun vulpea-db-sync-update-file (path)
   "Manually update database for file at PATH.
@@ -477,10 +507,13 @@ Otherwise, updates immediately."
       (vulpea-db-sync--enqueue path)
     (vulpea-db-update-file path)))
 
-(defun vulpea-db-sync-update-directory (dir)
+(defun vulpea-db-sync-update-directory (dir &optional force)
   "Update database for all org files in DIR recursively.
 
-Only updates files that have actually changed (by checking mtime/size/hash)."
+Only updates files that have actually changed (by checking mtime/size/hash).
+
+With optional FORCE argument, bypass change detection and re-index all files.
+This is useful when changing configuration like `vulpea-db-index-heading-level'."
   (interactive "DDirectory: ")
   (let ((files (directory-files-recursively dir "\\.org$")))
     (if vulpea-db-autosync-mode
@@ -492,19 +525,28 @@ Only updates files that have actually changed (by checking mtime/size/hash)."
                 vulpea-db-sync--updated-total 0)
           (dolist (file files)
             (vulpea-db-sync--enqueue file)))
-      ;; Sync mode: use smart detection
+      ;; Sync mode: use smart detection or force
       (let ((db (vulpea-db))
             (updated 0)
             (unchanged 0)
             (total (length files))
             (processed 0))
-        (message "Vulpea: Syncing %d file%s..." total (if (= total 1) "" "s"))
+        (if force
+            (message "Vulpea: FORCE syncing %d file%s (re-indexing all)..."
+                     total (if (= total 1) "" "s"))
+          (message "Vulpea: Syncing %d file%s..." total (if (= total 1) "" "s")))
         (emacsql-with-transaction db
           (dolist (file files)
             (condition-case err
-                (if (vulpea-db-sync--update-file-if-changed file)
-                    (setq updated (1+ updated))
-                  (setq unchanged (1+ unchanged)))
+                (if force
+                    ;; Force mode: always update
+                    (progn
+                      (vulpea-db-update-file file)
+                      (setq updated (1+ updated)))
+                  ;; Smart detection mode
+                  (if (vulpea-db-sync--update-file-if-changed file)
+                      (setq updated (1+ updated))
+                    (setq unchanged (1+ unchanged))))
               (error
                (message "Vulpea: Error updating %s: %s"
                         file (error-message-string err))))
