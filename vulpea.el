@@ -51,10 +51,16 @@
   "Vulpea note-taking system."
   :group 'org)
 
-(defcustom vulpea-directory nil
-  "Default directory for vulpea notes.
-When nil, notes are created in `org-directory'."
-  :type '(choice (const :tag "Use org-directory" nil)
+(defcustom vulpea-default-notes-directory nil
+  "Default directory for creating new notes.
+
+When nil, defaults to:
+  1. First directory in `vulpea-db-sync-directories' if set
+  2. Otherwise `org-directory'
+
+This allows you to control where `vulpea-create' places new notes
+without specifying an explicit file path."
+  :type '(choice (const :tag "Use first sync directory or org-directory" nil)
                  (directory :tag "Custom directory"))
   :group 'vulpea)
 
@@ -76,6 +82,7 @@ Can be a string template or a function that accepts title and returns file name.
 
 
 
+(defvar vulpea-db-sync-directories)  ; Defined in vulpea-db
 (defvar vulpea-find-default-filter nil
   "Default filter to use in `vulpea-find'.")
 
@@ -99,6 +106,17 @@ filter function.")
     (s-chop-prefix "-")
     (s-chop-suffix "-")))
 
+(defun vulpea--default-directory ()
+  "Return the default directory for creating new notes.
+
+Resolution order:
+  1. `vulpea-default-notes-directory' if set
+  2. First directory from `vulpea-db-sync-directories' if set
+  3. `org-directory' as fallback"
+  (or vulpea-default-notes-directory
+      (car vulpea-db-sync-directories)
+      org-directory))
+
 (defun vulpea--expand-file-name-template (title &optional id)
   "Expand `vulpea-file-name-template' with TITLE and optional ID.
 Returns absolute file path."
@@ -113,7 +131,7 @@ Returns absolute file path."
                       (s-replace "${slug}" slug)
                       (s-replace "${timestamp}" timestamp)
                       (s-replace "${id}" id)))
-         (dir (or vulpea-directory org-directory)))
+         (dir (vulpea--default-directory)))
     (expand-file-name file-name dir)))
 
 (defun vulpea--format-note-content (id title &optional head meta tags properties)

@@ -270,51 +270,51 @@ Returns absolute path. Caller responsible for cleanup."
 (ert-deftest vulpea--expand-file-name-template-default ()
   "Test file name template expansion with default template."
   (let* ((vulpea-file-name-template "${slug}.org")
-         (vulpea-directory (make-temp-file "vulpea-test-" t))
+         (vulpea-default-notes-directory (make-temp-file "vulpea-test-" t))
          (result (vulpea--expand-file-name-template "Test Note")))
     (unwind-protect
         (progn
           (should (string-match-p "/test-note\\.org$" result))
           (should (file-name-absolute-p result))
-          (should (string-prefix-p vulpea-directory result)))
-      (when (file-directory-p vulpea-directory)
-        (delete-directory vulpea-directory t)))))
+          (should (string-prefix-p vulpea-default-notes-directory result)))
+      (when (file-directory-p vulpea-default-notes-directory)
+        (delete-directory vulpea-default-notes-directory t)))))
 
 (ert-deftest vulpea--expand-file-name-template-with-timestamp ()
   "Test file name template with timestamp."
   (let* ((vulpea-file-name-template "${timestamp}_${slug}.org")
-         (vulpea-directory (make-temp-file "vulpea-test-" t))
+         (vulpea-default-notes-directory (make-temp-file "vulpea-test-" t))
          (result (vulpea--expand-file-name-template "My Note")))
     (unwind-protect
         (progn
           (should (string-match-p "/[0-9]\\{14\\}_my-note\\.org$" result))
           (should (file-name-absolute-p result)))
-      (when (file-directory-p vulpea-directory)
-        (delete-directory vulpea-directory t)))))
+      (when (file-directory-p vulpea-default-notes-directory)
+        (delete-directory vulpea-default-notes-directory t)))))
 
 (ert-deftest vulpea--expand-file-name-template-with-id ()
   "Test file name template with custom ID."
   (let* ((vulpea-file-name-template "${id}.org")
-         (vulpea-directory (make-temp-file "vulpea-test-" t))
+         (vulpea-default-notes-directory (make-temp-file "vulpea-test-" t))
          (custom-id "custom-test-id")
          (result (vulpea--expand-file-name-template "Test" custom-id)))
     (unwind-protect
         (progn
           (should (string-suffix-p "/custom-test-id.org" result))
           (should (file-name-absolute-p result)))
-      (when (file-directory-p vulpea-directory)
-        (delete-directory vulpea-directory t)))))
+      (when (file-directory-p vulpea-default-notes-directory)
+        (delete-directory vulpea-default-notes-directory t)))))
 
 (ert-deftest vulpea--expand-file-name-template-function ()
   "Test file name template as function."
   (let* ((vulpea-file-name-template
           (lambda (title) (concat "prefix-" (downcase title) ".org")))
-         (vulpea-directory (make-temp-file "vulpea-test-" t))
+         (vulpea-default-notes-directory (make-temp-file "vulpea-test-" t))
          (result (vulpea--expand-file-name-template "TestNote")))
     (unwind-protect
         (should (string-suffix-p "/prefix-testnote.org" result))
-      (when (file-directory-p vulpea-directory)
-        (delete-directory vulpea-directory t)))))
+      (when (file-directory-p vulpea-default-notes-directory)
+        (delete-directory vulpea-default-notes-directory t)))))
 
 (ert-deftest vulpea--format-note-content-minimal ()
   "Test minimal note content formatting."
@@ -351,7 +351,7 @@ Returns absolute path. Caller responsible for cleanup."
   "Test basic note creation with default template."
   (vulpea-test--with-temp-db
     (vulpea-db)
-    (let* ((vulpea-directory (make-temp-file "vulpea-test-" t))
+    (let* ((vulpea-default-notes-directory (make-temp-file "vulpea-test-" t))
            (vulpea-file-name-template "${slug}.org")
            (title "Test Note Creation")
            note created-file)
@@ -381,15 +381,15 @@ Returns absolute path. Caller responsible for cleanup."
           (when (get-file-buffer created-file)
             (kill-buffer (get-file-buffer created-file)))
           (delete-file created-file))
-        (when (file-directory-p vulpea-directory)
-          (delete-directory vulpea-directory t))))))
+        (when (file-directory-p vulpea-default-notes-directory)
+          (delete-directory vulpea-default-notes-directory t))))))
 
 (ert-deftest vulpea-create-custom-file-name ()
   "Test note creation with custom file name."
   (vulpea-test--with-temp-db
     (vulpea-db)
-    (let* ((vulpea-directory (make-temp-file "vulpea-test-" t))
-           (custom-file (expand-file-name "custom-note.org" vulpea-directory))
+    (let* ((vulpea-default-notes-directory (make-temp-file "vulpea-test-" t))
+           (custom-file (expand-file-name "custom-note.org" vulpea-default-notes-directory))
            (title "Custom File Note")
            note)
       (unwind-protect
@@ -408,14 +408,14 @@ Returns absolute path. Caller responsible for cleanup."
           (when (get-file-buffer custom-file)
             (kill-buffer (get-file-buffer custom-file)))
           (delete-file custom-file))
-        (when (file-directory-p vulpea-directory)
-          (delete-directory vulpea-directory t))))))
+        (when (file-directory-p vulpea-default-notes-directory)
+          (delete-directory vulpea-default-notes-directory t))))))
 
 (ert-deftest vulpea-create-with-tags ()
   "Test note creation with tags."
   (vulpea-test--with-temp-db
     (vulpea-db)
-    (let* ((vulpea-directory (make-temp-file "vulpea-test-" t))
+    (let* ((vulpea-default-notes-directory (make-temp-file "vulpea-test-" t))
            (vulpea-file-name-template "${slug}.org")
            (title "Tagged Note")
            (tags '("project" "important"))
@@ -439,14 +439,14 @@ Returns absolute path. Caller responsible for cleanup."
           (when (get-file-buffer created-file)
             (kill-buffer (get-file-buffer created-file)))
           (delete-file created-file))
-        (when (file-directory-p vulpea-directory)
-          (delete-directory vulpea-directory t))))))
+        (when (file-directory-p vulpea-default-notes-directory)
+          (delete-directory vulpea-default-notes-directory t))))))
 
 (ert-deftest vulpea-create-with-properties ()
   "Test note creation with custom properties."
   (vulpea-test--with-temp-db
     (vulpea-db)
-    (let* ((vulpea-directory (make-temp-file "vulpea-test-" t))
+    (let* ((vulpea-default-notes-directory (make-temp-file "vulpea-test-" t))
            (vulpea-file-name-template "${slug}.org")
            (title "Note with Props")
            (props '(("CATEGORY" . "work") ("PRIORITY" . "A")))
@@ -466,14 +466,14 @@ Returns absolute path. Caller responsible for cleanup."
           (when (get-file-buffer created-file)
             (kill-buffer (get-file-buffer created-file)))
           (delete-file created-file))
-        (when (file-directory-p vulpea-directory)
-          (delete-directory vulpea-directory t))))))
+        (when (file-directory-p vulpea-default-notes-directory)
+          (delete-directory vulpea-default-notes-directory t))))))
 
 (ert-deftest vulpea-create-with-body ()
   "Test note creation with body template."
   (vulpea-test--with-temp-db
     (vulpea-db)
-    (let* ((vulpea-directory (make-temp-file "vulpea-test-" t))
+    (let* ((vulpea-default-notes-directory (make-temp-file "vulpea-test-" t))
            (vulpea-file-name-template "${slug}.org")
            (title "Note with Body")
            (body "* Section 1\nContent here\n\n* Section 2\nMore content")
@@ -493,8 +493,8 @@ Returns absolute path. Caller responsible for cleanup."
           (when (get-file-buffer created-file)
             (kill-buffer (get-file-buffer created-file)))
           (delete-file created-file))
-        (when (file-directory-p vulpea-directory)
-          (delete-directory vulpea-directory t))))))
+        (when (file-directory-p vulpea-default-notes-directory)
+          (delete-directory vulpea-default-notes-directory t))))))
 
 (provide 'vulpea-test)
 ;;; vulpea-test.el ends here
