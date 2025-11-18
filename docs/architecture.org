@@ -1,10 +1,13 @@
-#+TITLE: Vulpea v2 Architecture Decisions
+#+TITLE: Vulpea Architecture
 #+AUTHOR: Boris Buliga
 #+DATE: 2025-11-16
+#+UPDATED: 2025-11-18
 
 * Overview
 
-This document captures all architectural decisions for Vulpea v2 rewrite, the rationale behind them, and implementation context. The goal is to create a robust, performant, extensible note management system that can scale to 100k+ notes without blocking normal Emacs usage.
+This document captures the architectural decisions that shaped Vulpea v2 - a robust, performant, extensible note management system that scales to 100k+ notes without blocking normal Emacs usage. Each decision includes the rationale, implementation approach, and trade-offs considered.
+
+Vulpea v2 represents a complete rewrite with no dependency on org-roam, featuring async-first architecture, a plugin system for extensibility, and optimized database design for read-heavy workloads.
 
 * Core Problems with v1
 
@@ -40,6 +43,9 @@ Vulpea v2 will NOT depend on org-roam. Compatibility layer will be provided as s
 - Separate package: =vulpea-compat-org-roam.el= (future work)
 - Users can run old vulpea in one Emacs session, new in another during transition
 
+*** Status
+IMPLEMENTED - Vulpea v2 has no org-roam dependency
+
 ** DECISION 2: Hybrid Database Schema
 *** Decision
 Use BOTH materialized view table AND normalized tables.
@@ -72,6 +78,9 @@ However, normalized tables enable:
 - Write complexity: Must update both materialized and normalized tables
 - Read performance: Optimal (combine benefits of both approaches)
 
+*** Status
+IMPLEMENTED - Schema uses both materialized notes table and normalized tags/links/meta tables
+
 ** DECISION 3: Async-First Architecture
 *** Decision
 Use file watchers + async queue instead of save hooks.
@@ -100,6 +109,9 @@ Based on existing =vulpea-sync.el= prototype (PR #194):
     (vulpea-create :title (format "Note %d" i))))
 ;; Blocks until all updates complete
 #+end_src
+
+*** Status
+IMPLEMENTED - vulpea-db-sync.el provides autosync-mode with file-notify, fswatch, and polling support
 
 ** DECISION 4: Plugin/Extractor System
 *** Decision
@@ -136,6 +148,9 @@ Current vulpea requires repeating org-roam parsing operations because parsed dat
 - Controlled execution order (priority)
 - Easy migration via version tracking
 
+*** Status
+IMPLEMENTED - vulpea-db-extract.el provides full extractor system with parse-once architecture
+
 ** DECISION 5: Configurable Heading-Level Indexing
 *** Decision
 Support both file-level and heading-level notes, but make heading-level opt-in/configurable.
@@ -161,6 +176,9 @@ Can be:
         (string-prefix-p "/path/to/projects/" path)))
 #+end_src
 
+*** Status
+IMPLEMENTED - vulpea-db-index-heading-level supports t/nil/function for flexible control
+
 ** DECISION 6: SQLite via EmacsQL
 *** Decision
 Continue using SQLite through EmacsQL.
@@ -176,6 +194,9 @@ Continue using SQLite through EmacsQL.
 - Pure Elisp hash tables: No persistence, no transactions
 - External DB (PostgreSQL): Overkill, requires server
 - Custom binary format: Too much work, reinventing wheel
+
+*** Status
+IMPLEMENTED - Using EmacsQL with SQLite backend
 
 ** DECISION 7: org-element for Parsing
 *** Decision
@@ -197,6 +218,9 @@ If org-element becomes bottleneck:
 - Single note parse: <10ms
 - 100 note batch parse: <1s
 - Full 100k database sync: <5 minutes
+
+*** Status
+IMPLEMENTED - Using org-element-parse-buffer with smart change detection to minimize re-parsing
 
 ** DECISION 8: Namespace-Based Partitioning
 *** Decision
@@ -226,6 +250,9 @@ User has 100k+ notes growing daily. Needs ability to:
 
 *** Performance
 Using normalized tags table + indices, filtering 100k notes to 10k wine notes should take <100ms.
+
+*** Status
+NOT IMPLEMENTED - Deferred for future release; users can use vulpea-db-query with filter functions
 
 * Database Schema
 
@@ -334,92 +361,6 @@ CREATE TABLE schema_registry (
 | Generic query (all notes)    | ~100MB     | ~50MB     |
 | Specialized query (1k notes) | ~10MB      | ~5MB      |
 
-* Migration Plan
-
-** Phase 1: Database Core (Week 1)
-- [ ] Schema creation and versioning
-- [ ] Basic CRUD operations
-- [ ] Insert/update/delete for notes table
-- [ ] Insert into normalized tables
-- [ ] Test cascade deletes
-- [ ] Basic queries (by-id, by-tags-some, by-tags-every)
-
-** Phase 2: Parser + Extractors (Week 2)
-- [ ] Parse context structure
-- [ ] File-level note extraction
-- [ ] Heading-level note extraction (configurable)
-- [ ] Tag extractor
-- [ ] Link extractor
-- [ ] Meta extractor
-- [ ] Extractor registry
-
-** Phase 3: File Watching (Week 3)
-- [ ] Port vulpea-sync.el to v2
-- [ ] Integrate with new database layer
-- [ ] Batching with configurable delay
-- [ ] Handle external changes (fswatch/polling)
-- [ ] Transaction queue
-- [ ] Sync vs async mode
-
-** Phase 4: High-Level API (Week 4)
-- [ ] =vulpea-find= (with completion)
-- [ ] =vulpea-create= (programmatic)
-- [ ] =vulpea-update=
-- [ ] Namespace queries
-- [ ] Selection interface
-- [ ] Buffer operations (reuse from v1)
-
-** Phase 5: Plugin System (Week 5)
-- [ ] Extractor registration
-- [ ] Schema migration system
-- [ ] Example plugin (citations)
-- [ ] Documentation for plugin authors
-
-** Phase 6: Testing & Performance (Week 6)
-- [ ] Unit tests (90% coverage target)
-- [ ] Integration tests
-- [ ] Performance tests with 100k notes
-- [ ] Benchmark vs v1
-- [ ] Optimize slow queries
-- [ ] Memory profiling
-
-* Testing Strategy
-
-** Test Infrastructure
-- Keep using Eldev for development
-- Maintain existing test framework
-- Add performance benchmarks
-
-** Coverage Targets
-| Module              | Coverage Target |
-|---------------------+-----------------|
-| vulpea-db.el        | 95%             |
-| vulpea-db-query.el  | 90%             |
-| vulpea-db-extract.el| 90%             |
-| vulpea-sync.el      | 85%             |
-| vulpea.el (API)     | 95%             |
-
-** Test Categories
-1. Unit tests: Individual functions
-2. Integration tests: End-to-end workflows
-3. Performance tests: Scale testing (1k, 10k, 100k notes)
-4. Regression tests: Ensure v2 matches v1 behavior where applicable
-
-** Performance Test Suite
-#+begin_src elisp
-(ert-deftest vulpea-perf-scale-1k ()
-  :tags '(perf scale)
-  ...)
-
-(ert-deftest vulpea-perf-scale-10k ()
-  :tags '(perf scale)
-  ...)
-
-(ert-deftest vulpea-perf-scale-100k ()
-  :tags '(perf scale benchmark)
-  ...)
-#+end_src
-
 * API Compatibility & Migration
 
 ** DECISION 9: V1 Plugin API Compatibility
@@ -466,7 +407,7 @@ Translates to new extractor system."
 - Verdict: Worth it for critical user code
 
 *** Status
-ACCEPTED - Critical for existing users
+NOT IMPLEMENTED - V1 compatibility layer deferred; users migrate to new extractor API
 
 ** DECISION 10: Metadata Type System
 *** Decision
@@ -508,7 +449,7 @@ Conversion in query layer:
 #+end_src
 
 *** Status
-ACCEPTED - Critical for vino
+IMPLEMENTED - Metadata type coercion preserved in vulpea-meta.el
 
 ** DECISION 11: Performance Targets from Real Usage
 *** Decision
@@ -556,52 +497,33 @@ For frequently-called operations that run on hooks:
 Invalidate cache on any DB update.
 
 *** Status
-ACCEPTED - Based on real usage data
+PARTIALLY IMPLEMENTED - Query optimizations in place, comprehensive caching deferred
 
-* Open Questions
+* Implementation Notes
 
-** Q1: JSON vs S-expressions for storage?
-*** Context
-SQLite supports JSON functions, but Elisp reads s-expressions faster.
+** Data Serialization
+Uses JSON for storing complex data (tags, links, meta, properties) in the notes table. JSON was chosen for:
+- Portability and standard format
+- SQLite JSON functions enable querying inside JSON columns if needed
+- Acceptable performance for current use cases
 
-*** Options
-1. JSON: Portable, standard, SQLite can query inside JSON
-2. S-expressions: Faster in Elisp, not portable
+S-expressions could provide faster Elisp deserialization but would sacrifice portability.
 
-*** Recommendation
-Use JSON for now. If reading becomes bottleneck, switch to s-expressions.
+** Database Update Strategy
+Uses DELETE + INSERT approach for note updates rather than field-by-field UPDATE:
+- Simpler implementation - no need to track which fields changed
+- Handles all changes correctly (including deletions)
+- Combined with smart change detection (hash-based), only changed files trigger updates
+- Performance is acceptable for typical workloads
 
-*** Status
-PROPOSED
+Field-by-field UPDATE could be explored if benchmarks show it provides significant benefit.
 
-** Q2: Should we support incremental updates?
-*** Context
-Current approach: DELETE + INSERT. Alternative: UPDATE for changed fields.
-
-*** Trade-offs
-- DELETE+INSERT: Simple, handles all changes
-- UPDATE: More efficient, but complex logic to track changes
-
-*** Recommendation
-Start with DELETE+INSERT. Optimize to UPDATE if benchmarks show it matters.
-
-*** Status
-PROPOSED
-
-** Q3: Async UI updates?
-*** Context
-When DB updates complete, should we notify open buffers to refresh?
-
-*** Options
-1. No updates: User manually refreshes
-2. Hook-based: Buffers register hooks to update
-3. Timer-based: Periodic refresh
-
-*** Recommendation
-Start with hooks. Buffers that care (e.g., agenda) can register update hooks.
-
-*** Status
-PROPOSED
+** Change Detection
+Implemented smart change detection using file hashes (SHA256), mtime, and size:
+- Files tracked in =file_hashes= table
+- Only parse and update if hash/mtime/size changed
+- Significantly reduces unnecessary re-indexing
+- Force mode available to bypass detection when needed (e.g., after config changes)
 
 * References
 
@@ -617,37 +539,11 @@ PROPOSED
 ** Documentation
 - README.org: Performance benchmarks
 - CHANGELOG.org: Evolution of features
-
-* Decision Log Format
-
-Each decision should follow this template:
-
-#+begin_example
-** DECISION N: Short Title
-*** Decision
-What was decided (1-2 sentences)
-
-*** Rationale
-Why this decision was made (3-5 points)
-
-*** Implementation
-How it will be implemented (code examples)
-
-*** Trade-offs
-Pros and cons
-
-*** Status
-[PROPOSED | ACCEPTED | IMPLEMENTED | SUPERSEDED]
-
-*** Date
-YYYY-MM-DD
-
-*** Revisit
-Conditions under which to revisit this decision
-#+end_example
+- docs/plugin-guide.org: How to write extractors
 
 * Changelog
 
-| Date       | Change                                    | Author |
-|------------+-------------------------------------------+--------|
-| 2025-11-16 | Initial architecture decisions documented | Boris  |
+| Date       | Change                                                | Author |
+|------------+-------------------------------------------------------+--------|
+| 2025-11-16 | Initial architecture decisions documented             | Boris  |
+| 2025-11-18 | Updated with implementation status and removed plans  | Boris  |
