@@ -47,6 +47,7 @@ Slots:
   level        - Heading level (0 = file-level)
   pos          - Position in file
   title        - Note title
+  primary-title - Original title (set when note is referenced via alias)
   aliases      - List of aliases
   tags         - List of tags
   links        - List of links (as plists with :dest and :type)
@@ -64,6 +65,7 @@ Slots:
   level
   pos
   title
+  primary-title
   aliases
   tags
   links
