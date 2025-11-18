@@ -19,7 +19,6 @@
 
 (require 'vulpea-test-utils)
 (require 'buttercup)
-(require 'org-roam)
 (require 'vulpea-meta)
 (require 'vulpea-db)
 

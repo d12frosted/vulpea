@@ -20,7 +20,6 @@
 ;;; Code:
 
 (require 'vulpea-test-utils)
-(require 'org-roam)
 (require 'vulpea-meta)
 (require 'vulpea-db)
 

@@ -19,7 +19,6 @@
 
 (require 'buttercup)
 (require 'org)
-(require 'org-roam)
 (require 'vulpea)
 
 (when (version<= "29" emacs-version)

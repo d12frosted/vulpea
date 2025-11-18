@@ -35,7 +35,6 @@
 
 (require 'vulpea-test-utils)
 (require 'buttercup)
-(require 'org-roam)
 (require 'vulpea)
 
 (defconst vulpea-perf-zip-branch "master")
@@ -107,17 +106,17 @@ and the time taken by garbage collection. See also
           (name (if (symbolp ,fn)
                     (symbol-name ,fn)
                   "*lambda*")))
-     (message "[%s] begin benchmark with %s invocations"
-              name ,n)
-     (setq result
-           (benchmark-run ,n
-             (setq v (funcall ,fn ,@args))))
-     (message "[%s] benchmark result is %s after %s invocations%s"
-              name result ,n
-              (if ,to-str
-                  (concat " => " (funcall ,to-str v))
-                ""))
-     (cons v result)))
+    (message "[%s] begin benchmark with %s invocations"
+     name ,n)
+    (setq result
+     (benchmark-run ,n
+      (setq v (funcall ,fn ,@args))))
+    (message "[%s] benchmark result is %s after %s invocations%s"
+     name result ,n
+     (if ,to-str
+         (concat " => " (funcall ,to-str v))
+       ""))
+    (cons v result)))
 
 (defun vulpea-query-result-to-str (notes)
   "Convert NOTES to string."
@@ -141,7 +140,7 @@ and the time taken by garbage collection. See also
               :and-return-value "bell-bottom sprue Presently the roots")
       (let* ((runs 10)
              (bres (vulpea-benchmark-run runs
-                     #'vulpea-select nil "Note")))
+                                         #'vulpea-select nil "Note")))
         ;; 60 seconds for 10 runs is pretty fast for 9500+ notes
         (expect (nth 1 bres) :to-be-less-than 60)))
 
@@ -150,13 +149,13 @@ and the time taken by garbage collection. See also
               :and-return-value "bell-bottom sprue Presently the roots")
       (let* ((runs 10)
              (bres (vulpea-benchmark-run runs
-                     #'vulpea-select nil
-                     "Note"
-                     :filter-fn
-                     (lambda (n)
-                       (string-prefix-p
-                        "bell-bottom"
-                        (vulpea-note-title n))))))
+                                         #'vulpea-select nil
+                                         "Note"
+                                         :filter-fn
+                                         (lambda (n)
+                                           (string-prefix-p
+                                            "bell-bottom"
+                                            (vulpea-note-title n))))))
         ;; 60 seconds for 10 runs is pretty fast for 9500+ notes
         (expect (nth 1 bres) :to-be-less-than 60))))
 
@@ -165,18 +164,18 @@ and the time taken by garbage collection. See also
       (let* ((runs 10)
              (tags '("grape" "region"))
              (bres1 (vulpea-benchmark-run runs
-                      #'vulpea-db-query-by-tags-some
-                      #'vulpea-query-result-to-str
-                      tags))
+                                          #'vulpea-db-query-by-tags-some
+                                          #'vulpea-query-result-to-str
+                                          tags))
              (bres2 (vulpea-benchmark-run runs
-                      #'vulpea-db-query
-                      #'vulpea-query-result-to-str
-                      (lambda (note)
-                        (let ((note-tags (vulpea-note-tags note)))
-                          (seq-some
-                           (lambda (tag)
-                             (seq-contains-p note-tags tag))
-                           tags))))))
+                                          #'vulpea-db-query
+                                          #'vulpea-query-result-to-str
+                                          (lambda (note)
+                                            (let ((note-tags (vulpea-note-tags note)))
+                                              (seq-some
+                                               (lambda (tag)
+                                                 (seq-contains-p note-tags tag))
+                                               tags))))))
         (expect (seq-length (nth 0 bres1)) :to-be-greater-than 0)
         (expect (seq-length (nth 0 bres1)) :to-equal (seq-length (nth 0 bres2)))
         (expect (nth 1 bres1) :to-be-less-than (nth 1 bres2)))))
@@ -186,18 +185,18 @@ and the time taken by garbage collection. See also
       (let* ((runs 10)
              (tags '("wine" "rating"))
              (bres1 (vulpea-benchmark-run runs
-                      #'vulpea-db-query-by-tags-every
-                      #'vulpea-query-result-to-str
-                      tags))
+                                          #'vulpea-db-query-by-tags-every
+                                          #'vulpea-query-result-to-str
+                                          tags))
              (bres2 (vulpea-benchmark-run runs
-                      #'vulpea-db-query
-                      #'vulpea-query-result-to-str
-                      (lambda (note)
-                        (let ((note-tags (vulpea-note-tags note)))
-                          (seq-every-p
-                           (lambda (tag)
-                             (seq-contains-p note-tags tag))
-                           tags))))))
+                                          #'vulpea-db-query
+                                          #'vulpea-query-result-to-str
+                                          (lambda (note)
+                                            (let ((note-tags (vulpea-note-tags note)))
+                                              (seq-every-p
+                                               (lambda (tag)
+                                                 (seq-contains-p note-tags tag))
+                                               tags))))))
         (expect (seq-length (nth 0 bres1)) :to-be-greater-than 0)
         (expect (seq-length (nth 0 bres1)) :to-equal (seq-length (nth 0 bres2)))
         (expect (nth 1 bres1) :to-be-less-than (nth 1 bres2)))))
@@ -212,18 +211,18 @@ and the time taken by garbage collection. See also
              (links (append (seq-take links-all 2)
                             (last links-all 2)))
              (bres1 (vulpea-benchmark-run runs
-                      #'vulpea-db-query-by-links-some
-                      #'vulpea-query-result-to-str
-                      links))
+                                          #'vulpea-db-query-by-links-some
+                                          #'vulpea-query-result-to-str
+                                          links))
              (bres2 (vulpea-benchmark-run runs
-                      #'vulpea-db-query
-                      #'vulpea-query-result-to-str
-                      (lambda (note)
-                        (let ((note-links (vulpea-note-links note)))
-                          (seq-some
-                           (lambda (link)
-                             (seq-contains-p note-links link))
-                           links))))))
+                                          #'vulpea-db-query
+                                          #'vulpea-query-result-to-str
+                                          (lambda (note)
+                                            (let ((note-links (vulpea-note-links note)))
+                                              (seq-some
+                                               (lambda (link)
+                                                 (seq-contains-p note-links link))
+                                               links))))))
         (expect (seq-length (nth 0 bres1)) :to-be-greater-than 0)
         (expect (seq-length (nth 0 bres1)) :to-equal (seq-length (nth 0 bres2)))
         (expect (nth 1 bres1) :to-be-less-than (nth 1 bres2)))))
@@ -237,18 +236,18 @@ and the time taken by garbage collection. See also
                          (org-roam-db-query "select dest from links where \"type\" = '\"id\"' group by dest order by count(1) desc")))
              (links (seq-take links-all 2))
              (bres1 (vulpea-benchmark-run runs
-                      #'vulpea-db-query-by-links-every
-                      #'vulpea-query-result-to-str
-                      links))
+                                          #'vulpea-db-query-by-links-every
+                                          #'vulpea-query-result-to-str
+                                          links))
              (bres2 (vulpea-benchmark-run runs
-                      #'vulpea-db-query
-                      #'vulpea-query-result-to-str
-                      (lambda (note)
-                        (let ((note-links (vulpea-note-links note)))
-                          (seq-every-p
-                           (lambda (link)
-                             (seq-contains-p note-links link))
-                           links))))))
+                                          #'vulpea-db-query
+                                          #'vulpea-query-result-to-str
+                                          (lambda (note)
+                                            (let ((note-links (vulpea-note-links note)))
+                                              (seq-every-p
+                                               (lambda (link)
+                                                 (seq-contains-p note-links link))
+                                               links))))))
         (expect (seq-length (nth 0 bres1)) :to-be-greater-than 0)
         (expect (seq-length (nth 0 bres1)) :to-equal (seq-length (nth 0 bres2)))
         (expect (nth 1 bres1) :to-be-less-than (nth 1 bres2))))))
@@ -266,9 +265,9 @@ Optionally, run INIT-HOOK after test env initialisation."
   (let ((file (vulpea-db-get-file-by-id id)))
     (garbage-collect)
     (prog1 (vulpea-benchmark-run times
-             (lambda ()
-               (org-roam-db-clear-file file)
-               (org-roam-db-update-file file)))
+                                 (lambda ()
+                                   (org-roam-db-clear-file file)
+                                   (org-roam-db-update-file file)))
       (vulpea-test--teardown))))
 
 (defun single-note-perf (id times &optional init-hook)
@@ -296,8 +295,8 @@ Optionally, run INIT-HOOK after test env initialisation."
                          :disable-org-roam-autosync t
                          :disable-vulpea-autosync t)
       (setq bres-bare (vulpea-benchmark-run
-                          runs
-                        #'org-roam-db-sync))
+                       runs
+                       #'org-roam-db-sync))
       (expect (caar (org-roam-db-query "select count(*) from nodes")) :to-be-greater-than 0)
       (list-buffers)
 
@@ -307,8 +306,8 @@ Optionally, run INIT-HOOK after test env initialisation."
                          :disable-org-roam-autosync t
                          :disable-vulpea-autosync nil)
       (setq bres-vulpea (vulpea-benchmark-run
-                            runs
-                          #'org-roam-db-sync))
+                         runs
+                         #'org-roam-db-sync))
       (expect (caar (org-roam-db-query "select count(*) from nodes")) :to-be-greater-than 0)
 
       ;; common sense - we expect it doesn't take more than 3 times of
