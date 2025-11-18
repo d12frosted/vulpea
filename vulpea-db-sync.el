@@ -447,22 +447,23 @@ Interactive use (prefix arguments):
 - No prefix: Synchronous scan with smart detection
 - C-u: Asynchronous scan with smart detection
 - C-u C-u: Synchronous FORCE scan (re-index everything)
-- C-u C-u C-u: Asynchronous FORCE scan
 
 Programmatic use (symbols):
 - nil: Synchronous scan with smart detection
 - \\='async: Asynchronous scan with smart detection
 - \\='force: Synchronous FORCE scan (re-index everything)
-- \\='force-async: Asynchronous FORCE scan
 
 FORCE scan ignores change detection and re-indexes all files.
 Use FORCE when changing configuration like `vulpea-db-index-heading-level'.
 
+Note: FORCE mode only works synchronously. Async FORCE would require
+re-implementing the queue processor, and force re-index is typically
+a one-time operation where blocking is acceptable.
+
 Examples:
-  (vulpea-db-sync-full-scan)              ; sync scan
-  (vulpea-db-sync-full-scan \\='async)       ; async scan
-  (vulpea-db-sync-full-scan \\='force)       ; force re-index
-  (vulpea-db-sync-full-scan \\='force-async) ; async force
+  (vulpea-db-sync-full-scan)        ; sync scan
+  (vulpea-db-sync-full-scan \\='async) ; async scan
+  (vulpea-db-sync-full-scan \\='force) ; force re-index (blocks)
 
 Also performs cleanup of deleted files."
   (interactive "P")
@@ -471,30 +472,21 @@ Also performs cleanup of deleted files."
 
   ;; Decode argument (handle both prefix args and symbols)
   (let* ((async (cond
-                 ((symbolp arg) (memq arg '(async force-async)))
-                 ((listp arg) (or (equal arg '(4))
-                                  (equal arg '(64))))))
+                 ((symbolp arg) (eq arg 'async))
+                 ((listp arg) (equal arg '(4)))))
          (force (cond
-                 ((symbolp arg) (memq arg '(force force-async)))
-                 ((listp arg) (or (equal arg '(16))
-                                  (equal arg '(64)))))))
+                 ((symbolp arg) (eq arg 'force))
+                 ((listp arg) (equal arg '(16))))))
+
+    ;; Validate: async and force are mutually exclusive
+    (when (and async force)
+      (user-error "Cannot combine async and force modes. Use 'force for synchronous re-index"))
 
     ;; Clean up deleted files first
     (vulpea-db-sync--cleanup-deleted-files)
 
     ;; Scan directories
     (cond
-     ((and async force)
-      ;; Async + Force: queue all files, force re-index
-      (message "Vulpea: Queueing files for async FORCE scan...")
-      (unless vulpea-db-autosync-mode
-        (user-error "Async scan requires autosync-mode to be enabled"))
-      ;; Clear hash table to force re-index
-      (emacsql (vulpea-db) [:delete :from file_hashes])
-      (dolist (dir vulpea-db-sync-directories)
-        (dolist (file (directory-files-recursively dir "\\.org$"))
-          (vulpea-db-sync--enqueue file))))
-
      (async
       ;; Async mode: queue all files with smart detection
       (message "Vulpea: Queueing files for async scan...")
