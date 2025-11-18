@@ -105,6 +105,16 @@ Only used when `vulpea-db-sync-external-method' is `poll' or `auto'
   :type 'number
   :group 'vulpea-db-sync)
 
+(defcustom vulpea-db-sync-progress-interval 500
+  "Number of files to process before reporting progress.
+When syncing a directory, report progress every N files.
+Set to nil to disable progress reporting.
+Set to a smaller value (e.g., 100) for more frequent updates,
+or a larger value (e.g., 1000) for less frequent updates."
+  :type '(choice (const :tag "Disabled" nil)
+                 (integer :tag "Report every N files"))
+  :group 'vulpea-db-sync)
+
 ;;; Variables
 
 (defvar vulpea-db-sync--watchers nil
@@ -374,7 +384,10 @@ Only updates files that have actually changed (by checking mtime/size/hash)."
       ;; Sync mode: use smart detection
       (let ((db (vulpea-db))
             (updated 0)
-            (unchanged 0))
+            (unchanged 0)
+            (total (length files))
+            (processed 0))
+        (message "Vulpea: Syncing %d file%s..." total (if (= total 1) "" "s"))
         (emacsql-with-transaction db
           (dolist (file files)
             (condition-case err
@@ -383,7 +396,14 @@ Only updates files that have actually changed (by checking mtime/size/hash)."
                   (setq unchanged (1+ unchanged)))
               (error
                (message "Vulpea: Error updating %s: %s"
-                        file (error-message-string err))))))
+                        file (error-message-string err))))
+            (setq processed (1+ processed))
+            ;; Report progress at intervals
+            (when (and vulpea-db-sync-progress-interval
+                       (> total vulpea-db-sync-progress-interval)
+                       (zerop (mod processed vulpea-db-sync-progress-interval)))
+              (message "Vulpea: Progress: %d/%d files (%d updated, %d unchanged)"
+                       processed total updated unchanged))))
         (message "Vulpea: Checked %d file%s (%d updated, %d unchanged)"
                  (+ updated unchanged)
                  (if (= (+ updated unchanged) 1) "" "s")
