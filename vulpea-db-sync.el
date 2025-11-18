@@ -142,6 +142,18 @@ Each entry is (path . timestamp).")
 (defvar vulpea-db-sync--file-attributes (make-hash-table :test 'equal)
   "Cache of file attributes for external change detection.")
 
+(defvar vulpea-db-sync--queue-total 0
+  "Total number of files queued for async processing.
+Set when async processing starts, used for progress reporting.")
+
+(defvar vulpea-db-sync--processed-total 0
+  "Total number of files processed in current async batch.
+Reset when async processing completes.")
+
+(defvar vulpea-db-sync--updated-total 0
+  "Total number of files actually updated in current async batch.
+Reset when async processing completes.")
+
 ;;; Mode
 
 ;;;###autoload
@@ -284,7 +296,17 @@ Performs initial scan to detect changes made while Emacs was closed."
                (batch (seq-take vulpea-db-sync--queue batch-size))
                (paths (mapcar #'car batch))
                (db (vulpea-db))
-               (count 0))
+               (updated 0)
+               (unchanged 0))
+
+          ;; Initialize totals if starting fresh
+          (when (zerop vulpea-db-sync--processed-total)
+            (setq vulpea-db-sync--queue-total (+ (length vulpea-db-sync--queue) batch-size)
+                  vulpea-db-sync--updated-total 0)
+            (when (> vulpea-db-sync--queue-total 1)
+              (message "Vulpea: Async syncing %d file%s..."
+                       vulpea-db-sync--queue-total
+                       (if (= vulpea-db-sync--queue-total 1) "" "s"))))
 
           ;; Remove processed items from queue
           (setq vulpea-db-sync--queue
@@ -295,15 +317,41 @@ Performs initial scan to detect changes made while Emacs was closed."
             (dolist (path paths)
               (condition-case err
                   (when (file-exists-p path)
-                    (vulpea-db-sync--update-file-if-changed path)
-                    (setq count (1+ count)))
+                    (if (vulpea-db-sync--update-file-if-changed path)
+                        (setq updated (1+ updated))
+                      (setq unchanged (1+ unchanged))))
                 (error
                  (message "Vulpea: Error updating %s: %s"
                           path (error-message-string err))))))
 
-          (when (> count 0)
-            (message "Vulpea: Updated %d file%s"
-                     count (if (= count 1) "" "s"))))
+          ;; Update totals
+          (setq vulpea-db-sync--processed-total (+ vulpea-db-sync--processed-total updated unchanged)
+                vulpea-db-sync--updated-total (+ vulpea-db-sync--updated-total updated))
+
+          ;; Report progress
+          (when (and vulpea-db-sync-progress-interval
+                     (> vulpea-db-sync--queue-total vulpea-db-sync-progress-interval)
+                     (or (zerop (mod vulpea-db-sync--processed-total
+                                     vulpea-db-sync-progress-interval))
+                         (null vulpea-db-sync--queue)))
+            (message "Vulpea: Progress: %d/%d files (%d updated, %d unchanged)"
+                     vulpea-db-sync--processed-total
+                     vulpea-db-sync--queue-total
+                     vulpea-db-sync--updated-total
+                     (- vulpea-db-sync--processed-total vulpea-db-sync--updated-total)))
+
+          ;; Final summary when done
+          (when (null vulpea-db-sync--queue)
+            (when (> vulpea-db-sync--processed-total 0)
+              (message "Vulpea: Checked %d file%s (%d updated, %d unchanged)"
+                       vulpea-db-sync--processed-total
+                       (if (= vulpea-db-sync--processed-total 1) "" "s")
+                       vulpea-db-sync--updated-total
+                       (- vulpea-db-sync--processed-total vulpea-db-sync--updated-total)))
+            ;; Reset counters
+            (setq vulpea-db-sync--queue-total 0
+                  vulpea-db-sync--processed-total 0
+                  vulpea-db-sync--updated-total 0)))
 
       (setq vulpea-db-sync--processing nil)
 
@@ -379,8 +427,13 @@ Only updates files that have actually changed (by checking mtime/size/hash)."
   (let ((files (directory-files-recursively dir "\\.org$")))
     (if vulpea-db-autosync-mode
         ;; Async mode: queue all files (smart detection in queue processing)
-        (dolist (file files)
-          (vulpea-db-sync--enqueue file))
+        (progn
+          ;; Reset counters for fresh sync
+          (setq vulpea-db-sync--queue-total 0
+                vulpea-db-sync--processed-total 0
+                vulpea-db-sync--updated-total 0)
+          (dolist (file files)
+            (vulpea-db-sync--enqueue file)))
       ;; Sync mode: use smart detection
       (let ((db (vulpea-db))
             (updated 0)
