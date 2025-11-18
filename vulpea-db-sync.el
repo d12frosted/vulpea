@@ -523,10 +523,13 @@ Otherwise, updates immediately."
 Only updates files that have actually changed (by checking mtime/size/hash).
 
 With optional FORCE argument, bypass change detection and re-index all files.
-This is useful when changing configuration like `vulpea-db-index-heading-level'."
+This is useful when changing configuration like `vulpea-db-index-heading-level'.
+
+FORCE mode is always synchronous/blocking, even when `vulpea-db-autosync-mode'
+is enabled."
   (interactive "DDirectory: ")
   (let ((files (directory-files-recursively dir "\\.org$")))
-    (if vulpea-db-autosync-mode
+    (if (and vulpea-db-autosync-mode (not force))
         ;; Async mode: queue all files (smart detection in queue processing)
         (progn
           ;; Reset counters for fresh sync
