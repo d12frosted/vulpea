@@ -52,7 +52,7 @@ Returns absolute path. Caller responsible for cleanup."
 (ert-deftest vulpea-db-extract-parse-context ()
   "Test parse context creation."
   (let ((path (vulpea-test--create-temp-org-file
-               "#+TITLE: Test Note\n#+ID: test-id\n\n* Heading\n")))
+               ":PROPERTIES:\n:ID: test-id\n:END:\n#+TITLE: Test Note\n\n* Heading\n")))
     (unwind-protect
         (let ((ctx (vulpea-db--parse-file path)))
           (should (vulpea-parse-ctx-p ctx))
@@ -67,7 +67,7 @@ Returns absolute path. Caller responsible for cleanup."
 (ert-deftest vulpea-db-extract-file-node-basic ()
   "Test basic file-level node extraction."
   (let ((path (vulpea-test--create-temp-org-file
-               "#+TITLE: Wine Database\n#+ID: wine-db-id\n#+FILETAGS: :wine:database:\n")))
+               ":PROPERTIES:\n:ID: wine-db-id\n:END:\n#+TITLE: Wine Database\n#+FILETAGS: :wine:database:\n")))
     (unwind-protect
         (let* ((ctx (vulpea-db--parse-file path))
                (node (vulpea-parse-ctx-file-node ctx)))
@@ -77,22 +77,29 @@ Returns absolute path. Caller responsible for cleanup."
           (should (member "database" (plist-get node :tags))))
       (delete-file path))))
 
-(ert-deftest vulpea-db-extract-file-node-auto-id ()
-  "Test file node gets auto-generated ID if missing."
+(ert-deftest vulpea-db-extract-file-node-no-id ()
+  "Test file node without ID returns nil."
   (let ((path (vulpea-test--create-temp-org-file
                "#+TITLE: No ID Note\n")))
     (unwind-protect
         (let* ((ctx (vulpea-db--parse-file path))
-               (node (vulpea-parse-ctx-file-node ctx))
-               (id (plist-get node :id)))
-          (should id)
-          (should (stringp id))
-          (should (> (length id) 0)))
+               (node (vulpea-parse-ctx-file-node ctx)))
+          (should (null node)))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-file-node-ignore ()
+  "Test file node with VULPEA_IGNORE returns nil."
+  (let ((path (vulpea-test--create-temp-org-file
+               ":PROPERTIES:\n:ID: test-id\n:VULPEA_IGNORE: t\n:END:\n#+TITLE: Ignored Note\n")))
+    (unwind-protect
+        (let* ((ctx (vulpea-db--parse-file path))
+               (node (vulpea-parse-ctx-file-node ctx)))
+          (should (null node)))
       (delete-file path))))
 
 (ert-deftest vulpea-db-extract-file-node-auto-title ()
   "Test file node uses filename as title if missing."
-  (let ((path (vulpea-test--create-temp-org-file "#+ID: test-id\n")))
+  (let ((path (vulpea-test--create-temp-org-file ":PROPERTIES:\n:ID: test-id\n:END:\n")))
     (unwind-protect
         (let* ((ctx (vulpea-db--parse-file path))
                (node (vulpea-parse-ctx-file-node ctx))
@@ -138,12 +145,24 @@ Returns absolute path. Caller responsible for cleanup."
           (should (equal (plist-get node :todo) "TODO")))
       (delete-file path))))
 
+(ert-deftest vulpea-db-extract-heading-nodes-ignore ()
+  "Test heading with VULPEA_IGNORE is not extracted."
+  (let ((path (vulpea-test--create-temp-org-file
+               (format ":PROPERTIES:\n:ID: %s\n:END:\n#+TITLE: File\n\n* Heading 1\n:PROPERTIES:\n:ID: heading-1\n:END:\n\n* Heading 2\n:PROPERTIES:\n:ID: heading-2\n:VULPEA_IGNORE: t\n:END:\n" (org-id-new)))))
+    (unwind-protect
+        (let* ((vulpea-db-index-heading-level t)
+               (ctx (vulpea-db--parse-file path))
+               (nodes (vulpea-parse-ctx-heading-nodes ctx)))
+          (should (= (length nodes) 1))
+          (should (equal (plist-get (car nodes) :id) "heading-1")))
+      (delete-file path))))
+
 ;;; Extractor Tests
 
 (ert-deftest vulpea-db-extract-aliases ()
   "Test alias extraction."
   (let ((path (vulpea-test--create-temp-org-file
-               "#+TITLE: Main Title\n#+ROAM_ALIASES: Alias1 Alias2\n")))
+               (format ":PROPERTIES:\n:ID: %s\n:END:\n#+TITLE: Main Title\n#+ROAM_ALIASES: Alias1 Alias2\n" (org-id-new)))))
     (unwind-protect
         (let* ((ctx (vulpea-db--parse-file path))
                (node (vulpea-parse-ctx-file-node ctx))
@@ -155,7 +174,7 @@ Returns absolute path. Caller responsible for cleanup."
 (ert-deftest vulpea-db-extract-links ()
   "Test link extraction."
   (let ((path (vulpea-test--create-temp-org-file
-               "#+TITLE: Test\n\nSome [[id:note-1][link]] and [[id:note-2][another]].\n")))
+               (format ":PROPERTIES:\n:ID: %s\n:END:\n#+TITLE: Test\n\nSome [[id:note-1][link]] and [[id:note-2][another]].\n" (org-id-new)))))
     (unwind-protect
         (let* ((ctx (vulpea-db--parse-file path))
                (node (vulpea-parse-ctx-file-node ctx))
@@ -168,7 +187,7 @@ Returns absolute path. Caller responsible for cleanup."
 (ert-deftest vulpea-db-extract-meta-with-types ()
   "Test metadata extraction with type coercion."
   (let ((path (vulpea-test--create-temp-org-file
-               "#+TITLE: Wine\n#+ID: wine-id\n\n- country_string :: France\n- price_number :: 25.50\n- region_note :: [[id:region-id][Region Name]]\n- url_link :: https://example.com\n")))
+               ":PROPERTIES:\n:ID: wine-id\n:END:\n#+TITLE: Wine\n\n- country_string :: France\n- price_number :: 25.50\n- region_note :: [[id:region-id][Region Name]]\n- url_link :: https://example.com\n")))
     (unwind-protect
         (let* ((ctx (vulpea-db--parse-file path))
                (node (vulpea-parse-ctx-file-node ctx))
@@ -201,7 +220,7 @@ Returns absolute path. Caller responsible for cleanup."
 (ert-deftest vulpea-db-extract-meta-multiple-values ()
   "Test metadata with multiple values for same key."
   (let ((path (vulpea-test--create-temp-org-file
-               "#+TITLE: Wine\n#+ID: wine-multi-id\n\n- grape_note :: [[id:grape-1][Grape One]]\n- grape_note :: [[id:grape-2][Grape Two]]\n")))
+               ":PROPERTIES:\n:ID: wine-multi-id\n:END:\n#+TITLE: Wine\n\n- grape_note :: [[id:grape-1][Grape One]]\n- grape_note :: [[id:grape-2][Grape Two]]\n")))
     (unwind-protect
         (let* ((ctx (vulpea-db--parse-file path))
                (node (vulpea-parse-ctx-file-node ctx))
@@ -401,7 +420,7 @@ This serves as documentation for plugin authors."
 
       ;; Step 2: Create a test note with citations
       (let ((path (vulpea-test--create-temp-org-file
-                   "#+TITLE: Research Paper\n#+ID: paper-id\n\nThis work builds on [@smith2020] and [@jones2019].\n")))
+                   ":PROPERTIES:\n:ID: paper-id\n:END:\n#+TITLE: Research Paper\n\nThis work builds on [@smith2020] and [@jones2019].\n")))
         (unwind-protect
             (progn
               ;; Step 3: Update file (triggers extractor)
@@ -438,7 +457,7 @@ This serves as documentation for plugin authors."
   (vulpea-test--with-temp-db
     (vulpea-db)
     (let ((path (vulpea-test--create-temp-org-file
-                 "#+TITLE: Test Note\n#+ID: test-id\n#+FILETAGS: :wine:\n")))
+                 ":PROPERTIES:\n:ID: test-id\n:END:\n#+TITLE: Test Note\n#+FILETAGS: :wine:\n")))
       (unwind-protect
           (progn
             (vulpea-db-update-file path)
@@ -464,7 +483,7 @@ This serves as documentation for plugin authors."
   (vulpea-test--with-temp-db
     (vulpea-db)
     (let ((path (vulpea-test--create-temp-org-file
-                 "#+TITLE: File\n#+ID: file-id\n\n* Heading\n:PROPERTIES:\n:ID: heading-id\n:END:\n")))
+                 ":PROPERTIES:\n:ID: file-id\n:END:\n#+TITLE: File\n\n* Heading\n:PROPERTIES:\n:ID: heading-id\n:END:\n")))
       (unwind-protect
           (let ((vulpea-db-index-heading-level t))
             (let ((count (vulpea-db-update-file path)))
@@ -484,7 +503,7 @@ This serves as documentation for plugin authors."
   (vulpea-test--with-temp-db
     (vulpea-db)
     (let ((path (vulpea-test--create-temp-org-file
-                 "#+TITLE: Version 1\n#+ID: test-id\n")))
+                 ":PROPERTIES:\n:ID: test-id\n:END:\n#+TITLE: Version 1\n")))
       (unwind-protect
           (progn
             ;; First update
@@ -497,7 +516,7 @@ This serves as documentation for plugin authors."
 
             ;; Update file content
             (with-temp-file path
-              (insert "#+TITLE: Version 2\n#+ID: test-id\n"))
+              (insert ":PROPERTIES:\n:ID: test-id\n:END:\n#+TITLE: Version 2\n"))
 
             ;; Second update
             (vulpea-db-update-file path)
