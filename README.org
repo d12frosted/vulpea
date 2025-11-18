@@ -146,6 +146,67 @@ eldev test
   (vulpea-parse-ctx-heading-nodes ctx))
 #+end_src
 
+*** Note Indexing Requirements
+
+Vulpea v2 only indexes notes that have an =ID= property. Notes without IDs are ignored.
+
+**** File-Level Notes
+
+File-level notes require an =ID= property in a property drawer at the beginning of the file:
+
+#+begin_src org
+:PROPERTIES:
+:ID: 5093fc4e-8c63-4e60-a1da-83fc7ecd5db7
+:END:
+#+title: My Note
+
+Content here...
+#+end_src
+
+**** Heading-Level Notes
+
+Heading-level notes require an =ID= property in the heading's property drawer:
+
+#+begin_src org
+,* My Heading
+:PROPERTIES:
+:ID: cfc39858-351d-4f1e-8f98-10d16d71f49e
+:END:
+
+Content here...
+#+end_src
+
+**** Opting Out of Indexing
+
+You can exclude notes from indexing using the =VULPEA_IGNORE= property, even if they have an =ID=:
+
+#+begin_src org
+:PROPERTIES:
+:ID: some-uuid
+:VULPEA_IGNORE: t
+:END:
+#+title: Private Note
+
+This note won't be indexed by Vulpea.
+#+end_src
+
+This works for both file-level and heading-level notes.
+
+**** Creating IDs
+
+Use =org-id-get-create= to add IDs to your notes:
+
+#+begin_src emacs-lisp
+;; Add ID to current note (file or heading)
+(org-id-get-create)
+
+;; Programmatically add ID to a file
+(with-current-buffer (find-file-noselect "/path/to/note.org")
+  (goto-char (point-min))
+  (org-id-get-create)
+  (save-buffer))
+#+end_src
+
 *** Enable Auto-Sync
 
 #+begin_src emacs-lisp

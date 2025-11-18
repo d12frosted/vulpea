@@ -136,36 +136,43 @@ Returns `vulpea-parse-ctx' structure with:
 
 Returns plist with:
   :id :title :aliases :tags :links :properties :meta
-  :todo :priority :scheduled :deadline :closed :attach-dir"
+  :todo :priority :scheduled :deadline :closed :attach-dir
+
+Returns nil if:
+- File has no ID property in property drawer
+- File has VULPEA_IGNORE property set to non-nil value"
   (let* ((keywords (org-element-map ast 'keyword
                      (lambda (kw)
                        (cons (org-element-property :key kw)
                              (org-element-property :value kw)))))
-         (id (or (cdr (assoc "ID" keywords))
-                 (org-id-new)))
-         (title (or (cdr (assoc "TITLE" keywords))
-                    (file-name-base path)))
-         (filetags (cdr (assoc "FILETAGS" keywords)))
-         (tags (when filetags
-                 (split-string filetags ":" t)))
          (properties (vulpea-db--extract-properties ast nil))
-         (meta (vulpea-db--extract-meta ast))
-         (links (vulpea-db--extract-links ast))
-         (aliases (vulpea-db--extract-aliases keywords)))
+         (id (cdr (assoc "ID" properties)))
+         (ignored (cdr (assoc "VULPEA_IGNORE" properties))))
 
-    (list :id id
-          :title title
-          :aliases aliases
-          :tags tags
-          :links links
-          :properties properties
-          :meta meta
-          :todo nil
-          :priority nil
-          :scheduled nil
-          :deadline nil
-          :closed nil
-          :attach-dir (cdr (assoc "ATTACH_DIR" keywords)))))
+    ;; Only index if ID exists and not explicitly ignored
+    (when (and id (not ignored))
+      (let* ((title (or (cdr (assoc "TITLE" keywords))
+                        (file-name-base path)))
+             (filetags (cdr (assoc "FILETAGS" keywords)))
+             (tags (when filetags
+                     (split-string filetags ":" t)))
+             (meta (vulpea-db--extract-meta ast))
+             (links (vulpea-db--extract-links ast))
+             (aliases (vulpea-db--extract-aliases keywords)))
+
+        (list :id id
+              :title title
+              :aliases aliases
+              :tags tags
+              :links links
+              :properties properties
+              :meta meta
+              :todo nil
+              :priority nil
+              :scheduled nil
+              :deadline nil
+              :closed nil
+              :attach-dir (cdr (assoc "ATTACH_DIR" keywords)))))))
 
 (defun vulpea-db--extract-heading-nodes (ast path)
   "Extract heading-level nodes from AST at PATH.
@@ -173,45 +180,52 @@ Returns plist with:
 Returns list of plists, one per heading with ID property.
 Each plist has same structure as file-node.
 
+Skips headings that:
+- Have no ID property
+- Have VULPEA_IGNORE property set to non-nil value
+
 Respects `vulpea-db-index-heading-level' setting."
   (when (vulpea-db--should-index-headings-p path)
     (org-element-map ast 'headline
       (lambda (headline)
         (when-let ((id (org-element-property :ID headline)))
-          (let* ((title (org-element-property :raw-value headline))
-                 (tags (org-element-property :tags headline))
-                 (level (org-element-property :level headline))
-                 (pos (org-element-property :begin headline))
-                 (todo (org-element-property :todo-keyword headline))
-                 (priority (org-element-property :priority headline))
-                 (scheduled (org-element-property :scheduled headline))
-                 (deadline (org-element-property :deadline headline))
-                 (closed (org-element-property :closed headline))
-                 (properties (vulpea-db--extract-properties ast headline))
-                 (meta (vulpea-db--extract-meta headline))
-                 (links (vulpea-db--extract-links headline))
-                 (outline-path (org-element-property :title
-                                                     (org-element-lineage headline '(headline)))))
+          (let* ((properties (vulpea-db--extract-properties ast headline))
+                 (ignored (cdr (assoc "VULPEA_IGNORE" properties))))
+            ;; Only index if not explicitly ignored
+            (unless ignored
+              (let* ((title (org-element-property :raw-value headline))
+                     (tags (org-element-property :tags headline))
+                     (level (org-element-property :level headline))
+                     (pos (org-element-property :begin headline))
+                     (todo (org-element-property :todo-keyword headline))
+                     (priority (org-element-property :priority headline))
+                     (scheduled (org-element-property :scheduled headline))
+                     (deadline (org-element-property :deadline headline))
+                     (closed (org-element-property :closed headline))
+                     (meta (vulpea-db--extract-meta headline))
+                     (links (vulpea-db--extract-links headline))
+                     (outline-path (org-element-property :title
+                                                         (org-element-lineage headline '(headline)))))
 
-            (list :id id
-                  :level level
-                  :pos pos
-                  :title title
-                  :aliases nil  ; Only file-level has aliases
-                  :tags tags
-                  :links links
-                  :properties properties
-                  :meta meta
-                  :todo todo
-                  :priority priority
-                  :scheduled (when scheduled
-                               (org-element-property :raw-value scheduled))
-                  :deadline (when deadline
-                              (org-element-property :raw-value deadline))
-                  :closed (when closed
-                            (org-element-property :raw-value closed))
-                  :outline-path outline-path
-                  :attach-dir (cdr (assoc "ATTACH_DIR" properties)))))))))
+                (list :id id
+                      :level level
+                      :pos pos
+                      :title title
+                      :aliases nil  ; Only file-level has aliases
+                      :tags tags
+                      :links links
+                      :properties properties
+                      :meta meta
+                      :todo todo
+                      :priority priority
+                      :scheduled (when scheduled
+                                   (org-element-property :raw-value scheduled))
+                      :deadline (when deadline
+                                  (org-element-property :raw-value deadline))
+                      :closed (when closed
+                                (org-element-property :raw-value closed))
+                      :outline-path outline-path
+                      :attach-dir (cdr (assoc "ATTACH_DIR" properties)))))))))))
 
 (defun vulpea-db--should-index-headings-p (path)
   "Check if headings should be indexed for PATH.

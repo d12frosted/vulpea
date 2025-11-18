@@ -22,6 +22,8 @@
 (require 'ert)
 (require 'vulpea-buffer)
 (require 'vulpea-db)
+(require 'vulpea-db-extract)
+(require 'vulpea-db-query)
 (require 'vulpea-utils)
 
 ;;; Test Helpers
@@ -46,7 +48,7 @@ Creates a temp file with ID and CONTENT, adds it to temp DB, then executes BODY.
      (unwind-protect
          (progn
            (vulpea-db)
-           (vulpea-db-update temp-org-file)
+           (vulpea-db-update-file temp-org-file)
            ,@body)
        (when vulpea-db--connection
          (vulpea-db-close))
@@ -63,7 +65,8 @@ Creates a temp file with ID and CONTENT, adds it to temp DB, then executes BODY.
     (vulpea-buffer-test--with-temp-db-and-file id "\n\nSome body.\n"
       (vulpea-utils-with-note (vulpea-db-get-by-id id)
         (vulpea-buffer-title-set "Some title")
-        (save-buffer))
+        (save-buffer)
+        (vulpea-db-update-file (vulpea-note-path (vulpea-db-get-by-id id))))
       (should (equal (vulpea-note-title (vulpea-db-get-by-id id))
                      "Some title")))))
 
@@ -74,7 +77,8 @@ Creates a temp file with ID and CONTENT, adds it to temp DB, then executes BODY.
       (vulpea-utils-with-note (vulpea-db-get-by-id id)
         (goto-char (point-min))
         (vulpea-buffer-title-set "Changed title")
-        (save-buffer))
+        (save-buffer)
+        (vulpea-db-update-file (vulpea-note-path (vulpea-db-get-by-id id))))
       (should (equal (vulpea-note-title (vulpea-db-get-by-id id))
                      "Changed title")))))
 
@@ -85,7 +89,8 @@ Creates a temp file with ID and CONTENT, adds it to temp DB, then executes BODY.
       (vulpea-utils-with-note (vulpea-db-get-by-id id)
         (goto-char (point-max))
         (vulpea-buffer-title-set "Changed title")
-        (save-buffer))
+        (save-buffer)
+        (vulpea-db-update-file (vulpea-note-path (vulpea-db-get-by-id id))))
       (should (equal (vulpea-note-title (vulpea-db-get-by-id id))
                      "Changed title")))))
 
@@ -103,11 +108,12 @@ Creates a temp file with ID and CONTENT, adds it to temp DB, then executes BODY.
       (unwind-protect
           (progn
             (vulpea-db)
-            (vulpea-db-update temp-org-file)
+            (vulpea-db-update-file temp-org-file)
             (vulpea-utils-with-note (vulpea-db-get-by-id heading-id)
               (goto-char (point-max))
               (vulpea-buffer-title-set "Changed title")
               (save-buffer))
+            (vulpea-db-update-file temp-org-file)
             (should (equal (vulpea-note-title (vulpea-db-get-by-id file-id))
                            "Changed title")))
         (when vulpea-db--connection
