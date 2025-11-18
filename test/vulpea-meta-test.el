@@ -22,6 +22,8 @@
 (require 'ert)
 (require 'vulpea-meta)
 (require 'vulpea-db)
+(require 'vulpea-db-extract)
+(require 'vulpea-db-query)
 (require 'vulpea-utils)
 
 ;;; Test Helpers
@@ -50,12 +52,12 @@
            (progn
              ;; Copy all fixture files to temp directory
              (dolist (file (directory-files vulpea-meta-test--fixture-dir t "\\.org$"))
-               (copy-file file ,notes-dir-var))
+               (copy-file file (expand-file-name (file-name-nondirectory file) ,notes-dir-var)))
              ;; Initialize database
              (vulpea-db)
              ;; Update database with all files
              (dolist (file (directory-files ,notes-dir-var t "\\.org$"))
-               (vulpea-db-update file))
+               (vulpea-db-update-file file))
              ,@body)
          (when vulpea-db--connection
            (vulpea-db-close))
