@@ -326,17 +326,23 @@ Returns absolute path. Caller responsible for cleanup."
 
 (ert-deftest vulpea-db-sync-external-setup-poll ()
   "Test polling mode setup."
-  (let ((vulpea-db-sync--poll-timer nil)
-        (vulpea-db-sync-external-method 'poll)
-        (vulpea-db-sync-directories (list temporary-file-directory)))
+  (let* ((test-dir (make-temp-file "vulpea-test-poll-" t))
+         (vulpea-db-sync--poll-timer nil)
+         (vulpea-db-sync-external-method 'poll)
+         (vulpea-db-sync-directories (list test-dir)))
     (unwind-protect
         (progn
+          ;; Create a test org file in the directory
+          (with-temp-file (expand-file-name "test.org" test-dir)
+            (insert ":PROPERTIES:\n:ID: test-id\n:END:\n#+TITLE: Test\n"))
           (vulpea-db-sync--setup-external-monitoring)
           ;; Should have polling timer
           (should vulpea-db-sync--poll-timer)
           ;; Should have file attributes cache
           (should (> (hash-table-count vulpea-db-sync--file-attributes) 0)))
-      (vulpea-db-sync--stop-external-monitoring))))
+      (vulpea-db-sync--stop-external-monitoring)
+      (when (file-directory-p test-dir)
+        (delete-directory test-dir t)))))
 
 (ert-deftest vulpea-db-sync-external-setup-nil ()
   "Test disabled external monitoring."
@@ -350,30 +356,42 @@ Returns absolute path. Caller responsible for cleanup."
 
 (ert-deftest vulpea-db-sync-external-stop ()
   "Test stopping external monitoring cleans up resources."
-  (let ((vulpea-db-sync--fswatch-process nil)
-        (vulpea-db-sync--poll-timer nil)
-        (vulpea-db-sync-external-method 'poll)
-        (vulpea-db-sync-directories (list temporary-file-directory)))
-    (vulpea-db-sync--setup-external-monitoring)
-    (should vulpea-db-sync--poll-timer)
-    (puthash "test" '(1 2 3) vulpea-db-sync--file-attributes)
+  (let* ((test-dir (make-temp-file "vulpea-test-stop-" t))
+         (vulpea-db-sync--fswatch-process nil)
+         (vulpea-db-sync--poll-timer nil)
+         (vulpea-db-sync-external-method 'poll)
+         (vulpea-db-sync-directories (list test-dir)))
+    (unwind-protect
+        (progn
+          ;; Create a test org file in the directory
+          (with-temp-file (expand-file-name "test.org" test-dir)
+            (insert ":PROPERTIES:\n:ID: test-id\n:END:\n#+TITLE: Test\n"))
+          (vulpea-db-sync--setup-external-monitoring)
+          (should vulpea-db-sync--poll-timer)
+          (puthash "test" '(1 2 3) vulpea-db-sync--file-attributes)
 
-    (vulpea-db-sync--stop-external-monitoring)
+          (vulpea-db-sync--stop-external-monitoring)
 
-    ;; Should clean everything
-    (should-not vulpea-db-sync--poll-timer)
-    (should (= (hash-table-count vulpea-db-sync--file-attributes) 0))))
+          ;; Should clean everything
+          (should-not vulpea-db-sync--poll-timer)
+          (should (= (hash-table-count vulpea-db-sync--file-attributes) 0)))
+      (when (file-directory-p test-dir)
+        (delete-directory test-dir t)))))
 
 (ert-deftest vulpea-db-sync-polling-detects-changes ()
   "Test polling detects file modifications."
   (vulpea-test--with-temp-db
     (vulpea-db)
-    (let* ((path (vulpea-test--create-temp-org-file
-                  ":PROPERTIES:\n:ID: test-id\n:END:\n#+TITLE: Version 1\n"))
-           (vulpea-db-sync-directories (list (file-name-directory path)))
+    (let* ((test-dir (make-temp-file "vulpea-test-changes-" t))
+           (path (expand-file-name "test.org" test-dir))
+           (vulpea-db-sync-directories (list test-dir))
            (vulpea-db-sync--queue nil))
       (unwind-protect
           (progn
+            ;; Create initial file
+            (with-temp-file path
+              (insert ":PROPERTIES:\n:ID: test-id\n:END:\n#+TITLE: Version 1\n"))
+
             ;; Initialize cache
             (vulpea-db-sync--update-file-attributes-cache)
             (should (gethash path vulpea-db-sync--file-attributes))
@@ -388,16 +406,21 @@ Returns absolute path. Caller responsible for cleanup."
 
             ;; Should be queued
             (should (assoc path vulpea-db-sync--queue)))
-        (delete-file path)))))
+        (when (file-directory-p test-dir)
+          (delete-directory test-dir t))))))
 
 (ert-deftest vulpea-db-sync-polling-ignores-unchanged ()
   "Test polling skips unchanged files."
-  (let* ((path (vulpea-test--create-temp-org-file
-                ":PROPERTIES:\n:ID: test-id\n:END:\n#+TITLE: Test\n"))
-         (vulpea-db-sync-directories (list (file-name-directory path)))
+  (let* ((test-dir (make-temp-file "vulpea-test-unchanged-" t))
+         (path (expand-file-name "test.org" test-dir))
+         (vulpea-db-sync-directories (list test-dir))
          (vulpea-db-sync--queue nil))
     (unwind-protect
         (progn
+          ;; Create initial file
+          (with-temp-file path
+            (insert ":PROPERTIES:\n:ID: test-id\n:END:\n#+TITLE: Test\n"))
+
           ;; Initialize cache
           (vulpea-db-sync--update-file-attributes-cache)
 
@@ -406,7 +429,8 @@ Returns absolute path. Caller responsible for cleanup."
 
           ;; Should not be queued
           (should-not (assoc path vulpea-db-sync--queue)))
-      (delete-file path))))
+      (when (file-directory-p test-dir)
+        (delete-directory test-dir t)))))
 
 (provide 'vulpea-db-sync-test)
 ;;; vulpea-db-sync-test.el ends here
