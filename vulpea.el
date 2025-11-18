@@ -1,11 +1,11 @@
-;;; vulpea.el --- A collection of org-roam note-taking functions -*- lexical-binding: t; -*-
+;;; vulpea.el --- A collection of note-taking functions -*- lexical-binding: t; -*-
 ;;
 ;; Copyright (c) 2020-2021 Boris Buliga
 ;;
 ;; Author: Boris Buliga <boris@d12frosted.io>
 ;; Maintainer: Boris Buliga <boris@d12frosted.io>
 ;; Version: 0.3.0
-;; Package-Requires: ((emacs "27.2") (org "9.4.4") (org-roam "2.0.0") (s "1.12") (dash "2.19"))
+;; Package-Requires: ((emacs "27.2") (org "9.4.4") (emacsql "4.3.0") (s "1.12") (dash "2.19"))
 ;;
 ;; This program is free software; you can redistribute it and/or
 ;; modify it under the terms of the GNU General Public License as
@@ -31,13 +31,12 @@
 ;;
 ;;; Commentary:
 ;;
-;; Vulpea is a collection of functions for note taking based on `org'
-;; and `org-roam'. In most cases, you should simply load `vulpea'
-;; module to get all available functions.
+;; Vulpea is a collection of functions for note taking based on `org'.
+;; In most cases, you should simply load `vulpea' module to get all
+;; available functions.
 ;;
 ;;; Code:
 
-(require 'org-roam)
 (require 'vulpea-utils)
 (require 'vulpea-buffer)
 (require 'vulpea-meta)
