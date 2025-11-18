@@ -35,6 +35,9 @@
                       (file-name-directory (or load-file-name buffer-file-name)))))
   "Directory containing test fixture files.")
 
+(defvar vulpea-meta-test--notes-dir nil
+  "Temporary notes directory for current test.")
+
 (defmacro vulpea-meta-test--with-temp-db (&rest body)
   "Execute BODY with a temporary database initialized with test fixtures."
   (declare (indent 0))
@@ -45,7 +48,7 @@
                                               temporary-file-directory))
             (vulpea-db-location ,db-file-var)
             (vulpea-db--connection nil)
-            (org-roam-directory ,notes-dir-var))
+            (vulpea-meta-test--notes-dir ,notes-dir-var))
        ;; Create temp notes directory
        (make-directory ,notes-dir-var t)
        (unwind-protect
@@ -67,8 +70,8 @@
            (delete-directory ,notes-dir-var t))))))
 
 (defun vulpea-meta-test--file-content (file-name)
-  "Get the content of FILE-NAME in `org-roam-directory'."
-  (let ((file-path (expand-file-name file-name org-roam-directory)))
+  "Get the content of FILE-NAME in test notes directory."
+  (let ((file-path (expand-file-name file-name vulpea-meta-test--notes-dir)))
     (with-temp-buffer
       (insert-file-contents file-path)
       (buffer-string))))
@@ -551,7 +554,7 @@ Just some text to make sure that meta is inserted before.
   "Test inserting values with respect to trailing new lines in file without body."
   (vulpea-meta-test--with-temp-db
     ;; Add extra newlines to reference.org
-    (let ((file-path (expand-file-name "reference.org" org-roam-directory)))
+    (let ((file-path (expand-file-name "reference.org" vulpea-meta-test--notes-dir)))
       (with-temp-buffer
         (insert-file-contents file-path)
         ;; first line after the header (position 124)
@@ -583,7 +586,7 @@ Just some text to make sure that meta is inserted before.
   "Test inserting values with respect to trailing new lines in file with body."
   (vulpea-meta-test--with-temp-db
     ;; Add extra newlines to without-meta.org
-    (let ((file-path (expand-file-name "without-meta.org" org-roam-directory)))
+    (let ((file-path (expand-file-name "without-meta.org" vulpea-meta-test--notes-dir)))
       (with-temp-buffer
         (insert-file-contents file-path)
         ;; first line after the body (position 226)

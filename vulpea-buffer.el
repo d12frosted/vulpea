@@ -45,6 +45,7 @@
 ;;
 ;;; Code:
 
+(require 'dash)
 (require 'org-element)
 (require 'seq)
 (require 's)
