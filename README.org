@@ -1,6 +1,6 @@
 #+OPTIONS: toc:nil
 
-* Vulpea v2
+* Vulpea
 :PROPERTIES:
 :ID:                     4897a1f9-10be-4489-a732-7daa4785d80f
 :END:
@@ -11,148 +11,421 @@
 </p>
 <p align="center">
   <a href="https://github.com/d12frosted/vulpea/tree/v2-rewrite"><img alt="v2-rewrite branch" src="https://img.shields.io/badge/branch-v2--rewrite-blue"/></a>
-  <a href="https://github.com/d12frosted/vulpea/actions"><img alt="Tests" src="https://img.shields.io/badge/tests-78%2F78%20passing-green"/></a>
+  <a href="https://github.com/d12frosted/vulpea/actions"><img alt="Tests" src="https://img.shields.io/badge/tests-passing-green"/></a>
 </p>
 #+end_html
 
-*Version 2.0 - Complete Rewrite (In Development)*
+A high-performance, async-first note-taking library for Emacs. Vulpea provides a powerful database layer for org-mode notes with support for metadata, tags, links, and custom extractors. Designed to scale to 100k+ notes without blocking your workflow.
 
-A high-performance, async-first note-taking library for Emacs. v2 is a complete architectural rewrite designed for scalability, extensibility, and performance with 100k+ notes.
+*Version 2.0* is a complete rewrite with no org-roam dependency, featuring async file watching, smart change detection, and a plugin system for extensibility.
 
-*⚠️ Breaking Change:* v2 removes the org-roam dependency and is a clean break from v1. See [[#migration][Migration Guide]] below.
+** Installation
 
-** What's New in v2
+*Note:* v2 is currently on the =v2-rewrite= branch and not yet released to package archives.
 
-*** Clean Break from org-roam
-- *No org-roam dependency* - Vulpea v2 is completely independent
-- *Custom database schema* optimized for read-heavy workloads
-- *Parse-once architecture* - single org-element parse shared across all extractors
-- *Plugin system* for extensibility without modifying core code
-
-*** Async-First Architecture
-- *Non-blocking updates* - UI never waits for database operations
-- *File watchers* handle changes from git, Dropbox, etc.
-- *Batch processing* - 100 file changes = 1 transaction
-- *Dual-mode support* - async for interactive use, sync for programmatic operations
-
-*** Performance Optimizations
-- *Hybrid database schema* - materialized + normalized tables
-- *Read-optimized queries* - single-table lookups for common operations
-- *Configurable heading-level indexing* - disable for 2-3x performance improvement
-- *Hash-based change detection* - skip parsing unchanged files
-- *Designed for 100k+ notes* with excellent performance
-
-** Architecture Overview
-
-*** Database Layer (=vulpea-db.el=)
-- SQLite via =emacsql-sqlite-builtin=
-- Hybrid schema: materialized =notes= table + normalized =tags/links/meta= tables
-- 6 tables, 9 indices
-- Foreign key cascades for automatic cleanup
-- Transaction support with rollback
-
-*** Parser & Extractors (=vulpea-db-extract.el=)
-- Parse context shared across all extractors
-- org-element-based parsing
-- Core extractors: notes, tags, links, metadata
-- Metadata type coercion: =note=, =number=, =string=, =link=
-- Extractor registry for plugins
-
-*** File Watching & Sync (=vulpea-db-sync.el=)
-- Internal: filenotify-based watchers
-- External: fswatch process or polling fallback
-- Async update queue with batching
-- Debouncing (2s delay, configurable)
-- Batch processing (100 files/batch)
-- Idle timer processing (0.5s delay)
-- Auto-restart for crashed fswatch processes
-
-*** Query Layer (=vulpea-db-query.el=)
-- Hybrid query strategy: materialized + normalized tables
-- Core queries: get-by-id, query-all with predicate
-- Tag queries: by-tags-some/every/none (indexed lookups)
-- Link queries: by-links-some/every with type filtering
-- Meta queries: by-meta-key, by-meta with type support
-- Level queries: file-level vs heading-level notes
-- Title search: case-sensitive and case-insensitive
-- Statistics: count-notes, count by level
-
-*** Plugin System
-- Parse-once architecture: single org-element parse shared across extractors
-- =vulpea-extractor= struct with schema, version, priority, and extraction function
-- Automatic schema creation and version tracking
-- Priority-based execution order (0-9 reserved for core, 10+ for plugins)
-- Custom database tables with foreign key constraints
-- Example citation extractor demonstrating full plugin lifecycle
-- See [[file:docs/v2-plugin-guide.org][Plugin Guide]] for complete documentation
-
-** Current Status
-
-*** ✅ Implemented (Phases 1-5)
-- [X] Database Core (11 tests passing)
-- [X] Parser & Extractors (18 tests passing)
-- [X] File Watching & Async Updates (12 tests passing)
-- [X] Query Layer & High-Level API (30 tests passing)
-- [X] Plugin System (7 tests passing)
-- *Total: 78/78 tests passing (100%)*
-
-*** 🚧 In Progress
-- [ ] Performance testing & optimization
-
-*** 📅 Planned
-- [ ] Migration utilities from v1
-- [ ] Integration tests with real-world note collections
-
-** Installation (Development)
-
-*Note:* v2 is currently on the =v2-rewrite= branch and not yet released.
+*** From Source (Development)
 
 #+begin_src bash
-# Clone and checkout v2 branch
 git clone https://github.com/d12frosted/vulpea
 cd vulpea
 git checkout v2-rewrite
-
-# Run tests
-eldev test
 #+end_src
 
-** Basic Usage (Current API)
-
-*** Initialize Database
+Add to your Emacs configuration:
 
 #+begin_src emacs-lisp
-(require 'vulpea-db)
-
-;; Initialize database (creates schema)
-(vulpea-db)
-
-;; Clear database if needed
-(vulpea-db-clear)
+(add-to-list 'load-path "/path/to/vulpea")
+(require 'vulpea)
 #+end_src
 
-*** Parse and Update Files
+*** Dependencies
+
+- Emacs 27.2+
+- =org-mode= 9.4.4+
+- =emacsql= 4.3.0+ (with =emacsql-sqlite-builtin=)
+- =s= 1.12+
+- =dash= 2.19+
+
+** Quick Start
+
+*** 1. Configure Directories
 
 #+begin_src emacs-lisp
-(require 'vulpea-db-extract)
+(require 'vulpea)
 
-;; Parse a single file
-(vulpea-db-update-file "/path/to/note.org")
+;; Set your notes directory
+(setq vulpea-db-sync-directories '("~/org-roam/"))
 
-;; Parse with context (for plugins)
-(let ((ctx (vulpea-db--parse-file "/path/to/note.org")))
-  ;; Access parsed data
-  (vulpea-parse-ctx-file-node ctx)
-  (vulpea-parse-ctx-heading-nodes ctx))
+;; Optional: configure database location
+(setq vulpea-db-location
+      (expand-file-name "vulpea.db" user-emacs-directory))
 #+end_src
+
+*** 2. Enable Auto-Sync
+
+#+begin_src emacs-lisp
+;; Enable automatic file watching and database updates
+(vulpea-db-autosync-mode +1)
+#+end_src
+
+This starts monitoring your notes directory for changes and keeps the database up-to-date automatically.
+
+*** 3. Ensure Notes Have IDs
+
+Vulpea only indexes notes with =ID= properties. Add an ID to the beginning of your org files:
+
+#+begin_src org
+:PROPERTIES:
+:ID: 5093fc4e-8c63-4e60-a1da-83fc7ecd5db7
+:END:
+#+title: My Note
+
+Content here...
+#+end_src
+
+Use =M-x org-id-get-create= to add IDs interactively.
+
+*** 4. Query Your Notes
+
+#+begin_src emacs-lisp
+;; Find notes with specific tags
+(vulpea-db-query-by-tags-some '("project" "active"))
+
+;; Get a note by ID
+(vulpea-db-get-by-id "note-id-here")
+
+;; Search by title
+(vulpea-db-search-by-title "Meeting")
+#+end_src
+
+** Key Features
+
+*** 🚀 Async-First Architecture
+- Non-blocking database updates
+- File watchers detect changes from Emacs, git, Dropbox, etc.
+- Smart batching: 100 file changes = 1 transaction
+- Dual-mode: async for interactive use, sync for programmatic operations
+
+*** 📊 Optimized Database
+- Hybrid schema: materialized + normalized tables for optimal read performance
+- Hash-based change detection skips parsing unchanged files
+- Configurable heading-level indexing (disable for 2-3x speedup)
+- Foreign key cascades for automatic cleanup
+
+*** 🔌 Extensible Plugin System
+- Parse-once architecture: single org-element parse shared across all extractors
+- Custom database tables with schema versioning
+- Priority-based execution order
+- Example plugins included
+- See [[file:docs/plugin-guide.org][Plugin Guide]] for details
+
+*** 🏷️ Rich Metadata Support
+- Type-aware metadata: =note=, =number=, =string=, =link=
+- Tag-based queries with indexed lookups
+- Link tracking with type filtering
+- Full-text title search
+
+*** ⚡ Performance at Scale
+- Designed for 100k+ notes
+- Read-optimized queries
+- Idle timer processing
+- Configurable debouncing and batch sizes
+
+** Usage Guide
+
+*** Working with Notes
+
+**** Finding Notes
+
+#+begin_src emacs-lisp
+;; Interactive note selection with completion
+(vulpea-find)
+
+;; Find notes linking to current note
+(vulpea-find-backlink)
+
+;; Insert a link to a note
+(vulpea-insert)
+#+end_src
+
+**** Creating Notes
+
+#+begin_src emacs-lisp
+;; Create a new note programmatically
+(vulpea-create "My New Note"
+               :tags '("project" "work")
+               :properties '(("STATUS" . "active"))
+               :immediate-finish t)
+
+;; Create with metadata
+(vulpea-create "Wine Review"
+               :meta '(("country" . "France")
+                       ("rating" . "95")))
+#+end_src
+
+**** Visiting Notes
+
+#+begin_src emacs-lisp
+;; Visit a note by ID or note object
+(vulpea-visit "note-id-123")
+
+;; Visit in other window
+(vulpea-visit note-object t)
+#+end_src
+
+*** Querying the Database
+
+**** By Tags
+
+#+begin_src emacs-lisp
+;; Notes with ANY of these tags
+(vulpea-db-query-by-tags-some '("wine" "red"))
+
+;; Notes with ALL of these tags
+(vulpea-db-query-by-tags-every '("project" "active"))
+
+;; Notes WITHOUT these tags
+(vulpea-db-query-by-tags-none '("archive" "deprecated"))
+#+end_src
+
+**** By Links
+
+#+begin_src emacs-lisp
+;; Notes linking to a specific ID
+(vulpea-db-query-by-links-some '("note-id-123"))
+
+;; Filter by link type
+(vulpea-db-query-by-links-some '("note-id-123") "id")
+
+;; Notes linking to ALL of these IDs
+(vulpea-db-query-by-links-every '("id-1" "id-2"))
+#+end_src
+
+**** By Metadata
+
+#+begin_src emacs-lisp
+;; Notes with a specific metadata key
+(vulpea-db-query-by-meta-key "country")
+
+;; Notes where key equals value
+(vulpea-db-query-by-meta "country" "France")
+
+;; With type coercion (for note references)
+(vulpea-db-query-by-meta "region" "region-id-123" "note")
+#+end_src
+
+**** By Level
+
+#+begin_src emacs-lisp
+;; File-level notes only (level 0)
+(vulpea-db-query-by-level 0)
+
+;; Heading-level notes (level > 0)
+(vulpea-db-query-by-level 1)
+#+end_src
+
+**** Custom Queries
+
+#+begin_src emacs-lisp
+;; Query with custom predicate
+(vulpea-db-query
+ (lambda (note)
+   (and (member "project" (vulpea-note-tags note))
+        (string-prefix-p "2025" (vulpea-note-title note)))))
+#+end_src
+
+**** Statistics
+
+#+begin_src emacs-lisp
+(vulpea-db-count-notes)                    ; Total notes
+(vulpea-db-count-file-level-notes)         ; File-level only
+(vulpea-db-count-heading-level-notes)      ; Heading-level only
+#+end_src
+
+*** Working with Metadata
+
+**** Defining Metadata
+
+In your org file, use property drawer with =_TYPE= suffix:
+
+#+begin_src org
+:PROPERTIES:
+:ID: wine-id-123
+:country_string: France
+:price_number: 45.99
+:region_note: burgundy-id-456
+:url_link: https://example.com
+:END:
+#+title: Château Margaux 2015
+#+end_src
+
+**** Reading Metadata
+
+#+begin_src emacs-lisp
+(let ((note (vulpea-db-get-by-id "wine-id-123")))
+  ;; Get metadata with type coercion
+  (vulpea-note-meta-get note "country")              ; "France"
+  (vulpea-note-meta-get note "price" 'number)        ; 45.99 (number)
+  (vulpea-note-meta-get note "region" 'note)         ; <vulpea-note object>
+  (vulpea-note-meta-get note "url" 'link))           ; "https://example.com"
+#+end_src
+
+**** Setting Metadata
+
+#+begin_src emacs-lisp
+;; In a note buffer
+(vulpea-buffer-meta-set "status" "active" 'string)
+(vulpea-buffer-meta-set "rating" "95" 'number)
+(vulpea-buffer-meta-set "producer" "producer-id" 'note)
+#+end_src
+
+*** Synchronization
+
+**** Manual Sync
+
+#+begin_src emacs-lisp
+;; Update a single file
+(vulpea-db-sync-update-file "/path/to/note.org")
+
+;; Update entire directory
+(vulpea-db-sync-update-directory "~/org-roam/")
+
+;; Full scan of all configured directories
+(vulpea-db-sync-full-scan)
+
+;; Force re-index (e.g., after changing configuration)
+(vulpea-db-sync-full-scan 'force)
+#+end_src
+
+**** Programmatic Batch Operations
+
+For creating many notes programmatically, use synchronous mode:
+
+#+begin_src emacs-lisp
+(vulpea-with-sync-db
+  (dotimes (i 100)
+    (vulpea-create (format "Note %d" i)
+                   :tags '("generated")
+                   :immediate-finish t)))
+;; All updates complete before proceeding
+#+end_src
+
+** Configuration Reference
+
+*** Database Settings
+
+#+begin_src emacs-lisp
+;; Database file location
+(setq vulpea-db-location
+      (expand-file-name "vulpea.db" user-emacs-directory))
+
+;; Directories to watch and sync
+(setq vulpea-db-sync-directories
+      '("~/org-roam/" "~/notes/"))
+#+end_src
+
+*** Indexing Control
+
+#+begin_src emacs-lisp
+;; Disable heading-level indexing (2-3x faster)
+(setq vulpea-db-index-heading-level nil)
+
+;; Selective indexing with predicate
+(setq vulpea-db-index-heading-level
+      (lambda (path)
+        (string-match-p "/daily/" path)))
+
+;; Enable for all files (default)
+(setq vulpea-db-index-heading-level t)
+#+end_src
+
+*** Sync Performance
+
+#+begin_src emacs-lisp
+;; Debounce delay before processing changes (seconds)
+(setq vulpea-db-sync-batch-delay 2.0)
+
+;; Maximum files per batch
+(setq vulpea-db-sync-batch-size 100)
+
+;; Idle timer delay (seconds)
+(setq vulpea-db-sync-idle-delay 0.5)
+
+;; Progress reporting interval (nil to disable)
+(setq vulpea-db-sync-progress-interval 500)
+#+end_src
+
+*** External Change Detection
+
+Choose how to detect changes made outside Emacs (git pulls, Dropbox sync, etc.):
+
+#+begin_src emacs-lisp
+;; Auto: try fswatch, fallback to polling (recommended)
+(setq vulpea-db-sync-external-method 'auto)
+
+;; FSWatch: requires 'fswatch' binary (most reliable)
+(setq vulpea-db-sync-external-method 'fswatch)
+
+;; Polling: pure Elisp, no dependencies
+(setq vulpea-db-sync-external-method 'poll)
+(setq vulpea-db-sync-poll-interval 2)  ; check every 2 seconds
+
+;; Filenotify only: unreliable for external changes
+(setq vulpea-db-sync-external-method nil)
+#+end_src
+
+Installing =fswatch= (recommended for reliability):
+
+#+begin_src bash
+# macOS
+brew install fswatch
+
+# Ubuntu/Debian
+apt install fswatch
+
+# Arch Linux
+pacman -S fswatch
+#+end_src
+
+*** Startup Behavior
+
+#+begin_src emacs-lisp
+;; Control initial scan when enabling autosync-mode
+;; nil: skip scan (fast startup, recommended)
+(setq vulpea-db-sync-scan-on-enable nil)
+
+;; 'async: scan in background (may cause lag)
+(setq vulpea-db-sync-scan-on-enable 'async)
+
+;; 'blocking: wait for scan to complete
+(setq vulpea-db-sync-scan-on-enable 'blocking)
+#+end_src
+
+*** File Name Templates
+
+#+begin_src emacs-lisp
+;; Template for new note filenames
+(setq vulpea-file-name-template "${timestamp}_${slug}.org")
+
+;; Available variables: ${title}, ${slug}, ${timestamp}, ${id}
+;; Can also be a function:
+(setq vulpea-file-name-template
+      (lambda (title)
+        (format "%s_%s.org"
+                (format-time-string "%Y%m%d%H%M%S")
+                (vulpea--title-to-slug title))))
+
+;; Default directory for new notes
+(setq vulpea-default-notes-directory "~/org-roam/")
+#+end_src
+
+** Advanced Topics
 
 *** Note Indexing Requirements
 
-Vulpea v2 only indexes notes that have an =ID= property. Notes without IDs are ignored.
+Vulpea only indexes notes that have an =ID= property in a property drawer.
 
 **** File-Level Notes
-
-File-level notes require an =ID= property in a property drawer at the beginning of the file:
 
 #+begin_src org
 :PROPERTIES:
@@ -165,8 +438,6 @@ Content here...
 
 **** Heading-Level Notes
 
-Heading-level notes require an =ID= property in the heading's property drawer:
-
 #+begin_src org
 ,* My Heading
 :PROPERTIES:
@@ -176,9 +447,9 @@ Heading-level notes require an =ID= property in the heading's property drawer:
 Content here...
 #+end_src
 
-**** Opting Out of Indexing
+**** Excluding Notes from Indexing
 
-You can exclude notes from indexing using the =VULPEA_IGNORE= property, even if they have an =ID=:
+Use =VULPEA_IGNORE= property:
 
 #+begin_src org
 :PROPERTIES:
@@ -187,179 +458,15 @@ You can exclude notes from indexing using the =VULPEA_IGNORE= property, even if 
 :END:
 #+title: Private Note
 
-This note won't be indexed by Vulpea.
+This won't be indexed.
 #+end_src
 
-This works for both file-level and heading-level notes.
+### Writing Custom Plugins
 
-**** Creating IDs
-
-Use =org-id-get-create= to add IDs to your notes:
+Create custom extractors to add domain-specific data to the database:
 
 #+begin_src emacs-lisp
-;; Add ID to current note (file or heading)
-(org-id-get-create)
-
-;; Programmatically add ID to a file
-(with-current-buffer (find-file-noselect "/path/to/note.org")
-  (goto-char (point-min))
-  (org-id-get-create)
-  (save-buffer))
-#+end_src
-
-*** Enable Auto-Sync
-
-#+begin_src emacs-lisp
-(require 'vulpea-db-sync)
-
-;; Configure directories to watch
-(setq vulpea-db-sync-directories
-      '("~/org-roam/"))
-
-;; Enable automatic file watching and async updates
-(vulpea-db-autosync-mode +1)
-
-;; Manually update a file (queues if autosync enabled)
-(vulpea-db-sync-update-file (buffer-file-name))
-
-;; Update entire directory
-(vulpea-db-sync-update-directory "~/org-roam/")
-#+end_src
-
-*Note:* By default, autosync uses filenotify which may not detect external changes (git pulls, Dropbox sync). See [[#external-monitoring][External Change Detection]] for reliable monitoring.
-
-**** External Change Detection
-:PROPERTIES:
-:CUSTOM_ID: external-monitoring
-:END:
-
-Vulpea supports three methods for detecting external file changes:
-
-1. *Auto (Recommended)*
-
-   Tries =fswatch= first, falls back to polling if unavailable:
-
-   #+begin_src emacs-lisp
-   (setq vulpea-db-sync-external-method 'auto)  ; default
-   #+end_src
-
-2. *FSWatch (Most Reliable)*
-
-   Uses external =fswatch= process for real-time monitoring:
-
-   #+begin_src bash
-   # Install fswatch first
-   brew install fswatch  # macOS
-   apt install fswatch   # Ubuntu/Debian
-   #+end_src
-
-   #+begin_src emacs-lisp
-   (setq vulpea-db-sync-external-method 'fswatch)
-   #+end_src
-
-   Features:
-   - Real-time change detection
-   - Low CPU usage
-   - Auto-restart if process dies
-   - Filters out temporary/backup files
-
-3. *Polling (No Dependencies)*
-
-   Pure Elisp fallback using mtime comparison:
-
-   #+begin_src emacs-lisp
-   (setq vulpea-db-sync-external-method 'poll)
-   (setq vulpea-db-sync-poll-interval 2)  ; check every 2 seconds
-   #+end_src
-
-4. *Filenotify Only (Unreliable)*
-
-   #+begin_src emacs-lisp
-   (setq vulpea-db-sync-external-method nil)  ; not recommended
-   #+end_src
-
-   Only detects changes from within Emacs. External changes (git, sync tools) may be missed on some systems.
-
-*** Query Notes
-
-#+begin_src emacs-lisp
-(require 'vulpea-db-query)
-
-;; Get note by ID
-(vulpea-db-get-by-id "note-id-123")
-
-;; Query all notes
-(vulpea-db-query)
-
-;; Query with predicate
-(vulpea-db-query
- (lambda (note)
-   (and (member "wine" (vulpea-note-tags note))
-        (= (vulpea-note-level note) 0))))
-
-;; Tag queries
-(vulpea-db-query-by-tags-some '("wine" "red"))    ; notes with ANY tag
-(vulpea-db-query-by-tags-every '("wine" "red"))   ; notes with ALL tags
-(vulpea-db-query-by-tags-none '("archive"))       ; notes without tags
-
-;; Link queries
-(vulpea-db-query-by-links-some '("note-id-123"))        ; notes linking to ID
-(vulpea-db-query-by-links-some '("note-id") "id")       ; filter by link type
-(vulpea-db-query-by-links-every '("id1" "id2"))         ; links to all IDs
-
-;; Metadata queries
-(vulpea-db-query-by-meta-key "country")                 ; notes with key
-(vulpea-db-query-by-meta "country" "France")            ; key = value
-(vulpea-db-query-by-meta "region" "id-123" "note")      ; with type filter
-
-;; Other queries
-(vulpea-db-query-by-level 0)                      ; file-level notes only
-(vulpea-db-search-by-title "Wine")                ; search by title
-(vulpea-db-search-by-title "Wine" t)              ; case-sensitive
-
-;; Statistics
-(vulpea-db-count-notes)                           ; total notes
-(vulpea-db-count-file-level-notes)                ; level 0 notes
-(vulpea-db-count-heading-level-notes)             ; level > 0 notes
-#+end_src
-
-*** Synchronous Batch Operations
-
-#+begin_src emacs-lisp
-;; For programmatic note creation
-(vulpea-with-sync-db
-  ;; Creates 100 notes synchronously
-  (dotimes (i 100)
-    (let ((path (format "~/org-roam/note-%d.org" i)))
-      (with-temp-file path
-        (insert (format "#+TITLE: Note %d\n#+ID: %s\n"
-                        i (org-id-new))))
-      (vulpea-db-update-file path))))
-;; All updates complete before proceeding
-#+end_src
-
-*** Metadata with Type Coercion
-
-#+begin_src emacs-lisp
-;; In your org file:
-;; :PROPERTIES:
-;; :country_string: France
-;; :price_number: 25.50
-;; :region_note: region-id-123
-;; :url_link: https://example.com
-;; :END:
-
-;; Metadata is extracted with types:
-;; '(("country" . ((:value "France" :type "string")))
-;;   ("price" . ((:value "25.50" :type "number")))
-;;   ("region" . ((:value "region-id-123" :type "note")))
-;;   ("url" . ((:value "https://example.com" :type "link"))))
-#+end_src
-
-*** Write Custom Plugins
-
-#+begin_src emacs-lisp
-;; Define extractor function
+;; Define extraction function
 (defun my-extract-citations (ctx note-data)
   "Extract citations in format [@citekey] from notes."
   (let* ((ast (vulpea-parse-ctx-ast ctx))
@@ -394,88 +501,179 @@ Vulpea supports three methods for detecting external file changes:
   :extract-fn #'my-extract-citations))
 #+end_src
 
-See [[file:docs/v2-plugin-guide.org][Plugin Guide]] for comprehensive documentation on writing plugins.
+See [[file:docs/plugin-guide.org][Plugin Guide]] for comprehensive documentation.
 
-** Configuration
+*** Database Schema
 
-#+begin_src emacs-lisp
-;; Database location
-(setq vulpea-db-location
-      (expand-file-name "vulpea.db" user-emacs-directory))
+Vulpea uses a hybrid schema with both materialized and normalized tables:
 
-;; Heading-level indexing (disable for performance)
-(setq vulpea-db-index-heading-level nil)  ; 2-3x faster
+**** Materialized Notes Table
 
-;; Or selective indexing
-(setq vulpea-db-index-heading-level
-      (lambda (path)
-        (string-match-p "/daily/" path)))
+Complete note data in a single table for fast retrieval:
 
-;; Sync settings
-(setq vulpea-db-sync-batch-delay 2.0)     ; Debounce delay (seconds)
-(setq vulpea-db-sync-batch-size 100)      ; Max files per batch
-(setq vulpea-db-sync-idle-delay 0.5)      ; Idle timer delay
+- =id= (primary key)
+- =path=, =level=, =pos= (location)
+- =title=, =aliases=, =tags=
+- =properties=, =meta=, =links= (JSON)
+- =todo=, =priority=, =scheduled=, =deadline=, =closed=
+- =outline_path=, =attach_dir=
+- =created_at=, =modified_at=
 
-;; External change detection
-(setq vulpea-db-sync-external-method 'auto)  ; auto, fswatch, poll, or nil
-(setq vulpea-db-sync-poll-interval 2)        ; Polling interval (if used)
-#+end_src
+**** Normalized Tables for Queries
 
-** Design Documentation
+Indexed tables for efficient filtering:
 
-Comprehensive design documentation is available in =docs/=:
+- =tags= - (note_id, tag) with index on tag
+- =links= - (source, dest, type) with indices
+- =meta= - (note_id, key, value, type) with indices
 
-- [[file:docs/v2-architecture-decisions.org][Architecture Decisions]] - 11 key decisions with rationale
-- [[file:docs/v2-usage-analysis.org][Usage Analysis]] - Real-world usage patterns from vino and d12frosted/environment
-- [[file:docs/v2-implementation-guide.org][Implementation Guide]] - Step-by-step implementation details
-- [[file:docs/v2-plugin-guide.org][Plugin Guide]] - Complete guide for writing custom extractors
+**** Supporting Tables
 
-** Performance Targets
+- =file_hashes= - Track file changes (hash, mtime, size)
+- =schema_registry= - Schema versioning for migrations
 
-Based on real-world usage with 10k+ notes:
+*** Architecture
 
-| Operation | Target | Status |
-|-----------+--------+--------|
-| Tag query (10k notes) | <50ms | ✅ Implemented, not yet benchmarked |
-| Get note by ID | <5ms | ✅ Implemented, not yet benchmarked |
-| File update (agenda) | <200ms | ✅ Implemented, not yet benchmarked |
-| Batch update (100 files) | <10s | ✅ Implemented, not yet benchmarked |
-| Database rebuild (10k) | <60s | 🚧 Not yet measured |
+**** Core Modules
+
+- =vulpea-db.el= - Database layer, schema, core operations
+- =vulpea-db-extract.el= - Parser, extractors, parse-once architecture
+- =vulpea-db-query.el= - Query interface, all query functions
+- =vulpea-db-sync.el= - File watching, async updates, external monitoring
+- =vulpea.el= - High-level API (find, create, visit, insert)
+- =vulpea-meta.el= - Metadata operations with type coercion
+- =vulpea-buffer.el= - Buffer-local operations
+- =vulpea-select.el= - Completion interface
+- =vulpea-utils.el= - Utility functions
+
+**** Design Principles
+
+1. *Async-first*: File watchers + queue instead of save hooks
+2. *Parse-once*: Single org-element parse shared across extractors
+3. *Hybrid schema*: Materialized for reads, normalized for queries
+4. *Smart detection*: Hash-based change detection skips unchanged files
+5. *Extensible*: Plugin system for custom extractors and tables
+
+See [[file:docs/architecture.org][Architecture Documentation]] for detailed design decisions and rationale.
+
+*** Performance Characteristics
+
+Based on design targets (actual benchmarks pending):
+
+| Operation | Target | Scale |
+|-----------+--------+-------|
+| Get by ID | <5ms | Any |
+| Tag query | <50ms | 100k notes |
+| Link query | <25ms | 100k notes |
+| Title search | <100ms | 100k notes |
+| Batch update (100 files) | <10s | Any |
+| Full rebuild | <5min | 100k notes |
+
+Performance tuning tips:
+
+1. Disable heading-level indexing if not needed (2-3x speedup)
+2. Use =fswatch= for external monitoring (more efficient than polling)
+3. Increase batch size for bulk operations
+4. Adjust debounce delay based on your workflow
+
+** What's New in v2
+
+v2 is a complete rewrite with breaking changes from v1.
+
+*** Major Changes
+
+**** No org-roam Dependency
+- Completely independent library
+- Custom database schema optimized for Vulpea's use cases
+- No fragile advice-based integration
+
+**** Async-First Architecture
+- Non-blocking database updates via file watchers
+- Handles external changes (git, sync tools)
+- Batch processing with configurable delays
+- Dual-mode: async for interactive, sync for programmatic
+
+**** Performance Optimizations
+- Hybrid database schema (materialized + normalized)
+- Smart change detection (hash-based)
+- Configurable heading-level indexing
+- Parse-once architecture
+
+**** Plugin System
+- Custom extractors with parse context sharing
+- Schema versioning and migrations
+- Priority-based execution order
+- Example plugins included
+
+*** Breaking Changes from v1
+
+1. *Database*: Different schema, not compatible with v1
+2. *API*: Functions renamed and reorganized
+3. *Metadata*: New format using =KEY_TYPE= convention
+4. *Configuration*: Different customization variables
+5. *Dependencies*: No org-roam, different requirements
+
+Migration guide will be provided before official v2 release.
 
 ** Migration from v1
-:PROPERTIES:
-:ID: migration
-:END:
 
 *⚠️ v2 is NOT backward compatible with v1.*
 
-Key breaking changes:
-
-1. *No org-roam dependency* - v2 uses its own database
-2. *Different API* - functions renamed and reorganized
-3. *New metadata format* - uses =KEY_TYPE= convention
-4. *Configuration changes* - different customization variables
-
-Migration utilities will be provided before v2 release. For now:
-
-1. Keep v1 installation for production use
-2. Test v2 on separate note collection
+For now:
+1. Keep v1 for production use
+2. Test v2 on a separate note collection
 3. Wait for migration guide before switching
 
-** Contributing
+Migration utilities planned for v2 release.
 
-v2 is under active development. Contributions welcome:
+** Development
 
-1. Test with your note collection and report issues
-2. Review architecture decisions and provide feedback
-3. Help with performance testing and optimization
-4. Improve documentation and examples
-5. Develop plugin system and custom extractors
+*** Running Tests
 
-** Users of This Library
+#+begin_src bash
+# Run all tests
+eldev test
 
-- [[https://github.com/d12frosted/environment][d12frosted/environment]] - Emacs configurations (10k+ notes)
-- [[https://github.com/d12frosted/vino][d12frosted/vino]] - Wine cellar tracking with metadata type coercion
+# Run specific test file
+eldev test vulpea-db-query-test
+
+# Run tests matching pattern
+eldev test "vulpea-db-*"
+#+end_src
+
+*** Test Coverage
+
+Current status: All core tests passing
+
+- Database core: 11 tests ✅
+- Parser & extractors: 18 tests ✅
+- File watching & sync: 19 tests ✅
+- Query layer: 30 tests ✅
+- High-level API: Tests ✅
+- Plugin system: 7 tests ✅
+
+*** Contributing
+
+Contributions welcome! Areas where help is needed:
+
+1. Performance testing with large note collections
+2. Platform-specific testing (Windows, Linux, macOS)
+3. Plugin development and examples
+4. Documentation improvements
+5. Bug reports and feature requests
+
+** Real-World Usage
+
+Projects using Vulpea v2:
+
+- [[https://github.com/d12frosted/environment][d12frosted/environment]] - Personal Emacs configuration (13k+ notes)
+- [[https://github.com/d12frosted/vino][d12frosted/vino]] - Wine cellar management with rich metadata
+
+** Documentation
+
+- [[file:docs/architecture.org][Architecture]] - Design decisions and rationale
+- [[file:docs/plugin-guide.org][Plugin Guide]] - Writing custom extractors
+- [[https://github.com/d12frosted/vulpea/tree/v2-rewrite][Source Code]] - v2-rewrite branch
 
 ** License
 
@@ -483,9 +681,9 @@ GPLv3
 
 ** Acknowledgments
 
-v2 builds on lessons learned from:
-- org-roam's database design
-- vulpea v1's metadata system
-- Real-world usage in vino (wine management) and d12frosted/environment (10k+ notes)
+Vulpea v2 builds on lessons learned from:
+- org-roam's database design and community
+- Vulpea v1's metadata system and real-world usage
+- [[https://github.com/d12frosted/vino][vino]] (wine management) and [[https://github.com/d12frosted/environment][d12frosted/environment]] (personal notes)
 
 Special thanks to the org-roam community for inspiration and feedback.
