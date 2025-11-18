@@ -115,6 +115,24 @@ or a larger value (e.g., 1000) for less frequent updates."
                  (integer :tag "Report every N files"))
   :group 'vulpea-db-sync)
 
+(defcustom vulpea-db-sync-scan-on-enable nil
+  "Whether to scan all files when enabling autosync mode.
+
+This initial scan detects changes made while Emacs was closed
+(e.g., from git pulls, Dropbox sync, or external edits).
+
+Options:
+- nil: Skip initial scan (fast startup, manual sync when needed)
+- `async': Scan asynchronously (may cause lag during processing)
+- `blocking': Scan synchronously (blocks Emacs until complete)
+
+Recommended: nil for large repositories (10000+ notes), then use
+`vulpea-db-sync-full-scan' manually after external changes."
+  :type '(choice (const :tag "Skip scan (fast startup)" nil)
+                 (const :tag "Async scan (may lag)" async)
+                 (const :tag "Blocking scan (wait for completion)" blocking))
+  :group 'vulpea-db-sync)
+
 ;;; Variables
 
 (defvar vulpea-db-sync--watchers nil
@@ -181,16 +199,23 @@ When disabled:
 (defun vulpea-db-sync--start ()
   "Start file watching and async updates.
 
-Performs initial scan to detect changes made while Emacs was closed."
+Optionally performs initial scan based on `vulpea-db-sync-scan-on-enable'."
   ;; Clean up deleted files first
   (vulpea-db-sync--cleanup-deleted-files)
 
-  ;; Initial scan: detect external changes
-  (when vulpea-db-sync-directories
-    (message "Vulpea: Checking for external changes...")
-    (dolist (dir vulpea-db-sync-directories)
-      (dolist (file (directory-files-recursively dir "\\.org$"))
-        (vulpea-db-sync--enqueue file))))
+  ;; Initial scan based on configuration
+  (when (and vulpea-db-sync-scan-on-enable vulpea-db-sync-directories)
+    (pcase vulpea-db-sync-scan-on-enable
+      ('async
+       ;; Queue all files for async processing
+       (message "Vulpea: Queueing files for async scan...")
+       (dolist (dir vulpea-db-sync-directories)
+         (dolist (file (directory-files-recursively dir "\\.org$"))
+           (vulpea-db-sync--enqueue file))))
+      ('blocking
+       ;; Scan synchronously (blocks Emacs)
+       (dolist (dir vulpea-db-sync-directories)
+         (vulpea-db-sync-update-directory dir)))))
 
   ;; Start watching directories if configured
   (when vulpea-db-sync-directories
@@ -408,6 +433,39 @@ Returns count of removed files."
     deleted))
 
 ;;; Manual Update
+
+;;;###autoload
+(defun vulpea-db-sync-full-scan (&optional async)
+  "Manually scan all sync directories for changes.
+
+This is useful when `vulpea-db-sync-scan-on-enable' is nil and you
+need to detect external changes (e.g., after git pull, Dropbox sync).
+
+With prefix argument ASYNC, scan asynchronously (queue files).
+Without prefix argument, scan synchronously (block until complete).
+
+Also performs cleanup of deleted files."
+  (interactive "P")
+  (unless vulpea-db-sync-directories
+    (user-error "No sync directories configured. Set `vulpea-db-sync-directories'"))
+
+  ;; Clean up deleted files first
+  (vulpea-db-sync--cleanup-deleted-files)
+
+  ;; Scan directories
+  (if async
+      ;; Async mode: queue all files
+      (progn
+        (message "Vulpea: Queueing files for async scan...")
+        (dolist (dir vulpea-db-sync-directories)
+          (dolist (file (directory-files-recursively dir "\\.org$"))
+            (if vulpea-db-autosync-mode
+                (vulpea-db-sync--enqueue file)
+              ;; If autosync is off, we need to enable it temporarily or use sync
+              (user-error "Async scan requires autosync-mode to be enabled")))))
+    ;; Sync mode: scan each directory
+    (dolist (dir vulpea-db-sync-directories)
+      (vulpea-db-sync-update-directory dir))))
 
 (defun vulpea-db-sync-update-file (path)
   "Manually update database for file at PATH.
