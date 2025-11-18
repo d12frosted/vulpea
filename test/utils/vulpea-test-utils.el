@@ -36,17 +36,6 @@ a call to `save-match-data', as `format-spec' modifies that."
 (defvar vulpea-test-directory (expand-file-name "test/note-files")
   "Directory containing test notes.")
 
-(defun vulpea-test--abs-path (file-path)
-  "Get absolute FILE-PATH from `org-roam-directory'."
-  (expand-file-name file-path org-roam-directory))
-
-(defun vulpea-test--map-file (fn file)
-  "Execute FN with buffer visiting FILE."
-  (let* ((fname (vulpea-test--abs-path file))
-         (buf (find-file-noselect fname)))
-    (with-current-buffer buf
-      (funcall fn fname))))
-
 (defun vulpea-test--init (&optional no-setup)
   "Initialize testing environment.
 
@@ -102,15 +91,15 @@ Unless NO-SETUP is non-nil, setup vulpea db."
   "Return completion for TITLE and TAGS matchers."
   (when-let ((note
               (seq-find
-                (lambda (note)
-                  (let ((res (and (or (null title) (string-equal title (vulpea-note-title note)))
-                                  (or (null tags)
-                                      (seq-every-p
-                                       (lambda (x)
-                                         (seq-contains-p (vulpea-note-tags note) x))
-                                       tags)))))
-                    res))
-                (vulpea-db-query))))
+               (lambda (note)
+                 (let ((res (and (or (null title) (string-equal title (vulpea-note-title note)))
+                                 (or (null tags)
+                                     (seq-every-p
+                                      (lambda (x)
+                                        (seq-contains-p (vulpea-note-tags note) x))
+                                      tags)))))
+                   res))
+               (vulpea-db-query))))
     (vulpea-select-describe note)))
 
 (defun global-filter-fn (x)

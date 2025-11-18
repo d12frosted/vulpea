@@ -43,19 +43,18 @@ Creates a temp file with ID and CONTENT, adds it to temp DB, then executes BODY.
   `(let* ((temp-db-file (make-temp-file "vulpea-buffer-test-" nil ".db"))
           (vulpea-db-location temp-db-file)
           (vulpea-db--connection nil)
-          (temp-org-file (vulpea-buffer-test--create-temp-file ,id ,content))
-          (org-roam-directory (file-name-directory temp-org-file)))
-     (unwind-protect
-         (progn
-           (vulpea-db)
-           (vulpea-db-update-file temp-org-file)
-           ,@body)
-       (when vulpea-db--connection
-         (vulpea-db-close))
-       (when (file-exists-p temp-db-file)
-         (delete-file temp-db-file))
-       (when (file-exists-p temp-org-file)
-         (delete-file temp-org-file)))))
+          (temp-org-file (vulpea-buffer-test--create-temp-file ,id ,content)))
+    (unwind-protect
+        (progn
+          (vulpea-db)
+          (vulpea-db-update-file temp-org-file)
+          ,@body)
+      (when vulpea-db--connection
+       (vulpea-db-close))
+      (when (file-exists-p temp-db-file)
+       (delete-file temp-db-file))
+      (when (file-exists-p temp-org-file)
+       (delete-file temp-org-file)))))
 
 ;;; vulpea-buffer-title-set Tests
 
@@ -102,9 +101,8 @@ Creates a temp file with ID and CONTENT, adds it to temp DB, then executes BODY.
            (vulpea-db-location temp-db-file)
            (vulpea-db--connection nil)
            (temp-org-file (vulpea-buffer-test--create-temp-file
-                          file-id
-                          (format "#+title: Original\n\n* Heading 1\n:PROPERTIES:\n:ID: %s\n:END:\n" heading-id)))
-           (org-roam-directory (file-name-directory temp-org-file)))
+                           file-id
+                           (format "#+title: Original\n\n* Heading 1\n:PROPERTIES:\n:ID: %s\n:END:\n" heading-id))))
       (unwind-protect
           (progn
             (vulpea-db)
@@ -130,7 +128,7 @@ Creates a temp file with ID and CONTENT, adds it to temp DB, then executes BODY.
   (let ((id "eeec8f05-927f-4c61-b39e-2fb8228cf484"))
     (vulpea-buffer-test--with-temp-db-and-file id "#+title: Test\n"
       (should (equal (vulpea-utils-with-note (vulpea-db-get-by-id id)
-                      (vulpea-buffer-tags-get))
+                       (vulpea-buffer-tags-get))
                      nil)))))
 
 (ert-deftest vulpea-buffer-tags-set-multiple ()
@@ -138,9 +136,9 @@ Creates a temp file with ID and CONTENT, adds it to temp DB, then executes BODY.
   (let ((id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"))
     (vulpea-buffer-test--with-temp-db-and-file id "#+title: Reference\n"
       (should (equal (vulpea-utils-with-note (vulpea-db-get-by-id id)
-                      (vulpea-buffer-tags-set "super_tag_1" "super_tag_2")
-                      (save-buffer)
-                      (vulpea-buffer-tags-get))
+                       (vulpea-buffer-tags-set "super_tag_1" "super_tag_2")
+                       (save-buffer)
+                       (vulpea-buffer-tags-get))
                      '("super_tag_1" "super_tag_2"))))))
 
 (ert-deftest vulpea-buffer-tags-clear ()
@@ -148,9 +146,9 @@ Creates a temp file with ID and CONTENT, adds it to temp DB, then executes BODY.
   (let ((id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"))
     (vulpea-buffer-test--with-temp-db-and-file id "#+title: Reference\n#+filetags: :tag1:tag2:tag3:\n"
       (should (equal (vulpea-utils-with-note (vulpea-db-get-by-id id)
-                      (vulpea-buffer-tags-set)
-                      (save-buffer)
-                      (vulpea-buffer-tags-get))
+                       (vulpea-buffer-tags-set)
+                       (save-buffer)
+                       (vulpea-buffer-tags-get))
                      nil)))))
 
 (ert-deftest vulpea-buffer-tags-add-first ()
@@ -158,9 +156,9 @@ Creates a temp file with ID and CONTENT, adds it to temp DB, then executes BODY.
   (let ((id "eeec8f05-927f-4c61-b39e-2fb8228cf484"))
     (vulpea-buffer-test--with-temp-db-and-file id "#+title: Test\n"
       (should (equal (vulpea-utils-with-note (vulpea-db-get-by-id id)
-                      (vulpea-buffer-tags-add "super_tag_1")
-                      (save-buffer)
-                      (vulpea-buffer-tags-get))
+                       (vulpea-buffer-tags-add "super_tag_1")
+                       (save-buffer)
+                       (vulpea-buffer-tags-get))
                      '("super_tag_1"))))))
 
 (ert-deftest vulpea-buffer-tags-add-another ()
@@ -168,9 +166,9 @@ Creates a temp file with ID and CONTENT, adds it to temp DB, then executes BODY.
   (let ((id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"))
     (vulpea-buffer-test--with-temp-db-and-file id "#+title: Reference\n#+filetags: :tag1:tag2:tag3:\n"
       (should (equal (vulpea-utils-with-note (vulpea-db-get-by-id id)
-                      (vulpea-buffer-tags-add "super_tag_1")
-                      (save-buffer)
-                      (vulpea-buffer-tags-get))
+                       (vulpea-buffer-tags-add "super_tag_1")
+                       (save-buffer)
+                       (vulpea-buffer-tags-get))
                      '("tag1" "tag2" "tag3" "super_tag_1"))))))
 
 (ert-deftest vulpea-buffer-tags-remove-one ()
@@ -178,9 +176,9 @@ Creates a temp file with ID and CONTENT, adds it to temp DB, then executes BODY.
   (let ((id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"))
     (vulpea-buffer-test--with-temp-db-and-file id "#+title: Reference\n#+filetags: :tag1:tag2:tag3:\n"
       (should (equal (vulpea-utils-with-note (vulpea-db-get-by-id id)
-                      (vulpea-buffer-tags-remove "tag1")
-                      (save-buffer)
-                      (vulpea-buffer-tags-get))
+                       (vulpea-buffer-tags-remove "tag1")
+                       (save-buffer)
+                       (vulpea-buffer-tags-get))
                      '("tag2" "tag3"))))))
 
 (ert-deftest vulpea-buffer-tags-remove-all ()
@@ -188,11 +186,11 @@ Creates a temp file with ID and CONTENT, adds it to temp DB, then executes BODY.
   (let ((id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"))
     (vulpea-buffer-test--with-temp-db-and-file id "#+title: Reference\n#+filetags: :tag1:tag2:tag3:\n"
       (should (equal (vulpea-utils-with-note (vulpea-db-get-by-id id)
-                      (vulpea-buffer-tags-remove "tag1")
-                      (vulpea-buffer-tags-remove "tag2")
-                      (vulpea-buffer-tags-remove "tag3")
-                      (save-buffer)
-                      (vulpea-buffer-tags-get))
+                       (vulpea-buffer-tags-remove "tag1")
+                       (vulpea-buffer-tags-remove "tag2")
+                       (vulpea-buffer-tags-remove "tag3")
+                       (save-buffer)
+                       (vulpea-buffer-tags-get))
                      nil)))))
 
 ;;; vulpea-buffer-prop-* Tests
@@ -202,9 +200,9 @@ Creates a temp file with ID and CONTENT, adds it to temp DB, then executes BODY.
   (let ((id "2c3bd05d-b3d1-40bc-bd42-f019d441592c"))
     (vulpea-buffer-test--with-temp-db-and-file id "\n\nSome body.\n"
       (should (equal (vulpea-utils-with-note (vulpea-db-get-by-id id)
-                      (vulpea-buffer-prop-set "TITLE" "Title 1")
-                      (save-buffer)
-                      (vulpea-buffer-prop-get "title"))
+                       (vulpea-buffer-prop-set "TITLE" "Title 1")
+                       (save-buffer)
+                       (vulpea-buffer-prop-get "title"))
                      "Title 1")))))
 
 (ert-deftest vulpea-buffer-prop-get-ignore-case ()
@@ -212,9 +210,9 @@ Creates a temp file with ID and CONTENT, adds it to temp DB, then executes BODY.
   (let ((id "2c3bd05d-b3d1-40bc-bd42-f019d441592c"))
     (vulpea-buffer-test--with-temp-db-and-file id "\n\nSome body.\n"
       (should (equal (vulpea-utils-with-note (vulpea-db-get-by-id id)
-                      (vulpea-buffer-prop-set "TITLE" "Title 1")
-                      (save-buffer)
-                      (vulpea-buffer-prop-get "TiTle"))
+                       (vulpea-buffer-prop-set "TITLE" "Title 1")
+                       (save-buffer)
+                       (vulpea-buffer-prop-get "TiTle"))
                      "Title 1")))))
 
 (ert-deftest vulpea-buffer-prop-replace-existing ()
@@ -222,10 +220,10 @@ Creates a temp file with ID and CONTENT, adds it to temp DB, then executes BODY.
   (let ((id "2c3bd05d-b3d1-40bc-bd42-f019d441592c"))
     (vulpea-buffer-test--with-temp-db-and-file id "\n\nSome body.\n"
       (should (equal (vulpea-utils-with-note (vulpea-db-get-by-id id)
-                      (vulpea-buffer-prop-set "TITLE" "Title 1")
-                      (vulpea-buffer-prop-set "TiTlE" "Title 2")
-                      (save-buffer)
-                      (vulpea-buffer-prop-get "title"))
+                       (vulpea-buffer-prop-set "TITLE" "Title 1")
+                       (vulpea-buffer-prop-set "TiTlE" "Title 2")
+                       (save-buffer)
+                       (vulpea-buffer-prop-get "title"))
                      "Title 2")))))
 
 (ert-deftest vulpea-buffer-prop-remove ()
@@ -233,12 +231,12 @@ Creates a temp file with ID and CONTENT, adds it to temp DB, then executes BODY.
   (let ((id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"))
     (vulpea-buffer-test--with-temp-db-and-file id "#+title: Reference\n"
       (should (equal (vulpea-utils-with-note (vulpea-db-get-by-id id)
-                      (vulpea-buffer-prop-get "title"))
+                       (vulpea-buffer-prop-get "title"))
                      "Reference"))
       (should (equal (vulpea-utils-with-note (vulpea-db-get-by-id id)
-                      (vulpea-buffer-prop-remove "title")
-                      (save-buffer)
-                      (vulpea-buffer-prop-get "title"))
+                       (vulpea-buffer-prop-remove "title")
+                       (save-buffer)
+                       (vulpea-buffer-prop-get "title"))
                      nil)))))
 
 (ert-deftest vulpea-buffer-prop-list-values ()
@@ -246,9 +244,9 @@ Creates a temp file with ID and CONTENT, adds it to temp DB, then executes BODY.
   (let ((id "2c3bd05d-b3d1-40bc-bd42-f019d441592c"))
     (vulpea-buffer-test--with-temp-db-and-file id "\n\nSome body.\n"
       (should (equal (vulpea-utils-with-note (vulpea-db-get-by-id id)
-                      (vulpea-buffer-prop-set-list "values" '("value 1" "value 2" "single"))
-                      (save-buffer)
-                      (vulpea-buffer-prop-get-list "values"))
+                       (vulpea-buffer-prop-set-list "values" '("value 1" "value 2" "single"))
+                       (save-buffer)
+                       (vulpea-buffer-prop-get-list "values"))
                      '("value 1" "value 2" "single"))))))
 
 (ert-deftest vulpea-buffer-prop-ignore-trailing-spaces ()
@@ -256,9 +254,9 @@ Creates a temp file with ID and CONTENT, adds it to temp DB, then executes BODY.
   (let ((id "2c3bd05d-b3d1-40bc-bd42-f019d441592c"))
     (vulpea-buffer-test--with-temp-db-and-file id "\n\nSome body.\n"
       (should (equal (vulpea-utils-with-note (vulpea-db-get-by-id id)
-                      (vulpea-buffer-prop-set "value" "             ")
-                      (save-buffer)
-                      (vulpea-buffer-prop-get "value"))
+                       (vulpea-buffer-prop-set "value" "             ")
+                       (save-buffer)
+                       (vulpea-buffer-prop-get "value"))
                      nil)))))
 
 ;;; vulpea-buffer-meta-format Tests
