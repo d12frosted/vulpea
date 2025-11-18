@@ -441,25 +441,43 @@ Returns count of removed files."
 This is useful when `vulpea-db-sync-scan-on-enable' is nil and you
 need to detect external changes (e.g., after git pull, Dropbox sync).
 
-Prefix argument ARG controls behavior:
+ARG controls scan behavior:
+
+Interactive use (prefix arguments):
 - No prefix: Synchronous scan with smart detection
-- C-u (once): Asynchronous scan with smart detection
-- C-u C-u (twice): Synchronous FORCE scan (re-index everything)
-- C-u C-u C-u (thrice): Asynchronous FORCE scan
+- C-u: Asynchronous scan with smart detection
+- C-u C-u: Synchronous FORCE scan (re-index everything)
+- C-u C-u C-u: Asynchronous FORCE scan
+
+Programmatic use (symbols):
+- nil: Synchronous scan with smart detection
+- \\='async: Asynchronous scan with smart detection
+- \\='force: Synchronous FORCE scan (re-index everything)
+- \\='force-async: Asynchronous FORCE scan
 
 FORCE scan ignores change detection and re-indexes all files.
 Use FORCE when changing configuration like `vulpea-db-index-heading-level'.
+
+Examples:
+  (vulpea-db-sync-full-scan)              ; sync scan
+  (vulpea-db-sync-full-scan \\='async)       ; async scan
+  (vulpea-db-sync-full-scan \\='force)       ; force re-index
+  (vulpea-db-sync-full-scan \\='force-async) ; async force
 
 Also performs cleanup of deleted files."
   (interactive "P")
   (unless vulpea-db-sync-directories
     (user-error "No sync directories configured. Set `vulpea-db-sync-directories'"))
 
-  ;; Decode prefix argument
-  (let* ((async (or (equal arg '(4))
-                    (equal arg '(64))))
-         (force (or (equal arg '(16))
-                    (equal arg '(64)))))
+  ;; Decode argument (handle both prefix args and symbols)
+  (let* ((async (cond
+                 ((symbolp arg) (memq arg '(async force-async)))
+                 ((listp arg) (or (equal arg '(4))
+                                  (equal arg '(64))))))
+         (force (cond
+                 ((symbolp arg) (memq arg '(force force-async)))
+                 ((listp arg) (or (equal arg '(16))
+                                  (equal arg '(64)))))))
 
     ;; Clean up deleted files first
     (vulpea-db-sync--cleanup-deleted-files)
