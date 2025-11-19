@@ -720,7 +720,7 @@ Use this for programmatic operations that create many notes."
                       "--exclude" "#.*#$"        ; exclude backup files
                       "--exclude" ".*~$"         ; exclude backup files
                       "--exclude" "\\.git/"      ; exclude .git directory
-                      "--format" "%p|%f"         ; include event flag
+                      "--format" "%p\0%f"        ; include event flag with NUL separator
                       ,@(mapcar #'expand-file-name vulpea-db-sync-directories))
            :filter #'vulpea-db-sync--fswatch-filter
            :sentinel #'vulpea-db-sync--fswatch-sentinel))
@@ -728,10 +728,10 @@ Use this for programmatic operations that create many notes."
 
 (defun vulpea-db-sync--fswatch-filter (_proc output)
   "Process fswatch OUTPUT."
-  (let* ((line (string-trim-right output))
-         (parts (split-string line "|" t))
-         (file (car parts))
-         (flags (cadr parts)))
+  (let* ((raw (string-trim-right output))
+         (parts (split-string raw "\0" t))
+         (flags (car (last parts)))
+         (file (mapconcat #'identity (butlast parts) "\0")))
     (when (and file
                (not (string-match-p "/\\.git/" file))
                (not (string-match-p "/\\.#" file))

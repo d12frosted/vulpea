@@ -643,7 +643,7 @@ Returns absolute path. Caller responsible for cleanup."
             (vulpea-db-update-file path)
             (should (vulpea-db-get-by-id "fswatch-delete"))
             (delete-file path)
-            (vulpea-db-sync--fswatch-filter nil (format "%s|Removed" path))
+            (vulpea-db-sync--fswatch-filter nil (format "%s Removed" path))
             (should-not (vulpea-db-get-by-id "fswatch-delete")))
         (when (file-exists-p path)
           (delete-file path))))))
