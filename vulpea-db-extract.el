@@ -274,9 +274,9 @@ Otherwise, splits on spaces."
     (if (and (> (length aliases-str) 1)
              (string-prefix-p "\"" aliases-str)
              (string-suffix-p "\"" aliases-str))
-        (list (substring aliases-str 1 -1))
+        (list (substring-no-properties (substring aliases-str 1 -1)))
       ;; Otherwise split on spaces
-      (split-string aliases-str " " t))))
+      (vulpea-db--strings-no-properties (split-string aliases-str " " t)))))
 
 (defun vulpea-db--extract-properties (ast-or-node &optional headline)
   "Extract properties from AST-OR-NODE.
