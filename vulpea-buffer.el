@@ -195,7 +195,10 @@ functions, e.g. `vulpea-buffer-meta-get!'."
   (let* ((meta (or meta (vulpea-buffer-meta)))
          (pl (plist-get meta :pl)))
     (->> (org-element-map pl 'item #'identity)
-         (--map (org-element-interpret-data (org-element-contents (org-element-property :tag it)))))))
+         (--map (substring-no-properties
+                 (org-element-interpret-data
+                  (org-element-contents
+                   (org-element-property :tag it))))))))
 
 (defsubst vulpea-buffer-meta-get (prop type)
   "Get all values of metadata PROP of TYPE from buffer."
@@ -212,9 +215,10 @@ Return plist (:file :buffer :pl :items)"
            (lambda (item)
              (string-equal
               prop
-              (org-element-interpret-data
-               (org-element-contents
-                (org-element-property :tag item)))))
+              (substring-no-properties
+               (org-element-interpret-data
+                (org-element-contents
+                 (org-element-property :tag item))))))
            items-all)))
     (plist-put meta :items items)))
 

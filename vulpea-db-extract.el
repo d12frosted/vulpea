@@ -53,6 +53,16 @@
 (require 'cl-lib)
 (require 'vulpea-db)
 
+(defsubst vulpea-db--string-no-properties (value)
+  "Return VALUE as a plain string without text properties."
+  (when (and value (stringp value))
+    (substring-no-properties value)))
+
+(defsubst vulpea-db--strings-no-properties (values)
+  "Return VALUES list with text properties stripped from each element."
+  (when values
+    (mapcar #'substring-no-properties values)))
+
 ;;; Parse Context
 
 (cl-defstruct vulpea-parse-ctx
@@ -143,8 +153,10 @@ Returns nil if:
 - File has VULPEA_IGNORE property set to non-nil value"
   (let* ((keywords (org-element-map ast 'keyword
                      (lambda (kw)
-                       (cons (org-element-property :key kw)
-                             (org-element-property :value kw)))))
+                       (cons (vulpea-db--string-no-properties
+                              (org-element-property :key kw))
+                             (vulpea-db--string-no-properties
+                              (org-element-property :value kw))))))
          (properties (vulpea-db--extract-properties ast nil))
          (id (cdr (assoc "ID" properties)))
          (ignored (cdr (assoc "VULPEA_IGNORE" properties))))
@@ -193,19 +205,24 @@ Respects `vulpea-db-index-heading-level' setting."
                  (ignored (cdr (assoc "VULPEA_IGNORE" properties))))
             ;; Only index if not explicitly ignored
             (unless ignored
-              (let* ((title (org-element-property :raw-value headline))
-                     (tags (org-element-property :tags headline))
+              (let* ((title (vulpea-db--string-no-properties
+                             (org-element-property :raw-value headline)))
+                     (tags (vulpea-db--strings-no-properties
+                            (org-element-property :tags headline)))
                      (level (org-element-property :level headline))
                      (pos (org-element-property :begin headline))
-                     (todo (org-element-property :todo-keyword headline))
+                     (todo (vulpea-db--string-no-properties
+                            (org-element-property :todo-keyword headline)))
                      (priority (org-element-property :priority headline))
                      (scheduled (org-element-property :scheduled headline))
                      (deadline (org-element-property :deadline headline))
                      (closed (org-element-property :closed headline))
                      (meta (vulpea-db--extract-meta headline))
                      (links (vulpea-db--extract-links headline))
-                     (outline-path (org-element-property :title
-                                                         (org-element-lineage headline '(headline)))))
+                     (outline-path (vulpea-db--strings-no-properties
+                                    (org-element-property
+                                     :title
+                                     (org-element-lineage headline '(headline))))))
 
                 (list :id id
                       :level level
@@ -219,11 +236,14 @@ Respects `vulpea-db-index-heading-level' setting."
                       :todo todo
                       :priority priority
                       :scheduled (when scheduled
-                                   (org-element-property :raw-value scheduled))
+                                   (vulpea-db--string-no-properties
+                                    (org-element-property :raw-value scheduled)))
                       :deadline (when deadline
-                                  (org-element-property :raw-value deadline))
+                                  (vulpea-db--string-no-properties
+                                   (org-element-property :raw-value deadline)))
                       :closed (when closed
-                                (org-element-property :raw-value closed))
+                                (vulpea-db--string-no-properties
+                                 (org-element-property :raw-value closed)))
                       :outline-path outline-path
                       :attach-dir (cdr (assoc "ATTACH_DIR" properties)))))))))))
 
@@ -270,8 +290,10 @@ Returns alist of (key . value) pairs."
       (lambda (drawer)
         (org-element-map drawer 'node-property
           (lambda (prop)
-            (cons (org-element-property :key prop)
-                  (org-element-property :value prop)))))
+            (cons (vulpea-db--string-no-properties
+                   (org-element-property :key prop))
+                  (vulpea-db--string-no-properties
+                   (org-element-property :value prop))))))
       nil t)))  ; First match only
 
 (defun vulpea-db--extract-links (ast-or-node)

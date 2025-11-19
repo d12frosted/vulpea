@@ -185,9 +185,10 @@ which case VALUE is added at the end of the meta."
            (props
             (seq-map
              (lambda (item)
-               (org-element-interpret-data
-                (org-element-contents
-                 (org-element-property :tag item))))
+               (substring-no-properties
+                (org-element-interpret-data
+                 (org-element-contents
+                  (org-element-property :tag item)))))
              (org-element-map pl 'item #'identity))))
         (setq prop (completing-read
                     "Property: "
