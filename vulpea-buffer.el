@@ -54,7 +54,7 @@
 (require 'vulpea-utils)
 (require 'vulpea-db)
 
-
+
 
 (defun vulpea-buffer-title-get ()
   "Get TITLE in current buffer."
@@ -156,7 +156,7 @@ If nil it defaults to `split-string-default-separators', normally
                              (point-max) t)
       (replace-match ""))))
 
-
+
 
 (defun vulpea-buffer-meta ()
   "Get metadata from the current buffer.
@@ -470,7 +470,7 @@ the end after PROPS."
     (--each props-extra
       (vulpea-buffer-meta-set it (vulpea-buffer-meta-get-list! meta it) 'append))))
 
-
+
 
 (provide 'vulpea-buffer)
 ;;; vulpea-buffer.el ends here
