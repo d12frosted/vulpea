@@ -266,7 +266,9 @@ If OTHER-WINDOW, visit the NOTE in another window."
           (user-error "Could not find heading with ID: %s" id))
         ;; Move to the heading
         (org-back-to-heading t))
-      (org-show-context))))
+      (if (fboundp 'org-fold-show-context)
+          (org-fold-show-context)
+        (org-show-context))))
 
 
 
