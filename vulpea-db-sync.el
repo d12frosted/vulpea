@@ -293,10 +293,11 @@ Optionally performs initial scan based on `vulpea-db-sync-scan-on-enable'."
 
 (defun vulpea-db-sync--drop-from-queue (path)
   "Remove PATH from the pending queue."
-  (setq vulpea-db-sync--queue
-        (seq-remove (lambda (entry)
-                      (equal (car entry) path))
-                    vulpea-db-sync--queue)))
+  (let (result)
+    (dolist (entry vulpea-db-sync--queue)
+      (unless (equal (car entry) path)
+        (push entry result)))
+    (setq vulpea-db-sync--queue (nreverse result))))
 
 (defun vulpea-db-sync--handle-removed-file (path)
   "Permanently remove PATH from database tracking."
@@ -335,8 +336,9 @@ Optionally performs initial scan based on `vulpea-db-sync-scan-on-enable'."
     ;; Remove existing entry for this path
     (vulpea-db-sync--drop-from-queue path)
 
-    ;; Add new entry
-    (push (cons path timestamp) vulpea-db-sync--queue)
+    ;; Add new entry at the tail to maintain FIFO order
+    (setq vulpea-db-sync--queue
+          (nconc vulpea-db-sync--queue (list (cons path timestamp))))
 
     ;; Reset batch timer
     (when vulpea-db-sync--timer
