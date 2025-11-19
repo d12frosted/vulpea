@@ -312,19 +312,22 @@ with :value and :type."
         (dolist (item items)
           (let* ((tag-contents (org-element-property :tag item))
                  (tag (when tag-contents
-                        (string-trim
-                         (org-element-interpret-data
-                          (org-element-contents tag-contents)))))
+                        (substring-no-properties
+                         (string-trim
+                          (org-element-interpret-data
+                           (org-element-contents tag-contents))))))
                  (value-el (car (org-element-contents item)))
                  (value (when value-el
-                          (string-trim
-                           (org-element-interpret-data value-el)))))
+                          (substring-no-properties
+                           (string-trim
+                            (org-element-interpret-data value-el))))))
             (when (and tag value)
               ;; Parse key and optional type suffix
               (let* ((parts (split-string tag "_" t))
-                     (meta-key (if (> (length parts) 1)
-                                   (string-join (butlast parts) "_")
-                                 tag))
+                     (meta-key (substring-no-properties
+                                (if (> (length parts) 1)
+                                    (string-join (butlast parts) "_")
+                                  tag)))
                      (type-suffix (when (> (length parts) 1)
                                     (car (last parts))))
                      (type (cond
