@@ -109,9 +109,7 @@ ROW is a vector from the notes table with all fields in schema order."
         (deadline (elt row 13))
         (closed (elt row 14))
         (outline-path (elt row 15))
-        (attach-dir (elt row 16))
-        (created-at (elt row 17))
-        (modified-at (elt row 18)))
+        (attach-dir (elt row 16)))
     (make-vulpea-note
      :id id
      :path path
