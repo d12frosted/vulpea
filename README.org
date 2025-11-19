@@ -641,17 +641,6 @@ eldev test vulpea-db-query-test
 eldev test "vulpea-db-*"
 #+end_src
 
-*** Test Coverage
-
-Current status: All core tests passing
-
-- Database core: 11 tests ✅
-- Parser & extractors: 18 tests ✅
-- File watching & sync: 19 tests ✅
-- Query layer: 30 tests ✅
-- High-level API: Tests ✅
-- Plugin system: 7 tests ✅
-
 *** Contributing
 
 Contributions welcome! Areas where help is needed:
