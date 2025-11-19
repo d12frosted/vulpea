@@ -554,6 +554,26 @@ Returns absolute path. Caller responsible for cleanup."
         (when (file-directory-p dir2)
           (delete-directory dir2 t))))))
 
+(ert-deftest vulpea-db-sync-watch-directory-ignores-symlinks ()
+  "Watching a directory should not recurse into symlink loops."
+  (let* ((root (make-temp-file "vulpea-watch-root-" t))
+         (child (expand-file-name "notes" root))
+         (link (expand-file-name "loop" child))
+         (vulpea-db-sync--watchers nil))
+    (unwind-protect
+        (progn
+          (make-directory child t)
+          ;; Create a symlink pointing back to root to simulate a loop
+          (make-symbolic-link root link t)
+          (vulpea-db-sync--watch-directory root)
+          (should (assoc root vulpea-db-sync--watchers))
+          (should (assoc child vulpea-db-sync--watchers))
+          (should-not (assoc link vulpea-db-sync--watchers)))
+      (dolist (entry vulpea-db-sync--watchers)
+        (file-notify-rm-watch (cdr entry)))
+      (when (file-directory-p root)
+        (delete-directory root t)))))
+
 ;;; File notification tests
 
 (ert-deftest vulpea-db-sync-file-notify-deleted-removes-note ()

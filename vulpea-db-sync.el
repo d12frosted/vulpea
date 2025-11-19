@@ -255,16 +255,18 @@ Optionally performs initial scan based on `vulpea-db-sync-scan-on-enable'."
 
 (defun vulpea-db-sync--watch-directory (dir)
   "Watch DIR and all subdirectories for org file changes."
-  (when (file-directory-p dir)
-    (let ((descriptor (file-notify-add-watch
-                       dir
-                       '(change)
-                       #'vulpea-db-sync--file-notify-callback)))
-      (push (cons dir descriptor) vulpea-db-sync--watchers))
+  (when (and dir (file-directory-p dir) (not (file-symlink-p dir)))
+    (unless (assoc dir vulpea-db-sync--watchers)
+      (let ((descriptor (file-notify-add-watch
+                         dir
+                         '(change)
+                         #'vulpea-db-sync--file-notify-callback)))
+        (push (cons dir descriptor) vulpea-db-sync--watchers)))
 
     ;; Recursively watch subdirectories
     (dolist (subdir (directory-files dir t "^[^.]" t))
       (when (and (file-directory-p subdir)
+                 (not (file-symlink-p subdir))
                  (not (string-match-p "/\\.git/" subdir)))
         (vulpea-db-sync--watch-directory subdir)))))
 
