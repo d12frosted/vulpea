@@ -173,6 +173,33 @@ Reset when async processing completes.")
   "Total number of files actually updated in current async batch.
 Reset when async processing completes.")
 
+(defvar vulpea-db-sync--cleanup-remaining nil
+  "List of paths remaining to check during async cleanup.")
+
+(defvar vulpea-db-sync--cleanup-timer nil
+  "Timer for processing async cleanup batches.")
+
+(defvar vulpea-db-sync--cleanup-type nil
+  "Type of cleanup being performed: \\='deleted or \\='untracked.")
+
+(defvar vulpea-db-sync--cleanup-callback nil
+  "Callback to run after async cleanup completes.")
+
+(defvar vulpea-db-sync--scan-dirs-remaining nil
+  "List of directories remaining to scan asynchronously.")
+
+(defvar vulpea-db-sync--scan-timer nil
+  "Timer for async directory scanning.")
+
+(defvar vulpea-db-sync--scan-callback nil
+  "Callback to run after async directory scan completes.")
+
+(defcustom vulpea-db-sync-cleanup-batch-size 500
+  "Number of paths to check per cleanup batch.
+Smaller values make Emacs more responsive but cleanup takes longer."
+  :type 'integer
+  :group 'vulpea-db-sync)
+
 ;;; Mode
 
 ;;;###autoload
@@ -453,6 +480,212 @@ Returns t if file was updated, nil otherwise."
       ;; No change detected
       nil)))
 
+;;; Async Cleanup
+
+(defun vulpea-db-sync--cleanup-async (type &optional callback)
+  "Start async cleanup of TYPE (\\='deleted or \\='untracked).
+Optionally run CALLBACK when complete."
+  ;; Cancel any existing cleanup
+  (when vulpea-db-sync--cleanup-timer
+    (cancel-timer vulpea-db-sync--cleanup-timer)
+    (setq vulpea-db-sync--cleanup-timer nil))
+
+  (if (and (eq type 'untracked)
+           (null vulpea-db-sync-directories))
+      (progn
+        (setq vulpea-db-sync--cleanup-remaining nil
+              vulpea-db-sync--cleanup-type nil
+              vulpea-db-sync--cleanup-callback nil)
+        (when callback
+          (funcall callback)))
+    (let* ((db (vulpea-db))
+           (all-paths (mapcar #'car (emacsql db [:select path :from files]))))
+      (setq vulpea-db-sync--cleanup-remaining all-paths
+            vulpea-db-sync--cleanup-type type
+            vulpea-db-sync--cleanup-callback callback)
+
+      (message "Vulpea: Starting async %s cleanup (%d paths)..."
+               (if (eq type 'deleted) "deleted file" "untracked file")
+               (length all-paths))
+
+      ;; Schedule first batch (returns immediately)
+      (setq vulpea-db-sync--cleanup-timer
+            (run-with-idle-timer 0.01 nil #'vulpea-db-sync--cleanup-process-batch)))))
+
+(defun vulpea-db-sync--cleanup-process-batch ()
+  "Process one batch of cleanup checks."
+  (if (null vulpea-db-sync--cleanup-remaining)
+      ;; Done
+      (progn
+        (setq vulpea-db-sync--cleanup-timer nil
+              vulpea-db-sync--cleanup-type nil)
+        (message "Vulpea: Async cleanup complete")
+        (when vulpea-db-sync--cleanup-callback
+          ;; Save callback and clear it BEFORE calling (callback might set a new one)
+          (let ((callback vulpea-db-sync--cleanup-callback))
+            (setq vulpea-db-sync--cleanup-callback nil)
+            (condition-case err
+                (funcall callback)
+              (error
+               (message "Vulpea: Error in cleanup callback: %s" (error-message-string err)))))))
+
+    ;; Process one batch
+    (let* ((batch-size (min (length vulpea-db-sync--cleanup-remaining)
+                            vulpea-db-sync-cleanup-batch-size))
+           (batch (seq-take vulpea-db-sync--cleanup-remaining batch-size))
+           (db (vulpea-db))
+           (type vulpea-db-sync--cleanup-type)
+           (to-remove nil))
+
+      ;; Check which paths should be removed (fast, outside transaction)
+      (dolist (path batch)
+        (when (cond
+               ((eq type 'deleted)
+                (not (file-exists-p path)))
+               ((eq type 'untracked)
+                (let ((expanded-path (expand-file-name path))
+                      (tracked-dirs (mapcar #'expand-file-name
+                                            vulpea-db-sync-directories)))
+                  (not (seq-some (lambda (dir)
+                                   (file-in-directory-p expanded-path dir))
+                                 tracked-dirs)))))
+          (push path to-remove)))
+
+      ;; Remove them in one transaction (fast)
+      (when to-remove
+        (emacsql-with-transaction db
+          (dolist (path to-remove)
+            (vulpea-db--delete-file-notes path)
+            (emacsql db [:delete :from files :where (= path $s1)] path)))
+        (message "Vulpea: Cleanup progress: %d checked, %d removed"
+                 batch-size (length to-remove)))
+
+      ;; Update remaining and schedule next batch
+      (setq vulpea-db-sync--cleanup-remaining
+            (seq-drop vulpea-db-sync--cleanup-remaining batch-size))
+
+      ;; Schedule next batch with idle timer (allows Emacs to remain responsive)
+      (setq vulpea-db-sync--cleanup-timer
+            (run-with-idle-timer 0.1 nil #'vulpea-db-sync--cleanup-process-batch)))))
+
+;;; Async Directory Scanning
+
+(defun vulpea-db-sync--scan-directories-async (directories &optional callback)
+  "Scan DIRECTORIES asynchronously, queueing files incrementally.
+Optionally run CALLBACK when complete.
+
+Calling with nil DIRECTORIES cancels any running scan."
+  ;; Always cancel existing scan first (allows stopping scans)
+  (when vulpea-db-sync--scan-timer
+    (cancel-timer vulpea-db-sync--scan-timer)
+    (setq vulpea-db-sync--scan-timer nil))
+
+  ;; Clear queue and callback to prevent sentinel from continuing
+  (setq vulpea-db-sync--scan-dirs-remaining nil
+        vulpea-db-sync--scan-callback nil)
+
+  ;; Stop any running find process (sentinel will see nil queue and stop)
+  (let ((proc (get-process "vulpea-find")))
+    (when (process-live-p proc)
+      (delete-process proc)))
+
+  (if (null directories)
+      ;; Canceled/no directories - just run callback
+      (progn
+        (message "Vulpea: Scan canceled or no directories")
+        (when callback
+          (funcall callback)))
+
+    ;; Start new scan with new queue/callback
+    (setq vulpea-db-sync--scan-dirs-remaining (copy-sequence directories)
+          vulpea-db-sync--scan-callback callback)
+
+    (message "Vulpea: Starting async directory scan (%d %s)..."
+             (length directories)
+             (if (= (length directories) 1) "directory" "directories"))
+
+    ;; Schedule first directory (returns immediately)
+    (setq vulpea-db-sync--scan-timer
+          (run-with-idle-timer 0.01 nil #'vulpea-db-sync--scan-next-directory))))
+
+(defun vulpea-db-sync--scan-next-directory ()
+  "Scan next directory and schedule next one."
+  (if (null vulpea-db-sync--scan-dirs-remaining)
+      ;; Done
+      (progn
+        (setq vulpea-db-sync--scan-timer nil)
+        (message "Vulpea: Directory scan complete")
+        (when vulpea-db-sync--scan-callback
+          ;; Save callback and clear it BEFORE calling
+          (let ((callback vulpea-db-sync--scan-callback))
+            (setq vulpea-db-sync--scan-callback nil)
+            (condition-case err
+                (funcall callback)
+              (error
+               (message "Vulpea: Error in scan callback: %s" (error-message-string err)))))))
+
+    ;; Scan one directory using async process
+    (let ((dir (pop vulpea-db-sync--scan-dirs-remaining)))
+      (if (not (file-directory-p dir))
+          ;; Skip invalid directory, move to next
+          (setq vulpea-db-sync--scan-timer
+                (run-with-idle-timer 0.01 nil #'vulpea-db-sync--scan-next-directory))
+
+        ;; Use find for truly async scanning
+        (message "Vulpea: Scanning %s..." dir)
+        (if (executable-find "find")
+            ;; Async: use find command
+            (let ((process (start-process
+                           "vulpea-find"
+                           nil
+                           "find" dir
+                           "-type" "f"
+                           "-name" "*.org"
+                           "-print")))
+              ;; Store per-process output buffer
+              (process-put process :output-buffer "")
+
+              (set-process-filter
+               process
+               (lambda (proc output)
+                 ;; Accumulate output in per-process buffer
+                 (let ((buffer (concat (process-get proc :output-buffer) output)))
+                   (process-put proc :output-buffer buffer)
+                   ;; Process complete lines only
+                   (let ((lines (split-string buffer "\n")))
+                     ;; Last element might be partial, save it back
+                     (process-put proc :output-buffer (or (car (last lines)) ""))
+                     ;; Process all complete lines (all but last)
+                     (dolist (file (butlast lines))
+                       (when (and (not (string-empty-p file))
+                                  (string-suffix-p ".org" file)
+                                  (file-regular-p file))
+                         (vulpea-db-sync--enqueue file)))))))
+
+              (set-process-sentinel
+               process
+               (lambda (proc _event)
+                 ;; Process any remaining partial line
+                 (let ((remaining (process-get proc :output-buffer)))
+                   (when (and (not (string-empty-p remaining))
+                              (string-suffix-p ".org" remaining)
+                              (file-regular-p remaining))
+                     (vulpea-db-sync--enqueue remaining)))
+                 ;; Schedule next directory unless scan was canceled
+                 ;; (canceled = callback cleared, normal completion = callback still set)
+                 (when vulpea-db-sync--scan-callback
+                   (setq vulpea-db-sync--scan-timer
+                         (run-with-idle-timer 0.1 nil #'vulpea-db-sync--scan-next-directory))))))
+
+          ;; Fallback: use blocking scan (fast on small dirs)
+          (dolist (file (directory-files-recursively dir "\\.org$"))
+            (vulpea-db-sync--enqueue file))
+          ;; Schedule next directory
+          (setq vulpea-db-sync--scan-timer
+                (run-with-idle-timer 0.1 nil #'vulpea-db-sync--scan-next-directory)))))))
+
+;;; Sync Cleanup
+
 (defun vulpea-db-sync--cleanup-deleted-files ()
   "Remove database entries for files that no longer exist.
 
@@ -554,31 +787,39 @@ Also performs cleanup of:
     (when (and async force)
       (user-error "Cannot combine async and force modes. Use 'force for synchronous re-index"))
 
-    ;; Clean up deleted and untracked files first
-    (vulpea-db-sync--cleanup-deleted-files)
-    (vulpea-db-sync--cleanup-untracked-files)
-
-    ;; Scan directories
     (cond
      (async
-      ;; Async mode: queue all files with smart detection
-      (message "Vulpea: Queueing files for async scan...")
+      ;; Async mode: cleanup and scan non-blocking
       (unless vulpea-db-autosync-mode
         (user-error "Async scan requires autosync-mode to be enabled"))
-      (dolist (dir vulpea-db-sync-directories)
-        (dolist (file (directory-files-recursively dir "\\.org$"))
-          (vulpea-db-sync--enqueue file))))
 
-     (force
-      ;; Sync + Force: re-index everything
-      (message "Vulpea: Starting FORCE scan (re-indexing all files)...")
-      (dolist (dir vulpea-db-sync-directories)
-        (vulpea-db-sync-update-directory dir 'force)))
+      ;; Chain async operations: deleted cleanup -> untracked cleanup -> directory scan
+      (vulpea-db-sync--cleanup-async
+       'deleted
+       (lambda ()
+         (vulpea-db-sync--cleanup-async
+          'untracked
+          (lambda ()
+            (vulpea-db-sync--scan-directories-async
+             vulpea-db-sync-directories))))))
 
      (t
-      ;; Sync mode: smart detection
-      (dolist (dir vulpea-db-sync-directories)
-        (vulpea-db-sync-update-directory dir))))))
+      ;; Sync mode: cleanup synchronously (blocks but completes immediately)
+      (vulpea-db-sync--cleanup-deleted-files)
+      (vulpea-db-sync--cleanup-untracked-files)
+
+      ;; Scan directories
+      (cond
+       (force
+        ;; Force: re-index everything
+        (message "Vulpea: Starting FORCE scan (re-indexing all files)...")
+        (dolist (dir vulpea-db-sync-directories)
+          (vulpea-db-sync-update-directory dir 'force)))
+
+       (t
+        ;; Smart detection
+        (dolist (dir vulpea-db-sync-directories)
+          (vulpea-db-sync-update-directory dir))))))))
 
 (defun vulpea-db-sync-update-file (path)
   "Manually update database for file at PATH.
