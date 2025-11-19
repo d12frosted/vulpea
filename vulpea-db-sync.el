@@ -49,6 +49,7 @@
 ;;; Code:
 
 (require 'filenotify)
+(require 'seq)
 (require 'vulpea-db)
 (require 'vulpea-db-extract)
 
@@ -284,14 +285,46 @@ Optionally performs initial scan based on `vulpea-db-sync-scan-on-enable'."
     (setq vulpea-db-sync--watchers
           (delq entry vulpea-db-sync--watchers))))
 
+(defun vulpea-db-sync--org-file-p (path)
+  "Return non-nil when PATH points to a tracked org file."
+  (and path
+       (string-suffix-p ".org" path)
+       (not (string-match-p "/\\." path))))
+
+(defun vulpea-db-sync--drop-from-queue (path)
+  "Remove PATH from the pending queue."
+  (setq vulpea-db-sync--queue
+        (seq-remove (lambda (entry)
+                      (equal (car entry) path))
+                    vulpea-db-sync--queue)))
+
+(defun vulpea-db-sync--handle-removed-file (path)
+  "Permanently remove PATH from database tracking."
+  (vulpea-db-sync--drop-from-queue path)
+  (vulpea-db-sync--unwatch-file path)
+  (let ((db (vulpea-db)))
+    (emacsql-with-transaction db
+      (vulpea-db--delete-file-notes path)
+      (emacsql db [:delete :from files :where (= path $s1)] path))))
+
 (defun vulpea-db-sync--file-notify-callback (event)
   "Handle file notification EVENT."
-  (pcase-let ((`(,descriptor ,action ,file . ,_) event))
-    (when (and file
-               (string-suffix-p ".org" file)
-               (not (string-match-p "/\\." file))  ; Skip hidden files
-               (member action '(changed created)))
-      (vulpea-db-sync--enqueue file))))
+  (pcase-let ((`(,descriptor ,action ,file . ,rest) event))
+    (pcase action
+      ((or 'changed 'created 'attribute-changed)
+       (when (vulpea-db-sync--org-file-p file)
+         (vulpea-db-sync--enqueue file)))
+      ('deleted
+       (when (vulpea-db-sync--org-file-p file)
+         (vulpea-db-sync--handle-removed-file file)))
+      ('renamed
+       (pcase rest
+         (`(,new-path)
+          (when (vulpea-db-sync--org-file-p file)
+            (vulpea-db-sync--handle-removed-file file))
+          (when (vulpea-db-sync--org-file-p new-path)
+            (vulpea-db-sync--enqueue new-path))))))
+    nil))
 
 (defun vulpea-db-sync--enqueue (path)
   "Add PATH to update queue."

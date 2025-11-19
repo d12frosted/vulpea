@@ -21,6 +21,7 @@
 
 (require 'ert)
 (require 'vulpea-db)
+(require 'vulpea-db-query)
 (require 'vulpea-db-sync)
 
 ;;; Test Infrastructure
@@ -523,6 +524,63 @@ Returns absolute path. Caller responsible for cleanup."
           (delete-directory dir1 t))
         (when (file-directory-p dir2)
           (delete-directory dir2 t))))))
+
+;;; File notification tests
+
+(ert-deftest vulpea-db-sync-file-notify-deleted-removes-note ()
+  "Deleting a watched file removes it from the database immediately."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((path (vulpea-test--create-temp-org-file
+                  ":PROPERTIES:\n:ID: deleted-id\n:END:\n#+TITLE: Delete Me\n"))
+           (vulpea-db-sync--queue nil)
+           (vulpea-db-sync--timer nil))
+      (unwind-protect
+          (progn
+            (vulpea-db-update-file path)
+            (should (emacsql (vulpea-db)
+                             [:select path :from files :where (= path $s1)]
+                             path))
+            (delete-file path)
+            (vulpea-db-sync--file-notify-callback
+             (list nil 'deleted path))
+            (should (null (emacsql (vulpea-db)
+                                   [:select * :from notes
+                                    :where (= path $s1)]
+                                   path)))
+            (should (null (emacsql (vulpea-db)
+                                   [:select path :from files
+                                    :where (= path $s1)]
+                                   path)))
+            (should (null vulpea-db-sync--queue)))
+        (when (file-exists-p path)
+          (delete-file path))))))
+
+(ert-deftest vulpea-db-sync-file-notify-renamed-handles-paths ()
+  "Renaming a file removes the old record and enqueues the new path."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((path (vulpea-test--create-temp-org-file
+                  ":PROPERTIES:\n:ID: rename-id\n:END:\n#+TITLE: Rename Me\n"))
+           (new-path (concat (file-name-sans-extension path) "-renamed.org"))
+           (vulpea-db-sync--queue nil)
+           (vulpea-db-sync--timer nil))
+      (unwind-protect
+          (progn
+            (vulpea-db-update-file path)
+            (rename-file path new-path t)
+            (vulpea-db-sync--file-notify-callback
+             (list nil 'renamed path new-path))
+            (should (null (emacsql (vulpea-db)
+                                   [:select * :from notes
+                                    :where (= path $s1)]
+                                   path)))
+            (should (= (length vulpea-db-sync--queue) 1))
+            (should (equal (caar vulpea-db-sync--queue) new-path)))
+        (when (file-exists-p path)
+          (delete-file path))
+        (when (file-exists-p new-path)
+          (delete-file new-path))))))
 
 (provide 'vulpea-db-sync-test)
 ;;; vulpea-db-sync-test.el ends here
