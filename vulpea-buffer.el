@@ -50,6 +50,7 @@
 (require 'seq)
 (require 's)
 
+(require 'url-parse)
 (require 'vulpea-utils)
 (require 'vulpea-db)
 
