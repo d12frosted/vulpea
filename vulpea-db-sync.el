@@ -330,8 +330,7 @@ Optionally performs initial scan based on `vulpea-db-sync-scan-on-enable'."
   "Add PATH to update queue."
   (let ((timestamp (float-time)))
     ;; Remove existing entry for this path
-    (setq vulpea-db-sync--queue
-          (assq-delete-all path vulpea-db-sync--queue))
+    (vulpea-db-sync--drop-from-queue path)
 
     ;; Add new entry
     (push (cons path timestamp) vulpea-db-sync--queue)

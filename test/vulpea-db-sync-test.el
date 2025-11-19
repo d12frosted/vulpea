@@ -68,7 +68,8 @@ Returns absolute path. Caller responsible for cleanup."
         (vulpea-db-sync--timer nil)
         (path "/tmp/test.org"))
     (vulpea-db-sync--enqueue path)
-    (vulpea-db-sync--enqueue path)
+    ;; Use a distinct string object with the same contents
+    (vulpea-db-sync--enqueue (concat path ""))
 
     (should (= (length vulpea-db-sync--queue) 1))))
 
