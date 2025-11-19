@@ -59,7 +59,7 @@
   "File watching and synchronization for Vulpea."
   :group 'vulpea)
 
-(defcustom vulpea-db-sync-batch-delay 2.0
+(defcustom vulpea-db-sync-batch-delay 0.01
   "Delay in seconds before processing batched updates.
 After last file change, wait this long before updating database.
 This allows batching multiple changes into single transaction."
@@ -106,7 +106,7 @@ Only used when `vulpea-db-sync-external-method' is `poll' or `auto'
   :type 'number
   :group 'vulpea-db-sync)
 
-(defcustom vulpea-db-sync-progress-interval 500
+(defcustom vulpea-db-sync-progress-interval 100
   "Number of files to process before reporting progress.
 When syncing a directory, report progress every N files.
 Set to nil to disable progress reporting.
@@ -447,17 +447,30 @@ Optionally performs initial scan based on `vulpea-db-sync-scan-on-enable'."
           (dolist (path paths)
             (remhash path vulpea-db-sync--queue-set))
 
-          ;; Process in single transaction
-          (emacsql-with-transaction db
-            (dolist (path paths)
-              (condition-case err
-                  (when (file-exists-p path)
-                    (if (vulpea-db-sync--update-file-if-changed path)
-                        (setq updated (1+ updated))
-                      (setq unchanged (1+ unchanged))))
-                (error
-                 (message "Vulpea: Error updating %s: %s"
-                          path (error-message-string err))))))
+          ;; Fetch all file hashes in one query (huge speedup)
+          (let* ((hash-rows (emacsql db [:select [path hash mtime size] :from files
+                                         :where (in path $v1)]
+                                     (vconcat paths)))
+                 (hash-cache (make-hash-table :test 'equal)))
+            ;; Build hash table for O(1) lookups
+            (dolist (row hash-rows)
+              (puthash (elt row 0)
+                       (list :hash (elt row 1)
+                             :mtime (elt row 2)
+                             :size (elt row 3))
+                       hash-cache))
+
+            ;; Process in single transaction
+            (emacsql-with-transaction db
+              (dolist (path paths)
+                (condition-case err
+                    (when (file-exists-p path)
+                      (if (vulpea-db-sync--update-file-if-changed path hash-cache)
+                          (setq updated (1+ updated))
+                        (setq unchanged (1+ unchanged))))
+                  (error
+                   (message "Vulpea: Error updating %s: %s"
+                            path (error-message-string err)))))))
 
           ;; Update totals
           (setq vulpea-db-sync--processed-total (+ vulpea-db-sync--processed-total updated unchanged)
@@ -515,15 +528,19 @@ Optionally performs initial scan based on `vulpea-db-sync-scan-on-enable'."
               (run-with-timer vulpea-db-sync-batch-delay nil
                               #'vulpea-db-sync--process-queue))))))
 
-(defun vulpea-db-sync--update-file-if-changed (path)
+(defun vulpea-db-sync--update-file-if-changed (path &optional hash-cache)
   "Update database for PATH only if file has changed.
 
 Uses content hash and mtime to detect changes.
+HASH-CACHE is an optional hash table mapping paths to stored info.
+If not provided, queries database directly (slower).
 Returns t if file was updated, nil otherwise."
   (let* ((attrs (file-attributes path))
          (current-mtime (float-time (file-attribute-modification-time attrs)))
          (current-size (file-attribute-size attrs))
-         (stored-info (vulpea-db--get-file-hash path)))
+         (stored-info (if hash-cache
+                          (gethash path hash-cache)
+                        (vulpea-db--get-file-hash path))))
 
     (if (or (null stored-info)
             (not (equal (plist-get stored-info :mtime) current-mtime))
@@ -1000,33 +1017,48 @@ is enabled."
             (message "Vulpea: FORCE syncing %d file%s (re-indexing all)..."
                      total (if (= total 1) "" "s"))
           (message "Vulpea: Syncing %d file%s..." total (if (= total 1) "" "s")))
-        (emacsql-with-transaction db
-          (dolist (file files)
-            (condition-case err
-                (if force
-                    ;; Force mode: always update
-                    (progn
-                      (vulpea-db-update-file file)
-                      (setq updated (1+ updated)))
-                  ;; Smart detection mode
-                  (if (vulpea-db-sync--update-file-if-changed file)
-                      (setq updated (1+ updated))
-                    (setq unchanged (1+ unchanged))))
-              (error
-               (message "Vulpea: Error updating %s: %s"
-                        file (error-message-string err))))
-            (setq processed (1+ processed))
-            ;; Report progress at intervals
-            (when (and vulpea-db-sync-progress-interval
-                       (> total vulpea-db-sync-progress-interval)
-                       (zerop (mod processed vulpea-db-sync-progress-interval)))
-              (message "Vulpea: Progress: %d/%d files (%d updated, %d unchanged)"
-                       processed total updated unchanged))))
-        (message "Vulpea: Checked %d file%s (%d updated, %d unchanged)"
-                 (+ updated unchanged)
-                 (if (= (+ updated unchanged) 1) "" "s")
-                 updated
-                 unchanged)))))
+
+        ;; Fetch all file hashes in one query for smart detection (huge speedup)
+        (let* ((hash-rows (unless force
+                            (emacsql db [:select [path hash mtime size] :from files
+                                         :where (in path $v1)]
+                                     (vconcat files))))
+               (hash-cache (when hash-rows
+                             (let ((cache (make-hash-table :test 'equal)))
+                               (dolist (row hash-rows)
+                                 (puthash (elt row 0)
+                                          (list :hash (elt row 1)
+                                                :mtime (elt row 2)
+                                                :size (elt row 3))
+                                          cache))
+                               cache))))
+          (emacsql-with-transaction db
+            (dolist (file files)
+              (condition-case err
+                  (if force
+                      ;; Force mode: always update
+                      (progn
+                        (vulpea-db-update-file file)
+                        (setq updated (1+ updated)))
+                    ;; Smart detection mode with hash cache
+                    (if (vulpea-db-sync--update-file-if-changed file hash-cache)
+                        (setq updated (1+ updated))
+                      (setq unchanged (1+ unchanged))))
+                (error
+                 (message "Vulpea: Error updating %s: %s"
+                          file (error-message-string err))))
+              (setq processed (1+ processed))
+              ;; Report progress at intervals
+              (when (and vulpea-db-sync-progress-interval
+                         (> total vulpea-db-sync-progress-interval)
+                         (zerop (mod processed vulpea-db-sync-progress-interval)))
+                (message "Vulpea: Progress: %d/%d files (%d updated, %d unchanged)"
+                         processed total updated unchanged))))
+          (message "Vulpea: Checked %d file%s (%d updated, %d unchanged)"
+                   (+ updated unchanged)
+                   (if (= (+ updated unchanged) 1) "" "s")
+                   updated
+                   unchanged))))))
 
 ;;; Sync Mode
 
