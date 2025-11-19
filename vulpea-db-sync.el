@@ -312,8 +312,11 @@ Optionally performs initial scan based on `vulpea-db-sync-scan-on-enable'."
   (pcase-let ((`(,descriptor ,action ,file . ,rest) event))
     (pcase action
       ((or 'changed 'created 'attribute-changed)
-       (when (vulpea-db-sync--org-file-p file)
-         (vulpea-db-sync--enqueue file)))
+       (cond
+        ((and file (file-directory-p file) (eq action 'created))
+         (vulpea-db-sync--watch-directory file))
+        ((vulpea-db-sync--org-file-p file)
+         (vulpea-db-sync--enqueue file))))
       ('deleted
        (when (vulpea-db-sync--org-file-p file)
          (vulpea-db-sync--handle-removed-file file)))

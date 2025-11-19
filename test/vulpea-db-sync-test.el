@@ -611,5 +611,33 @@ Returns absolute path. Caller responsible for cleanup."
         (when (file-exists-p new-path)
           (delete-file new-path))))))
 
+(ert-deftest vulpea-db-sync-file-notify-watches-new-directories ()
+  "Creating a new subdirectory starts a watcher so new files are indexed."
+  (vulpea-test--with-temp-db
+    (let ((root (make-temp-file "vulpea-sync-root-" t))
+          (vulpea-db-sync-directories nil)
+          (vulpea-db-sync--watchers nil)
+          (vulpea-db-sync--queue nil))
+      (unwind-protect
+          (progn
+            (setq vulpea-db-sync-directories (list root))
+            (vulpea-db-sync--watch-directory root)
+            (let* ((subdir (expand-file-name "projects" root))
+                   (file (expand-file-name "note.org" subdir)))
+              ;; Directory is created outside watcher recursion, then event arrives.
+              (make-directory subdir t)
+              (vulpea-db-sync--file-notify-callback
+               (list nil 'created subdir))
+              ;; Drop existing watchers to ensure call added the directory.
+              (let ((found (assoc subdir vulpea-db-sync--watchers)))
+                (should found))
+              (with-temp-file file
+                (insert ":PROPERTIES:\n:ID: new-dir-note\n:END:\n#+TITLE: Dir Note\n"))
+              (vulpea-db-sync--enqueue file)
+              (should (= (length vulpea-db-sync--queue) 1))
+              (should (equal (caar vulpea-db-sync--queue) file))))
+        (when (file-directory-p root)
+          (delete-directory root t))))))
+
 (provide 'vulpea-db-sync-test)
 ;;; vulpea-db-sync-test.el ends here
