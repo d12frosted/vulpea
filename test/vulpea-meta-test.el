@@ -250,6 +250,19 @@
                    (vulpea-db-get-by-id "eeec8f05-927f-4c61-b39e-2fb8228cf484")
                    (vulpea-db-get-by-id "ff01962f-47c2-4a32-9bf4-990e41090a9b"))))))
 
+(ert-deftest vulpea-meta-get-list-note-missing-id ()
+  "Referencing a missing note in metadata should not raise errors."
+  (vulpea-meta-test--with-temp-db
+    (let* ((note-id "8f3afe64-2e6c-4d66-b5c8-a7a46a52f1c8")
+           (missing-id "deadbeef-0000-4bad-8888-ffffffffffff")
+           (file (expand-file-name "missing-link.org" vulpea-meta-test--notes-dir)))
+      (with-temp-file file
+        (insert (format ":PROPERTIES:\n:ID: %s\n:END:\n#+title: Broken link\n\n- ghost :: [[id:%s][Ghost note]]\n"
+                        note-id missing-id)))
+      (vulpea-db-update-file file)
+      (should (equal (vulpea-meta-get-list note-id "ghost" 'note)
+                     '(nil))))))
+
 ;;; vulpea-meta-set Tests
 
 (ert-deftest vulpea-meta-set-string-in-note-without-meta ()

@@ -259,7 +259,9 @@ Each element value depends on TYPE:
            collect (let* ((id (car it))
                           (desc (cdr it))
                           (note (--find (string-equal id (vulpea-note-id it)) notes)))
-                     (when (seq-contains-p (vulpea-note-aliases note) desc)
+                     (when (and note
+                                desc
+                                (seq-contains-p (vulpea-note-aliases note) desc))
                        (setf (vulpea-note-primary-title note) (vulpea-note-title note))
                        (setf (vulpea-note-title note) desc))
                      note)))
