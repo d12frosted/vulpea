@@ -94,9 +94,9 @@ Possible values:
 - `poll' - use only polling
 - nil - rely only on filenotify (unreliable for external changes)"
   :type '(choice (const :tag "Automatic (fswatch or poll)" auto)
-                 (const :tag "FSWatch only" fswatch)
-                 (const :tag "Polling only" poll)
-                 (const :tag "Filenotify only (unreliable)" nil))
+          (const :tag "FSWatch only" fswatch)
+          (const :tag "Polling only" poll)
+          (const :tag "Filenotify only (unreliable)" nil))
   :group 'vulpea-db-sync)
 
 (defcustom vulpea-db-sync-poll-interval 2
@@ -113,7 +113,7 @@ Set to nil to disable progress reporting.
 Set to a smaller value (e.g., 100) for more frequent updates,
 or a larger value (e.g., 1000) for less frequent updates."
   :type '(choice (const :tag "Disabled" nil)
-                 (integer :tag "Report every N files"))
+          (integer :tag "Report every N files"))
   :group 'vulpea-db-sync)
 
 (defcustom vulpea-db-sync-scan-on-enable nil
@@ -130,8 +130,8 @@ Options:
 Recommended: nil for large repositories (10000+ notes), then use
 `vulpea-db-sync-full-scan' manually after external changes."
   :type '(choice (const :tag "Skip scan (fast startup)" nil)
-                 (const :tag "Async scan (may lag)" async)
-                 (const :tag "Blocking scan (wait for completion)" blocking))
+          (const :tag "Async scan (may lag)" async)
+          (const :tag "Blocking scan (wait for completion)" blocking))
   :group 'vulpea-db-sync)
 
 ;;; Variables
@@ -660,15 +660,15 @@ synchronously before re-enabling autosync.
 Use this for programmatic operations that create many notes."
   (declare (indent 0))
   `(let ((was-enabled vulpea-db-autosync-mode))
-     (when was-enabled
-       (vulpea-db-autosync-mode -1))
-     (unwind-protect
-         (progn ,@body)
-       (when was-enabled
-         ;; Process any pending updates synchronously
-         (while vulpea-db-sync--queue
-           (vulpea-db-sync--process-queue))
-         (vulpea-db-autosync-mode +1)))))
+    (when was-enabled
+     (vulpea-db-autosync-mode -1))
+    (unwind-protect
+        (progn ,@body)
+      (when was-enabled
+       ;; Process any pending updates synchronously
+       (while vulpea-db-sync--queue
+        (vulpea-db-sync--process-queue))
+       (vulpea-db-autosync-mode +1)))))
 
 ;;; External Monitoring
 
@@ -707,24 +707,42 @@ Use this for programmatic operations that create many notes."
 (defun vulpea-db-sync--setup-fswatch ()
   "Setup file monitoring using fswatch process."
   (when vulpea-db-sync-directories
-    (setq vulpea-db-sync--fswatch-process
-          (make-process
-           :name "vulpea-fswatch"
-           :buffer nil
-           :command `("fswatch"
-                      "--recursive"
-                      "--event=Updated"
-                      "--event=Created"
-                      "--event=Removed"
-                      "--exclude" "\\.#.*$"      ; exclude auto-save files
-                      "--exclude" "#.*#$"        ; exclude backup files
-                      "--exclude" ".*~$"         ; exclude backup files
-                      "--exclude" "\\.git/"      ; exclude .git directory
-                      "--format" "%p\0%f"        ; include event flag with NUL separator
-                      ,@(mapcar #'expand-file-name vulpea-db-sync-directories))
-           :filter #'vulpea-db-sync--fswatch-filter
-           :sentinel #'vulpea-db-sync--fswatch-sentinel))
-    (message "Vulpea: Started fswatch monitoring")))
+    (let* ((expanded-dirs (mapcar #'expand-file-name vulpea-db-sync-directories))
+           (valid-dirs nil)
+           (invalid-dirs nil))
+      ;; Separate valid and invalid directories
+      (dolist (dir expanded-dirs)
+        (if (file-directory-p dir)
+            (push dir valid-dirs)
+          (push dir invalid-dirs)))
+
+      ;; Warn about invalid directories
+      (when invalid-dirs
+        (display-warning 'vulpea
+                         (format "Ignoring non-existent directories: %s"
+                                 (string-join (nreverse invalid-dirs) ", "))
+                         :warning))
+
+      ;; Only setup fswatch if there are valid directories
+      (when valid-dirs
+        (setq vulpea-db-sync--fswatch-process
+              (make-process
+               :name "vulpea-fswatch"
+               :buffer (get-buffer-create "*vulpea-fswatch-debug*")
+               :command `("fswatch"
+                          "--recursive"
+                          "--event=Updated"
+                          "--event=Created"
+                          "--event=Removed"
+                          "--exclude" "\\.#.*$"      ; exclude auto-save files
+                          "--exclude" "#.*#$"        ; exclude backup files
+                          "--exclude" ".*~$"         ; exclude backup files
+                          "--exclude" "\\.git/"      ; exclude .git directory
+                          "--format" "%p\0%f"        ; include event flag with NUL separator
+                          ,@(nreverse valid-dirs))
+               :filter #'vulpea-db-sync--fswatch-filter
+               :sentinel #'vulpea-db-sync--fswatch-sentinel))
+        (message "Vulpea: Started fswatch monitoring")))))
 
 (defun vulpea-db-sync--fswatch-filter (_proc output)
   "Process fswatch OUTPUT."
@@ -754,15 +772,27 @@ Use this for programmatic operations that create many notes."
 (defun vulpea-db-sync--setup-polling ()
   "Setup polling-based external monitoring."
   (when vulpea-db-sync-directories
-    ;; Initialize file attributes cache
-    (vulpea-db-sync--update-file-attributes-cache)
-    ;; Start polling timer
-    (setq vulpea-db-sync--poll-timer
-          (run-with-timer vulpea-db-sync-poll-interval
-                          vulpea-db-sync-poll-interval
-                          #'vulpea-db-sync--check-external-changes))
-    (message "Vulpea: Started polling for external changes every %s seconds"
-             vulpea-db-sync-poll-interval)))
+    (let* ((expanded-dirs (mapcar #'expand-file-name vulpea-db-sync-directories))
+           (valid-dirs (seq-filter #'file-directory-p expanded-dirs))
+           (invalid-dirs (seq-remove #'file-directory-p expanded-dirs)))
+      ;; Warn about invalid directories
+      (when invalid-dirs
+        (display-warning 'vulpea
+                         (format "Ignoring non-existent directories: %s"
+                                 (string-join invalid-dirs ", "))
+                         :warning))
+
+      ;; Only setup polling if there are valid directories
+      (when valid-dirs
+        ;; Initialize file attributes cache
+        (vulpea-db-sync--update-file-attributes-cache)
+        ;; Start polling timer
+        (setq vulpea-db-sync--poll-timer
+              (run-with-timer vulpea-db-sync-poll-interval
+                              vulpea-db-sync-poll-interval
+                              #'vulpea-db-sync--check-external-changes))
+        (message "Vulpea: Started polling for external changes every %s seconds"
+                 vulpea-db-sync-poll-interval)))))
 
 (defun vulpea-db-sync--update-file-attributes-cache ()
   "Update cache of file attributes for all org files."
