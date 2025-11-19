@@ -631,6 +631,23 @@ Returns absolute path. Caller responsible for cleanup."
         (when (file-exists-p new-path)
           (delete-file new-path))))))
 
+(ert-deftest vulpea-db-sync-fswatch-removed-cleans-db ()
+  "fswatch removal events should purge deleted notes."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((path (vulpea-test--create-temp-org-file
+                  ":PROPERTIES:\n:ID: fswatch-delete\n:END:\n#+TITLE: Remove via fswatch\n"))
+           (vulpea-db-sync--queue nil))
+      (unwind-protect
+          (progn
+            (vulpea-db-update-file path)
+            (should (vulpea-db-get-by-id "fswatch-delete"))
+            (delete-file path)
+            (vulpea-db-sync--fswatch-filter nil (format "%s|Removed" path))
+            (should-not (vulpea-db-get-by-id "fswatch-delete")))
+        (when (file-exists-p path)
+          (delete-file path))))))
+
 (ert-deftest vulpea-db-sync-file-notify-watches-new-directories ()
   "Creating a new subdirectory starts a watcher so new files are indexed."
   (vulpea-test--with-temp-db
@@ -658,6 +675,27 @@ Returns absolute path. Caller responsible for cleanup."
               (should (equal (caar vulpea-db-sync--queue) file))))
         (when (file-directory-p root)
           (delete-directory root t))))))
+
+(ert-deftest vulpea-db-sync-polling-detects-deletions ()
+  "Polling fallback removes files that disappear outside Emacs."
+  (vulpea-test--with-temp-db
+    (let* ((dir (make-temp-file "vulpea-poll-dir-" t))
+           (file (expand-file-name "note.org" dir))
+           (vulpea-db-sync-directories (list dir))
+           (vulpea-db-sync--file-attributes (make-hash-table :test 'equal)))
+      (unwind-protect
+          (progn
+            (with-temp-file file
+              (insert ":PROPERTIES:\n:ID: poll-delete\n:END:\n#+TITLE: Remove via poll\n"))
+            (vulpea-db)
+            (vulpea-db-update-file file)
+            (should (vulpea-db-get-by-id "poll-delete"))
+            (puthash file (file-attributes file) vulpea-db-sync--file-attributes)
+            (delete-file file)
+            (vulpea-db-sync--check-external-changes)
+            (should-not (vulpea-db-get-by-id "poll-delete")))
+        (when (file-directory-p dir)
+          (delete-directory dir t)))))) 
 
 (provide 'vulpea-db-sync-test)
 ;;; vulpea-db-sync-test.el ends here

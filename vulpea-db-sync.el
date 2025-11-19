@@ -720,7 +720,7 @@ Use this for programmatic operations that create many notes."
                       "--exclude" "#.*#$"        ; exclude backup files
                       "--exclude" ".*~$"         ; exclude backup files
                       "--exclude" "\\.git/"      ; exclude .git directory
-                      "--format" "%p"            ; only output the path
+                      "--format" "%p|%f"         ; include event flag
                       ,@(mapcar #'expand-file-name vulpea-db-sync-directories))
            :filter #'vulpea-db-sync--fswatch-filter
            :sentinel #'vulpea-db-sync--fswatch-sentinel))
@@ -728,14 +728,20 @@ Use this for programmatic operations that create many notes."
 
 (defun vulpea-db-sync--fswatch-filter (_proc output)
   "Process fswatch OUTPUT."
-  (let ((file (string-trim-right output)))
-    (when (and (string-match-p "\\.org$" file)
-               (file-exists-p file)
+  (let* ((line (string-trim-right output))
+         (parts (split-string line "|" t))
+         (file (car parts))
+         (flags (cadr parts)))
+    (when (and file
                (not (string-match-p "/\\.git/" file))
-               (not (string-match-p "/\\.#" file))  ; auto-save
-               (not (string-match-p "#$" file))     ; backup
-               (not (string-match-p "~$" file)))    ; backup
-      (vulpea-db-sync--enqueue file))))
+               (not (string-match-p "/\\.#" file))
+               (not (string-match-p "#$" file))
+               (not (string-match-p "~$" file)))
+      (cond
+       ((and flags (string-match-p "Removed" flags))
+        (vulpea-db-sync--handle-removed-file file))
+       ((vulpea-db-sync--org-file-p file)
+        (vulpea-db-sync--enqueue file))))))
 
 (defun vulpea-db-sync--fswatch-sentinel (proc event)
   "Handle fswatch PROC sentinel EVENT."
@@ -768,18 +774,28 @@ Use this for programmatic operations that create many notes."
 
 (defun vulpea-db-sync--check-external-changes ()
   "Check for externally modified files by comparing mtimes."
-  (dolist (dir vulpea-db-sync-directories)
-    (when (file-directory-p dir)
-      (dolist (file (directory-files-recursively dir "\\.org$" t))
-        (when (file-exists-p file)
-          (let ((curr-attr (file-attributes file))
-                (cached-attr (gethash file vulpea-db-sync--file-attributes)))
-            (when (and cached-attr curr-attr
-                       (not (equal (file-attribute-modification-time curr-attr)
-                                   (file-attribute-modification-time cached-attr))))
-              ;; File changed, update cache and enqueue
+  (let ((seen (make-hash-table :test 'equal)))
+    (dolist (dir vulpea-db-sync-directories)
+      (when (file-directory-p dir)
+        (dolist (file (directory-files-recursively dir "\\.org$" t))
+          (when (file-exists-p file)
+            (let ((curr-attr (file-attributes file))
+                  (cached-attr (gethash file vulpea-db-sync--file-attributes)))
               (puthash file curr-attr vulpea-db-sync--file-attributes)
-              (vulpea-db-sync--enqueue file))))))))
+              (puthash file t seen)
+              (when (and cached-attr
+                         (not (equal (file-attribute-modification-time curr-attr)
+                                     (file-attribute-modification-time cached-attr))))
+                (vulpea-db-sync--enqueue file)))))))
+    ;; Detect deletions
+    (let (removed)
+      (maphash (lambda (path _)
+                 (unless (gethash path seen)
+                   (push path removed)))
+               vulpea-db-sync--file-attributes)
+      (dolist (path removed)
+        (remhash path vulpea-db-sync--file-attributes)
+        (vulpea-db-sync--handle-removed-file path)))))
 
 ;;; Provide
 
