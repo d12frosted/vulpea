@@ -328,10 +328,11 @@ In your org file, use property drawer with =_TYPE= suffix:
 ;; Update entire directory
 (vulpea-db-sync-update-directory "~/org-roam/")
 
-;; Full scan of all configured directories
+;; Full scan of all configured directories (smart detection)
 (vulpea-db-sync-full-scan)
 
 ;; Force re-index (e.g., after changing configuration)
+;; Interactive: M-x vulpea-db-sync-full-scan with C-u prefix
 (vulpea-db-sync-full-scan 'force)
 #+end_src
 
@@ -432,10 +433,10 @@ pacman -S fswatch
 ;; nil: skip scan (fast startup, recommended)
 (setq vulpea-db-sync-scan-on-enable nil)
 
-;; 'async: scan in background (may cause lag)
+;; 'async: queue files for async processing (non-blocking scan)
 (setq vulpea-db-sync-scan-on-enable 'async)
 
-;; 'blocking: wait for scan to complete
+;; 'blocking: scan and update synchronously (blocks until complete)
 (setq vulpea-db-sync-scan-on-enable 'blocking)
 #+end_src
 
