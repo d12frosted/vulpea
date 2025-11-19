@@ -83,6 +83,9 @@ Downloads test notes and initializes vulpea database."
                                     temp-loc))
       (setq vulpea-db-sync-directories (list vulpea-perf--notes-dir)
             vulpea-db-location (expand-file-name "vulpea.db" vulpea-perf--notes-dir))
+      ;; Delete any existing database file (might be Git LFS pointer from ZIP)
+      (when (file-exists-p vulpea-db-location)
+        (delete-file vulpea-db-location))
       (message "Initializing vulpea database in %s" vulpea-perf--notes-dir)
 
       ;; Initialize database synchronously

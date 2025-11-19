@@ -72,7 +72,7 @@ Available variables:
 
 Can be a string template or a function that accepts title and returns file name."
   :type '(choice (string :tag "Template string")
-                 (function :tag "Function"))
+          (function :tag "Function"))
   :group 'vulpea)
 
 ;;; Variables
@@ -95,14 +95,14 @@ filter function.")
 (defun vulpea--title-to-slug (title)
   "Convert TITLE to URL-friendly slug."
   (thread-last title
-    (s-trim)
-    (s-downcase)
-    (s-replace-regexp "[^a-z0-9 -]" "")
-    (s-replace-regexp " +" "-")
-    (s-replace-regexp "-+" "-")
-    (s-trim)
-    (s-chop-prefix "-")
-    (s-chop-suffix "-")))
+               (s-trim)
+               (s-downcase)
+               (s-replace-regexp "[^a-z0-9 -]" "")
+               (s-replace-regexp " +" "-")
+               (s-replace-regexp "-+" "-")
+               (s-trim)
+               (s-chop-prefix "-")
+               (s-chop-suffix "-")))
 
 (defun vulpea--default-directory ()
   "Return the default directory for creating new notes.
@@ -125,10 +125,10 @@ Returns absolute file path."
                        (funcall vulpea-file-name-template title)
                      vulpea-file-name-template))
          (file-name (thread-last template
-                      (s-replace "${title}" title)
-                      (s-replace "${slug}" slug)
-                      (s-replace "${timestamp}" timestamp)
-                      (s-replace "${id}" id)))
+                                 (s-replace "${title}" title)
+                                 (s-replace "${slug}" slug)
+                                 (s-replace "${timestamp}" timestamp)
+                                 (s-replace "${id}" id)))
          (dir (vulpea--default-directory)))
     (expand-file-name file-name dir)))
 
@@ -215,8 +215,8 @@ start the capture process."
       ;; New note - create it
       (when (not require-match)
         (let ((new-note (vulpea-create (vulpea-note-title note)
-                                        nil  ; Let template generate filename
-                                        :immediate-finish nil)))  ; Allow editing
+                                       nil  ; Let template generate filename
+                                       :immediate-finish nil)))  ; Allow editing
           (when new-note
             (vulpea-visit new-note other-window)))))))
 
@@ -268,7 +268,7 @@ If OTHER-WINDOW, visit the NOTE in another window."
         (org-back-to-heading t))
       (if (fboundp 'org-fold-show-context)
           (org-fold-show-context)
-        (org-show-context))))
+        (org-show-context)))))
 
 
 
@@ -348,8 +348,8 @@ used."
                   (funcall create-fn (vulpea-note-title note) nil)
                 ;; Create the note
                 (let ((new-note (vulpea-create (vulpea-note-title note)
-                                                nil
-                                                :immediate-finish nil)))
+                                               nil
+                                               :immediate-finish nil)))
                   ;; Return to original buffer and insert link
                   (when new-note
                     (with-current-buffer insert-buffer
