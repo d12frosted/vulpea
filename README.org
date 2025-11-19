@@ -461,7 +461,7 @@ Use =VULPEA_IGNORE= property:
 This won't be indexed.
 #+end_src
 
-### Writing Custom Plugins
+*** Writing Custom Plugins
 
 Create custom extractors to add domain-specific data to the database:
 
