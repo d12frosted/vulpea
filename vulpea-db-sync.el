@@ -432,6 +432,37 @@ Returns count of removed files."
                deleted (if (= deleted 1) "" "s")))
     deleted))
 
+(defun vulpea-db-sync--cleanup-untracked-files ()
+  "Remove database entries for files outside tracked directories.
+
+Only files within `vulpea-db-sync-directories' should remain in
+the database. Files that exist on disk but are outside these
+directories will be removed.
+
+This is useful when narrowing `vulpea-db-sync-directories' to a
+subdirectory - files outside that subdirectory will be cleaned up.
+
+Returns count of removed files."
+  (if (null vulpea-db-sync-directories)
+      0  ; No cleanup if no directories configured
+    (let* ((db (vulpea-db))
+           (all-paths (mapcar #'car (emacsql db [:select path :from files])))
+           (removed 0)
+           (tracked-dirs (mapcar #'expand-file-name vulpea-db-sync-directories)))
+      (emacsql-with-transaction db
+        (dolist (path all-paths)
+          (let ((expanded-path (expand-file-name path)))
+            (unless (seq-some (lambda (dir)
+                               (string-prefix-p dir expanded-path))
+                             tracked-dirs)
+              (vulpea-db--delete-file-notes path)
+              (emacsql db [:delete :from files :where (= path $s1)] path)
+              (setq removed (1+ removed))))))
+      (when (> removed 0)
+        (message "Vulpea: Removed %d untracked file%s from database"
+                 removed (if (= removed 1) "" "s")))
+      removed)))
+
 ;;; Manual Update
 
 ;;;###autoload
@@ -465,7 +496,9 @@ Examples:
   (vulpea-db-sync-full-scan \\='async) ; async scan
   (vulpea-db-sync-full-scan \\='force) ; force re-index (blocks)
 
-Also performs cleanup of deleted files."
+Also performs cleanup of:
+- Deleted files (no longer exist on disk)
+- Untracked files (outside `vulpea-db-sync-directories')"
   (interactive "P")
   (unless vulpea-db-sync-directories
     (user-error "No sync directories configured. Set `vulpea-db-sync-directories'"))
@@ -482,8 +515,9 @@ Also performs cleanup of deleted files."
     (when (and async force)
       (user-error "Cannot combine async and force modes. Use 'force for synchronous re-index"))
 
-    ;; Clean up deleted files first
+    ;; Clean up deleted and untracked files first
     (vulpea-db-sync--cleanup-deleted-files)
+    (vulpea-db-sync--cleanup-untracked-files)
 
     ;; Scan directories
     (cond

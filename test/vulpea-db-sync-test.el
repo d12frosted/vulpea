@@ -432,5 +432,97 @@ Returns absolute path. Caller responsible for cleanup."
       (when (file-directory-p test-dir)
         (delete-directory test-dir t)))))
 
+;;; Cleanup Tests
+
+(ert-deftest vulpea-db-sync-cleanup-untracked-files ()
+  "Test that narrowing sync directories removes untracked files from database."
+  (vulpea-test--with-temp-db
+    (let* ((dir1 (make-temp-file "vulpea-test-dir1-" t))
+           (dir2 (make-temp-file "vulpea-test-dir2-" t))
+           (file1 (expand-file-name "note1.org" dir1))
+           (file2 (expand-file-name "note2.org" dir2))
+           (vulpea-db-sync-directories (list dir1 dir2)))
+      (unwind-protect
+          (progn
+            ;; Create files in both directories
+            (with-temp-file file1
+              (insert ":PROPERTIES:\n:ID: id-1\n:END:\n#+TITLE: Note 1\n"))
+            (with-temp-file file2
+              (insert ":PROPERTIES:\n:ID: id-2\n:END:\n#+TITLE: Note 2\n"))
+
+            ;; Index both files
+            (vulpea-db)  ; Initialize database
+            (vulpea-db-update-file file1)
+            (vulpea-db-update-file file2)
+
+            ;; Verify both are in database
+            (should (vulpea-db-get-by-id "id-1"))
+            (should (vulpea-db-get-by-id "id-2"))
+            (should (= 2 (vulpea-db-count-notes)))
+
+            ;; Narrow to only dir1
+            (setq vulpea-db-sync-directories (list dir1))
+
+            ;; Run cleanup
+            (let ((removed (vulpea-db-sync--cleanup-untracked-files)))
+              (should (= 1 removed)))
+
+            ;; Verify only file1 remains
+            (should (vulpea-db-get-by-id "id-1"))
+            (should-not (vulpea-db-get-by-id "id-2"))
+            (should (= 1 (vulpea-db-count-notes))))
+        (when (file-directory-p dir1)
+          (delete-directory dir1 t))
+        (when (file-directory-p dir2)
+          (delete-directory dir2 t))))))
+
+(ert-deftest vulpea-db-sync-full-scan-cleans-untracked ()
+  "Test that full-scan automatically cleans up untracked files."
+  (vulpea-test--with-temp-db
+    (let* ((dir1 (make-temp-file "vulpea-test-dir1-" t))
+           (dir2 (make-temp-file "vulpea-test-dir2-" t))
+           (subdir (expand-file-name "journal" dir1))
+           (file1 (expand-file-name "note1.org" dir1))
+           (file2 (expand-file-name "note2.org" subdir))
+           (file3 (expand-file-name "note3.org" dir2))
+           (vulpea-db-sync-directories (list dir1 dir2)))
+      (unwind-protect
+          (progn
+            ;; Create subdirectory
+            (make-directory subdir t)
+
+            ;; Create files
+            (with-temp-file file1
+              (insert ":PROPERTIES:\n:ID: id-1\n:END:\n#+TITLE: Note 1\n"))
+            (with-temp-file file2
+              (insert ":PROPERTIES:\n:ID: id-2\n:END:\n#+TITLE: Note 2\n"))
+            (with-temp-file file3
+              (insert ":PROPERTIES:\n:ID: id-3\n:END:\n#+TITLE: Note 3\n"))
+
+            ;; Initialize and index all files
+            (vulpea-db)
+            (vulpea-db-update-file file1)
+            (vulpea-db-update-file file2)
+            (vulpea-db-update-file file3)
+
+            ;; Verify all are in database
+            (should (= 3 (vulpea-db-count-notes)))
+
+            ;; Narrow to only journal subdirectory
+            (setq vulpea-db-sync-directories (list subdir))
+
+            ;; Run full scan (should clean up file1 and file3)
+            (vulpea-db-sync-full-scan)
+
+            ;; Verify only file2 remains
+            (should-not (vulpea-db-get-by-id "id-1"))
+            (should (vulpea-db-get-by-id "id-2"))
+            (should-not (vulpea-db-get-by-id "id-3"))
+            (should (= 1 (vulpea-db-count-notes))))
+        (when (file-directory-p dir1)
+          (delete-directory dir1 t))
+        (when (file-directory-p dir2)
+          (delete-directory dir2 t))))))
+
 (provide 'vulpea-db-sync-test)
 ;;; vulpea-db-sync-test.el ends here
