@@ -477,6 +477,34 @@ Returns absolute path. Caller responsible for cleanup."
         (when (file-directory-p dir2)
           (delete-directory dir2 t))))))
 
+(ert-deftest vulpea-db-sync-cleanup-untracked-files-strict-prefix ()
+  "Ensure cleanup treats similarly named directories as untracked."
+  (vulpea-test--with-temp-db
+    (let* ((dir (make-temp-file "vulpea-test-dir-" t))
+           (similar (concat dir "-archive"))
+           (tracked-file (expand-file-name "note1.org" dir))
+           (external-file (expand-file-name "note2.org" similar))
+           (vulpea-db-sync-directories (list dir)))
+      (unwind-protect
+          (progn
+            (make-directory similar t)
+            (with-temp-file tracked-file
+              (insert ":PROPERTIES:\n:ID: tracked\n:END:\n#+TITLE: Tracked\n"))
+            (with-temp-file external-file
+              (insert ":PROPERTIES:\n:ID: external\n:END:\n#+TITLE: External\n"))
+
+            (vulpea-db)
+            (vulpea-db-update-file tracked-file)
+            (vulpea-db-update-file external-file)
+
+            (should (= 1 (vulpea-db-sync--cleanup-untracked-files)))
+            (should (vulpea-db-get-by-id "tracked"))
+            (should-not (vulpea-db-get-by-id "external")))
+        (when (file-directory-p dir)
+          (delete-directory dir t))
+        (when (file-directory-p similar)
+          (delete-directory similar t))))))
+
 (ert-deftest vulpea-db-sync-full-scan-cleans-untracked ()
   "Test that full-scan automatically cleans up untracked files."
   (vulpea-test--with-temp-db
