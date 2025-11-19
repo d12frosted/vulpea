@@ -442,13 +442,13 @@ EXTRACTOR-OR-NAME can be:
 When using the struct form:
   (vulpea-db-register-extractor
    (make-vulpea-extractor
-    :name 'my-extractor
+    :name \\='my-extractor
     :version 1
     :priority 50
-    :extract-fn #'my-extract-fn))
+    :extract-fn #\\='my-extract-fn))
 
 When using the simple form (backward compatible):
-  (vulpea-db-register-extractor 'my-extractor #'my-extract-fn)
+  (vulpea-db-register-extractor \\='my-extractor #\\='my-extract-fn)
 
 FN should be a function taking (ctx note-data) where:
 - ctx is a `vulpea-parse-ctx' structure
