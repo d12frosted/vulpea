@@ -361,7 +361,7 @@ Optionally performs initial scan based on `vulpea-db-sync-scan-on-enable'."
 
           ;; Initialize totals if starting fresh
           (when (zerop vulpea-db-sync--processed-total)
-            (setq vulpea-db-sync--queue-total (+ (length vulpea-db-sync--queue) batch-size)
+            (setq vulpea-db-sync--queue-total (length vulpea-db-sync--queue)
                   vulpea-db-sync--updated-total 0)
             (when (> vulpea-db-sync--queue-total 1)
               (message "Vulpea: Async syncing %d file%s..."
