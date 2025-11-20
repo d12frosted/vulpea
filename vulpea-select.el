@@ -35,6 +35,7 @@
 
 (require 'vulpea-utils)
 (require 'vulpea-db)
+(require 'vulpea-db-query)
 
 (defvar vulpea-select-describe-fn #'vulpea-note-title
   "Function to describe a note for completion.
