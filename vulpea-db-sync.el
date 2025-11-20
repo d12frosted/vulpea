@@ -4,14 +4,6 @@
 ;;
 ;; Author: Boris Buliga <boris@d12frosted.io>
 ;; Maintainer: Boris Buliga <boris@d12frosted.io>
-;; Version: 2.0.0
-;; Package-Requires: ((emacs "27.1"))
-;;
-;; Created: 16 Nov 2025
-;;
-;; URL: https://github.com/d12frosted/vulpea
-;;
-;; License: GPLv3
 ;;
 ;; This program is free software; you can redistribute it and/or
 ;; modify it under the terms of the GNU General Public License as
@@ -28,6 +20,12 @@
 ;; <http://www.gnu.org/licenses/>.
 ;;
 ;; This file is not part of GNU Emacs.
+;;
+;; Created: 16 Nov 2025
+;;
+;; URL: https://github.com/d12frosted/vulpea
+;;
+;; License: GPLv3
 ;;
 ;;; Commentary:
 ;;
@@ -101,8 +99,9 @@ Possible values:
 
 (defcustom vulpea-db-sync-poll-interval 2
   "Interval in seconds for polling external changes.
-Only used when `vulpea-db-sync-external-method' is `poll' or `auto'
-(when fswatch is not available)."
+
+Only used when `vulpea-db-sync-external-method' is `poll' or
+`auto' (when fswatch is not available)."
   :type 'number
   :group 'vulpea-db-sync)
 
@@ -119,8 +118,8 @@ or a larger value (e.g., 1000) for less frequent updates."
 (defcustom vulpea-db-sync-scan-on-enable nil
   "Whether to scan all files when enabling autosync mode.
 
-This initial scan detects changes made while Emacs was closed
-(e.g., from git pulls, Dropbox sync, or external edits).
+This initial scan detects changes made while Emacs was closed (e.g.,
+from git pulls, Dropbox sync, or external edits).
 
 Options:
 - nil: Skip initial scan (fast startup, manual sync when needed)
@@ -207,7 +206,7 @@ When disabled:
 ;;; Core Functions
 
 (defun vulpea-db-sync--start ()
-  "Start file watching and async updates.
+  "Start file watching and async update.
 
 Optionally performs initial scan based on `vulpea-db-sync-scan-on-enable'."
   ;; Clean up deleted files first
@@ -220,7 +219,7 @@ Optionally performs initial scan based on `vulpea-db-sync-scan-on-enable'."
        ;; Queue all files for async processing
        (message "Vulpea: Queueing files for async scan...")
        (dolist (dir vulpea-db-sync-directories)
-         (dolist (file (directory-files-recursively dir "\\.org$"))
+         (dolist (file (directory-files-recursively dir "\\.org\\'"))
            (vulpea-db-sync--enqueue file))))
       ('blocking
        ;; Scan synchronously (blocks Emacs)
@@ -265,7 +264,7 @@ Optionally performs initial scan based on `vulpea-db-sync-scan-on-enable'."
   (clrhash vulpea-db-sync--queue-set))
 
 (defun vulpea-db-sync--watch-directory (dir)
-  "Watch DIR and all subdirectories for org file changes."
+  "Watch DIR and all subdirectories for org file change."
   (when (and dir (file-directory-p dir) (not (file-symlink-p dir)))
     (unless (assoc dir vulpea-db-sync--watchers)
       (let ((descriptor (file-notify-add-watch
@@ -275,14 +274,14 @@ Optionally performs initial scan based on `vulpea-db-sync-scan-on-enable'."
         (push (cons dir descriptor) vulpea-db-sync--watchers)))
 
     ;; Recursively watch subdirectories
-    (dolist (subdir (directory-files dir t "^[^.]" t))
+    (dolist (subdir (directory-files dir t "\\`[^.]" t))
       (when (and (file-directory-p subdir)
                  (not (file-symlink-p subdir))
                  (not (string-match-p "/\\.git/" subdir)))
         (vulpea-db-sync--watch-directory subdir)))))
 
 (defun vulpea-db-sync--watch-file (path)
-  "Watch file at PATH for changes."
+  "Watch file at PATH for change."
   (unless (assoc path vulpea-db-sync--watchers)
     (when (file-exists-p path)
       (let ((descriptor (file-notify-add-watch
@@ -325,7 +324,7 @@ Optionally performs initial scan based on `vulpea-db-sync-scan-on-enable'."
 
 (defun vulpea-db-sync--file-notify-callback (event)
   "Handle file notification EVENT."
-  (pcase-let ((`(,descriptor ,action ,file . ,rest) event))
+  (pcase-let ((`(,_descriptor ,action ,file . ,rest) event))
     (pcase action
       ((or 'changed 'created 'attribute-changed)
        (cond
@@ -371,7 +370,7 @@ Optionally performs initial scan based on `vulpea-db-sync-scan-on-enable'."
               (1+ vulpea-db-sync--queue-total))))))
 
 (defun vulpea-db-sync--process-queue ()
-  "Process queued file updates."
+  "Process queued file update."
   (when (and vulpea-db-sync--queue
              (not vulpea-db-sync--processing))
     (setq vulpea-db-sync--processing t)
@@ -559,26 +558,26 @@ Returns count of removed files."
 
 ;;;###autoload
 (defun vulpea-db-sync-full-scan (&optional arg)
-  "Manually scan all sync directories for changes.
+  "Manually scan all sync directories for change.
 
-This is useful when `vulpea-db-sync-scan-on-enable' is nil and you
-need to detect external changes (e.g., after git pull, Dropbox sync).
+This is useful when `vulpea-db-sync-scan-on-enable' is nil and you need
+to detect external changes (e.g., after git pull, Dropbox sync).
 
 ARG controls scan behavior:
 
 Interactive use:
 - No prefix: Smart detection (only updates changed files)
-- C-u: FORCE scan (re-index everything)
+- \\[universal-argument]: FORCE scan (re-index everything)
 
 Programmatic use:
 - nil: Smart detection
 - \\='force or non-nil: Force re-index
 
-FORCE scan ignores change detection and re-indexes all files.
-Use FORCE when changing configuration like `vulpea-db-index-heading-level'.
+FORCE scan ignores change detection and re-indexes all files. Use FORCE
+when changing configuration like `vulpea-db-index-heading-level'.
 
 Examples:
-  (vulpea-db-sync-full-scan)          ; smart detection
+  (vulpea-db-sync-full-scan)             ; smart detection
   (vulpea-db-sync-full-scan \\='force)   ; force re-index
 
 Also performs cleanup of:
@@ -626,7 +625,7 @@ This is useful when changing configuration like `vulpea-db-index-heading-level'.
 FORCE mode is always synchronous/blocking, even when `vulpea-db-autosync-mode'
 is enabled."
   (interactive "DDirectory: ")
-  (let ((files (directory-files-recursively dir "\\.org$")))
+  (let ((files (directory-files-recursively dir "\\.org\\'")))
     (if (and vulpea-db-autosync-mode (not force))
         ;; Async mode: queue all files (smart detection in queue processing)
         (progn
@@ -692,7 +691,7 @@ is enabled."
 ;;; Sync Mode
 
 (defmacro vulpea-with-sync-db (&rest body)
-  "Execute BODY with synchronous database updates.
+  "Execute BODY with synchronous database update.
 
 Disables autosync, executes BODY, then processes all pending updates
 synchronously before re-enabling autosync.
@@ -838,7 +837,7 @@ Use this for programmatic operations that create many notes."
   "Update cache of file attributes for all org files."
   (dolist (dir vulpea-db-sync-directories)
     (when (file-directory-p dir)
-      (dolist (file (directory-files-recursively dir "\\.org$" t))
+      (dolist (file (directory-files-recursively dir "\\.org\\'" t))
         (when (file-exists-p file)
           (puthash file (file-attributes file) vulpea-db-sync--file-attributes))))))
 
@@ -847,7 +846,7 @@ Use this for programmatic operations that create many notes."
   (let ((seen (make-hash-table :test 'equal)))
     (dolist (dir vulpea-db-sync-directories)
       (when (file-directory-p dir)
-        (dolist (file (directory-files-recursively dir "\\.org$" t))
+        (dolist (file (directory-files-recursively dir "\\.org\\'" t))
           (when (file-exists-p file)
             (let ((curr-attr (file-attributes file))
                   (cached-attr (gethash file vulpea-db-sync--file-attributes)))

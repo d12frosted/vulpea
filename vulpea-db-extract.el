@@ -4,14 +4,6 @@
 ;;
 ;; Author: Boris Buliga <boris@d12frosted.io>
 ;; Maintainer: Boris Buliga <boris@d12frosted.io>
-;; Version: 2.0.0
-;; Package-Requires: ((emacs "27.1") (org "9.4"))
-;;
-;; Created: 16 Nov 2025
-;;
-;; URL: https://github.com/d12frosted/vulpea
-;;
-;; License: GPLv3
 ;;
 ;; This program is free software; you can redistribute it and/or
 ;; modify it under the terms of the GNU General Public License as
@@ -26,6 +18,12 @@
 ;; You should have received a copy of the GNU General Public License
 ;; along with this program. If not, see
 ;; <http://www.gnu.org/licenses/>.
+;;
+;; Created: 16 Nov 2025
+;;
+;; URL: https://github.com/d12frosted/vulpea
+;;
+;; License: GPLv3
 ;;
 ;; This file is not part of GNU Emacs.
 ;;

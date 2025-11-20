@@ -4,14 +4,6 @@
 ;;
 ;; Author: Boris Buliga <boris@d12frosted.io>
 ;; Maintainer: Boris Buliga <boris@d12frosted.io>
-;; Version: 2.0.0
-;; Package-Requires: ((emacs "27.1") (emacsql "4.0.0"))
-;;
-;; Created: 16 Nov 2025
-;;
-;; URL: https://github.com/d12frosted/vulpea
-;;
-;; License: GPLv3
 ;;
 ;; This program is free software; you can redistribute it and/or
 ;; modify it under the terms of the GNU General Public License as
@@ -28,6 +20,12 @@
 ;; <http://www.gnu.org/licenses/>.
 ;;
 ;; This file is not part of GNU Emacs.
+;;
+;; Created: 16 Nov 2025
+;;
+;; URL: https://github.com/d12frosted/vulpea
+;;
+;; License: GPLv3
 ;;
 ;;; Commentary:
 ;;
@@ -142,7 +140,7 @@ significant performance improvement."
   "Database schema definition.
 
 Uses hybrid approach:
-- Materialized \`notes\` table: complete note data, fast retrieval
+- Materialized notes table: complete note data, fast retrieval
 - Normalized tables: efficient filtering by tags/links/meta")
 
 (defconst vulpea-db--indices
@@ -266,8 +264,9 @@ Converts :key value pairs to (\"key\" . value) pairs."
 
 (defun vulpea-db--meta-to-json (meta)
   "Convert META to JSON-compatible alist.
+
 META is ((key . (plist1 plist2...))...).
-Converts plists to alists so json-encode creates objects."
+Converts plists to alists so `json-encode' creates objects."
   (mapcar (lambda (entry)
             (cons (car entry)
                   (mapcar #'vulpea-db--plist-to-alist (cdr entry))))
@@ -275,8 +274,9 @@ Converts plists to alists so json-encode creates objects."
 
 (defun vulpea-db--links-to-json (links)
   "Convert LINKS to JSON-compatible list.
+
 LINKS is (plist1 plist2...).
-Converts plists to alists so json-encode creates objects."
+Converts plists to alists so `json-encode' creates objects."
   (mapcar #'vulpea-db--plist-to-alist links))
 
 (cl-defun vulpea-db--insert-note (&key id path level pos title

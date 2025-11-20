@@ -1,16 +1,9 @@
 ;;; vulpea-note.el --- Vulpea note definition -*- lexical-binding: t; -*-
 ;;
-;; Copyright (c) 2020-2025 Boris Buliga <boris@d12frosted.io>
+;; Copyright (c) 2015-2025 Boris Buliga <boris@d12frosted.io>
 ;;
 ;; Author: Boris Buliga <boris@d12frosted.io>
 ;; Maintainer: Boris Buliga <boris@d12frosted.io>
-;; Version: 2.0.0
-;;
-;; Created: 28 Feb 2021
-;;
-;; URL: https://github.com/d12frosted/vulpea
-;;
-;; License: GPLv3
 ;;
 ;; This program is free software; you can redistribute it and/or
 ;; modify it under the terms of the GNU General Public License as
@@ -27,6 +20,12 @@
 ;; <http://www.gnu.org/licenses/>.
 ;;
 ;; This file is not part of GNU Emacs.
+;;
+;; Created: 28 Feb 2021
+;;
+;; URL: https://github.com/d12frosted/vulpea
+;;
+;; License: GPLv3
 ;;
 ;;; Commentary:
 ;;

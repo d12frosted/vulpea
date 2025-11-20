@@ -1,6 +1,6 @@
 ;;; vulpea-select.el --- Metadata manipulation -*- lexical-binding: t; -*-
 ;;
-;; Copyright (c) 2020-2021 Boris Buliga
+;; Copyright (c) 2015-2025 Boris Buliga  <boris@d12frosted.io>
 ;;
 ;; Author: Boris Buliga <boris@d12frosted.io>
 ;; Maintainer: Boris Buliga <boris@d12frosted.io>

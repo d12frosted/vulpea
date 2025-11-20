@@ -1,6 +1,6 @@
 ;;; vulpea-utils.el --- Vulpea utilities   -*- lexical-binding: t; -*-
 ;;
-;; Copyright (c) 2020-2021 Boris Buliga
+;; Copyright (c) 2015-2025 Boris Buliga <boris@d12frosted.io>
 ;;
 ;; Author: Boris Buliga <boris@d12frosted.io>
 ;; Maintainer: Boris Buliga <boris@d12frosted.io>
@@ -122,7 +122,7 @@ In most cases you should use `vulpea-utils-with-note', because
 that macro properly handles notes with level greater than 0."
   (declare (indent 1) (debug t))
   `(with-current-buffer (find-file-noselect ,file)
-     ,@body))
+    ,@body))
 
 (defmacro vulpea-utils-with-note (note &rest body)
   "Execute BODY in with buffer visiting NOTE.
@@ -131,9 +131,9 @@ If note level is equal to 0, then the point is placed at the
 beginning of the buffer. Otherwise at the heading with note id."
   (declare (indent 1) (debug t))
   `(with-current-buffer (find-file-noselect (vulpea-note-path ,note))
-     (when (> (vulpea-note-level ,note) 0)
-       (goto-char (org-find-entry-with-id (vulpea-note-id ,note))))
-     ,@body))
+    (when (> (vulpea-note-level ,note) 0)
+     (goto-char (org-find-entry-with-id (vulpea-note-id ,note))))
+    ,@body))
 
 (defun vulpea-utils-link-make-string (note &optional description)
   "Make a bracket link to NOTE.

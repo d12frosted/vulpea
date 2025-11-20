@@ -1,10 +1,10 @@
 ;;; vulpea.el --- A collection of note-taking functions -*- lexical-binding: t; -*-
 ;;
-;; Copyright (c) 2020-2021 Boris Buliga
+;; Copyright (c) 2015-2025 Boris Buliga <boris@d12frosted.io>
 ;;
 ;; Author: Boris Buliga <boris@d12frosted.io>
 ;; Maintainer: Boris Buliga <boris@d12frosted.io>
-;; Version: 0.3.0
+;; Version: 2.0.0
 ;; Package-Requires: ((emacs "27.2") (org "9.4.4") (emacsql "4.3.0") (s "1.12") (dash "2.19"))
 ;;
 ;; This program is free software; you can redistribute it and/or
@@ -134,8 +134,10 @@ Returns absolute file path."
     (expand-file-name file-name dir)))
 
 (defun vulpea--format-note-content (id title &optional head meta tags properties)
-  "Format note content for org-capture template.
-ID and TITLE are required. Optional: HEAD, META (alist), TAGS (list), PROPERTIES (alist)."
+  "Format note content for `org-capture' template.
+
+ID and TITLE are required. Optional: HEAD, META (alist), TAGS (list),
+PROPERTIES (alist)."
   (string-join
    (append
     (list
@@ -384,7 +386,8 @@ used."
                          _capture-properties)  ; Reserved for future use
   "Create a new note file with TITLE.
 
-FILE-NAME is optional. When nil, uses `vulpea-file-name-template' to generate.
+FILE-NAME is optional. When nil, uses `vulpea-file-name-template' to
+generate.
 
 Returns created `vulpea-note'.
 
@@ -404,7 +407,8 @@ Structure of the generated file is:
 
   BODY if present
 
-CONTEXT is a property list of :key val (currently unused, for future compatibility).
+CONTEXT is a property list of :key val (currently unused, for future
+compatibility).
 
 PROPERTIES is a list of (key_str . val_str).
 
@@ -413,7 +417,8 @@ IMMEDIATE-FINISH defaults to t for programmatic use.
 
 META is an alist of (key . value) or (key . (list of values)).
 
-CAPTURE-PROPERTIES are additional properties for org-capture (currently unused).
+CAPTURE-PROPERTIES are additional properties for
+`org-capture' (currently unused).
 
 See Info node `(org) Template elements' for BODY template syntax."
   (let* ((id (or id (org-id-new)))

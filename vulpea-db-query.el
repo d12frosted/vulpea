@@ -4,14 +4,6 @@
 ;;
 ;; Author: Boris Buliga <boris@d12frosted.io>
 ;; Maintainer: Boris Buliga <boris@d12frosted.io>
-;; Version: 2.0.0
-;; Package-Requires: ((emacs "27.1"))
-;;
-;; Created: 16 Nov 2025
-;;
-;; URL: https://github.com/d12frosted/vulpea
-;;
-;; License: GPLv3
 ;;
 ;; This program is free software; you can redistribute it and/or
 ;; modify it under the terms of the GNU General Public License as
@@ -28,6 +20,12 @@
 ;; <http://www.gnu.org/licenses/>.
 ;;
 ;; This file is not part of GNU Emacs.
+;;
+;; Created: 16 Nov 2025
+;;
+;; URL: https://github.com/d12frosted/vulpea
+;;
+;; License: GPLv3
 ;;
 ;;; Commentary:
 ;;
@@ -275,7 +273,7 @@ Returns list of `vulpea-note' structs."
                                :inner :join links
                                :on (= notes:id links:source)
                                :where (and (in links:dest $v1)
-                                          (= links:type $s2))]
+                                           (= links:type $s2))]
                               (vconcat normalized-ids)
                               link-type)
                    (emacsql (vulpea-db)
@@ -305,7 +303,7 @@ Returns list of `vulpea-note' structs."
                                           [:select [source]
                                            :from links
                                            :where (and (in dest $v1)
-                                                      (= type $s2))
+                                                       (= type $s2))
                                            :group :by source
                                            :having (= (funcall count (distinct dest)) $s3)]
                                           (vconcat dest-ids)
@@ -395,8 +393,8 @@ Returns list of `vulpea-note' structs."
                             :inner :join meta
                             :on (= notes:id meta:note-id)
                             :where (and (= meta:key $s1)
-                                       (= meta:value $s2)
-                                       (= meta:type $s3))]
+                                        (= meta:value $s2)
+                                        (= meta:type $s3))]
                            key value type)
                 (emacsql (vulpea-db)
                          [:select :distinct [notes:*]
@@ -404,7 +402,7 @@ Returns list of `vulpea-note' structs."
                           :inner :join meta
                           :on (= notes:id meta:note-id)
                           :where (and (= meta:key $s1)
-                                     (= meta:value $s2))]
+                                      (= meta:value $s2))]
                          key value))))
     (mapcar #'vulpea-db--row-to-note rows)))
 
