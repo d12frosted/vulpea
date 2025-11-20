@@ -527,5 +527,48 @@ This serves as documentation for plugin authors."
               (should (equal (elt row 0) "Version 2"))))
         (delete-file path)))))
 
+;;; Attachment Directory Tests
+
+(ert-deftest vulpea-db-extract-attach-dir-file-level ()
+  "Test ATTACH_DIR keyword extraction at file level."
+  (let ((path (vulpea-test--create-temp-org-file
+               ":PROPERTIES:\n:ID: file-with-attachments\n:END:\n#+TITLE: File With Attachments\n#+ATTACH_DIR: data/attachments/file-id\n")))
+    (unwind-protect
+        (let* ((ctx (vulpea-db--parse-file path))
+               (node (vulpea-parse-ctx-file-node ctx)))
+          (should (equal (plist-get node :attach-dir) "data/attachments/file-id")))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-attach-dir-heading-level ()
+  "Test ATTACH_DIR property extraction at heading level."
+  (let ((path (vulpea-test--create-temp-org-file
+               "#+TITLE: File\n\n* Heading\n:PROPERTIES:\n:ID: heading-with-attachments\n:ATTACH_DIR: data/attachments/heading-id\n:END:\n")))
+    (unwind-protect
+        (let* ((vulpea-db-index-heading-level t)
+               (ctx (vulpea-db--parse-file path))
+               (nodes (vulpea-parse-ctx-heading-nodes ctx))
+               (node (car nodes)))
+          (should (equal (plist-get node :attach-dir) "data/attachments/heading-id")))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-attach-dir-round-trip ()
+  "Test attach-dir full round-trip: extract → database → query."
+  (let* ((temp-db-file (make-temp-file "vulpea-test-" nil ".db"))
+         (vulpea-db-location temp-db-file)
+         (vulpea-db--connection nil)
+         (path (vulpea-test--create-temp-org-file
+                ":PROPERTIES:\n:ID: note-with-attach\n:END:\n#+TITLE: Note With Attachments\n#+ATTACH_DIR: /path/to/attachments\n")))
+    (unwind-protect
+        (progn
+          (vulpea-db)
+          (vulpea-db-update-file path)
+          (let ((note (vulpea-db-get-by-id "note-with-attach")))
+            (should (equal (vulpea-note-attach-dir note) "/path/to/attachments"))))
+      (when vulpea-db--connection
+        (vulpea-db-close))
+      (when (file-exists-p temp-db-file)
+        (delete-file temp-db-file))
+      (delete-file path))))
+
 (provide 'vulpea-db-extract-test)
 ;;; vulpea-db-extract-test.el ends here
