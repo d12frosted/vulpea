@@ -95,16 +95,30 @@ filter function.")
 ;;; Helper Functions
 
 (defun vulpea--title-to-slug (title)
-  "Convert TITLE to URL-friendly slug."
-  (thread-last title
-               (s-trim)
-               (s-downcase)
-               (s-replace-regexp "[^a-z0-9 -]" "")
-               (s-replace-regexp " +" "-")
-               (s-replace-regexp "-+" "-")
-               (s-trim)
-               (s-chop-prefix "-")
-               (s-chop-suffix "-")))
+  "Convert TITLE to URL-friendly slug.
+
+Uses Unicode normalization to properly handle international characters
+and diacritical marks. Implementation adapted from org-roam.
+
+Credits: USAMI Kenta (@zonuexe)
+See: https://github.com/org-roam/org-roam/pull/1460"
+  (require 'ucs-normalize)
+  (let ((slug-trim-chars
+         ;; Combining Diacritical Marks https://www.unicode.org/charts/PDF/U0300.pdf
+         ;; For why these specific glyphs: https://github.com/org-roam/org-roam/pull/1460
+         '( #x300 #x301 #x302 #x303 #x304 #x306 #x307
+            #x308 #x309 #x30A #x30B #x30C #x31B #x323
+            #x324 #x325 #x327 #x32D #x32E #x330 #x331)))
+    (thread-last title
+                 (ucs-normalize-NFD-string) ;; aka. `string-glyph-decompose' from Emacs 29
+                 (seq-remove (lambda (char) (memq char slug-trim-chars)))
+                 (apply #'string)
+                 (ucs-normalize-NFC-string) ;; aka. `string-glyph-compose' from Emacs 29
+                 (replace-regexp-in-string "[^[:alnum:]]" "_") ;; convert anything not alphanumeric
+                 (replace-regexp-in-string "__*" "_")          ;; remove sequential underscores
+                 (replace-regexp-in-string "^_" "")            ;; remove starting underscore
+                 (replace-regexp-in-string "_$" "")            ;; remove ending underscore
+                 (downcase))))
 
 (defun vulpea--default-directory ()
   "Return the default directory for creating new notes.

@@ -254,18 +254,24 @@ Returns absolute path. Caller responsible for cleanup."
 (ert-deftest vulpea--title-to-slug-basic ()
   "Test basic slug generation."
   (should (equal (vulpea--title-to-slug "Hello World")
-                 "hello-world"))
+                 "hello_world"))
   (should (equal (vulpea--title-to-slug "My Great Note")
-                 "my-great-note")))
+                 "my_great_note")))
 
 (ert-deftest vulpea--title-to-slug-special-chars ()
-  "Test slug generation removes special characters."
+  "Test slug generation handles special characters and Unicode properly.
+Uses Unicode normalization to preserve base characters from accented letters."
   (should (equal (vulpea--title-to-slug "Hello, World!")
-                 "hello-world"))
+                 "hello_world"))
+  ;; Special chars become underscores, preserving separator positions
   (should (equal (vulpea--title-to-slug "Test@Note#123")
-                 "testnote123"))
+                 "test_note_123"))
+  ;; Properly handles diacritics: é → e
   (should (equal (vulpea--title-to-slug "Café & Restaurant")
-                 "caf-restaurant")))
+                 "cafe_restaurant"))
+  ;; International characters preserved
+  (should (equal (vulpea--title-to-slug "Naïve Approach")
+                 "naive_approach")))
 
 (ert-deftest vulpea--expand-file-name-template-default ()
   "Test file name template expansion with default template."
@@ -274,7 +280,7 @@ Returns absolute path. Caller responsible for cleanup."
          (result (vulpea--expand-file-name-template "Test Note")))
     (unwind-protect
         (progn
-          (should (string-match-p "/test-note\\.org$" result))
+          (should (string-match-p "/test_note\\.org$" result))
           (should (file-name-absolute-p result))
           (should (string-prefix-p vulpea-default-notes-directory result)))
       (when (file-directory-p vulpea-default-notes-directory)
@@ -287,7 +293,7 @@ Returns absolute path. Caller responsible for cleanup."
          (result (vulpea--expand-file-name-template "My Note")))
     (unwind-protect
         (progn
-          (should (string-match-p "/[0-9]\\{14\\}_my-note\\.org$" result))
+          (should (string-match-p "/[0-9]\\{14\\}_my_note\\.org$" result))
           (should (file-name-absolute-p result)))
       (when (file-directory-p vulpea-default-notes-directory)
         (delete-directory vulpea-default-notes-directory t)))))
