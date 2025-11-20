@@ -37,14 +37,15 @@
 ;;
 ;;; Code:
 
+(require 'org-capture)
 (require 'vulpea-buffer)
 (require 'vulpea-db)
 (require 'vulpea-db-extract)
 (require 'vulpea-db-sync)
 (require 'vulpea-meta)
+(require 'vulpea-note)
 (require 'vulpea-select)
 (require 'vulpea-utils)
-(require 'org-capture)
 (require 's)
 ;;; Customization
 
