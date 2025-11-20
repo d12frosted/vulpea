@@ -231,7 +231,7 @@ Returns list of `vulpea-note' structs."
       (vulpea-db-query nil)  ; Return all notes
     (let ((note-ids (mapcar #'car
                             (emacsql (vulpea-db)
-                                     [:select [note-id]
+                                     [:select :distinct [note-id]
                                       :from tags
                                       :where (in tag $v1)]
                                      (vconcat tags)))))
