@@ -326,8 +326,9 @@ Arguments:
 
       ;; 2. Insert into normalized tags table
       (when tags
-        (emacsql db [:insert :into tags :values $v1]
-                 (mapcar (lambda (tag) (vector id tag)) tags)))
+        (let ((unique-tags (delete-dups (copy-sequence tags))))
+          (emacsql db [:insert :into tags :values $v1]
+                   (mapcar (lambda (tag) (vector id tag)) unique-tags))))
 
       ;; 3. Insert into normalized links table
       (when links

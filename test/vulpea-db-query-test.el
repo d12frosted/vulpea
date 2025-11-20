@@ -226,6 +226,38 @@ ARGS is a plist with optional fields:
     (let ((notes (vulpea-db-query-by-tags-none nil)))
       (should (= (length notes) 2)))))
 
+(ert-deftest vulpea-db-query-by-tags-with-duplicates ()
+  "Test that duplicate tags in source list are properly handled.
+
+Regression test for bug where duplicate tags violated PRIMARY KEY
+constraint and caused transaction rollback, preventing any tags
+from being inserted into the normalized tags table."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    ;; Insert note with duplicate tags (mimics org file with :tag:tag:)
+    (vulpea-test--insert-test-note "note1" "Note 1"
+                                   :tags '("wine" "cellar" "wine"))
+
+    ;; Verify note was inserted
+    (let ((note (vulpea-db-get-by-id "note1")))
+      (should note)
+      (should (equal (vulpea-note-id note) "note1")))
+
+    ;; Verify tags were deduplicated and inserted into tags table
+    (let ((rows (emacsql (vulpea-db)
+                         [:select [tag] :from tags
+                          :where (= note-id $s1)
+                          :order-by [(asc tag)]]
+                         "note1")))
+      (should (= (length rows) 2))
+      (should (equal (mapcar #'car rows) '("cellar" "wine"))))
+
+    ;; Verify tag queries work correctly
+    (should (= (length (vulpea-db-query-by-tags-some '("wine"))) 1))
+    (should (= (length (vulpea-db-query-by-tags-every '("wine" "cellar"))) 1))
+    (should (= (length (vulpea-db-query-by-tags-none '("beer"))) 1))
+    (should (= (length (vulpea-db-query-by-tags-none '("wine"))) 0))))
+
 ;;; Link Query Tests
 
 (ert-deftest vulpea-db-query-by-links-some-single ()
