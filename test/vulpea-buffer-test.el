@@ -193,6 +193,230 @@ Creates a temp file with ID and CONTENT, adds it to temp DB, then executes BODY.
                        (vulpea-buffer-tags-get))
                      nil)))))
 
+;;; vulpea-buffer-alias-* Tests
+
+(ert-deftest vulpea-buffer-alias-get-empty ()
+  "Test getting empty aliases list."
+  (let ((id "eeec8f05-927f-4c61-b39e-2fb8228cf484"))
+    (vulpea-buffer-test--with-temp-db-and-file id "#+title: Test\n"
+      (should (equal (vulpea-utils-with-note (vulpea-db-get-by-id id)
+                       (vulpea-buffer-alias-get))
+                     nil)))))
+
+(ert-deftest vulpea-buffer-alias-get-single ()
+  "Test getting single alias."
+  (let* ((id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")
+         (file (vulpea-buffer-test--create-temp-file id "")))
+    (with-temp-file file
+      (insert (format ":PROPERTIES:\n:ID: %s\n:ROAM_ALIASES: Alias1\n:END:\n#+title: Reference\n" id)))
+    (let* ((temp-db-file (make-temp-file "vulpea-buffer-test-" nil ".db"))
+           (vulpea-db-location temp-db-file)
+           (vulpea-db--connection nil))
+      (unwind-protect
+          (progn
+            (vulpea-db)
+            (vulpea-db-update-file file)
+            (should (equal (vulpea-utils-with-note (vulpea-db-get-by-id id)
+                             (vulpea-buffer-alias-get))
+                           '("Alias1"))))
+        (when vulpea-db--connection
+          (vulpea-db-close))
+        (when (file-exists-p temp-db-file)
+          (delete-file temp-db-file))
+        (when (file-exists-p file)
+          (delete-file file))))))
+
+(ert-deftest vulpea-buffer-alias-get-multiple ()
+  "Test getting multiple aliases."
+  (let* ((id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")
+         (file (vulpea-buffer-test--create-temp-file id "")))
+    (with-temp-file file
+      (insert (format ":PROPERTIES:\n:ID: %s\n:ROAM_ALIASES: Alias1 Alias2 Alias3\n:END:\n#+title: Reference\n" id)))
+    (let* ((temp-db-file (make-temp-file "vulpea-buffer-test-" nil ".db"))
+           (vulpea-db-location temp-db-file)
+           (vulpea-db--connection nil))
+      (unwind-protect
+          (progn
+            (vulpea-db)
+            (vulpea-db-update-file file)
+            (should (equal (vulpea-utils-with-note (vulpea-db-get-by-id id)
+                             (vulpea-buffer-alias-get))
+                           '("Alias1" "Alias2" "Alias3"))))
+        (when vulpea-db--connection
+          (vulpea-db-close))
+        (when (file-exists-p temp-db-file)
+          (delete-file temp-db-file))
+        (when (file-exists-p file)
+          (delete-file file))))))
+
+(ert-deftest vulpea-buffer-alias-get-with-spaces ()
+  "Test getting alias with spaces (quoted)."
+  (let* ((id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")
+         (file (vulpea-buffer-test--create-temp-file id "")))
+    (with-temp-file file
+      (insert (format ":PROPERTIES:\n:ID: %s\n:ROAM_ALIASES: \"Alias With Spaces\"\n:END:\n#+title: Reference\n" id)))
+    (let* ((temp-db-file (make-temp-file "vulpea-buffer-test-" nil ".db"))
+           (vulpea-db-location temp-db-file)
+           (vulpea-db--connection nil))
+      (unwind-protect
+          (progn
+            (vulpea-db)
+            (vulpea-db-update-file file)
+            (should (equal (vulpea-utils-with-note (vulpea-db-get-by-id id)
+                             (vulpea-buffer-alias-get))
+                           '("Alias With Spaces"))))
+        (when vulpea-db--connection
+          (vulpea-db-close))
+        (when (file-exists-p temp-db-file)
+          (delete-file temp-db-file))
+        (when (file-exists-p file)
+          (delete-file file))))))
+
+(ert-deftest vulpea-buffer-alias-add-first ()
+  "Test adding first alias."
+  (let ((id "eeec8f05-927f-4c61-b39e-2fb8228cf484"))
+    (vulpea-buffer-test--with-temp-db-and-file id "#+title: Test\n"
+      (should (equal (vulpea-utils-with-note (vulpea-db-get-by-id id)
+                       (vulpea-buffer-alias-add "FirstAlias")
+                       (save-buffer)
+                       (vulpea-buffer-alias-get))
+                     '("FirstAlias"))))))
+
+(ert-deftest vulpea-buffer-alias-add-another ()
+  "Test adding another alias."
+  (let* ((id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")
+         (file (vulpea-buffer-test--create-temp-file id "")))
+    (with-temp-file file
+      (insert (format ":PROPERTIES:\n:ID: %s\n:ROAM_ALIASES: Alias1 Alias2\n:END:\n#+title: Reference\n" id)))
+    (let* ((temp-db-file (make-temp-file "vulpea-buffer-test-" nil ".db"))
+           (vulpea-db-location temp-db-file)
+           (vulpea-db--connection nil))
+      (unwind-protect
+          (progn
+            (vulpea-db)
+            (vulpea-db-update-file file)
+            (should (equal (vulpea-utils-with-note (vulpea-db-get-by-id id)
+                             (vulpea-buffer-alias-add "Alias3")
+                             (save-buffer)
+                             (vulpea-buffer-alias-get))
+                           '("Alias1" "Alias2" "Alias3"))))
+        (when vulpea-db--connection
+          (vulpea-db-close))
+        (when (file-exists-p temp-db-file)
+          (delete-file temp-db-file))
+        (when (file-exists-p file)
+          (delete-file file))))))
+
+(ert-deftest vulpea-buffer-alias-add-with-spaces ()
+  "Test adding alias containing spaces (auto-quoted)."
+  (let ((id "eeec8f05-927f-4c61-b39e-2fb8228cf484"))
+    (vulpea-buffer-test--with-temp-db-and-file id "#+title: Test\n"
+      (should (equal (vulpea-utils-with-note (vulpea-db-get-by-id id)
+                       (vulpea-buffer-alias-add "Alias With Spaces")
+                       (save-buffer)
+                       (vulpea-buffer-alias-get))
+                     '("Alias With Spaces"))))))
+
+(ert-deftest vulpea-buffer-alias-add-duplicate ()
+  "Test that adding duplicate alias is ignored."
+  (let* ((id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")
+         (file (vulpea-buffer-test--create-temp-file id "")))
+    (with-temp-file file
+      (insert (format ":PROPERTIES:\n:ID: %s\n:ROAM_ALIASES: Alias1 Alias2\n:END:\n#+title: Reference\n" id)))
+    (let* ((temp-db-file (make-temp-file "vulpea-buffer-test-" nil ".db"))
+           (vulpea-db-location temp-db-file)
+           (vulpea-db--connection nil))
+      (unwind-protect
+          (progn
+            (vulpea-db)
+            (vulpea-db-update-file file)
+            (should (equal (vulpea-utils-with-note (vulpea-db-get-by-id id)
+                             (vulpea-buffer-alias-add "Alias1")
+                             (save-buffer)
+                             (vulpea-buffer-alias-get))
+                           '("Alias1" "Alias2"))))
+        (when vulpea-db--connection
+          (vulpea-db-close))
+        (when (file-exists-p temp-db-file)
+          (delete-file temp-db-file))
+        (when (file-exists-p file)
+          (delete-file file))))))
+
+(ert-deftest vulpea-buffer-alias-remove-one ()
+  "Test removing one alias."
+  (let* ((id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")
+         (file (vulpea-buffer-test--create-temp-file id "")))
+    (with-temp-file file
+      (insert (format ":PROPERTIES:\n:ID: %s\n:ROAM_ALIASES: Alias1 Alias2 Alias3\n:END:\n#+title: Reference\n" id)))
+    (let* ((temp-db-file (make-temp-file "vulpea-buffer-test-" nil ".db"))
+           (vulpea-db-location temp-db-file)
+           (vulpea-db--connection nil))
+      (unwind-protect
+          (progn
+            (vulpea-db)
+            (vulpea-db-update-file file)
+            (should (equal (vulpea-utils-with-note (vulpea-db-get-by-id id)
+                             (vulpea-buffer-alias-remove "Alias1")
+                             (save-buffer)
+                             (vulpea-buffer-alias-get))
+                           '("Alias2" "Alias3"))))
+        (when vulpea-db--connection
+          (vulpea-db-close))
+        (when (file-exists-p temp-db-file)
+          (delete-file temp-db-file))
+        (when (file-exists-p file)
+          (delete-file file))))))
+
+(ert-deftest vulpea-buffer-alias-remove-last ()
+  "Test that removing last alias removes property entirely."
+  (let* ((id "eeec8f05-927f-4c61-b39e-2fb8228cf484")
+         (file (vulpea-buffer-test--create-temp-file id "")))
+    (with-temp-file file
+      (insert (format ":PROPERTIES:\n:ID: %s\n:ROAM_ALIASES: OnlyAlias\n:END:\n#+title: Test\n" id)))
+    (let* ((temp-db-file (make-temp-file "vulpea-buffer-test-" nil ".db"))
+           (vulpea-db-location temp-db-file)
+           (vulpea-db--connection nil))
+      (unwind-protect
+          (progn
+            (vulpea-db)
+            (vulpea-db-update-file file)
+            (should (equal (vulpea-utils-with-note (vulpea-db-get-by-id id)
+                             (vulpea-buffer-alias-remove "OnlyAlias")
+                             (save-buffer)
+                             (vulpea-buffer-alias-get))
+                           nil)))
+        (when vulpea-db--connection
+          (vulpea-db-close))
+        (when (file-exists-p temp-db-file)
+          (delete-file temp-db-file))
+        (when (file-exists-p file)
+          (delete-file file))))))
+
+(ert-deftest vulpea-buffer-alias-remove-with-spaces ()
+  "Test removing alias containing spaces."
+  (let* ((id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")
+         (file (vulpea-buffer-test--create-temp-file id "")))
+    (with-temp-file file
+      (insert (format ":PROPERTIES:\n:ID: %s\n:ROAM_ALIASES: Simple \"Alias With Spaces\" Another\n:END:\n#+title: Reference\n" id)))
+    (let* ((temp-db-file (make-temp-file "vulpea-buffer-test-" nil ".db"))
+           (vulpea-db-location temp-db-file)
+           (vulpea-db--connection nil))
+      (unwind-protect
+          (progn
+            (vulpea-db)
+            (vulpea-db-update-file file)
+            (should (equal (vulpea-utils-with-note (vulpea-db-get-by-id id)
+                             (vulpea-buffer-alias-remove "Alias With Spaces")
+                             (save-buffer)
+                             (vulpea-buffer-alias-get))
+                           '("Simple" "Another"))))
+        (when vulpea-db--connection
+          (vulpea-db-close))
+        (when (file-exists-p temp-db-file)
+          (delete-file temp-db-file))
+        (when (file-exists-p file)
+          (delete-file file))))))
+
 ;;; vulpea-buffer-prop-* Tests
 
 (ert-deftest vulpea-buffer-prop-downcase-name ()
