@@ -299,13 +299,50 @@ In your org file, use property drawer with =_TYPE= suffix:
 
 **** Reading Metadata
 
+Vulpea provides two functions for reading metadata from notes:
+
+- =vulpea-note-meta-get= - Get the first value of a metadata property
+- =vulpea-note-meta-get-list= - Get all values when a property has multiple entries
+
+Both functions support automatic type coercion:
+
+- =string= (default) - Plain text value
+- =number= - Converts string to number
+- =symbol= - Interns string as symbol
+- =link= - Extracts ID from =id:= links or returns raw link
+- =note= - Resolves =id:= link to =vulpea-note= struct
+
+***** Single Values
+
 #+begin_src emacs-lisp
 (let ((note (vulpea-db-get-by-id "wine-id-123")))
-  ;; Get metadata with type coercion
+  ;; Get first value with type coercion
   (vulpea-note-meta-get note "country")              ; "France"
   (vulpea-note-meta-get note "price" 'number)        ; 45.99 (number)
   (vulpea-note-meta-get note "region" 'note)         ; <vulpea-note object>
   (vulpea-note-meta-get note "url" 'link))           ; "https://example.com"
+#+end_src
+
+***** Multiple Values
+
+When a metadata property has multiple values, use =vulpea-note-meta-get-list=:
+
+#+begin_src emacs-lisp
+;; Example note with multiple grape varieties:
+;; - grapes :: [[id:grape1][Cabernet Sauvignon]]
+;; - grapes :: [[id:grape2][Merlot]]
+;; - grapes :: [[id:grape3][Syrah]]
+
+(let ((note (vulpea-db-get-by-id "wine-id-123")))
+  ;; Get all grape varieties as notes
+  (vulpea-note-meta-get-list note "grapes" 'note)
+  ;; => (#s(vulpea-note :id "grape1" :title "Cabernet Sauvignon" ...)
+  ;;     #s(vulpea-note :id "grape2" :title "Merlot" ...)
+  ;;     #s(vulpea-note :id "grape3" :title "Syrah" ...))
+
+  ;; Get all ratings as numbers
+  (vulpea-note-meta-get-list note "ratings" 'number))
+  ;; => (95 92 88)
 #+end_src
 
 **** Setting Metadata

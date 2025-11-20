@@ -34,6 +34,10 @@
 ;;; Code:
 
 (require 'cl-lib)
+(require 'dash)
+(require 'subr-x)
+
+(autoload 'vulpea-db-query-by-ids "vulpea-db-query")
 
 ;;; Note Structure
 
@@ -101,6 +105,69 @@ Slots:
   (let ((note-links (mapcar (lambda (l) (plist-get l :dest))
                             (vulpea-note-links note))))
     (cl-some (lambda (link) (member link note-links)) links)))
+
+;;; Metadata Access
+
+(defun vulpea-note-meta-get-list (note prop &optional type)
+  "Get all values of PROP from NOTE meta.
+
+Each element value depends on TYPE:
+
+- string (default) - an interpreted object (without trailing newline)
+- number - an interpreted number
+- link - path of the link (either ID of the linked note or raw link)
+- note - linked `vulpea-note'
+- symbol - an interned symbol."
+  (setq type (or type 'string))
+  (let ((items (cdr (assoc prop (vulpea-note-meta note)))))
+    (if (eq type 'note)
+        (let* ((kvps (cl-loop for it in items
+                              collect (if (string-match org-link-bracket-re (plist-get it :value))
+                                          (let ((link (match-string 1 (plist-get it :value)))
+                                                (desc (match-string 2 (plist-get it :value))))
+                                            (if (string-prefix-p "id:" link)
+                                                (cons (string-remove-prefix "id:" link) desc)
+                                              (user-error "Expected id link, but got '%s'" (plist-get it :value))))
+                                        (user-error "Expected link, but got '%s'" (plist-get it :value)))))
+               (ids (mapcar #'car kvps))
+               (notes (cl-loop for note in (vulpea-db-query-by-ids ids)
+                               unless (vulpea-note-primary-title note)
+                               collect note)))
+          (cl-loop for it in kvps
+                   collect (let* ((id (car it))
+                                  (desc (cdr it))
+                                  (note (--find (string-equal id (vulpea-note-id it)) notes)))
+                             (when (seq-contains-p (vulpea-note-aliases note) desc)
+                               (setf (vulpea-note-primary-title note) (vulpea-note-title note))
+                               (setf (vulpea-note-title note) desc))
+                             note)))
+      (cl-loop for it in items
+               collect (pcase type
+                         ('string (plist-get it :value))
+                         ('symbol (intern (plist-get it :value)))
+                         ('number (string-to-number (plist-get it :value)))
+                         ('link (if (string-match org-link-bracket-re (plist-get it :value))
+                                    (let ((link (match-string 1 (plist-get it :value))))
+                                      (if (string-prefix-p "id:" link)
+                                          (string-remove-prefix "id:" link)
+                                        link))
+                                  (plist-get it :value))))))))
+
+(defun vulpea-note-meta-get (note prop &optional type)
+  "Get value of PROP from NOTE meta.
+
+Result depends on TYPE:
+
+- string (default) - an interpreted object (without trailing newline)
+- number - an interpreted number
+- link - path of the link (either ID of the linked note or raw link)
+- note - linked `vulpea-note'
+- symbol - an interned symbol.
+
+If the note contains multiple values for a given PROP, the first
+one is returned. In case all values are required, use
+`vulpea-note-meta-get-list'."
+  (car (vulpea-note-meta-get-list note prop type)))
 
 (provide 'vulpea-note)
 ;;; vulpea-note.el ends here
