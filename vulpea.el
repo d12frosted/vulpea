@@ -37,12 +37,13 @@
 ;;
 ;;; Code:
 
-(require 'vulpea-utils)
 (require 'vulpea-buffer)
-(require 'vulpea-meta)
-(require 'vulpea-select)
 (require 'vulpea-db)
 (require 'vulpea-db-extract)
+(require 'vulpea-db-sync)
+(require 'vulpea-meta)
+(require 'vulpea-select)
+(require 'vulpea-utils)
 (require 'org-capture)
 (require 's)
 ;;; Customization
