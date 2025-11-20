@@ -354,6 +354,35 @@ When a metadata property has multiple values, use =vulpea-note-meta-get-list=:
 (vulpea-buffer-meta-set "producer" "producer-id" 'note)
 #+end_src
 
+**** Managing Aliases
+
+Vulpea provides functions to manage note aliases stored in the =ROAM_ALIASES= property:
+
+#+begin_src emacs-lisp
+;; Get current aliases
+(vulpea-buffer-alias-get)
+;; => ("Short Name" "Alternative Title")
+
+;; Add a new alias
+(vulpea-buffer-alias-add "New Alias")
+
+;; Add an alias with spaces (automatically quoted)
+(vulpea-buffer-alias-add "Alias With Spaces")
+
+;; Remove an alias (with interactive completion)
+(vulpea-buffer-alias-remove "Short Name")
+
+;; Remove an alias programmatically
+(vulpea-buffer-alias-remove "Alternative Title")
+#+end_src
+
+Key features:
+- Automatic quoting of aliases containing spaces
+- Duplicate detection (adding an existing alias is ignored)
+- Interactive completion when removing aliases
+- Automatically removes =ROAM_ALIASES= property when last alias is removed
+- Properly parses mixed quoted and unquoted aliases
+
 *** Synchronization
 
 **** Manual Sync
