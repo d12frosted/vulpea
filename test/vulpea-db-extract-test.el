@@ -530,9 +530,9 @@ This serves as documentation for plugin authors."
 ;;; Attachment Directory Tests
 
 (ert-deftest vulpea-db-extract-attach-dir-file-level ()
-  "Test ATTACH_DIR keyword extraction at file level."
+  "Test ATTACH_DIR property extraction at file level."
   (let ((path (vulpea-test--create-temp-org-file
-               ":PROPERTIES:\n:ID: file-with-attachments\n:END:\n#+TITLE: File With Attachments\n#+ATTACH_DIR: data/attachments/file-id\n")))
+               ":PROPERTIES:\n:ID: file-with-attachments\n:ATTACH_DIR: data/attachments/file-id\n:END:\n#+TITLE: File With Attachments\n")))
     (unwind-protect
         (let* ((ctx (vulpea-db--parse-file path))
                (node (vulpea-parse-ctx-file-node ctx)))
@@ -557,7 +557,7 @@ This serves as documentation for plugin authors."
          (vulpea-db-location temp-db-file)
          (vulpea-db--connection nil)
          (path (vulpea-test--create-temp-org-file
-                ":PROPERTIES:\n:ID: note-with-attach\n:END:\n#+TITLE: Note With Attachments\n#+ATTACH_DIR: /path/to/attachments\n")))
+                ":PROPERTIES:\n:ID: note-with-attach\n:ATTACH_DIR: /path/to/attachments\n:END:\n#+TITLE: Note With Attachments\n")))
     (unwind-protect
         (progn
           (vulpea-db)

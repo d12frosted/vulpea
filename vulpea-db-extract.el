@@ -122,6 +122,7 @@ Returns `vulpea-parse-ctx' structure with:
 - File metadata (hash, mtime, size)"
   (with-temp-buffer
     (insert-file-contents path)
+    (setq buffer-file-name path)  ; Required for org-attach-dir
     (org-mode)  ; Enable org-mode for proper TODO/timestamp parsing
     (let* ((content (buffer-string))
            (ast (org-element-parse-buffer))
@@ -133,14 +134,14 @@ Returns `vulpea-parse-ctx' structure with:
       (make-vulpea-parse-ctx
        :path path
        :ast ast
-       :file-node (vulpea-db--extract-file-node ast path)
-       :heading-nodes (vulpea-db--extract-heading-nodes ast path)
+       :file-node (vulpea-db--extract-file-node ast path (current-buffer))
+       :heading-nodes (vulpea-db--extract-heading-nodes ast path (current-buffer))
        :hash hash
        :mtime mtime
        :size size))))
 
-(defun vulpea-db--extract-file-node (ast path)
-  "Extract file-level node data from AST at PATH.
+(defun vulpea-db--extract-file-node (ast path buffer)
+  "Extract file-level node data from AST at PATH in BUFFER.
 
 Returns plist with:
   :id :title :aliases :tags :links :properties :meta
@@ -168,7 +169,12 @@ Returns nil if:
                      (split-string filetags ":" t)))
              (meta (vulpea-db--extract-meta ast))
              (links (vulpea-db--extract-links ast))
-             (aliases (vulpea-db--extract-aliases properties)))
+             (aliases (vulpea-db--extract-aliases properties))
+             (attach-dir (with-current-buffer buffer
+                           (require 'org-attach)
+                           (save-excursion
+                             (goto-char (point-min))
+                             (org-attach-dir nil 'no-fs-check)))))
 
         (list :id id
               :title title
@@ -182,10 +188,10 @@ Returns nil if:
               :scheduled nil
               :deadline nil
               :closed nil
-              :attach-dir (cdr (assoc "ATTACH_DIR" keywords)))))))
+              :attach-dir attach-dir)))))
 
-(defun vulpea-db--extract-heading-nodes (ast path)
-  "Extract heading-level nodes from AST at PATH.
+(defun vulpea-db--extract-heading-nodes (ast path buffer)
+  "Extract heading-level nodes from AST at PATH in BUFFER.
 
 Returns list of plists, one per heading with ID property.
 Each plist has same structure as file-node.
@@ -220,7 +226,12 @@ Respects `vulpea-db-index-heading-level' setting."
                      (outline-path (vulpea-db--strings-no-properties
                                     (org-element-property
                                      :title
-                                     (org-element-lineage headline '(headline))))))
+                                     (org-element-lineage headline '(headline)))))
+                     (attach-dir (with-current-buffer buffer
+                                   (require 'org-attach)
+                                   (save-excursion
+                                     (goto-char pos)
+                                     (org-attach-dir nil 'no-fs-check)))))
 
                 (list :id id
                       :level level
@@ -243,7 +254,7 @@ Respects `vulpea-db-index-heading-level' setting."
                                 (vulpea-db--string-no-properties
                                  (org-element-property :raw-value closed)))
                       :outline-path outline-path
-                      :attach-dir (cdr (assoc "ATTACH_DIR" properties)))))))))))
+                      :attach-dir attach-dir)))))))))
 
 (defun vulpea-db--should-index-headings-p (path)
   "Check if headings should be indexed for PATH.
