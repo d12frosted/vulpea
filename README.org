@@ -460,6 +460,23 @@ For creating many notes programmatically, use synchronous mode:
 (setq vulpea-db-sync-progress-interval 500)
 #+end_src
 
+*** Parsing Method
+
+Choose the method for parsing org files:
+
+#+begin_src emacs-lisp
+;; Temp buffer: fast, recommended for most users (default)
+(setq vulpea-db-parse-method 'temp-buffer)
+
+;; Find file: slower but respects .dir-locals.el
+;; Use this if you customize org-attach-id-dir via directory-local variables
+(setq vulpea-db-parse-method 'find-file)
+#+end_src
+
+*Performance impact:* =temp-buffer= is 13-19x faster than =find-file=. The temp-buffer method provides correct behavior for standard configurations. Only use =find-file= if you have custom directory-local settings that affect org-attach behavior.
+
+See =bench/PERFORMANCE.md= for detailed benchmarks.
+
 *** External Change Detection
 
 Choose how to detect changes made outside Emacs (git pulls, Dropbox sync, etc.):

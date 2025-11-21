@@ -112,6 +112,25 @@ Example:
 
 ;;; Core Parsing
 
+(defcustom vulpea-db-parse-method 'temp-buffer
+  "Method to use for parsing org files.
+
+Options:
+- \\='temp-buffer: Use temp buffer with insert-file-contents (fast)
+- \\='find-file: Use find-file-noselect (slower but respects hooks)
+
+The temp-buffer method is significantly faster but doesn't:
+- Run file-visiting hooks
+- Respect .dir-locals.el settings
+- Set default-directory correctly
+
+The find-file method is slower but provides correct behavior
+for features that depend on file-visiting context like org-attach-dir
+with custom directory-local org-attach-id-dir settings."
+  :group 'vulpea
+  :type '(choice (const :tag "Temp buffer (fast)" temp-buffer)
+                 (const :tag "Find file (correct)" find-file)))
+
 (defun vulpea-db--parse-file (path)
   "Parse org file at PATH and return parse context.
 
@@ -119,26 +138,55 @@ Returns `vulpea-parse-ctx' structure with:
 - Full org-element AST
 - File-level node data
 - Heading-level node data (if enabled)
-- File metadata (hash, mtime, size)"
-  (with-temp-buffer
-    (insert-file-contents path)
-    (setq buffer-file-name path)  ; Required for org-attach-dir
-    (org-mode)  ; Enable org-mode for proper TODO/timestamp parsing
-    (let* ((content (buffer-string))
-           (ast (org-element-parse-buffer))
-           (attrs (file-attributes path))
-           (mtime (float-time (file-attribute-modification-time attrs)))
-           (size (file-attribute-size attrs))
-           (hash (secure-hash 'sha256 content)))
+- File metadata (hash, mtime, size)
 
-      (make-vulpea-parse-ctx
-       :path path
-       :ast ast
-       :file-node (vulpea-db--extract-file-node ast path (current-buffer))
-       :heading-nodes (vulpea-db--extract-heading-nodes ast path (current-buffer))
-       :hash hash
-       :mtime mtime
-       :size size))))
+Respects `vulpea-db-parse-method' setting for parsing approach."
+  (pcase vulpea-db-parse-method
+    ('find-file
+     ;; Use find-file-noselect: slower but respects hooks and dir-locals
+     (let ((buffer (find-file-noselect path t)))
+       (unwind-protect
+           (with-current-buffer buffer
+             (let* ((content (buffer-string))
+                    (ast (org-element-parse-buffer))
+                    (attrs (file-attributes path))
+                    (mtime (float-time (file-attribute-modification-time attrs)))
+                    (size (file-attribute-size attrs))
+                    (hash (secure-hash 'sha256 content)))
+
+               (make-vulpea-parse-ctx
+                :path path
+                :ast ast
+                :file-node (vulpea-db--extract-file-node ast path (current-buffer))
+                :heading-nodes (vulpea-db--extract-heading-nodes ast path (current-buffer))
+                :hash hash
+                :mtime mtime
+                :size size)))
+         ;; Always kill the buffer after parsing
+         (when (buffer-live-p buffer)
+           (kill-buffer buffer)))))
+
+    (_  ;; 'temp-buffer or anything else: fast method
+     (with-temp-buffer
+       (insert-file-contents path)
+       (setq buffer-file-name path)  ; Required for org-attach-dir
+       (setq default-directory (file-name-directory path))  ; Fix attach-dir paths
+       (org-mode)  ; Enable org-mode for proper TODO/timestamp parsing
+       (let* ((content (buffer-string))
+              (ast (org-element-parse-buffer))
+              (attrs (file-attributes path))
+              (mtime (float-time (file-attribute-modification-time attrs)))
+              (size (file-attribute-size attrs))
+              (hash (secure-hash 'sha256 content)))
+
+         (make-vulpea-parse-ctx
+          :path path
+          :ast ast
+          :file-node (vulpea-db--extract-file-node ast path (current-buffer))
+          :heading-nodes (vulpea-db--extract-heading-nodes ast path (current-buffer))
+          :hash hash
+          :mtime mtime
+          :size size))))))
 
 (defun vulpea-db--extract-file-node (ast path buffer)
   "Extract file-level node data from AST at PATH in BUFFER.
