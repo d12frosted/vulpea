@@ -3,3 +3,6 @@
 # Added automatically by `eldev init'.
 /.eldev
 /Eldev-local
+
+# Benchmark output
+/bench/bench-output
