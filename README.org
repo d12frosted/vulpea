@@ -48,43 +48,19 @@ Add to your Emacs configuration:
 
 *** Optional Dependencies (Recommended)
 
-For optimal performance, install these external tools:
-
-**** =fd= - Fast Directory Scanning
-
-Dramatically improves directory scanning speed (15x faster than =find=):
-
-#+begin_src bash
-# macOS
-brew install fd
-
-# Ubuntu/Debian
-apt install fd-find
-
-# Arch Linux
-pacman -S fd
-#+end_src
-
-*Performance impact:* Scanning 13k files goes from ~580ms (=find=) to ~37ms (=fd=).
-
-**** =fswatch= - External Change Detection
-
-Reliably detects file changes from git pulls, Dropbox, etc.:
-
-#+begin_src bash
-# macOS
-brew install fswatch
-
-# Ubuntu/Debian
-apt install fswatch
-
-# Arch Linux
-pacman -S fswatch
-#+end_src
+| Tool     | Purpose                               | Install (macOS / Debian / Arch)        |
+|----------+----------------------------------------+----------------------------------------|
+| =fd=     | 15× faster directory scanning          | =brew install fd= / =apt install fd-find= / =pacman -S fd= |
+| =fswatch=| Reliable external change detection     | =brew install fswatch= / =apt install fswatch= / =pacman -S fswatch= |
 
 Without these tools, Vulpea falls back to slower but functional alternatives (=find= and polling).
 
 ** Quick Start
+
+You’re ready when:
+1. Directories are configured and the database is primed.
+2. Autosync runs (or manual sync is done) and notes have IDs.
+3. You can query notes through =vulpea-db-*= functions or =M-x vulpea-find=.
 
 *** 1. Configure Directories
 
@@ -148,7 +124,7 @@ Content here...
 
 Use =M-x org-id-get-create= to add IDs interactively.
 
-*** 5. Query Your Notes
+*** 5. Query Your Notes (or try `M-x vulpea-find`)
 
 #+begin_src emacs-lisp
 ;; Find notes with specific tags
