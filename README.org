@@ -92,7 +92,7 @@ Without these tools, Vulpea falls back to slower but functional alternatives (=f
 (require 'vulpea)
 
 ;; Set your notes directory
-(setq vulpea-db-sync-directories '("~/org-roam/"))
+(setq vulpea-db-sync-directories '("~/org/"))
 
 ;; Optional: configure database location
 (setq vulpea-db-location
@@ -392,7 +392,7 @@ Key features:
 (vulpea-db-sync-update-file "/path/to/note.org")
 
 ;; Update entire directory
-(vulpea-db-sync-update-directory "~/org-roam/")
+(vulpea-db-sync-update-directory "~/org/")
 
 ;; Full scan of all configured directories (smart detection)
 (vulpea-db-sync-full-scan)
@@ -426,7 +426,7 @@ For creating many notes programmatically, use synchronous mode:
 
 ;; Directories to watch and sync
 (setq vulpea-db-sync-directories
-      '("~/org-roam/" "~/notes/"))
+      '("~/org/" "~/notes/"))
 #+end_src
 
 *** Indexing Control
@@ -549,7 +549,7 @@ pacman -S fswatch
                 (vulpea--title-to-slug title))))
 
 ;; Default directory for new notes
-(setq vulpea-default-notes-directory "~/org-roam/")
+(setq vulpea-default-notes-directory "~/org/")
 #+end_src
 
 ** Advanced Topics
