@@ -157,6 +157,22 @@ Returns absolute path. Caller responsible for cleanup."
           (should (equal (plist-get (car nodes) :id) "heading-1")))
       (delete-file path))))
 
+(ert-deftest vulpea-db-extract-heading-with-timestamp ()
+  "Test heading extraction when title contains timestamp."
+  (let ((path (vulpea-test--create-temp-org-file
+               (format ":PROPERTIES:\n:ID: file-id\n:END:\n#+TITLE: File\n\n* Meetings\n:PROPERTIES:\n:ID: meetings-id\n:END:\n\n** [2020-08-07 Fri]\n:PROPERTIES:\n:ID: meeting-id\n:END:\n\nMeeting notes here.\n"))))
+    (unwind-protect
+        (let* ((vulpea-db-index-heading-level t)
+               (ctx (vulpea-db--parse-file path))
+               (nodes (vulpea-parse-ctx-heading-nodes ctx))
+               (meeting-node (seq-find (lambda (n) (equal (plist-get n :id) "meeting-id")) nodes)))
+          ;; Should extract timestamp in title as string, not fail
+          (should meeting-node)
+          (should (equal (plist-get meeting-node :title) "[2020-08-07 Fri]"))
+          ;; Outline path should also handle timestamp correctly
+          (should (equal (plist-get meeting-node :outline-path) '("Meetings"))))
+      (delete-file path))))
+
 ;;; Extractor Tests
 
 (ert-deftest vulpea-db-extract-aliases ()

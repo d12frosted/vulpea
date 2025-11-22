@@ -360,10 +360,14 @@ Respects `vulpea-db-index-heading-level' setting."
                      (closed (org-element-property :closed headline))
                      (meta (vulpea-db--extract-meta headline))
                      (links (vulpea-db--extract-links headline))
-                     (outline-path (vulpea-db--strings-no-properties
-                                    (org-element-property
-                                     :title
-                                     (org-element-lineage headline '(headline)))))
+                     (outline-path (let (path
+                                                 (current headline))
+                                     (while (setq current (org-element-property :parent current))
+                                       (when (eq (org-element-type current) 'headline)
+                                         (push (vulpea-db--string-no-properties
+                                                (org-element-property :raw-value current))
+                                               path)))
+                                     path))
                      (attach-dir (with-current-buffer buffer
                                    (require 'org-attach)
                                    (save-excursion
