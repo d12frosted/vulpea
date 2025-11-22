@@ -376,34 +376,23 @@ Returns list of `vulpea-note' structs."
                        key)))
     (mapcar #'vulpea-db--row-to-note rows)))
 
-(defun vulpea-db-query-by-meta (key value &optional type)
+(defun vulpea-db-query-by-meta (key value)
   "Get notes that have metadata KEY with VALUE.
 
 Uses normalized meta table for efficient filtering.
 
 KEY is a metadata key string.
 VALUE is the metadata value to match.
-TYPE is optional metadata type (\"note\", \"number\", \"string\", \"link\").
 
 Returns list of `vulpea-note' structs."
-  (let ((rows (if type
-                  (emacsql (vulpea-db)
-                           [:select :distinct [notes:*]
-                            :from notes
-                            :inner :join meta
-                            :on (= notes:id meta:note-id)
-                            :where (and (= meta:key $s1)
-                                        (= meta:value $s2)
-                                        (= meta:type $s3))]
-                           key value type)
-                (emacsql (vulpea-db)
-                         [:select :distinct [notes:*]
-                          :from notes
-                          :inner :join meta
-                          :on (= notes:id meta:note-id)
-                          :where (and (= meta:key $s1)
-                                      (= meta:value $s2))]
-                         key value))))
+  (let ((rows (emacsql (vulpea-db)
+                       [:select :distinct [notes:*]
+                        :from notes
+                        :inner :join meta
+                        :on (= notes:id meta:note-id)
+                        :where (and (= meta:key $s1)
+                                    (= meta:value $s2))]
+                       key value)))
     (mapcar #'vulpea-db--row-to-note rows)))
 
 ;;; Statistics

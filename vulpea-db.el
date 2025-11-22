@@ -91,7 +91,7 @@ significant performance improvement."
       (properties :not-null)       ; JSON blob
       (tags)                        ; JSON array ["tag1", "tag2"]
       (aliases)                     ; JSON array
-      (meta)                        ; JSON object {key: [{type, value}]}
+      (meta)                        ; JSON object {key: [value1, value2]}
       (links)                       ; JSON array [{dest, type}]
       (todo)
       (priority)
@@ -121,8 +121,7 @@ significant performance improvement."
     (meta
      [(note-id :not-null)
       (key :not-null)
-      (value :not-null)
-      (type)]                       ; 'note', 'number', 'string', 'link', nil
+      (value :not-null)]
      (:foreign-key [note-id] :references notes [id] :on-delete :cascade))
 
     ;; File tracking for change detection
@@ -265,11 +264,9 @@ Converts :key value pairs to (\"key\" . value) pairs."
 (defun vulpea-db--meta-to-json (meta)
   "Convert META to JSON-compatible alist.
 
-META is ((key . (plist1 plist2...))...).
-Converts plists to alists so `json-encode' creates objects."
+META is ((key . (value1 value2...))...)."
   (mapcar (lambda (entry)
-            (cons (car entry)
-                  (mapcar #'vulpea-db--plist-to-alist (cdr entry))))
+            (cons (car entry) (cdr entry)))
           meta))
 
 (defun vulpea-db--links-to-json (links)
@@ -344,9 +341,7 @@ Arguments:
         (emacsql db [:insert :into meta :values $v1]
                  (cl-loop for (key . values) in meta
                           append (mapcar (lambda (v)
-                                           (vector id key
-                                                   (plist-get v :value)
-                                                   (plist-get v :type)))
+                                           (vector id key v))
                                          values)))))))
 
 (defun vulpea-db--delete-file-notes (path)

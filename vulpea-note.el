@@ -113,25 +113,24 @@ Slots:
 
 Each element value depends on TYPE:
 
-- string (default) - an interpreted object (without trailing newline)
-- number - an interpreted number
-- link - path of the link (either ID of the linked note or raw link)
+- string (default) - raw string value
+- number - parsed as number
+- link - path of the link (ID for id: links, raw link otherwise)
 - note - linked `vulpea-note'
-- symbol - an interned symbol."
+- symbol - interned symbol."
   (setq type (or type 'string))
   (let ((items (cdr (assoc prop (vulpea-note-meta note)))))
     (if (eq type 'note)
-        (let* ((kvps (cl-loop for it in items
-                              collect (let ((value (plist-get it :value)))
-                                        (if (string-match org-link-bracket-re value)
-                                            ;; Full link format: [[id:uuid][description]]
-                                            (let ((link (match-string 1 value))
-                                                  (desc (match-string 2 value)))
-                                              (if (string-prefix-p "id:" link)
-                                                  (cons (string-remove-prefix "id:" link) desc)
-                                                (user-error "Expected id link, but got '%s'" value)))
-                                          ;; Plain UUID format (from meta extraction)
-                                          (cons value nil)))))
+        (let* ((kvps (cl-loop for value in items
+                              collect (if (string-match org-link-bracket-re value)
+                                          ;; Full link format: [[id:uuid][description]]
+                                          (let ((link (match-string 1 value))
+                                                (desc (match-string 2 value)))
+                                            (if (string-prefix-p "id:" link)
+                                                (cons (string-remove-prefix "id:" link) desc)
+                                              (user-error "Expected id link, but got '%s'" value)))
+                                        ;; Plain UUID format
+                                        (cons value nil))))
                (ids (mapcar #'car kvps))
                (notes (vulpea-db-query-by-ids ids)))
           (cl-loop for it in kvps
@@ -142,17 +141,17 @@ Each element value depends on TYPE:
                                (setf (vulpea-note-primary-title note) (vulpea-note-title note))
                                (setf (vulpea-note-title note) desc))
                              note)))
-      (cl-loop for it in items
+      (cl-loop for value in items
                collect (pcase type
-                         ('string (plist-get it :value))
-                         ('symbol (intern (plist-get it :value)))
-                         ('number (string-to-number (plist-get it :value)))
-                         ('link (if (string-match org-link-bracket-re (plist-get it :value))
-                                    (let ((link (match-string 1 (plist-get it :value))))
+                         ('string value)
+                         ('symbol (intern value))
+                         ('number (string-to-number value))
+                         ('link (if (string-match org-link-bracket-re value)
+                                    (let ((link (match-string 1 value)))
                                       (if (string-prefix-p "id:" link)
                                           (string-remove-prefix "id:" link)
                                         link))
-                                  (plist-get it :value))))))))
+                                  value)))))))
 
 (defun vulpea-note-meta-get (note prop &optional type)
   "Get value of PROP from NOTE meta.

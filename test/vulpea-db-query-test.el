@@ -415,26 +415,26 @@ from being inserted into the normalized tags table."
   (vulpea-test--with-temp-db
     (vulpea-db)
     (vulpea-test--insert-test-note "note1" "Note 1"
-                                   :meta '(("country" . ((:value "France" :type "string")))))
+                                   :meta '(("country" . ("France"))))
     (vulpea-test--insert-test-note "note2" "Note 2"
-                                   :meta '(("country" . ((:value "Italy" :type "string")))))
+                                   :meta '(("country" . ("Italy"))))
 
     (let ((notes (vulpea-db-query-by-meta "country" "France")))
       (should (= (length notes) 1))
       (should (equal (vulpea-note-id (car notes)) "note1")))))
 
 (ert-deftest vulpea-db-query-by-meta-with-type ()
-  "Test querying notes by metadata with type filter."
+  "Test querying notes by metadata - type filtering no longer supported."
   (vulpea-test--with-temp-db
     (vulpea-db)
     (vulpea-test--insert-test-note "note1" "Note 1"
-                                   :meta '(("region" . ((:value "region-id" :type "note")))))
+                                   :meta '(("region" . ("region-id"))))
     (vulpea-test--insert-test-note "note2" "Note 2"
-                                   :meta '(("region" . ((:value "region-id" :type "string")))))
+                                   :meta '(("region" . ("region-id"))))
 
-    (let ((notes (vulpea-db-query-by-meta "region" "region-id" "note")))
-      (should (= (length notes) 1))
-      (should (equal (vulpea-note-id (car notes)) "note1")))))
+    ;; Both notes have same key/value, can't filter by type anymore
+    (let ((notes (vulpea-db-query-by-meta "region" "region-id")))
+      (should (= (length notes) 2)))))
 
 ;;; Statistics Tests
 
@@ -497,7 +497,7 @@ from being inserted into the normalized tags table."
                                    :tags '("tag1" "tag2")
                                    :aliases '("alias1")
                                    :properties '((key . "value"))
-                                   :meta '(("country" . ((:value "France" :type "string"))))
+                                   :meta '(("country" . ("France")))
                                    :links '((:dest "target" :type "id"))
                                    :todo "TODO"
                                    :priority "A")
@@ -513,7 +513,7 @@ from being inserted into the normalized tags table."
       (should (equal (vulpea-note-aliases note) '("alias1")))
       (should (equal (vulpea-note-properties note) '((key . "value"))))
       (should (equal (vulpea-note-meta note)
-                     '(("country" . ((:value "France" :type "string"))))))
+                     '(("country" . ("France")))))
       (should (equal (vulpea-note-links note) '((:dest "target" :type "id"))))
       (should (equal (vulpea-note-todo note) "TODO"))
       (should (equal (vulpea-note-priority note) "A")))))

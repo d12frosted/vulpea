@@ -185,9 +185,9 @@ Returns absolute path. Caller responsible for cleanup."
       (delete-file path))))
 
 (ert-deftest vulpea-db-extract-meta-with-types ()
-  "Test metadata extraction with type coercion."
+  "Test metadata extraction stores values as strings."
   (let ((path (vulpea-test--create-temp-org-file
-               ":PROPERTIES:\n:ID: wine-id\n:END:\n#+TITLE: Wine\n\n- country_string :: France\n- price_number :: 25.50\n- region_note :: [[id:region-id][Region Name]]\n- url_link :: https://example.com\n")))
+               ":PROPERTIES:\n:ID: wine-id\n:END:\n#+TITLE: Wine\n\n- country :: France\n- price :: 25.50\n- region :: [[id:region-id][Region Name]]\n- url :: https://example.com\n")))
     (unwind-protect
         (let* ((ctx (vulpea-db--parse-file path))
                (node (vulpea-parse-ctx-file-node ctx))
@@ -195,40 +195,36 @@ Returns absolute path. Caller responsible for cleanup."
           ;; Check country
           (let ((country-vals (cdr (assoc "country" meta))))
             (should (= (length country-vals) 1))
-            (should (equal (plist-get (car country-vals) :value) "France"))
-            (should (equal (plist-get (car country-vals) :type) "string")))
+            (should (equal (car country-vals) "France")))
 
           ;; Check price
           (let ((price-vals (cdr (assoc "price" meta))))
             (should (= (length price-vals) 1))
-            (should (equal (plist-get (car price-vals) :value) "25.50"))
-            (should (equal (plist-get (car price-vals) :type) "number")))
+            (should (equal (car price-vals) "25.50")))
 
-          ;; Check region
+          ;; Check region - link stored as interpreted string
           (let ((region-vals (cdr (assoc "region" meta))))
             (should (= (length region-vals) 1))
-            (should (equal (plist-get (car region-vals) :value) "region-id"))
-            (should (equal (plist-get (car region-vals) :type) "note")))
+            (should (equal (car region-vals) "[[id:region-id][Region Name]]")))
 
           ;; Check URL
           (let ((url-vals (cdr (assoc "url" meta))))
             (should (= (length url-vals) 1))
-            (should (equal (plist-get (car url-vals) :value) "https://example.com"))
-            (should (equal (plist-get (car url-vals) :type) "link"))))
+            (should (equal (car url-vals) "https://example.com"))))
       (delete-file path))))
 
 (ert-deftest vulpea-db-extract-meta-multiple-values ()
   "Test metadata with multiple values for same key."
   (let ((path (vulpea-test--create-temp-org-file
-               ":PROPERTIES:\n:ID: wine-multi-id\n:END:\n#+TITLE: Wine\n\n- grape_note :: [[id:grape-1][Grape One]]\n- grape_note :: [[id:grape-2][Grape Two]]\n")))
+               ":PROPERTIES:\n:ID: wine-multi-id\n:END:\n#+TITLE: Wine\n\n- grape :: [[id:grape-1][Grape One]]\n- grape :: [[id:grape-2][Grape Two]]\n")))
     (unwind-protect
         (let* ((ctx (vulpea-db--parse-file path))
                (node (vulpea-parse-ctx-file-node ctx))
                (meta (plist-get node :meta))
                (grape-vals (cdr (assoc "grape" meta))))
           (should (= (length grape-vals) 2))
-          (should (member "grape-1" (mapcar (lambda (v) (plist-get v :value)) grape-vals)))
-          (should (member "grape-2" (mapcar (lambda (v) (plist-get v :value)) grape-vals))))
+          (should (member "[[id:grape-1][Grape One]]" grape-vals))
+          (should (member "[[id:grape-2][Grape Two]]" grape-vals)))
       (delete-file path))))
 
 ;;; Registry Tests

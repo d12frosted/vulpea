@@ -456,18 +456,12 @@ Returns list of plists with :dest and :type."
 (defun vulpea-db--extract-meta (element)
   "Extract metadata from ELEMENT (AST or headline element).
 
-Metadata is defined by the first description list in the element:
+Metadata is defined by the first description list:
   - key :: value
-  - key_type :: value
+  - key :: value2
 
-Supports type suffixes: _note, _number, _string, _link
-Without suffix, type is inferred from content (link or string).
-
-This approach is used because org-element doesn't parse links
-inside properties drawer, which would break note references.
-
-Returns alist of (key . values) where values is list of plists
-with :value and :type."
+Returns alist of (key . values) where values is list of strings.
+Link values are stored as interpreted strings."
   (let* ((pls (org-element-map element 'plain-list #'identity nil nil 'headline))
          (pl (seq-find
               (lambda (pl)
@@ -479,7 +473,7 @@ with :value and :type."
       (let ((items (org-element-map pl 'item #'identity)))
         (dolist (item items)
           (let* ((tag-contents (org-element-property :tag item))
-                 (tag (when tag-contents
+                 (key (when tag-contents
                         (substring-no-properties
                          (string-trim
                           (org-element-interpret-data
@@ -489,50 +483,11 @@ with :value and :type."
                           (substring-no-properties
                            (string-trim
                             (org-element-interpret-data value-el))))))
-            (when (and tag value)
-              ;; Parse key and optional type suffix
-              (let* ((parts (split-string tag "_" t))
-                     (meta-key (substring-no-properties
-                                (if (> (length parts) 1)
-                                    (string-join (butlast parts) "_")
-                                  tag)))
-                     (type-suffix (when (> (length parts) 1)
-                                    (car (last parts))))
-                     (type (cond
-                            ;; Explicit type suffix
-                            ((and type-suffix
-                                  (member type-suffix '("note" "number" "string" "link")))
-                             type-suffix)
-                            ;; Infer from content: check if it's a link
-                            ((and value-el
-                                  (eq 'link (org-element-type (car (org-element-contents value-el)))))
-                             (let ((link (car (org-element-contents value-el))))
-                               (if (string-equal (org-element-property :type link) "id")
-                                   "note"
-                                 "link")))
-                            ;; Default to string
-                            (t "string")))
-                     ;; Extract actual value (ID for note links, URL for links)
-                     (actual-value
-                      (cond
-                       ;; For note/link types, extract from link element
-                       ((and value-el
-                             (member type '("note" "link"))
-                             (eq 'link (org-element-type (car (org-element-contents value-el)))))
-                        (let ((link (car (org-element-contents value-el))))
-                          (if (string-equal type "note")
-                              (org-element-property :path link)
-                            (org-element-property :raw-link link))))
-                       ;; Otherwise use interpreted string
-                       (t value))))
-                (let ((existing (assoc meta-key meta-alist)))
-                  (if existing
-                      (setcdr existing
-                              (append (cdr existing)
-                                      (list (list :value actual-value :type type))))
-                    (push (cons meta-key
-                                (list (list :value actual-value :type type)))
-                          meta-alist)))))))))
+            (when (and key value)
+              (let ((existing (assoc key meta-alist)))
+                (if existing
+                    (setcdr existing (append (cdr existing) (list value)))
+                  (push (cons key (list value)) meta-alist))))))))
     meta-alist))
 
 ;;; Extractor Registry

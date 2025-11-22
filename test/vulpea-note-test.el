@@ -68,7 +68,7 @@ ARGS is a plist with optional fields:
   (vulpea-test--with-temp-db
     (vulpea-db)
     (vulpea-test--insert-test-note "note1" "Test Note"
-                                   :meta '(("country" . ((:value "France" :type "string")))))
+                                   :meta '(("country" . ("France"))))
 
     (let ((note (vulpea-db-get-by-id "note1")))
       (should (equal (vulpea-note-meta-get note "country") "France"))
@@ -79,7 +79,7 @@ ARGS is a plist with optional fields:
   (vulpea-test--with-temp-db
     (vulpea-db)
     (vulpea-test--insert-test-note "note1" "Test Note"
-                                   :meta '(("price" . ((:value "45.99" :type "number")))))
+                                   :meta '(("price" . ("45.99"))))
 
     (let ((note (vulpea-db-get-by-id "note1")))
       (should (equal (vulpea-note-meta-get note "price" 'number) 45.99)))))
@@ -89,7 +89,7 @@ ARGS is a plist with optional fields:
   (vulpea-test--with-temp-db
     (vulpea-db)
     (vulpea-test--insert-test-note "note1" "Test Note"
-                                   :meta '(("status" . ((:value "active" :type "symbol")))))
+                                   :meta '(("status" . ("active"))))
 
     (let ((note (vulpea-db-get-by-id "note1")))
       (should (equal (vulpea-note-meta-get note "status" 'symbol) 'active)))))
@@ -99,7 +99,7 @@ ARGS is a plist with optional fields:
   (vulpea-test--with-temp-db
     (vulpea-db)
     (vulpea-test--insert-test-note "note1" "Test Note"
-                                   :meta '(("url" . ((:value "https://example.com" :type "link")))))
+                                   :meta '(("url" . ("https://example.com"))))
 
     (let ((note (vulpea-db-get-by-id "note1")))
       (should (equal (vulpea-note-meta-get note "url" 'link) "https://example.com")))))
@@ -109,7 +109,7 @@ ARGS is a plist with optional fields:
   (vulpea-test--with-temp-db
     (vulpea-db)
     (vulpea-test--insert-test-note "note1" "Test Note"
-                                   :meta '(("ref" . ((:value "[[id:target-id][Target]]" :type "link")))))
+                                   :meta '(("ref" . ("[[id:target-id][Target]]"))))
 
     (let ((note (vulpea-db-get-by-id "note1")))
       (should (equal (vulpea-note-meta-get note "ref" 'link) "target-id")))))
@@ -120,7 +120,7 @@ ARGS is a plist with optional fields:
     (vulpea-db)
     (vulpea-test--insert-test-note "target" "Target Note")
     (vulpea-test--insert-test-note "note1" "Test Note"
-                                   :meta '(("producer" . ((:value "[[id:target][Target Note]]" :type "note")))))
+                                   :meta '(("producer" . ("[[id:target][Target Note]]"))))
 
     (let* ((note (vulpea-db-get-by-id "note1"))
            (producer (vulpea-note-meta-get note "producer" 'note)))
@@ -133,9 +133,9 @@ ARGS is a plist with optional fields:
   (vulpea-test--with-temp-db
     (vulpea-db)
     (vulpea-test--insert-test-note "note1" "Test Note"
-                                   :meta '(("grapes" . ((:value "Cabernet Sauvignon" :type "string")
-                                                        (:value "Merlot" :type "string")
-                                                        (:value "Syrah" :type "string")))))
+                                   :meta '(("grapes" . ("Cabernet Sauvignon"
+                                                        "Merlot"
+                                                        "Syrah"))))
 
     (let ((note (vulpea-db-get-by-id "note1")))
       (should (equal (vulpea-note-meta-get-list note "grapes")
@@ -146,9 +146,9 @@ ARGS is a plist with optional fields:
   (vulpea-test--with-temp-db
     (vulpea-db)
     (vulpea-test--insert-test-note "note1" "Test Note"
-                                   :meta '(("ratings" . ((:value "95" :type "number")
-                                                         (:value "92" :type "number")
-                                                         (:value "88" :type "number")))))
+                                   :meta '(("ratings" . ("95"
+                                                         "92"
+                                                         "88"))))
 
     (let ((note (vulpea-db-get-by-id "note1")))
       (should (equal (vulpea-note-meta-get-list note "ratings" 'number)
@@ -162,9 +162,9 @@ ARGS is a plist with optional fields:
     (vulpea-test--insert-test-note "grape2" "Merlot")
     (vulpea-test--insert-test-note "grape3" "Syrah")
     (vulpea-test--insert-test-note "wine" "Wine Note"
-                                   :meta '(("grapes" . ((:value "[[id:grape1][Cabernet Sauvignon]]" :type "note")
-                                                        (:value "[[id:grape2][Merlot]]" :type "note")
-                                                        (:value "[[id:grape3][Syrah]]" :type "note")))))
+                                   :meta '(("grapes" . ("[[id:grape1][Cabernet Sauvignon]]"
+                                                        "[[id:grape2][Merlot]]"
+                                                        "[[id:grape3][Syrah]]"))))
 
     (let* ((note (vulpea-db-get-by-id "wine"))
            (grapes (vulpea-note-meta-get-list note "grapes" 'note)))
@@ -182,7 +182,7 @@ ARGS is a plist with optional fields:
     (vulpea-test--insert-test-note "target" "Full Title"
                                    :aliases '("Alias1" "Alias2"))
     (vulpea-test--insert-test-note "note1" "Test Note"
-                                   :meta '(("ref" . ((:value "[[id:target][Alias1]]" :type "note")))))
+                                   :meta '(("ref" . ("[[id:target][Alias1]]"))))
 
     (let* ((note (vulpea-db-get-by-id "note1"))
            (refs (vulpea-note-meta-get-list note "ref" 'note))
@@ -198,9 +198,9 @@ ARGS is a plist with optional fields:
   (vulpea-test--with-temp-db
     (vulpea-db)
     (vulpea-test--insert-test-note "note1" "Test Note"
-                                   :meta '(("tags" . ((:value "first" :type "string")
-                                                      (:value "second" :type "string")
-                                                      (:value "third" :type "string")))))
+                                   :meta '(("tags" . ("first"
+                                                      "second"
+                                                      "third"))))
 
     (let ((note (vulpea-db-get-by-id "note1")))
       (should (equal (vulpea-note-meta-get note "tags") "first")))))
@@ -210,7 +210,7 @@ ARGS is a plist with optional fields:
   (vulpea-test--with-temp-db
     (vulpea-db)
     (vulpea-test--insert-test-note "note1" "Test Note"
-                                   :meta '(("country" . ((:value "France" :type "string")))))
+                                   :meta '(("country" . ("France"))))
 
     (let ((note (vulpea-db-get-by-id "note1")))
       (should-not (vulpea-note-meta-get note "nonexistent")))))

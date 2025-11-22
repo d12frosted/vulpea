@@ -65,6 +65,7 @@ Returns absolute path. Caller responsible for cleanup."
 (ert-deftest vulpea-db-sync-enqueue-deduplication ()
   "Test queue deduplicates same file."
   (let ((vulpea-db-sync--queue nil)
+        (vulpea-db-sync--queue-set (make-hash-table :test 'equal))
         (vulpea-db-sync--timer nil)
         (path "/tmp/test.org"))
     (vulpea-db-sync--enqueue path)

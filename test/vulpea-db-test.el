@@ -139,21 +139,21 @@
      :pos 0
      :title "Test"
      :properties nil
-     :meta '(("country" . ((:value "France" :type "string")))
-             ("price" . ((:value "25.50" :type "number")))
-             ("region" . ((:value "region-id" :type "note"))))
+     :meta '(("country" . ("France"))
+             ("price" . ("25.50"))
+             ("region" . ("region-id")))
      :modified-at "2025-11-16")
 
-    ;; Check meta table
+    ;; Check meta table - no type column anymore
     (let ((meta (emacsql (vulpea-db)
-                         [:select [key value type] :from meta
+                         [:select [key value] :from meta
                           :where (= note-id $s1)
                           :order :by key]
                          "test-id")))
       (should (= (length meta) 3))
-      (should (member (list "country" "France" "string") meta))
-      (should (member (list "price" "25.50" "number") meta))
-      (should (member (list "region" "region-id" "note") meta)))))
+      (should (member (list "country" "France") meta))
+      (should (member (list "price" "25.50") meta))
+      (should (member (list "region" "region-id") meta)))))
 
 (ert-deftest vulpea-db-delete-note ()
   "Test note deletion."
