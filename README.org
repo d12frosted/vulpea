@@ -105,7 +105,7 @@ Vulpea needs an initial pass over every note. Pick one of these options:
 
 #+begin_src emacs-lisp
 ;; Option A (recommended): run an explicit full sync once
-(vulpea-db-sync-full)
+(vulpea-db-sync-full-scan)
 
 ;; Option B: scan automatically when autosync starts (blocking)
 (setq vulpea-db-sync-scan-on-enable 'blocking)
@@ -118,7 +118,7 @@ background).
 
 Whichever path you choose, expect the first scan to parse every file
 (plan for a few minutes on 100k+ notes). Re-run
-=vulpea-db-sync-full= (or set =vulpea-db-sync-scan-on-enable= temporarily)
+=vulpea-db-sync-full-scan= (or set =vulpea-db-sync-scan-on-enable= temporarily)
 whenever you change global settings and need to rebuild everything.
 
 *** 3. Enable Auto-Sync
