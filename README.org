@@ -176,9 +176,9 @@ Choose how Vulpea loads Org files:
 (setq vulpea-db-parse-method 'find-file)
 #+end_src
 
-- =single-temp-buffer=: ⚡ ~1.3k files/sec. Skips org-mode hooks and per-file keywords.
-- =temp-buffer=: ✓ Honors org-mode hooks per file. Slower if hooks are heavy.
-- =find-file=: ✓ Respects dir-locals/file-visiting hooks. 30-40x slower than =single-temp-buffer=.
+- =single-temp-buffer=: ⚡ ~1k files/sec. Skips org-mode hooks and per-file keywords.
+- =temp-buffer=: ✓ Honors org-mode hooks per file. ~460/sec, degrades to ~56/sec at scale.
+- =find-file=: ✓ Respects dir-locals/file-visiting hooks. ~34/sec, degrades to ~16/sec at scale.
 
 If an =org-mode-hook= is expensive (e.g. =org-roam=), wrap it in
 =(unless (bound-and-true-p 'vulpea-db--active-parse-method) …)= so it is
@@ -292,9 +292,9 @@ missing directory to =vulpea-db-sync-directories= and run a full sync.
 - See [[file:docs/plugin-guide.org][Plugin Guide]] for details
 
 *** 🏷️ Rich Metadata Support
-- Type-aware metadata: =note=, =number=, =string=, =link=
+- Type-aware metadata with read-time coercion: =note=, =number=, =string=, =link=, =symbol=
 - Tag-based queries with indexed lookups
-- Link tracking with type filtering
+- Link tracking for all org-mode link types (id:, file:, http:, attachment:, etc.)
 - Full-text title search
 
 *** ⚡ Performance at Scale
@@ -418,18 +418,22 @@ missing directory to =vulpea-db-sync-directories= and run a full sync.
 
 **** Defining Metadata
 
-In your org file, use property drawer with =_TYPE= suffix:
+In your org file, use property drawer or metadata format:
 
 #+begin_src org
 :PROPERTIES:
 :ID: wine-id-123
-:country_string: France
-:price_number: 45.99
-:region_note: burgundy-id-456
-:url_link: https://example.com
 :END:
 #+title: Château Margaux 2015
+
+- country :: France
+- price :: 45.99
+- region :: [[id:burgundy-id-456][Burgundy]]
+- url :: https://example.com
 #+end_src
+
+Type information is inferred at read-time based on the type parameter you pass to
+=vulpea-note-meta-get=, not stored in the database.
 
 **** Reading Metadata
 
@@ -654,8 +658,8 @@ Complete note data in a single table for fast retrieval:
 Indexed tables for efficient filtering:
 
 - =tags= - (note_id, tag) with index on tag
-- =links= - (source, dest, type) with indices
-- =meta= - (note_id, key, value, type) with indices
+- =links= - (source, dest, type) with indices on all columns
+- =meta= - (note_id, key, value) with indices on key and value
 
 **** Supporting Tables
 
@@ -688,24 +692,32 @@ See [[file:docs/architecture.org][Architecture Documentation]] for detailed desi
 
 *** Performance Characteristics
 
-Based on design targets (actual benchmarks pending):
+Actual benchmarks (MacBook Pro 2021, M1 Pro):
 
-| Operation | Target | Scale |
-|-----------+--------+-------|
+| Parse Method | 1K notes | 10K notes | 100K notes | Throughput |
+|--------------+----------+-----------+------------+------------|
+| single-temp-buffer | 1.3s | 8.9s | 1.6min | ~1k files/sec |
+| temp-buffer | 2.2s | 22s | 30min | ~460/sec (degrades) |
+| find-file | 26s | 4.9min | 102min | ~34/sec (degrades) |
+
+Query performance (typical):
+
+| Operation | Time | Scale |
+|-----------+------+-------|
 | Get by ID | <5ms | Any |
 | Tag query | <50ms | 100k notes |
 | Link query | <25ms | 100k notes |
 | Title search | <100ms | 100k notes |
-| Batch update (100 files) | <10s | Any |
-| Full rebuild | <5min | 100k notes |
+
+See [[file:bench/PERFORMANCE.md][bench/PERFORMANCE.md]] for detailed benchmarks and optimization guide.
 
 Performance tuning tips:
 
 1. *Install =fd= and =fswatch=* (see Optional Dependencies) - biggest impact
-2. Disable heading-level indexing if not needed (2-3x speedup)
-3. Use =fswatch= for external monitoring (more efficient than polling)
-4. Increase batch size for bulk operations
-5. Adjust debounce delay based on your workflow
+2. Use =single-temp-buffer= if you don't need per-file hooks (fastest)
+3. Disable heading-level indexing if not needed (2-3x speedup)
+4. Guard heavy =org-mode-hook= functions to skip during parsing
+5. Use =fswatch= for external monitoring (more efficient than polling)
 
 ** What's New in v2
 

@@ -21,9 +21,8 @@ trade-off between speed and correctness:
 3. **find-file (slowest)** – Visits files exactly like `find-file`, so
    `.dir-locals.el` and file-visiting hooks are honored.
 
-Buffer reuse still delivers the big win (7x faster than creating a fresh
-temp buffer), but now you can retain correctness by enabling per-file
-`org-mode` execution when you need it.
+Buffer reuse still delivers significant wins (3-4x speedup), but now you can
+retain correctness by enabling per-file `org-mode` execution when you need it.
 
 ## The Critical Choice: Parse Method
 
@@ -34,7 +33,7 @@ and **this choice has dramatic performance and correctness implications**.
 
 | Aspect | single-temp-buffer | temp-buffer (default) | find-file |
 |--------|-------------------|-----------------------|-----------|
-| **Speed** | ⚡ **~1.3k files/sec** | ⚡ **Depends on hooks** | 🐌 ~32 files/sec |
+| **Speed** | ⚡ **~1k files/sec** | ⚠️ **~460/s** (degrades to ~56/s) | 🐌 ~34 files/sec (degrades to ~16/s) |
 | **Hooks** | ✗ Never run | ✓ `org-mode` + hooks each file | ✓ All file-visiting hooks |
 | **Dir-locals** | ✗ Ignored | ✗ Ignored | ✓ Respected |
 | **#+TODO / #+PROPERTY** | ✗ Ignored after first file | ✓ Respected | ✓ Respected |
@@ -76,64 +75,74 @@ and **this choice has dramatic performance and correctness implications**.
 
 ## Performance Benchmarks
 
+> **Benchmark Environment:** MacBook Pro 2021 with Apple M1 Pro and APPLE SSD
+> AP0512R. These are example measurements; actual performance varies based on
+> machine state, hardware specifications, note complexity, and configuration
+> (hooks, dir-locals, etc.).
+
 ### Current Performance (v2 with optimizations)
 
 **single-temp-buffer** (fastest, skips hooks):
 
 | Files | Time | Throughput | Per-file | Notes |
 |-------|------|------------|----------|-------|
-| 1K | 0.8s | 1,250/s | 0.80ms | ⚡ Instant |
-| 10K | 7.8s | 1,282/s | 0.78ms | ⚡ Fast |
-| 110K | **1.4 min** | **1,290/s** | **0.77ms** | ✓ Acceptable |
-| 1M | **13 min** | 1,282/s | 0.78ms | Projected |
+| 1K | 1.33s | 754/s | 1.33ms | ⚡ Instant |
+| 10K | 8.89s | 1.13k/s | 888μs | ⚡ Fast |
+| 100K | **1.59 min** | **1.05k/s** | **951μs** | ✓ Acceptable |
+| 1M | **20.98 min** | 795/s | 1.26ms | ✓ Practical |
 
 **temp-buffer** (default, hooks enabled per file):
 
 | Files | Time | Throughput | Per-file | Notes |
 |-------|------|------------|----------|-------|
-| 1K | 0.9s | 1,110/s | 0.90ms | Base cost w/ empty hooks |
-| 10K | 9.9s | 1,010/s | 0.99ms | Base cost w/ empty hooks |
-| 110K | **1.8 min** | **1,020/s** | **0.98ms** | Hooks add extra cost |
-| 1M | **16 min** | 1,040/s | 0.96ms | Base projection |
+| 1K | 2.20s | 455/s | 2.20ms | Base cost w/ stock org-mode |
+| 10K | 21.77s | 459/s | 2.18ms | Base cost w/ stock org-mode |
+| 100K | **29.89 min** | **56/s** | **17.93ms** | ⚠️ Performance degrades at scale |
+| 1M | Not tested | - | - | 100K already > single-temp 1M time |
 
-> Hook overhead is additive: a 5ms `org-mode-hook` (e.g. `org-roam`)
-> adds ~5ms per file. Guard heavy hooks with
-> `(unless (bound-and-true-p 'vulpea-db--active-parse-method) …)` to
+> **Performance degradation:** With repeated operations, this method shows
+> eventual performance degradation. For large note collections (100K+), consider
+> `single-temp-buffer` if you don't need per-file hooks or keywords.
+>
+> Hook overhead is additive: custom hooks add their cost per file. Guard heavy
+> hooks with `(unless (bound-and-true-p 'vulpea-db--active-parse-method) …)` to
 > avoid this penalty.
 
 **find-file** (respects dir-locals & file-visiting hooks):
 
 | Files | Time | Throughput | Per-file | Notes |
 |-------|------|------------|----------|-------|
-| 1K | 28s | 36/s | 28ms | 🐌 Slow |
-| 10K | 5.1 min | 32/s | 31ms | 🐌 Very slow |
-| 110K | **51 min** | 36/s | 28ms | ⚠️ Impractical |
-| 1M | **8.6 hours** | 32/s | 31ms | ⚠️ Unusable |
+| 1K | 25.80s | 39/s | 25.80ms | 🐌 Slow |
+| 10K | 4.90 min | 34/s | 29.43ms | 🐌 Very slow |
+| 100K | **102.34 min** | **16/s** | **61.41ms** | ⚠️ Impractical for large collections |
+| 1M | Not tested | - | - | Estimated > 24 hours |
+
+> **Performance degradation:** Shows even more pronounced degradation with scale.
+> Only use this method when dir-locals or file-visiting hooks are essential.
 
 ### Performance Evolution
 
-Historical comparison showing optimization journey:
+Evolution of parse methods and optimizations:
 
-| Version | Method | Files | Time | Speedup | Notes |
-|---------|--------|-------|------|---------|-------|
-| v1 | File scan only | 110K | ~20s | - | No parsing |
-| v2 (naive) | find-file, new buffers | 110K | ~60 min | - | Initial implementation |
-| v2 (temp-buffer) | temp-buffer, new buffers | 110K | ~10 min | 6x | Switched to temp-buffer |
-| v2 (single-temp) | single temp buffer reuse | 110K | **1.4 min** | **43x** | Fastest |
-| v2 (temp-buffer default) | reuse + per-file org-mode | 110K | **1.8 min** | **33x** | Balanced |
+| Implementation | Method | Files | Time | Speedup vs find-file | Notes |
+|----------------|--------|-------|------|---------------------|-------|
+| find-file (new buffers) | find-file, new buffers | 100K | 102.34 min | 1x (baseline) | Full correctness, slowest |
+| temp-buffer (new buffers) | temp-buffer, new buffers | 100K | ~40 min | ~2.5x | Switched from find-file |
+| temp-buffer (reuse) | temp-buffer, buffer reuse | 100K | 29.89 min | 3.4x | Added buffer reuse |
+| single-temp-buffer | single buffer reuse, no hooks | 100K | **1.59 min** | **64x** | Fastest, skips per-file hooks |
 
 ### Time Breakdown (single-temp-buffer)
 
-Per-file time breakdown for the fastest single-temp-buffer method:
+Per-file time breakdown for the fastest single-temp-buffer method (approximate):
 
 | Phase | Time | Percentage | Notes |
 |-------|------|------------|-------|
-| I/O (file read) | 0.12ms | 16% | Disk read |
+| I/O (file read) | ~0.15ms | 16% | Disk read |
 | org-mode init | ~0.00ms | <1% | ✓ Eliminated by buffer reuse |
-| AST parsing | 0.27ms | 35% | org-element-parse-buffer |
-| Data extraction | 0.12ms | 16% | Extract nodes, meta, links |
-| Database ops | 0.20ms | 26% | SQLite inserts |
-| **Total** | **0.77ms** | **100%** | - |
+| AST parsing | ~0.33ms | 35% | org-element-parse-buffer |
+| Data extraction | ~0.15ms | 16% | Extract nodes, meta, links |
+| Database ops | ~0.28ms | 29% | SQLite inserts |
+| **Total** | **~0.95ms** | **100%** | Average at 100K files |
 
 When `vulpea-db-parse-method` is `temp-buffer`, add the time it takes to
 run `org-mode` (plus your hooks) after loading each file—the more work
@@ -182,9 +191,10 @@ without paying for optional integrations.
       ...)))
 ```
 
-**Impact:** buffer reuse still yields the 7x win (10 min → 1.4 min for
-110K files) while the new helper toggles whether `org-mode` re-runs per
-file.
+**Impact:** buffer reuse yields a 3.4x speedup (~40 min → 29.89 min for
+100K files with temp-buffer) while the new helper toggles whether `org-mode`
+re-runs per file. Skipping per-file org-mode entirely (single-temp-buffer)
+provides 64x speedup vs find-file (102.34 min → 1.59 min for 100K files).
 
 ### `single-temp-buffer`
 
@@ -229,7 +239,7 @@ Do you rely on .dir-locals.el or file-visiting hooks?
 - No `.dir-locals.el` customizations
 
 **Recommendation:** ✓ Use `single-temp-buffer`
-- Sync time: 1.4 min for 110K files
+- Sync time: 1.6 min for 100K files
 - Pure global configuration
 
 **Scenario 2: Multi-project with dir-locals**
@@ -238,7 +248,7 @@ Do you rely on .dir-locals.el or file-visiting hooks?
 - `.dir-locals.el` for project-specific settings
 
 **Recommendation:** ⚠️ Use `find-file`
-- Sync time: 51 min for 110K files
+- Sync time: 102 min for 100K files
 - Correctness guaranteed
 
 **Scenario 3: File-level tweaks but no dir-locals**
@@ -246,8 +256,9 @@ Do you rely on .dir-locals.el or file-visiting hooks?
 - Want faster sync than `find-file`
 
 **Recommendation:** ✓ Use `temp-buffer`
-- Sync time: ~2 min for 110K files (plus hook cost)
+- Sync time: ~30 min for 100K files (with stock org-mode)
 - Guard heavy hooks for better throughput
+- Note: Performance degrades at scale; consider `single-temp-buffer` for 100K+ notes
 
 ## Configuration
 
@@ -272,9 +283,9 @@ After changing the setting:
 
 | Setting | 1K notes | 10K notes | 100K notes | When to use |
 |---------|----------|-----------|------------|-------------|
-| `'single-temp-buffer` | <1s | ~8s | ~1.4min | Pure global config |
-| `'temp-buffer` | ~1s | ~10s | ~1.8min | Need `#+` keywords / hooks |
-| `'find-file` | ~30s | ~5min | ~51min | Need dir-locals / file hooks |
+| `'single-temp-buffer` | ~1.3s | ~8.9s | ~1.6min | Pure global config |
+| `'temp-buffer` | ~2.2s | ~22s | ~30min | Need `#+` keywords / hooks |
+| `'find-file` | ~26s | ~4.9min | ~102min | Need dir-locals / file hooks |
 
 ### Verifying Your Choice
 
@@ -301,10 +312,9 @@ if you rely on `#+TODO`, `#+PROPERTY`, or hook-based configuration.
 
 All optimizations are tested with the full test suite:
 
-- 234 tests total
-- 232 passed ✓
+- 238 tests total
+- 237 passed ✓
 - 1 skipped (requires fswatch)
-- 1 flaky (pre-existing, unrelated)
 
 ### Verification
 
@@ -331,8 +341,9 @@ behavior.
 
 ## References
 
-- Buffer reuse optimization: 7x speedup by eliminating org-mode init overhead
-- Parse method comparison: single-temp-buffer is 35-40x faster than find-file
+- Buffer reuse optimization: 3.4x speedup by eliminating buffer creation overhead
+- Parse method comparison: single-temp-buffer is 64x faster than find-file at 100K files
 - Balanced default: temp-buffer re-runs org-mode per file for correctness
 - Hook guard: `vulpea-db--active-parse-method` lets integrations skip work
-- Current fastest performance: 1,290 files/sec (0.77ms/file) with single-temp-buffer
+- Current fastest performance: 1.05k files/sec (951μs/file) with single-temp-buffer at 100K files
+- Performance degradation: temp-buffer and find-file show degradation at scale
