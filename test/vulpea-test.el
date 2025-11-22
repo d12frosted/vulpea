@@ -251,27 +251,32 @@ Returns absolute path. Caller responsible for cleanup."
 
 ;;; Capture System Helper Function Tests
 
-(ert-deftest vulpea--title-to-slug-basic ()
+(ert-deftest vulpea-title-to-slug-basic ()
   "Test basic slug generation."
-  (should (equal (vulpea--title-to-slug "Hello World")
+  (should (equal (vulpea-title-to-slug "Hello World")
                  "hello_world"))
-  (should (equal (vulpea--title-to-slug "My Great Note")
+  (should (equal (vulpea-title-to-slug "My Great Note")
                  "my_great_note")))
 
-(ert-deftest vulpea--title-to-slug-special-chars ()
+(ert-deftest vulpea-title-to-slug-special-chars ()
   "Test slug generation handles special characters and Unicode properly.
 Uses Unicode normalization to preserve base characters from accented letters."
-  (should (equal (vulpea--title-to-slug "Hello, World!")
+  (should (equal (vulpea-title-to-slug "Hello, World!")
                  "hello_world"))
   ;; Special chars become underscores, preserving separator positions
-  (should (equal (vulpea--title-to-slug "Test@Note#123")
+  (should (equal (vulpea-title-to-slug "Test@Note#123")
                  "test_note_123"))
   ;; Properly handles diacritics: é → e
-  (should (equal (vulpea--title-to-slug "Café & Restaurant")
+  (should (equal (vulpea-title-to-slug "Café & Restaurant")
                  "cafe_restaurant"))
   ;; International characters preserved
-  (should (equal (vulpea--title-to-slug "Naïve Approach")
+  (should (equal (vulpea-title-to-slug "Naïve Approach")
                  "naive_approach")))
+
+(ert-deftest vulpea-title-to-slug-alias ()
+  "Ensure the old internal helper remains available."
+  (should (equal (vulpea-title-to-slug "Alias Test")
+                 (vulpea--title-to-slug "Alias Test"))))
 
 (ert-deftest vulpea--expand-file-name-template-default ()
   "Test file name template expansion with default template."

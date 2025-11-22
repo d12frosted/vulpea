@@ -94,7 +94,7 @@ filter function.")
 
 ;;; Helper Functions
 
-(defun vulpea--title-to-slug (title)
+(defun vulpea-title-to-slug (title)
   "Convert TITLE to URL-friendly slug.
 
 Uses Unicode normalization to properly handle international characters
@@ -120,6 +120,8 @@ See: https://github.com/org-roam/org-roam/pull/1460"
                  (replace-regexp-in-string "_$" "")            ;; remove ending underscore
                  (downcase))))
 
+(define-obsolete-function-alias 'vulpea--title-to-slug #'vulpea-title-to-slug "2.0.0")
+
 (defun vulpea--default-directory ()
   "Return the default directory for creating new notes.
 
@@ -135,7 +137,7 @@ Resolution order:
   "Expand TEMPLATE with TITLE and optional ID.
 TEMPLATE is a string with ${...} placeholders.
 Returns expanded string with placeholders replaced."
-  (let* ((slug (vulpea--title-to-slug title))
+  (let* ((slug (vulpea-title-to-slug title))
          (timestamp (format-time-string "%Y%m%d%H%M%S"))
          (id (or id (org-id-new))))
     (thread-last template

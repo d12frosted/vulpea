@@ -283,7 +283,7 @@ Install =fswatch= for the most reliable external change detection (see Dependenc
       (lambda (title)
         (format "%s_%s.org"
                 (format-time-string "%Y%m%d%H%M%S")
-                (vulpea--title-to-slug title))))
+                (vulpea-title-to-slug title))))
 
 ;; Default directory for new notes (should be part of sync dirs)
 (setq vulpea-default-notes-directory "~/org/")
