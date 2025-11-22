@@ -4,4 +4,4 @@
                                                  (vulpea-utils-with-note . 1)
                                                  (org-with-point-at . 1)
                                                  (org-element-map . 2)))))
- (org-mode . ((vulpea-id-auto-targets . (headings)))))
+ (org-mode . ((vulpea-id-auto-targets . nil))))
