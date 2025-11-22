@@ -164,6 +164,9 @@ determines Vulpea's performance and correctness.
 ;; Directories to watch and sync
 (setq vulpea-db-sync-directories
       '("~/org/" "~/notes/"))
+
+;; Default directory for new notes (MUST be inside one of the sync dirs)
+(setq vulpea-default-notes-directory "~/org/")
 #+end_src
 
 *** Parsing Method
@@ -179,7 +182,7 @@ Choose how Vulpea loads Org files:
 ;; Honors #+TODO, #+PROPERTY, org-mode-hook, etc.
 (setq vulpea-db-parse-method 'temp-buffer)
 
-;; Find file: visits files like `find-file', respects dir-locals,
+;; Find file: visits files like =find-file=, respects dir-locals,
 ;; and all file-visiting hooks. Slowest but most accurate.
 (setq vulpea-db-parse-method 'find-file)
 #+end_src
@@ -188,9 +191,9 @@ Choose how Vulpea loads Org files:
 - =temp-buffer=: ✓ Honors org-mode hooks per file. Slower if hooks are heavy.
 - =find-file=: ✓ Respects dir-locals/file-visiting hooks. 30-40x slower than =single-temp-buffer=.
 
-If an `org-mode-hook` is expensive (e.g. `org-roam`), wrap it in
-`(unless (bound-and-true-p 'vulpea-db--active-parse-method) …)` so it is
-skipped when Vulpea parses notes. See =bench/PERFORMANCE.md= for detailed benchmarks.
+If an =org-mode-hook= is expensive (e.g. =org-roam=), wrap it in
+=(unless (bound-and-true-p 'vulpea-db--active-parse-method) …)= so it is
+skipped when Vulpea parses notes. See [[file:bench/PERFORMANCE.md][bench/PERFORMANCE.md]] for detailed benchmarks.
 
 *** Indexing Control
 
@@ -270,9 +273,13 @@ Install =fswatch= for the most reliable external change detection (see Dependenc
                 (format-time-string "%Y%m%d%H%M%S")
                 (vulpea--title-to-slug title))))
 
-;; Default directory for new notes
+;; Default directory for new notes (should be part of sync dirs)
 (setq vulpea-default-notes-directory "~/org/")
 #+end_src
+
+If =vulpea-default-notes-directory= points outside
+=vulpea-db-sync-directories=, new notes won't be indexed until you add the
+missing directory to =vulpea-db-sync-directories= and run a full sync.
 
 ** Key Features
 
