@@ -462,20 +462,31 @@ For creating many notes programmatically, use synchronous mode:
 
 *** Parsing Method
 
-Choose the method for parsing org files:
+Choose how Vulpea loads Org files:
 
 #+begin_src emacs-lisp
-;; Temp buffer: fast, recommended for most users (default)
+;; Single temp buffer: absolute fastest, skips org-mode hooks entirely.
+;; Only use when your configuration is purely global.
+(setq vulpea-db-parse-method 'single-temp-buffer)
+
+;; Temp buffer (default): reuses a buffer but re-runs org-mode per file.
+;; Honors #+TODO, #+PROPERTY, org-mode-hook, etc.
 (setq vulpea-db-parse-method 'temp-buffer)
 
-;; Find file: slower but respects .dir-locals.el
-;; Use this if you customize org-attach-id-dir via directory-local variables
+;; Find file: visits files like `find-file', respects dir-locals,
+;; and all file-visiting hooks. Slowest but most accurate.
 (setq vulpea-db-parse-method 'find-file)
 #+end_src
 
-*Performance impact:* =temp-buffer= is 13-19x faster than =find-file=. The temp-buffer method provides correct behavior for standard configurations. Only use =find-file= if you have custom directory-local settings that affect org-attach behavior.
+- =single-temp-buffer=: ⚡ ~1.3k files/sec. Skips org-mode hooks and per-file keywords.
+- =temp-buffer=: ✓ Honors org-mode hooks per file. Slower if hooks are heavy.
+- =find-file=: ✓ Respects dir-locals/file-visiting hooks. 30-40x slower than =single-temp-buffer=.
 
-See =bench/PERFORMANCE.md= for detailed benchmarks.
+If an `org-mode-hook` is expensive (e.g. `org-roam`), wrap it in
+`(unless (bound-and-true-p 'vulpea-db--active-parse-method) …)` so it is
+skipped when Vulpea parses notes.
+
+See =bench/PERFORMANCE.md= for detailed benchmarks and selection guidance.
 
 *** External Change Detection
 

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Compare temp-buffer vs find-file parsing methods
+# Compare single-temp-buffer, temp-buffer, and find-file parsing methods
 
 set -e
 
@@ -8,6 +8,7 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
 NOTES_COUNT="${1:-1000}"
 NOTES_DIR="$SCRIPT_DIR/bench-output/notes"
+DB_FILE_SINGLE="$SCRIPT_DIR/bench-output/single-temp-buffer.db"
 DB_FILE_TEMP="$SCRIPT_DIR/bench-output/temp-buffer.db"
 DB_FILE_FIND="$SCRIPT_DIR/bench-output/find-file.db"
 
@@ -32,9 +33,25 @@ if [ ! -d "$NOTES_DIR" ] || [ $(find "$NOTES_DIR" -name "*.org" | wc -l) -ne "$N
     echo
 fi
 
+# Benchmark single-temp-buffer method
+echo "========================================"
+echo "METHOD 1: single-temp-buffer (fastest)"
+echo "========================================"
+rm -f "$DB_FILE_SINGLE"
+
+eldev -p exec \
+    "(progn \
+       (add-to-list 'load-path \"$SCRIPT_DIR\") \
+       (require 'vulpea-bench) \
+       (setq vulpea-db-parse-method 'single-temp-buffer) \
+       (vulpea-bench-sync \"$NOTES_DIR\" \"$DB_FILE_SINGLE\"))" \
+    2>&1 | grep -E "(===|Notes directory|Database|Full sync|Files|Throughput|Average)" | grep -v ">>>"
+
+echo
+
 # Benchmark temp-buffer method
 echo "========================================"
-echo "METHOD 1: temp-buffer (fast)"
+echo "METHOD 2: temp-buffer (default)"
 echo "========================================"
 rm -f "$DB_FILE_TEMP"
 
@@ -50,7 +67,7 @@ echo
 
 # Benchmark find-file method
 echo "========================================"
-echo "METHOD 2: find-file (correct)"
+echo "METHOD 3: find-file (correct)"
 echo "========================================"
 rm -f "$DB_FILE_FIND"
 

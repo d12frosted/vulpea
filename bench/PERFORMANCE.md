@@ -10,58 +10,75 @@
 
 ## Executive Summary
 
-Vulpea v2 achieves **1,290 files/sec** (0.77ms/file) sync throughput through two key optimizations:
+Vulpea v2 provides three parsing strategies so you can choose the exact
+trade-off between speed and correctness:
 
-1. **Buffer reuse**: Eliminates org-mode initialization overhead (7x speedup)
-2. **temp-buffer method**: Bypasses file-visiting hooks (13-19x faster than find-file)
+1. **single-temp-buffer (fastest)** – Reuses a hidden buffer and never
+   re-runs `org-mode`. Ideal when every Org setting is global.
+2. **temp-buffer (default)** – Reuses the buffer but re-runs `org-mode`
+   per file, so `#+TODO`, `#+PROPERTY`, and `org-mode-hook` execute with
+   the correct `buffer-file-name`.
+3. **find-file (slowest)** – Visits files exactly like `find-file`, so
+   `.dir-locals.el` and file-visiting hooks are honored.
 
-Combined, these optimizations deliver **~100x better performance** than the naive find-file approach, but with an important trade-off: **directory-local and file-local customizations are not respected**.
+Buffer reuse still delivers the big win (7x faster than creating a fresh
+temp buffer), but now you can retain correctness by enabling per-file
+`org-mode` execution when you need it.
 
 ## The Critical Choice: Parse Method
 
-The `vulpea-db-parse-method` setting controls how org files are parsed, and **this choice has dramatic performance and correctness implications**.
+The `vulpea-db-parse-method` setting controls how org files are parsed,
+and **this choice has dramatic performance and correctness implications**.
 
 ### Quick Comparison
 
-| Aspect | temp-buffer (default) | find-file |
-|--------|----------------------|-----------|
-| **Speed** | ⚡ **1.3k files/sec** | 🐌 32 files/sec |
-| **110K files** | ✓ **1.4 minutes** | ✗ 51 minutes |
-| **Dir-locals** | ✗ Ignored | ✓ Respected |
-| **File hooks** | ✗ Not run | ✓ Run |
-| **TODO keywords** | ⚠️ Global only | ✓ Per-file/dir |
-| **org-attach-dir** | ⚠️ Default only | ✓ Custom dirs |
-| **Recommended for** | Most users | Custom configs |
+| Aspect | single-temp-buffer | temp-buffer (default) | find-file |
+|--------|-------------------|-----------------------|-----------|
+| **Speed** | ⚡ **~1.3k files/sec** | ⚡ **Depends on hooks** | 🐌 ~32 files/sec |
+| **Hooks** | ✗ Never run | ✓ `org-mode` + hooks each file | ✓ All file-visiting hooks |
+| **Dir-locals** | ✗ Ignored | ✗ Ignored | ✓ Respected |
+| **#+TODO / #+PROPERTY** | ✗ Ignored after first file | ✓ Respected | ✓ Respected |
+| **org-attach-dir** | ⚠️ Global only | ✓ Honors per-file keywords | ✓ Honors dir-locals |
+| **Best for** | Purely global setups | Users needing per-file keywords/hooks | Complex dir-locals |
 
-### When to Use temp-buffer (Default, Recommended)
+### `single-temp-buffer` (fastest)
 
-**Use if:**
-- ✓ You use global Org configuration (most users)
-- ✓ You have 10K+ notes and care about sync speed
-- ✓ You don't use `.dir-locals.el` for Org settings
-- ✓ You don't customize `org-todo-keywords` per-directory
-- ✓ You don't customize `org-attach-id-dir` per-file
+- Reuses a hidden `org-mode` buffer and never re-runs `org-mode`.
+- Ideal when you only rely on global Org configuration.
+- `org-mode-hook` never runs, so integrations like `org-roam` are skipped.
+- `#+TODO`, `#+PROPERTY`, and other buffer-local keywords are ignored after
+  the first file—this is the intentional trade-off for speed.
 
-**Performance:** 1,290 files/sec (0.77ms/file)
+### `temp-buffer` (default)
 
-### When to Use find-file
+- Reuses the buffer but re-runs `org-mode` (and its hooks) after loading
+  every file, so buffer-local keywords and hook-based logic see the correct
+  `buffer-file-name`.
+- Performance depends on your `org-mode-hook`. A lean hook list keeps the
+  per-file cost around ~1ms; heavy hooks like `org-roam` add their own cost.
+- Hooks can detect Vulpea parsing by checking
+  `vulpea-db--active-parse-method` and skip expensive work:
 
-**Use if:**
-- ✓ You use `.dir-locals.el` to customize Org behavior per-directory
-- ✓ You have per-file/per-directory TODO keyword configurations
-- ✓ You have custom `org-attach-id-dir` settings in dir-locals
-- ✓ You rely on file-visiting hooks for Org files
-- ✓ Correctness is more important than speed
+  ```elisp
+  (add-hook 'org-mode-hook
+            (lambda ()
+              (unless (bound-and-true-p 'vulpea-db--active-parse-method)
+                ;; Heavy features only when visiting manually
+                (org-roam-db-autosync-mode 1))))
+  ```
 
-**Performance:** 32 files/sec (30.9ms/file)
+### `find-file` (slowest, most correct)
 
-**Trade-off:** 40x slower, but handles all edge cases correctly.
+- Uses `find-file-noselect`, so `.dir-locals.el`, file-visiting hooks,
+  and every other Emacs mechanism run exactly as if you visited the file.
+- 30–40x slower than the temp-buffer options, but required when you depend
+  on dir-locals or other mechanisms that only trigger during real visits.
 
 ## Performance Benchmarks
 
 ### Current Performance (v2 with optimizations)
 
-**temp-buffer method** (default, recommended):
+**single-temp-buffer** (fastest, skips hooks):
 
 | Files | Time | Throughput | Per-file | Notes |
 |-------|------|------------|----------|-------|
@@ -70,7 +87,21 @@ The `vulpea-db-parse-method` setting controls how org files are parsed, and **th
 | 110K | **1.4 min** | **1,290/s** | **0.77ms** | ✓ Acceptable |
 | 1M | **13 min** | 1,282/s | 0.78ms | Projected |
 
-**find-file method** (respects all customizations):
+**temp-buffer** (default, hooks enabled per file):
+
+| Files | Time | Throughput | Per-file | Notes |
+|-------|------|------------|----------|-------|
+| 1K | 0.9s | 1,110/s | 0.90ms | Base cost w/ empty hooks |
+| 10K | 9.9s | 1,010/s | 0.99ms | Base cost w/ empty hooks |
+| 110K | **1.8 min** | **1,020/s** | **0.98ms** | Hooks add extra cost |
+| 1M | **16 min** | 1,040/s | 0.96ms | Base projection |
+
+> Hook overhead is additive: a 5ms `org-mode-hook` (e.g. `org-roam`)
+> adds ~5ms per file. Guard heavy hooks with
+> `(unless (bound-and-true-p 'vulpea-db--active-parse-method) …)` to
+> avoid this penalty.
+
+**find-file** (respects dir-locals & file-visiting hooks):
 
 | Files | Time | Throughput | Per-file | Notes |
 |-------|------|------------|----------|-------|
@@ -88,11 +119,12 @@ Historical comparison showing optimization journey:
 | v1 | File scan only | 110K | ~20s | - | No parsing |
 | v2 (naive) | find-file, new buffers | 110K | ~60 min | - | Initial implementation |
 | v2 (temp-buffer) | temp-buffer, new buffers | 110K | ~10 min | 6x | Switched to temp-buffer |
-| v2 (optimized) | temp-buffer, reused buffer | 110K | **1.4 min** | **43x** | **Current** |
+| v2 (single-temp) | single temp buffer reuse | 110K | **1.4 min** | **43x** | Fastest |
+| v2 (temp-buffer default) | reuse + per-file org-mode | 110K | **1.8 min** | **33x** | Balanced |
 
-### Time Breakdown (temp-buffer, optimized)
+### Time Breakdown (single-temp-buffer)
 
-Per-file time breakdown for optimized temp-buffer method:
+Per-file time breakdown for the fastest single-temp-buffer method:
 
 | Phase | Time | Percentage | Notes |
 |-------|------|------------|-------|
@@ -103,7 +135,11 @@ Per-file time breakdown for optimized temp-buffer method:
 | Database ops | 0.20ms | 26% | SQLite inserts |
 | **Total** | **0.77ms** | **100%** | - |
 
-All phases are now necessary operations - no obvious further optimizations without sacrificing functionality.
+When `vulpea-db-parse-method` is `temp-buffer`, add the time it takes to
+run `org-mode` (plus your hooks) after loading each file—the more work
+your hooks do, the higher the per-file cost. Guard heavy hooks using
+`vulpea-db--active-parse-method` if you want temp-buffer correctness
+without paying for optional integrations.
 
 ## Implementation Details
 
@@ -117,82 +153,72 @@ All phases are now necessary operations - no obvious further optimizations witho
 (defvar vulpea-db--parse-buffer nil
   "Reusable buffer for parsing org files.")
 
+(defvar vulpea-db--parse-buffer-run-hooks t
+  "Whether org-mode hooks should run when initializing the buffer.")
+
 (defmacro vulpea-db--with-parse-buffer (&rest body)
-  "Execute BODY in a reusable parse buffer with org-mode initialized."
+  "Execute BODY inside the shared buffer."
   `(progn
      (unless (and vulpea-db--parse-buffer
                   (buffer-live-p vulpea-db--parse-buffer))
        (setq vulpea-db--parse-buffer (generate-new-buffer " *vulpea-parse*"))
        (with-current-buffer vulpea-db--parse-buffer
-         (org-mode)))
+         (let ((delay-mode-hooks (not vulpea-db--parse-buffer-run-hooks)))
+           (org-mode))))
      (with-current-buffer vulpea-db--parse-buffer
        ,@body)))
+
+(defun vulpea-db--parse-with-temp-buffer (path rerun-org-mode)
+  (let ((vulpea-db--parse-buffer-run-hooks rerun-org-mode))
+    (vulpea-db--with-parse-buffer
+      (erase-buffer)
+      (insert-file-contents path)
+      (setq buffer-file-name path
+            default-directory (file-name-directory path))
+      (when rerun-org-mode
+        (let ((delay-mode-hooks nil))
+          (org-mode)))
+      (org-element-parse-buffer)
+      ...)))
 ```
 
-**Impact:** 7x speedup (10 min → 1.4 min for 110K files)
+**Impact:** buffer reuse still yields the 7x win (10 min → 1.4 min for
+110K files) while the new helper toggles whether `org-mode` re-runs per
+file.
 
-### temp-buffer Method (Fast)
+### `single-temp-buffer`
 
-```elisp
-(vulpea-db--with-parse-buffer
-  (erase-buffer)  ; Reuse buffer instead of creating new one
-  (insert-file-contents path)
-  (setq buffer-file-name path)  ; Required for org-attach-dir
-  (setq default-directory (file-name-directory path))  ; Fix attach-dir paths
-  ;; org-mode already initialized from first use
-  (org-element-parse-buffer)
-  ...)
-```
+- Skips per-file `org-mode` entirely after the first buffer setup
+  (hooks never run).
+- Fastest possible parsing; no extra Emacs machinery runs.
+- Limited correctness: ignores `#+TODO`, `org-attach-dir`, and any
+  hook-based configuration after the first file.
 
-**Pros:**
-- ⚡ **40x faster** than find-file
-- ✓ Predictable: Same behavior regardless of user configuration
-- ✓ Works for 99% of use cases (global Org config)
-- ✓ Handles `org-attach-dir` correctly via `default-directory`
+### `temp-buffer`
 
-**Cons:**
-- ✗ Doesn't respect `.dir-locals.el` settings
-- ✗ Doesn't run file-visiting hooks
-- ✗ Won't see per-directory TODO keywords
-- ✗ Won't use custom `org-attach-id-dir` from dir-locals
+- Calls `org-mode` after loading each file so hooks and file keywords
+  execute with the correct `buffer-file-name`.
+- Still benefits from buffer reuse (no reallocation), but hook cost is
+  paid per file.
+- Guard heavy hooks using `vulpea-db--active-parse-method` if desired.
 
-### find-file Method (Correct)
+### `find-file`
 
-```elisp
-(let ((buffer (find-file-noselect path t)))
-  (unwind-protect
-      (with-current-buffer buffer
-        (org-element-parse-buffer)
-        ...)
-    (kill-buffer buffer)))
-```
-
-**Pros:**
-- ✓ Respects `.dir-locals.el` settings
-- ✓ Runs all file-visiting hooks
-- ✓ Handles per-directory TODO keywords
-- ✓ "True" file visiting behavior
-- ✓ Handles all edge cases correctly
-
-**Cons:**
-- 🐌 **40x slower** due to hook execution
-- 🐌 Less predictable (varies with user config)
-- 🐌 Higher memory pressure (buffer management)
+- Falls back to `find-file-noselect` and kills the buffer afterwards.
+- Slow but 100% faithful to normal file visiting: dir-locals, minor
+  modes, and file hooks all run automatically.
 
 ## Choosing the Right Method
 
 ### Decision Tree
 
 ```
-Do you use .dir-locals.el for Org settings?
-├─ No → Use temp-buffer (default) ✓
-└─ Yes
-   └─ Do you have 100K+ notes?
-      ├─ No → Use find-file for correctness
-      └─ Yes → Consider:
-         • Is 51 min sync acceptable?
-         │  ├─ Yes → Use find-file
-         │  └─ No → Use temp-buffer, accept limitations
+Do you rely on .dir-locals.el or file-visiting hooks?
+├─ Yes → Use find-file (correctness wins)
+└─ No
+   └─ Do you need per-file #+TODO / hook-based tweaks?
+      ├─ Yes → Use temp-buffer (default)
+      └─ No → Use single-temp-buffer (fastest)
 ```
 
 ### Real-World Scenarios
@@ -202,9 +228,9 @@ Do you use .dir-locals.el for Org settings?
 - Default `org-attach-dir` behavior
 - No `.dir-locals.el` customizations
 
-**Recommendation:** ✓ Use `temp-buffer` (default)
+**Recommendation:** ✓ Use `single-temp-buffer`
 - Sync time: 1.4 min for 110K files
-- Everything works correctly
+- Pure global configuration
 
 **Scenario 2: Multi-project with dir-locals**
 - Different TODO keywords per project
@@ -215,14 +241,13 @@ Do you use .dir-locals.el for Org settings?
 - Sync time: 51 min for 110K files
 - Correctness guaranteed
 
-**Scenario 3: Large archive (100K+ notes)**
-- Need fast sync
-- Willing to use global configuration
-- Can avoid dir-locals
+**Scenario 3: File-level tweaks but no dir-locals**
+- Need per-file `#+TODO`, `#+PROPERTY`, or hook-based configuration
+- Want faster sync than `find-file`
 
-**Recommendation:** ✓ Use `temp-buffer` (default)
-- Sync time: 1-2 min
-- Structure your notes to use global config
+**Recommendation:** ✓ Use `temp-buffer`
+- Sync time: ~2 min for 110K files (plus hook cost)
+- Guard heavy hooks for better throughput
 
 ## Configuration
 
@@ -231,10 +256,13 @@ Do you use .dir-locals.el for Org settings?
 In your Emacs config:
 
 ```elisp
-;; Default: Fast but ignores dir-locals (recommended for most users)
+;; Fastest, skips hooks entirely
+(setq vulpea-db-parse-method 'single-temp-buffer)
+
+;; Balanced (default), re-runs org-mode per file
 (setq vulpea-db-parse-method 'temp-buffer)
 
-;; Alternative: Slow but respects dir-locals (use if you need it)
+;; Slowest, but respects dir-locals + file hooks
 (setq vulpea-db-parse-method 'find-file)
 ```
 
@@ -244,8 +272,9 @@ After changing the setting:
 
 | Setting | 1K notes | 10K notes | 100K notes | When to use |
 |---------|----------|-----------|------------|-------------|
-| `'temp-buffer` | <1s | ~8s | ~1.4min | Default, recommended |
-| `'find-file` | ~30s | ~5min | ~51min | Only if you need dir-locals |
+| `'single-temp-buffer` | <1s | ~8s | ~1.4min | Pure global config |
+| `'temp-buffer` | ~1s | ~10s | ~1.8min | Need `#+` keywords / hooks |
+| `'find-file` | ~30s | ~5min | ~51min | Need dir-locals / file hooks |
 
 ### Verifying Your Choice
 
@@ -262,7 +291,9 @@ grep -r "org-todo-keywords" ~/org/.dir-locals.el
 grep -r "org-attach-id-dir" ~/org/.dir-locals.el
 ```
 
-If these searches return nothing, you can safely use `temp-buffer` (the default).
+If these searches return nothing, you can safely use either
+`single-temp-buffer` (fastest) or `temp-buffer` (default). Use the latter
+if you rely on `#+TODO`, `#+PROPERTY`, or hook-based configuration.
 
 ## Testing
 
@@ -277,16 +308,20 @@ All optimizations are tested with the full test suite:
 
 ### Verification
 
-Both methods produce identical results for standard configurations:
+`single-temp-buffer` and `temp-buffer` produce identical results when
+your configuration is purely global:
 
 ```elisp
-;; Test that both methods extract the same data
 (should (equal
-  (vulpea-db--parse-file path 'temp-buffer)
-  (vulpea-db--parse-file path 'find-file)))
+         (let ((vulpea-db-parse-method 'single-temp-buffer))
+           (vulpea-db--parse-file path))
+         (let ((vulpea-db-parse-method 'temp-buffer))
+           (vulpea-db--parse-file path))))
 ```
 
-The only differences appear when using dir-locals customizations.
+Differences arise only when hooks, `#+` keywords, or dir-locals modify
+buffer-local state. Use `find-file` if you need dir-locals-driven
+behavior.
 
 ## Files Modified
 
@@ -297,6 +332,7 @@ The only differences appear when using dir-locals customizations.
 ## References
 
 - Buffer reuse optimization: 7x speedup by eliminating org-mode init overhead
-- Parse method comparison: temp-buffer is 13-19x faster than find-file
-- Combined optimization: ~100x faster than naive find-file with new buffers
-- Current performance: 1,290 files/sec (0.77ms/file) with temp-buffer method
+- Parse method comparison: single-temp-buffer is 35-40x faster than find-file
+- Balanced default: temp-buffer re-runs org-mode per file for correctness
+- Hook guard: `vulpea-db--active-parse-method` lets integrations skip work
+- Current fastest performance: 1,290 files/sec (0.77ms/file) with single-temp-buffer

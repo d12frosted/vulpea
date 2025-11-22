@@ -115,81 +115,48 @@ Example:
 (defcustom vulpea-db-parse-method 'temp-buffer
   "Method to use for parsing org files during sync.
 
-This setting has DRAMATIC performance implications - choosing the wrong
-method can make sync 40x slower. Most users should use the default.
+This setting has dramatic performance implications. Choose the mode
+that matches your configuration:
 
-OPTIONS:
+  \\='single-temp-buffer (FASTEST)
+    Reuses one hidden buffer and never re-runs `org-mode'.
+    - ⚡ Best throughput (~1.3k files/sec)
+    - ✗ Skips `org-mode-hook' entirely
+    - ✗ Ignores per-file `#+TODO', `#+PROPERTY', `org-attach-dir'
+    Use when your Org setup is 100% global.
 
-  \\='temp-buffer (DEFAULT, RECOMMENDED)
-    Fast parsing that works for 99% of users.
-    Performance: ~1,290 files/sec (0.77ms/file)
-    110K files: ~1.4 minutes
+  \\='temp-buffer (DEFAULT)
+    Reuses one hidden buffer but re-runs `org-mode' per file.
+    - ✓ Honors file-level keywords and `org-mode-hook'
+    - ✓ Supports hook-based per-file tweaks
+    - ⚠️ Slower if hooks are heavy (e.g., org-roam)
+    Hooks can check `vulpea-db--active-parse-method' to skip work.
 
-  \\='find-file (SLOW, USE ONLY IF NEEDED)
-    Correct parsing for complex directory-local configurations.
-    Performance: ~32 files/sec (31ms/file)
-    110K files: ~51 minutes (40x slower!)
+  \\='find-file (SLOWEST)
+    Visits files with `find-file-noselect' as if opened manually.
+    - ✓ Respects `.dir-locals.el' and file-visiting hooks
+    - ✗ 30-40x slower than temp-buffer strategies
 
-WHEN TO USE temp-buffer (default):
-
-  ✓ You use global Org configuration (most users)
-  ✓ You don't use .dir-locals.el for Org settings
-  ✓ You don't customize org-todo-keywords per-directory
-  ✓ You don't customize org-attach-id-dir in dir-locals
-  ✓ You have 10K+ notes and care about sync speed
-
-  This is the right choice for 90% of users.
-
-WHEN TO USE find-file:
-
-  ✓ You use .dir-locals.el to customize Org behavior per-directory
-  ✓ You have per-directory TODO keyword configurations
-  ✓ You have custom org-attach-id-dir in .dir-locals.el
-  ✓ You rely on file-visiting hooks for Org files
-  ✓ Correctness is more important than speed
-
-  Warning: With 100K+ notes, expect 40-60 minute sync times.
-
-WHAT TEMP-BUFFER DOESN'T DO:
-
-  ✗ Run file-visiting hooks
-  ✗ Respect .dir-locals.el settings
-  ✗ Load per-directory TODO keywords
-  ✗ Use custom org-attach-id-dir from dir-locals
-
-  It DOES correctly handle:
-  ✓ Global org-todo-keywords
-  ✓ Default org-attach-dir behavior
-  ✓ File properties, links, tags, metadata
-  ✓ All standard Org parsing
-
-VERIFYING YOUR CHOICE:
-
-  Check if you use dir-locals for Org:
-    find ~/org -name \".dir-locals.el\"
-    grep -r \"org-todo-keywords\" ~/org/.dir-locals.el
-    grep -r \"org-attach-id-dir\" ~/org/.dir-locals.el
-
-  If these return nothing, use temp-buffer (the default).
-
-PERFORMANCE COMPARISON:
-
-  | Files  | temp-buffer | find-file   | Ratio |
-  |--------|-------------|-------------|-------|
-  | 1K     | <1s         | ~30s        | 30x   |
-  | 10K    | ~8s         | ~5min       | 38x   |
-  | 100K   | ~1.4min     | ~51min      | 36x   |
-
-See bench/PERFORMANCE.md for detailed benchmarks and decision guide."
+See README.org and bench/PERFORMANCE.md for guidance."
   :group 'vulpea
-  :type '(choice (const :tag "Temp buffer (fast, recommended)" temp-buffer)
-                 (const :tag "Find file (slow, respects dir-locals)" find-file)))
+  :type '(choice (const :tag "Single temp buffer (fastest, skips hooks)" single-temp-buffer)
+          (const :tag "Temp buffer (default, runs org-mode per file)" temp-buffer)
+          (const :tag "Find file (slow, respects dir-locals)" find-file)))
+
+(defvar vulpea-db--active-parse-method nil
+  "Current `vulpea-db-parse-method' while parsing.
+
+This is let-bound during parsing so hook authors can skip expensive
+work, e.g. `(unless (bound-and-true-p 'vulpea-db--active-parse-method) …)'.")
 
 (defvar vulpea-db--parse-buffer nil
   "Reusable buffer for parsing org files.
 Caching the buffer with org-mode already initialized provides
 significant performance improvement (12x faster) by avoiding
 repeated org-mode activation overhead.")
+
+(defvar vulpea-db--parse-buffer-run-hooks t
+  "Whether `org-mode' should run hooks when initializing parse buffer.")
 
 (defmacro vulpea-db--with-parse-buffer (&rest body)
   "Execute BODY in a reusable parse buffer with org-mode initialized.
@@ -203,9 +170,68 @@ by initializing org-mode only once and reusing the buffer."
                   (buffer-live-p vulpea-db--parse-buffer))
        (setq vulpea-db--parse-buffer (generate-new-buffer " *vulpea-parse*"))
        (with-current-buffer vulpea-db--parse-buffer
-         (org-mode)))
+         (let ((delay-mode-hooks (not vulpea-db--parse-buffer-run-hooks)))
+           (org-mode))))
      (with-current-buffer vulpea-db--parse-buffer
        ,@body)))
+
+(defun vulpea-db--parse-with-temp-buffer (path rerun-org-mode)
+  "Parse org file at PATH using shared temp buffer.
+
+If RERUN-ORG-MODE is non-nil, `org-mode' (and its hooks) are executed
+after loading PATH so file-local keywords and hooks are respected."
+  (let ((vulpea-db--parse-buffer-run-hooks rerun-org-mode))
+    (vulpea-db--with-parse-buffer
+      (let* ((t0 (current-time))
+             (_ (progn
+                  (erase-buffer)
+                  (insert-file-contents path)))
+             (t1 (current-time))
+             (_ (progn
+                  (setq buffer-file-name path)  ; Required for org-attach-dir
+                  (setq default-directory (file-name-directory path))))  ; Fix attach-dir paths
+             (_ (when rerun-org-mode
+                  (let ((delay-mode-hooks nil))
+                    (org-mode))))
+             (t2 (current-time))
+             (content (buffer-string))
+             (ast (org-element-parse-buffer))
+             (t3 (current-time))
+             (attrs (file-attributes path))
+             (mtime (float-time (file-attribute-modification-time attrs)))
+             (size (file-attribute-size attrs))
+             (hash (secure-hash 'sha256 content))
+             (file-node (vulpea-db--extract-file-node ast path (current-buffer)))
+             (heading-nodes (vulpea-db--extract-heading-nodes ast path (current-buffer)))
+             (t4 (current-time)))
+
+        ;; Accumulate detailed timing if enabled
+        (when vulpea-db--timing-data
+          (let ((io-time (* 1000 (float-time (time-subtract t1 t0))))
+                (org-mode-time (* 1000 (float-time (time-subtract t2 t1))))
+                (parse-ast-time (* 1000 (float-time (time-subtract t3 t2))))
+                (extract-time (* 1000 (float-time (time-subtract t4 t3)))))
+            (dolist (entry `((parse-io . ,io-time)
+                             (parse-org-mode . ,org-mode-time)
+                             (parse-ast . ,parse-ast-time)
+                             (parse-extract . ,extract-time)))
+              (let ((existing (assoc (car entry) vulpea-db--timing-data)))
+                (if existing
+                    (setcdr existing (+ (cdr existing) (cdr entry)))
+                  (push entry vulpea-db--timing-data))))))
+
+        ;; Clear buffer state to avoid file change tracking
+        (setq buffer-file-name nil)
+        (set-buffer-modified-p nil)
+
+        (make-vulpea-parse-ctx
+         :path path
+         :ast ast
+         :file-node file-node
+         :heading-nodes heading-nodes
+         :hash hash
+         :mtime mtime
+         :size size)))))
 
 (defun vulpea-db--parse-file (path)
   "Parse org file at PATH and return parse context.
@@ -217,80 +243,40 @@ Returns `vulpea-parse-ctx' structure with:
 - File metadata (hash, mtime, size)
 
 Respects `vulpea-db-parse-method' setting for parsing approach."
-  (pcase vulpea-db-parse-method
-    ('find-file
-     ;; Use find-file-noselect: slower but respects hooks and dir-locals
-     (let ((buffer (find-file-noselect path t)))
-       (unwind-protect
-           (with-current-buffer buffer
-             (let* ((content (buffer-string))
-                    (ast (org-element-parse-buffer))
-                    (attrs (file-attributes path))
-                    (mtime (float-time (file-attribute-modification-time attrs)))
-                    (size (file-attribute-size attrs))
-                    (hash (secure-hash 'sha256 content)))
+  (let ((vulpea-db--active-parse-method vulpea-db-parse-method))
+    (pcase vulpea-db-parse-method
+      ('single-temp-buffer
+       (vulpea-db--parse-with-temp-buffer path nil))
 
-               (make-vulpea-parse-ctx
-                :path path
-                :ast ast
-                :file-node (vulpea-db--extract-file-node ast path (current-buffer))
-                :heading-nodes (vulpea-db--extract-heading-nodes ast path (current-buffer))
-                :hash hash
-                :mtime mtime
-                :size size)))
-         ;; Always kill the buffer after parsing
-         (when (buffer-live-p buffer)
-           (kill-buffer buffer)))))
+      ('temp-buffer
+       (vulpea-db--parse-with-temp-buffer path t))
 
-    (_  ;; 'temp-buffer or anything else: fast method
-     (vulpea-db--with-parse-buffer
-       (let* ((t0 (current-time))
-              (_ (progn
-                   (erase-buffer)
-                   (insert-file-contents path)))
-              (t1 (current-time))
-              (_ (progn
-                   (setq buffer-file-name path)  ; Required for org-attach-dir
-                   (setq default-directory (file-name-directory path))))  ; Fix attach-dir paths
-              (t2 (current-time))
-              (content (buffer-string))
-              (ast (org-element-parse-buffer))
-              (t3 (current-time))
-              (attrs (file-attributes path))
-              (mtime (float-time (file-attribute-modification-time attrs)))
-              (size (file-attribute-size attrs))
-              (hash (secure-hash 'sha256 content))
-              (file-node (vulpea-db--extract-file-node ast path (current-buffer)))
-              (heading-nodes (vulpea-db--extract-heading-nodes ast path (current-buffer)))
-              (t4 (current-time)))
+      ('find-file
+       ;; Use find-file-noselect: slower but respects hooks and dir-locals
+       (let ((buffer (find-file-noselect path t)))
+         (unwind-protect
+             (with-current-buffer buffer
+               (let* ((content (buffer-string))
+                      (ast (org-element-parse-buffer))
+                      (attrs (file-attributes path))
+                      (mtime (float-time (file-attribute-modification-time attrs)))
+                      (size (file-attribute-size attrs))
+                      (hash (secure-hash 'sha256 content)))
 
-         ;; Accumulate detailed timing if enabled
-         (when vulpea-db--timing-data
-           (let ((io-time (* 1000 (float-time (time-subtract t1 t0))))
-                 (org-mode-time (* 1000 (float-time (time-subtract t2 t1))))
-                 (parse-ast-time (* 1000 (float-time (time-subtract t3 t2))))
-                 (extract-time (* 1000 (float-time (time-subtract t4 t3)))))
-             (dolist (entry `((parse-io . ,io-time)
-                              (parse-org-mode . ,org-mode-time)
-                              (parse-ast . ,parse-ast-time)
-                              (parse-extract . ,extract-time)))
-               (let ((existing (assoc (car entry) vulpea-db--timing-data)))
-                 (if existing
-                     (setcdr existing (+ (cdr existing) (cdr entry)))
-                   (push entry vulpea-db--timing-data))))))
+                 (make-vulpea-parse-ctx
+                  :path path
+                  :ast ast
+                  :file-node (vulpea-db--extract-file-node ast path (current-buffer))
+                  :heading-nodes (vulpea-db--extract-heading-nodes ast path (current-buffer))
+                  :hash hash
+                  :mtime mtime
+                  :size size)))
+           ;; Always kill the buffer after parsing
+           (when (buffer-live-p buffer)
+             (kill-buffer buffer)))))
 
-         ;; Clear buffer state to avoid file change tracking
-         (setq buffer-file-name nil)
-         (set-buffer-modified-p nil)
-
-         (make-vulpea-parse-ctx
-          :path path
-          :ast ast
-          :file-node file-node
-          :heading-nodes heading-nodes
-          :hash hash
-          :mtime mtime
-          :size size))))))
+      (_
+       (error "Unsupported vulpea-db-parse-method: %s" vulpea-db-parse-method)))))
 
 (defun vulpea-db--extract-file-node (ast path buffer)
   "Extract file-level node data from AST at PATH in BUFFER.
@@ -327,7 +313,6 @@ Returns nil if:
                            (save-excursion
                              (goto-char (point-min))
                              (org-attach-dir nil 'no-fs-check)))))
-
         (list :id id
               :title title
               :aliases aliases
