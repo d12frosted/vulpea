@@ -207,6 +207,24 @@ Returns absolute path. Caller responsible for cleanup."
           (should (member "//example.com" (mapcar (lambda (l) (plist-get l :dest)) links))))
       (delete-file path))))
 
+(ert-deftest vulpea-db-extract-links-file-vs-heading ()
+  "Test that file-level links don't include heading links."
+  (let ((path (vulpea-test--create-temp-org-file
+               (format ":PROPERTIES:\n:ID: file-id\n:END:\n#+TITLE: Test File\n\nFile-level [[https://file-link.com][link]].\n\n* Heading\n:PROPERTIES:\n:ID: heading-id\n:END:\n\nHeading-level [[https://heading-link.com][link]].\n"))))
+    (unwind-protect
+        (let* ((ctx (vulpea-db--parse-file path))
+               (file-node (vulpea-parse-ctx-file-node ctx))
+               (heading-nodes (vulpea-parse-ctx-heading-nodes ctx))
+               (file-links (plist-get file-node :links))
+               (heading-links (plist-get (car heading-nodes) :links)))
+          ;; File-level node should only have file-level link
+          (should (= (length file-links) 1))
+          (should (equal (plist-get (car file-links) :dest) "//file-link.com"))
+          ;; Heading node should only have heading-level link
+          (should (= (length heading-links) 1))
+          (should (equal (plist-get (car heading-links) :dest) "//heading-link.com")))
+      (delete-file path))))
+
 (ert-deftest vulpea-db-extract-meta-with-types ()
   "Test metadata extraction stores values as strings."
   (let ((path (vulpea-test--create-temp-org-file

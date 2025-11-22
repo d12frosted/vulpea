@@ -306,7 +306,7 @@ Returns nil if:
              (tags (when filetags
                      (split-string filetags ":" t)))
              (meta (vulpea-db--extract-meta ast))
-             (links (vulpea-db--extract-links ast))
+             (links (vulpea-db--extract-links ast t))  ; Don't recurse into headlines
              (aliases (vulpea-db--extract-aliases properties))
              (attach-dir (with-current-buffer buffer
                            (require 'org-attach)
@@ -442,18 +442,23 @@ Returns alist of (key . value) pairs."
                    (org-element-property :value prop))))))
       nil t)))  ; First match only
 
-(defun vulpea-db--extract-links (ast-or-node)
+(defun vulpea-db--extract-links (ast-or-node &optional no-recursion)
   "Extract all links from AST-OR-NODE.
 
 Returns list of plists with :dest and :type.
 Captures all link types: id:, roam:, file:, http:, https:,
-attachment:, elisp:, and any other org-mode link type."
+attachment:, elisp:, and any other org-mode link type.
+
+If NO-RECURSION is non-nil, stops recursion at headline boundaries.
+This is useful for file-level extraction to avoid collecting links
+from child headlines."
   (org-element-map ast-or-node 'link
     (lambda (link)
       (let ((type (org-element-property :type link))
             (path (org-element-property :path link)))
         (when (and type path)
-          (list :dest path :type type))))))
+          (list :dest path :type type))))
+    nil nil (when no-recursion 'headline)))
 
 (defun vulpea-db--extract-meta (element)
   "Extract metadata from ELEMENT (AST or headline element).
