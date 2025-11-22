@@ -21,6 +21,12 @@ trade-off between speed and correctness:
 3. **find-file (slowest)** – Visits files exactly like `find-file`, so
    `.dir-locals.el` and file-visiting hooks are honored.
 
+**Why temp-buffer is the default:** While single-temp-buffer is much faster,
+temp-buffer provides a safe default that prevents silent data corruption if you
+experiment with buffer-local settings (#+TODO, #+PROPERTY, etc.). Since
+single-temp-buffer can persist incorrect data when per-file settings exist,
+it requires explicit opt-in.
+
 Buffer reuse still delivers significant wins (3-4x speedup), but now you can
 retain correctness by enabling per-file `org-mode` execution when you need it.
 
@@ -218,32 +224,34 @@ Do you rely on .dir-locals.el or file-visiting hooks?
 
 ### Real-World Scenarios
 
-**Scenario 1: Default Org user (90% of users)**
-- Global `org-todo-keywords`
-- Default `org-attach-dir` behavior
-- No `.dir-locals.el` customizations
+**Scenario 1: Most users (default recommendation)**
+- May use per-file `#+TODO`, `#+PROPERTY`, or other buffer-local settings
+- Want safe default that prevents data corruption
+- Willing to accept slower sync for correctness
 
-**Recommendation:** ✓ Use `single-temp-buffer`
+**Recommendation:** ✓ Use `temp-buffer` (default)
+- Sync time: ~30 min for 100K files (with stock org-mode)
+- Safe: honors all buffer-local settings
+- Guard heavy hooks for better throughput
+
+**Scenario 2: Power users with purely global config**
+- **Certain** all org-mode settings are global (no `#+TODO`, `#+PROPERTY`, etc.)
+- Want maximum performance
+- Willing to manually verify no per-file settings exist
+
+**Recommendation:** ⚡ Use `single-temp-buffer` (opt-in)
 - Sync time: 1.6 min for 100K files
-- Pure global configuration
+- **Warning:** Will silently persist incorrect data if per-file settings exist
+- Verify your setup first (see "Verifying Your Choice" below)
 
-**Scenario 2: Multi-project with dir-locals**
+**Scenario 3: Multi-project with dir-locals**
 - Different TODO keywords per project
 - Custom `org-attach-id-dir` in some directories
 - `.dir-locals.el` for project-specific settings
 
 **Recommendation:** ⚠️ Use `find-file`
 - Sync time: 102 min for 100K files
-- Correctness guaranteed
-
-**Scenario 3: File-level tweaks but no dir-locals**
-- Need per-file `#+TODO`, `#+PROPERTY`, or hook-based configuration
-- Want faster sync than `find-file`
-
-**Recommendation:** ✓ Use `temp-buffer`
-- Sync time: ~30 min for 100K files (with stock org-mode)
-- Guard heavy hooks for better throughput
-- Note: Performance degrades at scale; consider `single-temp-buffer` for 100K+ notes
+- Full correctness, respects all dir-locals
 
 ## Configuration
 
@@ -252,11 +260,12 @@ Do you rely on .dir-locals.el or file-visiting hooks?
 In your Emacs config:
 
 ```elisp
-;; Fastest, skips hooks entirely
-(setq vulpea-db-parse-method 'single-temp-buffer)
-
-;; Balanced (default), re-runs org-mode per file
+;; Default (recommended): Safe, honors per-file settings
 (setq vulpea-db-parse-method 'temp-buffer)
+
+;; Power user opt-in: Fastest, but requires purely global config
+;; WARNING: Will persist incorrect data if per-file settings exist!
+(setq vulpea-db-parse-method 'single-temp-buffer)
 
 ;; Slowest, but respects dir-locals + file hooks
 (setq vulpea-db-parse-method 'find-file)
@@ -274,22 +283,27 @@ After changing the setting:
 
 ### Verifying Your Choice
 
-Check if you're using dir-locals features:
+Before using `single-temp-buffer`, verify you have no per-file settings:
 
 ```bash
 # Search for .dir-locals.el files in your notes directory
 find ~/org -name ".dir-locals.el"
 
+# Check for per-file TODO keywords
+grep -r "^#\\+TODO:" ~/org/
+
+# Check for per-file PROPERTY keywords
+grep -r "^#\\+PROPERTY:" ~/org/
+
 # Check for per-directory TODO keywords
-grep -r "org-todo-keywords" ~/org/.dir-locals.el
+grep -r "org-todo-keywords" ~/org/.dir-locals.el 2>/dev/null
 
 # Check for custom attach directories
-grep -r "org-attach-id-dir" ~/org/.dir-locals.el
+grep -r "org-attach-id-dir" ~/org/.dir-locals.el 2>/dev/null
 ```
 
-If these searches return nothing, you can safely use either
-`single-temp-buffer` (fastest) or `temp-buffer` (default). Use the latter
-if you rely on `#+TODO`, `#+PROPERTY`, or hook-based configuration.
+**Only use `single-temp-buffer` if all these searches return nothing.** Otherwise,
+stick with `temp-buffer` (default) to prevent data corruption.
 
 ## Testing
 
