@@ -53,8 +53,7 @@
 (require 'url-parse)
 (require 'vulpea-utils)
 (require 'vulpea-db)
-
-
+(require 'vulpea-db-query)
 
 (defun vulpea-buffer-title-get ()
   "Get TITLE in current buffer."
@@ -117,7 +116,7 @@ Handles both quoted aliases (with spaces) and unquoted aliases properly."
            ;; Unquoted alias - find next space or end of string
            (t
             (let ((end (or (string-match " " aliases-str pos)
-                          (length aliases-str))))
+                           (length aliases-str))))
               (push (substring aliases-str pos end) result)
               (setq pos end))))))
       (nreverse result))))
