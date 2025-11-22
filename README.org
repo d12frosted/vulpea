@@ -99,7 +99,20 @@ Without these tools, Vulpea falls back to slower but functional alternatives (=f
       (expand-file-name "vulpea.db" user-emacs-directory))
 #+end_src
 
-*** 2. Enable Auto-Sync
+*** 2. Run the Initial Full Sync
+
+A full scan needs to run at least once to populate the database:
+
+#+begin_src emacs-lisp
+;; Interactive equivalent: M-x vulpea-db-sync-full
+(vulpea-db-sync-full)
+#+end_src
+
+The first run parses every file (expect a few minutes for 100k+ notes).
+Re-run it with a prefix argument (=C-u M-x vulpea-db-sync-full=) if you
+change global settings and want to rebuild everything.
+
+*** 3. Enable Auto-Sync
 
 #+begin_src emacs-lisp
 ;; Enable automatic file watching and database updates
@@ -108,7 +121,7 @@ Without these tools, Vulpea falls back to slower but functional alternatives (=f
 
 This starts monitoring your notes directory for changes and keeps the database up-to-date automatically.
 
-*** 3. Ensure Notes Have IDs
+*** 4. Ensure Notes Have IDs
 
 Vulpea only indexes notes with =ID= properties. Add an ID to the beginning of your org files:
 
@@ -123,7 +136,7 @@ Content here...
 
 Use =M-x org-id-get-create= to add IDs interactively.
 
-*** 4. Query Your Notes
+*** 5. Query Your Notes
 
 #+begin_src emacs-lisp
 ;; Find notes with specific tags
@@ -134,6 +147,131 @@ Use =M-x org-id-get-create= to add IDs interactively.
 
 ;; Search by title
 (vulpea-db-search-by-title "Meeting")
+#+end_src
+
+** Configuration Essentials
+
+Review these settings before relying on autosync—picking the right trade-offs here
+determines Vulpea's performance and correctness.
+
+*** Database & Directories
+
+#+begin_src emacs-lisp
+;; Database file location
+(setq vulpea-db-location
+      (expand-file-name "vulpea.db" user-emacs-directory))
+
+;; Directories to watch and sync
+(setq vulpea-db-sync-directories
+      '("~/org/" "~/notes/"))
+#+end_src
+
+*** Parsing Method
+
+Choose how Vulpea loads Org files:
+
+#+begin_src emacs-lisp
+;; Single temp buffer: absolute fastest, skips org-mode hooks entirely.
+;; Only use when your configuration is purely global.
+(setq vulpea-db-parse-method 'single-temp-buffer)
+
+;; Temp buffer (default): reuses a buffer but re-runs org-mode per file.
+;; Honors #+TODO, #+PROPERTY, org-mode-hook, etc.
+(setq vulpea-db-parse-method 'temp-buffer)
+
+;; Find file: visits files like `find-file', respects dir-locals,
+;; and all file-visiting hooks. Slowest but most accurate.
+(setq vulpea-db-parse-method 'find-file)
+#+end_src
+
+- =single-temp-buffer=: ⚡ ~1.3k files/sec. Skips org-mode hooks and per-file keywords.
+- =temp-buffer=: ✓ Honors org-mode hooks per file. Slower if hooks are heavy.
+- =find-file=: ✓ Respects dir-locals/file-visiting hooks. 30-40x slower than =single-temp-buffer=.
+
+If an `org-mode-hook` is expensive (e.g. `org-roam`), wrap it in
+`(unless (bound-and-true-p 'vulpea-db--active-parse-method) …)` so it is
+skipped when Vulpea parses notes. See =bench/PERFORMANCE.md= for detailed benchmarks.
+
+*** Indexing Control
+
+#+begin_src emacs-lisp
+;; Disable heading-level indexing (2-3x faster)
+(setq vulpea-db-index-heading-level nil)
+
+;; Selective indexing with predicate
+(setq vulpea-db-index-heading-level
+      (lambda (path)
+        (string-match-p "/daily/" path)))
+
+;; Enable for all files (default)
+(setq vulpea-db-index-heading-level t)
+#+end_src
+
+*** Sync Performance Knobs
+
+#+begin_src emacs-lisp
+;; Debounce delay before processing changes (seconds)
+(setq vulpea-db-sync-batch-delay 2.0)
+
+;; Maximum files per batch
+(setq vulpea-db-sync-batch-size 100)
+
+;; Idle timer delay (seconds)
+(setq vulpea-db-sync-idle-delay 0.5)
+
+;; Progress reporting interval (nil to disable)
+(setq vulpea-db-sync-progress-interval 500)
+#+end_src
+
+*** External Change Detection
+
+#+begin_src emacs-lisp
+;; Auto: try fswatch, fallback to polling (recommended)
+(setq vulpea-db-sync-external-method 'auto)
+
+;; FSWatch: requires 'fswatch' binary (most reliable)
+(setq vulpea-db-sync-external-method 'fswatch)
+
+;; Polling: pure Elisp, no dependencies
+(setq vulpea-db-sync-external-method 'poll)
+(setq vulpea-db-sync-poll-interval 2)  ; check every 2 seconds
+
+;; Filenotify only: unreliable for external changes
+(setq vulpea-db-sync-external-method nil)
+#+end_src
+
+Install =fswatch= for the most reliable external change detection (see Dependencies section).
+
+*** Startup Behavior
+
+#+begin_src emacs-lisp
+;; Control initial scan when enabling autosync-mode
+;; nil: skip scan (fast startup, recommended)
+(setq vulpea-db-sync-scan-on-enable nil)
+
+;; 'async: queue files for async processing (non-blocking scan)
+(setq vulpea-db-sync-scan-on-enable 'async)
+
+;; 'blocking: scan and update synchronously (blocks until complete)
+(setq vulpea-db-sync-scan-on-enable 'blocking)
+#+end_src
+
+*** File Name Templates
+
+#+begin_src emacs-lisp
+;; Template for new note filenames
+(setq vulpea-file-name-template "${timestamp}_${slug}.org")
+
+;; Available variables: ${title}, ${slug}, ${timestamp}, ${id}
+;; Can also be a function:
+(setq vulpea-file-name-template
+      (lambda (title)
+        (format "%s_%s.org"
+                (format-time-string "%Y%m%d%H%M%S")
+                (vulpea--title-to-slug title))))
+
+;; Default directory for new notes
+(setq vulpea-default-notes-directory "~/org/")
 #+end_src
 
 ** Key Features
@@ -413,143 +551,6 @@ For creating many notes programmatically, use synchronous mode:
                    :tags '("generated")
                    :immediate-finish t)))
 ;; All updates complete before proceeding
-#+end_src
-
-** Configuration Reference
-
-*** Database Settings
-
-#+begin_src emacs-lisp
-;; Database file location
-(setq vulpea-db-location
-      (expand-file-name "vulpea.db" user-emacs-directory))
-
-;; Directories to watch and sync
-(setq vulpea-db-sync-directories
-      '("~/org/" "~/notes/"))
-#+end_src
-
-*** Indexing Control
-
-#+begin_src emacs-lisp
-;; Disable heading-level indexing (2-3x faster)
-(setq vulpea-db-index-heading-level nil)
-
-;; Selective indexing with predicate
-(setq vulpea-db-index-heading-level
-      (lambda (path)
-        (string-match-p "/daily/" path)))
-
-;; Enable for all files (default)
-(setq vulpea-db-index-heading-level t)
-#+end_src
-
-*** Sync Performance
-
-#+begin_src emacs-lisp
-;; Debounce delay before processing changes (seconds)
-(setq vulpea-db-sync-batch-delay 2.0)
-
-;; Maximum files per batch
-(setq vulpea-db-sync-batch-size 100)
-
-;; Idle timer delay (seconds)
-(setq vulpea-db-sync-idle-delay 0.5)
-
-;; Progress reporting interval (nil to disable)
-(setq vulpea-db-sync-progress-interval 500)
-#+end_src
-
-*** Parsing Method
-
-Choose how Vulpea loads Org files:
-
-#+begin_src emacs-lisp
-;; Single temp buffer: absolute fastest, skips org-mode hooks entirely.
-;; Only use when your configuration is purely global.
-(setq vulpea-db-parse-method 'single-temp-buffer)
-
-;; Temp buffer (default): reuses a buffer but re-runs org-mode per file.
-;; Honors #+TODO, #+PROPERTY, org-mode-hook, etc.
-(setq vulpea-db-parse-method 'temp-buffer)
-
-;; Find file: visits files like `find-file', respects dir-locals,
-;; and all file-visiting hooks. Slowest but most accurate.
-(setq vulpea-db-parse-method 'find-file)
-#+end_src
-
-- =single-temp-buffer=: ⚡ ~1.3k files/sec. Skips org-mode hooks and per-file keywords.
-- =temp-buffer=: ✓ Honors org-mode hooks per file. Slower if hooks are heavy.
-- =find-file=: ✓ Respects dir-locals/file-visiting hooks. 30-40x slower than =single-temp-buffer=.
-
-If an `org-mode-hook` is expensive (e.g. `org-roam`), wrap it in
-`(unless (bound-and-true-p 'vulpea-db--active-parse-method) …)` so it is
-skipped when Vulpea parses notes.
-
-See =bench/PERFORMANCE.md= for detailed benchmarks and selection guidance.
-
-*** External Change Detection
-
-Choose how to detect changes made outside Emacs (git pulls, Dropbox sync, etc.):
-
-#+begin_src emacs-lisp
-;; Auto: try fswatch, fallback to polling (recommended)
-(setq vulpea-db-sync-external-method 'auto)
-
-;; FSWatch: requires 'fswatch' binary (most reliable)
-(setq vulpea-db-sync-external-method 'fswatch)
-
-;; Polling: pure Elisp, no dependencies
-(setq vulpea-db-sync-external-method 'poll)
-(setq vulpea-db-sync-poll-interval 2)  ; check every 2 seconds
-
-;; Filenotify only: unreliable for external changes
-(setq vulpea-db-sync-external-method nil)
-#+end_src
-
-Installing =fswatch= (recommended for reliability):
-
-#+begin_src bash
-# macOS
-brew install fswatch
-
-# Ubuntu/Debian
-apt install fswatch
-
-# Arch Linux
-pacman -S fswatch
-#+end_src
-
-*** Startup Behavior
-
-#+begin_src emacs-lisp
-;; Control initial scan when enabling autosync-mode
-;; nil: skip scan (fast startup, recommended)
-(setq vulpea-db-sync-scan-on-enable nil)
-
-;; 'async: queue files for async processing (non-blocking scan)
-(setq vulpea-db-sync-scan-on-enable 'async)
-
-;; 'blocking: scan and update synchronously (blocks until complete)
-(setq vulpea-db-sync-scan-on-enable 'blocking)
-#+end_src
-
-*** File Name Templates
-
-#+begin_src emacs-lisp
-;; Template for new note filenames
-(setq vulpea-file-name-template "${timestamp}_${slug}.org")
-
-;; Available variables: ${title}, ${slug}, ${timestamp}, ${id}
-;; Can also be a function:
-(setq vulpea-file-name-template
-      (lambda (title)
-        (format "%s_%s.org"
-                (format-time-string "%Y%m%d%H%M%S")
-                (vulpea--title-to-slug title))))
-
-;; Default directory for new notes
-(setq vulpea-default-notes-directory "~/org/")
 #+end_src
 
 ** Advanced Topics
