@@ -99,18 +99,27 @@ Without these tools, Vulpea falls back to slower but functional alternatives (=f
       (expand-file-name "vulpea.db" user-emacs-directory))
 #+end_src
 
-*** 2. Run the Initial Full Sync
+*** 2. Prime the Database
 
-A full scan needs to run at least once to populate the database:
+Vulpea needs an initial pass over every note. Pick one of these options:
 
 #+begin_src emacs-lisp
-;; Interactive equivalent: M-x vulpea-db-sync-full
+;; Option A (recommended): run an explicit full sync once
 (vulpea-db-sync-full)
+
+;; Option B: scan automatically when autosync starts (blocking)
+(setq vulpea-db-sync-scan-on-enable 'blocking)
 #+end_src
 
-The first run parses every file (expect a few minutes for 100k+ notes).
-Re-run it with a prefix argument (=C-u M-x vulpea-db-sync-full=) if you
-change global settings and want to rebuild everything.
+Option A makes the initial sync explicit and works regardless of how you
+toggle autosync. Option B lets =vulpea-db-autosync-mode= perform the
+first scan (you can use ='async= if you prefer to queue work in the
+background).
+
+Whichever path you choose, expect the first scan to parse every file
+(plan for a few minutes on 100k+ notes). Re-run
+=vulpea-db-sync-full= (or set =vulpea-db-sync-scan-on-enable= temporarily)
+whenever you change global settings and need to rebuild everything.
 
 *** 3. Enable Auto-Sync
 
@@ -120,6 +129,9 @@ change global settings and want to rebuild everything.
 #+end_src
 
 This starts monitoring your notes directory for changes and keeps the database up-to-date automatically.
+If you relied on Option A above (manual full sync), you can keep
+=vulpea-db-sync-scan-on-enable= at =nil= for faster startups; autosync
+will now process only incremental edits.
 
 *** 4. Ensure Notes Have IDs
 
