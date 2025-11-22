@@ -131,20 +131,28 @@ Resolution order:
       (car vulpea-db-sync-directories)
       org-directory))
 
-(defun vulpea--expand-file-name-template (title &optional id)
-  "Expand `vulpea-file-name-template' with TITLE and optional ID.
-Returns absolute file path."
+(defun vulpea--expand-template (template title &optional id)
+  "Expand TEMPLATE with TITLE and optional ID.
+TEMPLATE is a string with ${...} placeholders.
+Returns expanded string with placeholders replaced."
   (let* ((slug (vulpea--title-to-slug title))
          (timestamp (format-time-string "%Y%m%d%H%M%S"))
-         (id (or id (org-id-new)))
-         (template (if (functionp vulpea-file-name-template)
-                       (funcall vulpea-file-name-template title)
-                     vulpea-file-name-template))
-         (file-name (thread-last template
-                                 (s-replace "${title}" title)
-                                 (s-replace "${slug}" slug)
-                                 (s-replace "${timestamp}" timestamp)
-                                 (s-replace "${id}" id)))
+         (id (or id (org-id-new))))
+    (thread-last template
+                 (s-replace "${title}" title)
+                 (s-replace "${slug}" slug)
+                 (s-replace "${timestamp}" timestamp)
+                 (s-replace "${id}" id))))
+
+(defun vulpea--expand-file-name-template (title &optional id template)
+  "Expand file name template with TITLE and optional ID and TEMPLATE.
+If TEMPLATE is nil, uses `vulpea-file-name-template'.
+Returns absolute file path."
+  (let* ((template (or template
+                       (if (functionp vulpea-file-name-template)
+                           (funcall vulpea-file-name-template title)
+                         vulpea-file-name-template)))
+         (file-name (vulpea--expand-template template title id))
          (dir (vulpea--default-directory)))
     (expand-file-name file-name dir)))
 
@@ -437,7 +445,7 @@ CAPTURE-PROPERTIES are additional properties for
 
 See Info node `(org) Template elements' for BODY template syntax."
   (let* ((id (or id (org-id-new)))
-         (file-path (or file-name (vulpea--expand-file-name-template title id)))
+         (file-path (vulpea--expand-file-name-template title id file-name))
          (content (vulpea--format-note-content id title head meta tags properties))
          (full-template (if body
                             (concat content "\n\n" body)
