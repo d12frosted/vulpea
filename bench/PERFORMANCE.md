@@ -135,25 +135,6 @@ These benchmarks use stock org-mode configuration to show the pure difference be
 parsing methods. Real-world performance with custom hooks, dir-locals, and buffer
 settings will vary - especially for temp-buffer and find-file methods.
 
-### Time Breakdown (single-temp-buffer)
-
-Per-file time breakdown for the fastest single-temp-buffer method (approximate):
-
-| Phase | Time | Percentage | Notes |
-|-------|------|------------|-------|
-| I/O (file read) | ~0.15ms | 16% | Disk read |
-| org-mode init | ~0.00ms | <1% | ✓ Eliminated by buffer reuse |
-| AST parsing | ~0.33ms | 35% | org-element-parse-buffer |
-| Data extraction | ~0.15ms | 16% | Extract nodes, meta, links |
-| Database ops | ~0.28ms | 29% | SQLite inserts |
-| **Total** | **~0.95ms** | **100%** | Average at 100K files |
-
-When `vulpea-db-parse-method` is `temp-buffer`, add the time it takes to
-run `org-mode` (plus your hooks) after loading each file—the more work
-your hooks do, the higher the per-file cost. Guard heavy hooks using
-`vulpea-db--active-parse-method` if you want temp-buffer correctness
-without paying for optional integrations.
-
 ## Implementation Details
 
 ### Buffer Reuse Optimization
