@@ -76,9 +76,10 @@ and **this choice has dramatic performance and correctness implications**.
 ## Performance Benchmarks
 
 > **Benchmark Environment:** MacBook Pro 2021 with Apple M1 Pro and APPLE SSD
-> AP0512R. These are example measurements; actual performance varies based on
-> machine state, hardware specifications, note complexity, and configuration
-> (hooks, dir-locals, etc.).
+> AP0512R. All benchmarks below use **stock org-mode configuration** (no custom
+> hooks, no dir-locals, no buffer-local settings) to show the pure difference
+> between parsing methods. Real-world performance will vary based on machine
+> state, hardware specifications, note complexity, and your configuration.
 
 ### Current Performance (v2 with optimizations)
 
@@ -122,14 +123,17 @@ and **this choice has dramatic performance and correctness implications**.
 
 ### Performance Evolution
 
-Evolution of parse methods and optimizations:
+Evolution of parse methods (all measured with stock org-mode, no custom hooks, no dir-locals, no buffer-local settings):
 
 | Implementation | Method | Files | Time | Speedup vs find-file | Notes |
 |----------------|--------|-------|------|---------------------|-------|
-| find-file (new buffers) | find-file, new buffers | 100K | 102.34 min | 1x (baseline) | Full correctness, slowest |
-| temp-buffer (new buffers) | temp-buffer, new buffers | 100K | ~40 min | ~2.5x | Switched from find-file |
-| temp-buffer (reuse) | temp-buffer, buffer reuse | 100K | 29.89 min | 3.4x | Added buffer reuse |
-| single-temp-buffer | single buffer reuse, no hooks | 100K | **1.59 min** | **64x** | Fastest, skips per-file hooks |
+| find-file | find-file, new buffers each time | 100K | 102.34 min | 1x (baseline) | Full correctness, slowest |
+| temp-buffer | temp-buffer, buffer reuse | 100K | 29.89 min | 3.4x | Reuses buffer, re-runs org-mode per file |
+| single-temp-buffer | single buffer reuse, no hooks | 100K | **1.59 min** | **64x** | Fastest, skips per-file org-mode entirely |
+
+These benchmarks use stock org-mode configuration to show the pure difference between
+parsing methods. Real-world performance with custom hooks, dir-locals, and buffer
+settings will vary - especially for temp-buffer and find-file methods.
 
 ### Time Breakdown (single-temp-buffer)
 
