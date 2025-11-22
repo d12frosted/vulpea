@@ -48,10 +48,11 @@ Add to your Emacs configuration:
 
 *** Optional Dependencies (Recommended)
 
-| Tool     | Purpose                               | Install (macOS / Debian / Arch)        |
-|----------+----------------------------------------+----------------------------------------|
-| =fd=     | 15× faster directory scanning          | =brew install fd= / =apt install fd-find= / =pacman -S fd= |
-| =fswatch=| Reliable external change detection     | =brew install fswatch= / =apt install fswatch= / =pacman -S fswatch= |
+#+ATTR_ORG: :align lll :width 100
+| Tool    | Purpose                            | Install Command (macOS / Debian / Arch)                        |
+|---------+------------------------------------+----------------------------------------------------------------|
+| =fd=      | 15× faster directory scanning      | =brew install fd= / =apt install fd-find= / =pacman -S fd=           |
+| =fswatch= | Reliable external change detection | =brew install fswatch= / =apt install fswatch= / =pacman -S fswatch= |
 
 Without these tools, Vulpea falls back to slower but functional alternatives (=find= and polling).
 
