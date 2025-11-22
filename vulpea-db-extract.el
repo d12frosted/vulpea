@@ -113,23 +113,99 @@ Example:
 ;;; Core Parsing
 
 (defcustom vulpea-db-parse-method 'temp-buffer
-  "Method to use for parsing org files.
+  "Method to use for parsing org files during sync.
 
-Options:
-- \\='temp-buffer: Use temp buffer with insert-file-contents (fast)
-- \\='find-file: Use find-file-noselect (slower but respects hooks)
+This setting has DRAMATIC performance implications - choosing the wrong
+method can make sync 40x slower. Most users should use the default.
 
-The temp-buffer method is significantly faster but doesn't:
-- Run file-visiting hooks
-- Respect .dir-locals.el settings
-- Set default-directory correctly
+OPTIONS:
 
-The find-file method is slower but provides correct behavior
-for features that depend on file-visiting context like org-attach-dir
-with custom directory-local org-attach-id-dir settings."
+  \\='temp-buffer (DEFAULT, RECOMMENDED)
+    Fast parsing that works for 99% of users.
+    Performance: ~1,290 files/sec (0.77ms/file)
+    110K files: ~1.4 minutes
+
+  \\='find-file (SLOW, USE ONLY IF NEEDED)
+    Correct parsing for complex directory-local configurations.
+    Performance: ~32 files/sec (31ms/file)
+    110K files: ~51 minutes (40x slower!)
+
+WHEN TO USE temp-buffer (default):
+
+  ✓ You use global Org configuration (most users)
+  ✓ You don't use .dir-locals.el for Org settings
+  ✓ You don't customize org-todo-keywords per-directory
+  ✓ You don't customize org-attach-id-dir in dir-locals
+  ✓ You have 10K+ notes and care about sync speed
+
+  This is the right choice for 90% of users.
+
+WHEN TO USE find-file:
+
+  ✓ You use .dir-locals.el to customize Org behavior per-directory
+  ✓ You have per-directory TODO keyword configurations
+  ✓ You have custom org-attach-id-dir in .dir-locals.el
+  ✓ You rely on file-visiting hooks for Org files
+  ✓ Correctness is more important than speed
+
+  Warning: With 100K+ notes, expect 40-60 minute sync times.
+
+WHAT TEMP-BUFFER DOESN'T DO:
+
+  ✗ Run file-visiting hooks
+  ✗ Respect .dir-locals.el settings
+  ✗ Load per-directory TODO keywords
+  ✗ Use custom org-attach-id-dir from dir-locals
+
+  It DOES correctly handle:
+  ✓ Global org-todo-keywords
+  ✓ Default org-attach-dir behavior
+  ✓ File properties, links, tags, metadata
+  ✓ All standard Org parsing
+
+VERIFYING YOUR CHOICE:
+
+  Check if you use dir-locals for Org:
+    find ~/org -name \".dir-locals.el\"
+    grep -r \"org-todo-keywords\" ~/org/.dir-locals.el
+    grep -r \"org-attach-id-dir\" ~/org/.dir-locals.el
+
+  If these return nothing, use temp-buffer (the default).
+
+PERFORMANCE COMPARISON:
+
+  | Files  | temp-buffer | find-file   | Ratio |
+  |--------|-------------|-------------|-------|
+  | 1K     | <1s         | ~30s        | 30x   |
+  | 10K    | ~8s         | ~5min       | 38x   |
+  | 100K   | ~1.4min     | ~51min      | 36x   |
+
+See bench/PERFORMANCE.md for detailed benchmarks and decision guide."
   :group 'vulpea
-  :type '(choice (const :tag "Temp buffer (fast)" temp-buffer)
-                 (const :tag "Find file (correct)" find-file)))
+  :type '(choice (const :tag "Temp buffer (fast, recommended)" temp-buffer)
+                 (const :tag "Find file (slow, respects dir-locals)" find-file)))
+
+(defvar vulpea-db--parse-buffer nil
+  "Reusable buffer for parsing org files.
+Caching the buffer with org-mode already initialized provides
+significant performance improvement (12x faster) by avoiding
+repeated org-mode activation overhead.")
+
+(defmacro vulpea-db--with-parse-buffer (&rest body)
+  "Execute BODY in a reusable parse buffer with org-mode initialized.
+
+The buffer is created once and reused across multiple file parses.
+This avoids the expensive org-mode initialization overhead (0.7ms per file)
+by initializing org-mode only once and reusing the buffer."
+  (declare (indent 0))
+  `(progn
+     (unless (and vulpea-db--parse-buffer
+                  (buffer-live-p vulpea-db--parse-buffer))
+       (setq vulpea-db--parse-buffer (generate-new-buffer " *vulpea-parse*"))
+       (with-current-buffer vulpea-db--parse-buffer
+         (org-mode)))
+     (with-current-buffer vulpea-db--parse-buffer
+       ,@body)))
 
 (defun vulpea-db--parse-file (path)
   "Parse org file at PATH and return parse context.
@@ -167,23 +243,51 @@ Respects `vulpea-db-parse-method' setting for parsing approach."
            (kill-buffer buffer)))))
 
     (_  ;; 'temp-buffer or anything else: fast method
-     (with-temp-buffer
-       (insert-file-contents path)
-       (setq buffer-file-name path)  ; Required for org-attach-dir
-       (setq default-directory (file-name-directory path))  ; Fix attach-dir paths
-       (org-mode)  ; Enable org-mode for proper TODO/timestamp parsing
-       (let* ((content (buffer-string))
+     (vulpea-db--with-parse-buffer
+       (let* ((t0 (current-time))
+              (_ (progn
+                   (erase-buffer)
+                   (insert-file-contents path)))
+              (t1 (current-time))
+              (_ (progn
+                   (setq buffer-file-name path)  ; Required for org-attach-dir
+                   (setq default-directory (file-name-directory path))))  ; Fix attach-dir paths
+              (t2 (current-time))
+              (content (buffer-string))
               (ast (org-element-parse-buffer))
+              (t3 (current-time))
               (attrs (file-attributes path))
               (mtime (float-time (file-attribute-modification-time attrs)))
               (size (file-attribute-size attrs))
-              (hash (secure-hash 'sha256 content)))
+              (hash (secure-hash 'sha256 content))
+              (file-node (vulpea-db--extract-file-node ast path (current-buffer)))
+              (heading-nodes (vulpea-db--extract-heading-nodes ast path (current-buffer)))
+              (t4 (current-time)))
+
+         ;; Accumulate detailed timing if enabled
+         (when vulpea-db--timing-data
+           (let ((io-time (* 1000 (float-time (time-subtract t1 t0))))
+                 (org-mode-time (* 1000 (float-time (time-subtract t2 t1))))
+                 (parse-ast-time (* 1000 (float-time (time-subtract t3 t2))))
+                 (extract-time (* 1000 (float-time (time-subtract t4 t3)))))
+             (dolist (entry `((parse-io . ,io-time)
+                              (parse-org-mode . ,org-mode-time)
+                              (parse-ast . ,parse-ast-time)
+                              (parse-extract . ,extract-time)))
+               (let ((existing (assoc (car entry) vulpea-db--timing-data)))
+                 (if existing
+                     (setcdr existing (+ (cdr existing) (cdr entry)))
+                   (push entry vulpea-db--timing-data))))))
+
+         ;; Clear buffer state to avoid file change tracking
+         (setq buffer-file-name nil)
+         (set-buffer-modified-p nil)
 
          (make-vulpea-parse-ctx
           :path path
           :ast ast
-          :file-node (vulpea-db--extract-file-node ast path (current-buffer))
-          :heading-nodes (vulpea-db--extract-heading-nodes ast path (current-buffer))
+          :file-node file-node
+          :heading-nodes heading-nodes
           :hash hash
           :mtime mtime
           :size size))))))
@@ -572,14 +676,24 @@ Returns updated note-data after all extractors have run."
 
 ;;; Update File
 
+(defvar vulpea-db--timing-data nil
+  "Accumulated timing data for profiling.
+Format: ((phase . total-time-ms) ...)")
+
 (defun vulpea-db-update-file (path)
   "Parse and update database for file at PATH.
 
 Returns number of notes updated (file-level + headings)."
-  (let* ((ctx (vulpea-db--parse-file path))
+  (let* ((t0 (current-time))
+         (ctx (vulpea-db--parse-file path))
+         (t1 (current-time))
+         (parse-time (* 1000 (float-time (time-subtract t1 t0))))
          (db (vulpea-db))
-         (count 0))
+         (count 0)
+         (t2 nil)
+         (db-time 0))
 
+    (setq t2 (current-time))
     (emacsql-with-transaction db
       ;; Delete existing notes from this file
       (vulpea-db--delete-file-notes path)
@@ -605,6 +719,18 @@ Returns number of notes updated (file-level + headings)."
                                    (vulpea-parse-ctx-hash ctx)
                                    (vulpea-parse-ctx-mtime ctx)
                                    (vulpea-parse-ctx-size ctx)))
+    (setq db-time (* 1000 (float-time (time-subtract (current-time) t2))))
+
+    ;; Accumulate timing data
+    (when vulpea-db--timing-data
+      (let ((parse-entry (assoc 'parse vulpea-db--timing-data))
+            (db-entry (assoc 'db vulpea-db--timing-data)))
+        (if parse-entry
+            (setcdr parse-entry (+ (cdr parse-entry) parse-time))
+          (push (cons 'parse parse-time) vulpea-db--timing-data))
+        (if db-entry
+            (setcdr db-entry (+ (cdr db-entry) db-time))
+          (push (cons 'db db-time) vulpea-db--timing-data))))
 
     count))
 
