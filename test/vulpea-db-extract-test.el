@@ -184,6 +184,29 @@ Returns absolute path. Caller responsible for cleanup."
           (should (member "note-2" (mapcar (lambda (l) (plist-get l :dest)) links))))
       (delete-file path))))
 
+(ert-deftest vulpea-db-extract-links-all-types ()
+  "Test extraction of all link types."
+  (let ((path (vulpea-test--create-temp-org-file
+               (format ":PROPERTIES:\n:ID: %s\n:END:\n#+TITLE: Test\n\n- [[id:note-1][Note link]]\n- [[file:test.org][File link]]\n- [[https://example.com][Web link]]\n- [[attachment:image.png][Attachment]]\n- [[elisp:(message \"hi\")][Elisp]]\n" (org-id-new)))))
+    (unwind-protect
+        (let* ((ctx (vulpea-db--parse-file path))
+               (node (vulpea-parse-ctx-file-node ctx))
+               (links (plist-get node :links))
+               (types (mapcar (lambda (l) (plist-get l :type)) links)))
+          (should (= (length links) 5))
+          ;; Check all link types are present
+          (should (member "id" types))
+          (should (member "file" types))
+          (should (member "https" types))
+          ;; attachment: can be parsed as either "attachment" or "fuzzy" depending on org-mode version
+          (should (or (member "attachment" types) (member "fuzzy" types)))
+          (should (member "elisp" types))
+          ;; Check specific destinations
+          (should (member "note-1" (mapcar (lambda (l) (plist-get l :dest)) links)))
+          (should (member "test.org" (mapcar (lambda (l) (plist-get l :dest)) links)))
+          (should (member "//example.com" (mapcar (lambda (l) (plist-get l :dest)) links))))
+      (delete-file path))))
+
 (ert-deftest vulpea-db-extract-meta-with-types ()
   "Test metadata extraction stores values as strings."
   (let ((path (vulpea-test--create-temp-org-file

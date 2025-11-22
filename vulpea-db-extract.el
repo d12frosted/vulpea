@@ -443,14 +443,16 @@ Returns alist of (key . value) pairs."
       nil t)))  ; First match only
 
 (defun vulpea-db--extract-links (ast-or-node)
-  "Extract id: and roam: links from AST-OR-NODE.
+  "Extract all links from AST-OR-NODE.
 
-Returns list of plists with :dest and :type."
+Returns list of plists with :dest and :type.
+Captures all link types: id:, roam:, file:, http:, https:,
+attachment:, elisp:, and any other org-mode link type."
   (org-element-map ast-or-node 'link
     (lambda (link)
       (let ((type (org-element-property :type link))
             (path (org-element-property :path link)))
-        (when (member type '("id" "roam"))
+        (when (and type path)
           (list :dest path :type type))))))
 
 (defun vulpea-db--extract-meta (element)
