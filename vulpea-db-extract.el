@@ -47,6 +47,7 @@
 ;;; Code:
 
 (require 'org-element)
+(require 'org-id)
 (require 'seq)
 (require 'cl-lib)
 (require 'vulpea-db)
@@ -659,6 +660,7 @@ Returns number of notes updated (file-level + headings)."
          (parse-time (* 1000 (float-time (time-subtract t1 t0))))
          (db (vulpea-db))
          (count 0)
+         (ids nil)  ; Track IDs to register with org-id
          (t2 nil)
          (db-time 0))
 
@@ -669,8 +671,9 @@ Returns number of notes updated (file-level + headings)."
 
       ;; Insert file-level note
       (let ((file-data (vulpea-parse-ctx-file-node ctx)))
-        (when (plist-get file-data :id)
+        (when-let ((id (plist-get file-data :id)))
           (vulpea-db--insert-note-from-plist ctx path 0 0 file-data)
+          (push id ids)
           (setq count (1+ count))))
 
       ;; Insert heading-level notes
@@ -681,6 +684,8 @@ Returns number of notes updated (file-level + headings)."
          (plist-get heading-data :level)
          (plist-get heading-data :pos)
          heading-data)
+        (when-let ((id (plist-get heading-data :id)))
+          (push id ids))
         (setq count (1+ count)))
 
       ;; Update file hash
@@ -689,6 +694,10 @@ Returns number of notes updated (file-level + headings)."
                                    (vulpea-parse-ctx-mtime ctx)
                                    (vulpea-parse-ctx-size ctx)))
     (setq db-time (* 1000 (float-time (time-subtract (current-time) t2))))
+
+    ;; Register all IDs with org-id so links can be followed
+    (dolist (id ids)
+      (org-id-add-location id path))
 
     ;; Accumulate timing data
     (when vulpea-db--timing-data

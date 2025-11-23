@@ -38,6 +38,7 @@
 ;;; Code:
 
 (require 'org-capture)
+(require 'org-id)
 (require 'vulpea-buffer)
 (require 'vulpea-db)
 (require 'vulpea-db-extract)
@@ -451,6 +452,9 @@ Optional parameters:
     (with-temp-buffer
       (insert full-content)
       (write-region (point-min) (point-max) file-path nil 'silent))
+
+    ;; Register ID with org-id so links can be followed
+    (org-id-add-location id file-path)
 
     ;; Update database with the new file
     (let ((update-count (vulpea-db-update-file file-path)))
