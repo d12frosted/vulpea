@@ -460,25 +460,43 @@ See Info node `(org) Template elements' for BODY template syntax."
                      :unnarrowed ,unnarrowed
                      :empty-lines 1))
          (org-capture-templates (list template)))
+
     ;; Run org-capture
     (org-capture nil "v")
 
-    ;; When immediate-finish is t, the file is created and we can update DB
-    ;; When immediate-finish is nil, capture is still in progress, so we can't
-    (if immediate-finish
-        (progn
-          ;; Verify file was created
-          (unless (file-exists-p file-path)
-            (error "vulpea-create: File %s was not created by org-capture" file-path))
+    ;; When immediate-finish is t, update DB and return note
+    ;; When immediate-finish is nil, capture is still in progress, return nil
+    (when immediate-finish
+      ;; Verify file was created
+      (unless (file-exists-p file-path)
+        (error "vulpea-create: File %s was not created by org-capture" file-path))
 
-          ;; Update database with the new file
-          (vulpea-db-update-file file-path)
+      ;; Check for duplicate property drawers (diagnostic)
+      (let ((prop-count 0))
+        (with-temp-buffer
+          (insert-file-contents file-path)
+          (goto-char (point-min))
+          (while (re-search-forward "^:PROPERTIES:" nil t)
+            (setq prop-count (1+ prop-count)))
+          (when (> prop-count 1)
+            (warn "vulpea-create: Found %d property drawers in %s - check your org-capture hooks!"
+                  prop-count file-path))))
 
-          ;; Return the note
-          (or (vulpea-db-get-by-id id)
-              (error "vulpea-create: Note with ID %s not found in database after creation" id)))
-      ;; Return nil when capture is still in progress
-      nil)))
+      ;; Update database with the new file
+      (let ((update-count (vulpea-db-update-file file-path)))
+        (when (zerop update-count)
+          (error "vulpea-create: No notes extracted from file %s (expected ID %s)" file-path id)))
+
+      ;; Return the note, with diagnostic if ID mismatch
+      (let ((note (vulpea-db-get-by-id id)))
+        (unless note
+          ;; Debug: show what IDs are actually in the file
+          (let ((actual-ids (emacsql (vulpea-db)
+                                     [:select id :from notes :where (= path $s1)]
+                                     file-path)))
+            (error "vulpea-create: Expected ID %s but found %S in database. Check for hooks adding IDs!"
+                   id actual-ids)))
+        note))))
 
 
 
