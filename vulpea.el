@@ -463,11 +463,22 @@ See Info node `(org) Template elements' for BODY template syntax."
     ;; Run org-capture
     (org-capture nil "v")
 
-    ;; Update database with the new file
-    (vulpea-db-update-file file-path)
+    ;; When immediate-finish is t, the file is created and we can update DB
+    ;; When immediate-finish is nil, capture is still in progress, so we can't
+    (if immediate-finish
+        (progn
+          ;; Verify file was created
+          (unless (file-exists-p file-path)
+            (error "vulpea-create: File %s was not created by org-capture" file-path))
 
-    ;; Return the note
-    (vulpea-db-get-by-id id)))
+          ;; Update database with the new file
+          (vulpea-db-update-file file-path)
+
+          ;; Return the note
+          (or (vulpea-db-get-by-id id)
+              (error "vulpea-create: Note with ID %s not found in database after creation" id)))
+      ;; Return nil when capture is still in progress
+      nil)))
 
 
 

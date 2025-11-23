@@ -507,5 +507,77 @@ Uses Unicode normalization to preserve base characters from accented letters."
         (when (file-directory-p vulpea-default-notes-directory)
           (delete-directory vulpea-default-notes-directory t))))))
 
+(ert-deftest vulpea-create-with-custom-id ()
+  "Test note creation with custom ID preserves the ID."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((vulpea-default-notes-directory (make-temp-file "vulpea-test-" t))
+           (vulpea-file-name-template "${slug}.org")
+           (title "Note with Custom ID")
+           (custom-id "CUSTOM-ID-12345")
+           note created-file)
+      (unwind-protect
+          (progn
+            ;; Create note with custom ID
+            (setq note (vulpea-create title nil :id custom-id :immediate-finish t))
+
+            ;; Verify returned note has custom ID
+            (should note)
+            (should (equal (vulpea-note-id note) custom-id))
+
+            ;; Verify ID in file
+            (setq created-file (vulpea-note-path note))
+            (should (file-exists-p created-file))
+            (with-temp-buffer
+              (insert-file-contents created-file)
+              (should (string-match-p (regexp-quote custom-id) (buffer-string))))
+
+            ;; Verify note can be retrieved from database with custom ID
+            (let ((db-note (vulpea-db-get-by-id custom-id)))
+              (should db-note)
+              (should (equal (vulpea-note-id db-note) custom-id))
+              (should (equal (vulpea-note-title db-note) title))))
+        (when (and created-file (file-exists-p created-file))
+          (when (get-file-buffer created-file)
+            (kill-buffer (get-file-buffer created-file)))
+          (delete-file created-file))
+        (when (file-directory-p vulpea-default-notes-directory)
+          (delete-directory vulpea-default-notes-directory t))))))
+
+(ert-deftest vulpea-create-returns-valid-note ()
+  "Test that vulpea-create returns a valid note that can be used immediately."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((vulpea-default-notes-directory (make-temp-file "vulpea-test-" t))
+           (vulpea-file-name-template "${slug}.org")
+           (title "Immediately Usable Note")
+           note created-file)
+      (unwind-protect
+          (progn
+            (setq note (vulpea-create title nil :immediate-finish t))
+
+            ;; Verify returned note is non-nil and has required fields
+            (should note)
+            (should (vulpea-note-p note))
+            (should (vulpea-note-id note))
+            (should (equal (vulpea-note-title note) title))
+            (should (vulpea-note-path note))
+
+            ;; Verify the note can be retrieved from DB immediately
+            (let ((db-note (vulpea-db-get-by-id (vulpea-note-id note))))
+              (should db-note)
+              (should (equal (vulpea-note-id db-note) (vulpea-note-id note)))
+              (should (equal (vulpea-note-title db-note) title)))
+
+            ;; Verify file exists
+            (setq created-file (vulpea-note-path note))
+            (should (file-exists-p created-file)))
+        (when (and created-file (file-exists-p created-file))
+          (when (get-file-buffer created-file)
+            (kill-buffer (get-file-buffer created-file)))
+          (delete-file created-file))
+        (when (file-directory-p vulpea-default-notes-directory)
+          (delete-directory vulpea-default-notes-directory t))))))
+
 (provide 'vulpea-test)
 ;;; vulpea-test.el ends here
