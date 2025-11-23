@@ -128,6 +128,23 @@ ARGS is a plist with optional fields:
       (should (equal (vulpea-note-id producer) "target"))
       (should (equal (vulpea-note-title producer) "Target Note")))))
 
+(ert-deftest vulpea-note-meta-get-note-with-alias ()
+  "Test getting note referenced via alias preserves alias information."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "target" "Full Title"
+                                   :aliases '("ShortName" "AnotherAlias"))
+    (vulpea-test--insert-test-note "note1" "Test Note"
+                                   :meta '(("producer" . ("[[id:target][ShortName]]"))))
+
+    (let* ((note (vulpea-db-get-by-id "note1"))
+           (producer (vulpea-note-meta-get note "producer" 'note)))
+      (should (vulpea-note-p producer))
+      (should (equal (vulpea-note-id producer) "target"))
+      ;; When referenced via alias, title should be alias and primary-title should be original
+      (should (equal (vulpea-note-title producer) "ShortName"))
+      (should (equal (vulpea-note-primary-title producer) "Full Title")))))
+
 (ert-deftest vulpea-note-meta-get-list-multiple ()
   "Test getting list of metadata values."
   (vulpea-test--with-temp-db
