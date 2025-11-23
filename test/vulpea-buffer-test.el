@@ -417,6 +417,76 @@ Creates a temp file with ID and CONTENT, adds it to temp DB, then executes BODY.
         (when (file-exists-p file)
           (delete-file file))))))
 
+(ert-deftest vulpea-buffer-alias-set-new ()
+  "Test setting aliases on note without existing aliases."
+  (let ((id "eeec8f05-927f-4c61-b39e-2fb8228cf484"))
+    (vulpea-buffer-test--with-temp-db-and-file id "#+title: Test\n"
+      (should (equal (vulpea-utils-with-note (vulpea-db-get-by-id id)
+                       (vulpea-buffer-alias-set "First" "Second" "Third")
+                       (save-buffer)
+                       (vulpea-buffer-alias-get))
+                     '("First" "Second" "Third"))))))
+
+(ert-deftest vulpea-buffer-alias-set-replace ()
+  "Test replacing existing aliases."
+  (let* ((id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")
+         (file (vulpea-buffer-test--create-temp-file id "")))
+    (with-temp-file file
+      (insert (format ":PROPERTIES:\n:ID: %s\n:ROAM_ALIASES: Old1 Old2\n:END:\n#+title: Reference\n" id)))
+    (let* ((temp-db-file (make-temp-file "vulpea-buffer-test-" nil ".db"))
+           (vulpea-db-location temp-db-file)
+           (vulpea-db--connection nil))
+      (unwind-protect
+          (progn
+            (vulpea-db)
+            (vulpea-db-update-file file)
+            (should (equal (vulpea-utils-with-note (vulpea-db-get-by-id id)
+                             (vulpea-buffer-alias-set "New1" "New2" "New3")
+                             (save-buffer)
+                             (vulpea-buffer-alias-get))
+                           '("New1" "New2" "New3"))))
+        (when vulpea-db--connection
+          (vulpea-db-close))
+        (when (file-exists-p temp-db-file)
+          (delete-file temp-db-file))
+        (when (file-exists-p file)
+          (delete-file file))))))
+
+(ert-deftest vulpea-buffer-alias-set-with-spaces ()
+  "Test setting aliases with spaces (auto-quoted)."
+  (let ((id "eeec8f05-927f-4c61-b39e-2fb8228cf484"))
+    (vulpea-buffer-test--with-temp-db-and-file id "#+title: Test\n"
+      (should (equal (vulpea-utils-with-note (vulpea-db-get-by-id id)
+                       (vulpea-buffer-alias-set "Simple" "Alias With Spaces")
+                       (save-buffer)
+                       (vulpea-buffer-alias-get))
+                     '("Simple" "Alias With Spaces"))))))
+
+(ert-deftest vulpea-buffer-alias-set-empty ()
+  "Test setting empty list removes the property."
+  (let* ((id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")
+         (file (vulpea-buffer-test--create-temp-file id "")))
+    (with-temp-file file
+      (insert (format ":PROPERTIES:\n:ID: %s\n:ROAM_ALIASES: Alias1 Alias2\n:END:\n#+title: Reference\n" id)))
+    (let* ((temp-db-file (make-temp-file "vulpea-buffer-test-" nil ".db"))
+           (vulpea-db-location temp-db-file)
+           (vulpea-db--connection nil))
+      (unwind-protect
+          (progn
+            (vulpea-db)
+            (vulpea-db-update-file file)
+            (should (equal (vulpea-utils-with-note (vulpea-db-get-by-id id)
+                             (vulpea-buffer-alias-set)
+                             (save-buffer)
+                             (vulpea-buffer-alias-get))
+                           nil)))
+        (when vulpea-db--connection
+          (vulpea-db-close))
+        (when (file-exists-p temp-db-file)
+          (delete-file temp-db-file))
+        (when (file-exists-p file)
+          (delete-file file))))))
+
 ;;; vulpea-buffer-prop-* Tests
 
 (ert-deftest vulpea-buffer-prop-downcase-name ()

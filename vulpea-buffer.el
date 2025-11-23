@@ -151,6 +151,21 @@ If ALIAS contains spaces, it will be quoted automatically."
                      aliases)))
         (org-entry-put nil vulpea-buffer-alias-property (string-join formatted-aliases " "))))))
 
+(defun vulpea-buffer-alias-set (&rest aliases)
+  "Set ALIASES for the note at point, replacing any existing aliases.
+
+ALIASES is a list of alias strings. If empty, removes the alias property.
+Aliases containing spaces will be quoted automatically."
+  (if aliases
+      (let ((formatted-aliases
+             (mapcar (lambda (a)
+                       (if (string-match-p " " a)
+                           (format "\"%s\"" a)
+                         a))
+                     aliases)))
+        (org-entry-put nil vulpea-buffer-alias-property (string-join formatted-aliases " ")))
+    (org-entry-delete nil vulpea-buffer-alias-property)))
+
 (defun vulpea-buffer-alias-remove (&optional alias)
   "Remove ALIAS from the note at point.
 
