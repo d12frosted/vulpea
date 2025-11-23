@@ -55,6 +55,16 @@
 (require 'vulpea-db)
 (require 'vulpea-db-query)
 
+;;; Customization
+
+(defcustom vulpea-buffer-alias-property "ROAM_ALIASES"
+  "Property name for note aliases.
+
+Defaults to ROAM_ALIASES for compatibility with org-roam, but can
+be changed to any property name you prefer."
+  :type 'string
+  :group 'vulpea)
+
 (defun vulpea-buffer-title-get ()
   "Get TITLE in current buffer."
   (vulpea-buffer-prop-get "title"))
@@ -93,9 +103,10 @@ If filetags value is already set, replace it."
 (defun vulpea-buffer-alias-get ()
   "Get list of aliases for the note at point.
 
-Returns list of alias strings from the ROAM_ALIASES property.
-Handles both quoted aliases (with spaces) and unquoted aliases properly."
-  (when-let ((aliases-str (org-entry-get nil "ROAM_ALIASES")))
+Returns list of alias strings from the property defined by
+`vulpea-buffer-alias-property'. Handles both quoted aliases (with spaces)
+and unquoted aliases properly."
+  (when-let ((aliases-str (org-entry-get nil vulpea-buffer-alias-property)))
     (setq aliases-str (string-trim aliases-str))
     (let ((result nil)
           (pos 0))
@@ -112,7 +123,7 @@ Handles both quoted aliases (with spaces) and unquoted aliases properly."
                   (progn
                     (push (substring aliases-str (1+ pos) end) result)
                     (setq pos (1+ end)))
-                (error "Unmatched quote in ROAM_ALIASES"))))
+                (error "Unmatched quote in %s" vulpea-buffer-alias-property))))
            ;; Unquoted alias - find next space or end of string
            (t
             (let ((end (or (string-match " " aliases-str pos)
@@ -124,8 +135,8 @@ Handles both quoted aliases (with spaces) and unquoted aliases properly."
 (defun vulpea-buffer-alias-add (alias)
   "Add ALIAS to the note at point.
 
-ALIAS is added to the ROAM_ALIASES property. If ALIAS contains
-spaces, it will be quoted automatically."
+ALIAS is added to the property defined by `vulpea-buffer-alias-property'.
+If ALIAS contains spaces, it will be quoted automatically."
   (interactive "sAlias: ")
   (let* ((aliases (vulpea-buffer-alias-get))
          (alias (string-trim alias)))
@@ -138,7 +149,7 @@ spaces, it will be quoted automatically."
                            (format "\"%s\"" a)
                          a))
                      aliases)))
-        (org-entry-put nil "ROAM_ALIASES" (string-join formatted-aliases " "))))))
+        (org-entry-put nil vulpea-buffer-alias-property (string-join formatted-aliases " "))))))
 
 (defun vulpea-buffer-alias-remove (&optional alias)
   "Remove ALIAS from the note at point.
@@ -158,9 +169,9 @@ If ALIAS is nil, prompt for an alias to remove from available aliases."
                                  (format "\"%s\"" a)
                                a))
                            aliases)))
-              (org-entry-put nil "ROAM_ALIASES" (string-join formatted-aliases " ")))
+              (org-entry-put nil vulpea-buffer-alias-property (string-join formatted-aliases " ")))
           ;; No aliases left, remove the property entirely
-          (org-entry-delete nil "ROAM_ALIASES"))))))
+          (org-entry-delete nil vulpea-buffer-alias-property))))))
 
 (defun vulpea-buffer-prop-set (name value)
   "Set a file property called NAME to VALUE in buffer file.

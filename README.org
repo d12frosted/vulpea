@@ -494,9 +494,13 @@ When a metadata property has multiple values, use =vulpea-note-meta-get-list=:
 
 **** Managing Aliases
 
-Vulpea provides functions to manage note aliases stored in the =ROAM_ALIASES= property:
+Vulpea provides functions to manage note aliases. Aliases are stored in a property
+defined by =vulpea-buffer-alias-property= (defaults to =ROAM_ALIASES= for org-roam compatibility):
 
 #+begin_src emacs-lisp
+;; Optional: customize the property name
+(setq vulpea-buffer-alias-property "ALIASES")
+
 ;; Get current aliases
 (vulpea-buffer-alias-get)
 ;; => ("Short Name" "Alternative Title")
@@ -515,10 +519,11 @@ Vulpea provides functions to manage note aliases stored in the =ROAM_ALIASES= pr
 #+end_src
 
 Key features:
+- Configurable property name via =vulpea-buffer-alias-property=
 - Automatic quoting of aliases containing spaces
 - Duplicate detection (adding an existing alias is ignored)
 - Interactive completion when removing aliases
-- Automatically removes =ROAM_ALIASES= property when last alias is removed
+- Automatically removes property when last alias is removed
 - Properly parses mixed quoted and unquoted aliases
 
 *** Synchronization

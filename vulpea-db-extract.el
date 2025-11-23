@@ -51,6 +51,9 @@
 (require 'cl-lib)
 (require 'vulpea-db)
 
+(defvar vulpea-buffer-alias-property)
+(declare-function vulpea-buffer-alias-property "vulpea-buffer")
+
 (defsubst vulpea-db--string-no-properties (value)
   "Return VALUE as a plain string without text properties."
   (when (and value (stringp value))
@@ -415,10 +418,10 @@ Respects `vulpea-db-index-heading-level' setting:
 (defun vulpea-db--extract-aliases (properties)
   "Extract aliases from PROPERTIES alist.
 
-Looks for ROAM_ALIASES property.
+Looks for property defined by `vulpea-buffer-alias-property'.
 If the value is a quoted string, returns it as a single alias.
 Otherwise, splits on spaces."
-  (when-let ((aliases-str (cdr (assoc "ROAM_ALIASES" properties))))
+  (when-let ((aliases-str (cdr (assoc vulpea-buffer-alias-property properties))))
     (setq aliases-str (string-trim aliases-str))
     ;; If it's a quoted string, treat the whole thing as one alias
     (if (and (> (length aliases-str) 1)
