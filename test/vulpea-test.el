@@ -369,7 +369,7 @@ Uses Unicode normalization to preserve base characters from accented letters."
       (unwind-protect
           (progn
             ;; Create note
-            (setq note (vulpea-create title nil :immediate-finish t))
+            (setq note (vulpea-create title nil))
             (should note)
             (should (vulpea-note-id note))
             (should (equal (vulpea-note-title note) title))
@@ -406,7 +406,7 @@ Uses Unicode normalization to preserve base characters from accented letters."
       (unwind-protect
           (progn
             ;; Create note with custom file name
-            (setq note (vulpea-create title custom-file :immediate-finish t))
+            (setq note (vulpea-create title custom-file))
             (should note)
             (should (equal (vulpea-note-path note) custom-file))
             (should (file-exists-p custom-file))
@@ -433,7 +433,7 @@ Uses Unicode normalization to preserve base characters from accented letters."
            note created-file)
       (unwind-protect
           (progn
-            (setq note (vulpea-create title nil :tags tags :immediate-finish t))
+            (setq note (vulpea-create title nil :tags tags))
             (should note)
             (setq created-file (vulpea-note-path note))
 
@@ -464,7 +464,7 @@ Uses Unicode normalization to preserve base characters from accented letters."
            note created-file)
       (unwind-protect
           (progn
-            (setq note (vulpea-create title nil :properties props :immediate-finish t))
+            (setq note (vulpea-create title nil :properties props))
             (should note)
             (setq created-file (vulpea-note-path note))
 
@@ -491,7 +491,7 @@ Uses Unicode normalization to preserve base characters from accented letters."
            note created-file)
       (unwind-protect
           (progn
-            (setq note (vulpea-create title nil :body body :immediate-finish t))
+            (setq note (vulpea-create title nil :body body))
             (should note)
             (setq created-file (vulpea-note-path note))
 
@@ -519,7 +519,7 @@ Uses Unicode normalization to preserve base characters from accented letters."
       (unwind-protect
           (progn
             ;; Create note with custom ID
-            (setq note (vulpea-create title nil :id custom-id :immediate-finish t))
+            (setq note (vulpea-create title nil :id custom-id))
 
             ;; Verify returned note has custom ID
             (should note)
@@ -554,7 +554,7 @@ Uses Unicode normalization to preserve base characters from accented letters."
            note created-file)
       (unwind-protect
           (progn
-            (setq note (vulpea-create title nil :immediate-finish t))
+            (setq note (vulpea-create title nil))
 
             ;; Verify returned note is non-nil and has required fields
             (should note)

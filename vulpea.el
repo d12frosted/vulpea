@@ -370,28 +370,20 @@ used."
                  'vulpea-insert-handle-functions
                  note))
             ;; New note - create it then insert link
-            (let* ((insert-buffer (current-buffer))
-                   (insert-point (point-marker)))
-              (if create-fn
-                  (funcall create-fn (vulpea-note-title note) nil)
-                ;; Create the note
-                (let ((new-note (vulpea-create (vulpea-note-title note)
-                                               nil
-                                               :immediate-finish nil)))
-                  ;; Return to original buffer and insert link
-                  (when new-note
-                    (with-current-buffer insert-buffer
-                      (goto-char insert-point)
-                      (when region-text
-                        (delete-region beg end)
-                        (set-marker beg nil)
-                        (set-marker end nil))
-                      (insert (org-link-make-string
-                               (concat "id:" (vulpea-note-id new-note))
-                               description))
-                      (run-hook-with-args
-                       'vulpea-insert-handle-functions
-                       new-note)))))))))
+            (if create-fn
+                (funcall create-fn (vulpea-note-title note) nil)
+              ;; Create the note programmatically
+              (let ((new-note (vulpea-create (vulpea-note-title note))))
+                (when region-text
+                  (delete-region beg end)
+                  (set-marker beg nil)
+                  (set-marker end nil))
+                (insert (org-link-make-string
+                         (concat "id:" (vulpea-note-id new-note))
+                         description))
+                (run-hook-with-args
+                 'vulpea-insert-handle-functions
+                 new-note))))))
     (deactivate-mark)))
 
 
@@ -403,22 +395,24 @@ used."
                          head
                          meta
                          body
-                         unnarrowed
-                         immediate-finish
                          _context  ; Reserved for future use
                          properties
                          tags
                          _capture-properties)  ; Reserved for future use
-  "Create a new note file with TITLE.
+  "Create a new note file with TITLE programmatically.
 
-FILE-NAME is optional. When nil, uses `vulpea-file-name-template' to
-generate.
+This function is designed for programmatic note creation with
+immediate finalization. For interactive note capture with user
+editing, use `org-capture' with vulpea-compatible templates.
 
-Returns created `vulpea-note'.
+FILE-NAME is optional. When nil, uses `vulpea-file-name-template'
+to generate the file name.
+
+Returns the created `vulpea-note' object.
 
 ID is automatically generated unless explicitly passed.
 
-Structure of the generated file is:
+Structure of the generated file:
 
   :PROPERTIES:
   :ID: ID
@@ -432,80 +426,41 @@ Structure of the generated file is:
 
   BODY if present
 
-CONTEXT is a property list of :key val (currently unused, for future
-compatibility).
+Optional parameters:
 
-PROPERTIES is a list of (key_str . val_str).
-
-UNNARROWED and IMMEDIATE-FINISH are passed to `org-capture'.
-IMMEDIATE-FINISH defaults to nil (allows editing). Pass t for
-programmatic note creation without user interaction.
-
-META is an alist of (key . value) or (key . (list of values)).
-
-CAPTURE-PROPERTIES are additional properties for
-`org-capture' (currently unused).
-
-See Info node `(org) Template elements' for BODY template syntax."
+- PROPERTIES: Alist of (key_str . val_str) for property drawer
+- META: Alist of (key . value) or (key . (list of values))
+- TAGS: List of tag strings
+- BODY: Note body content (plain text or org-mode template)
+- HEAD: Additional header content after #+filetags
+- CONTEXT: Reserved for future use
+- CAPTURE-PROPERTIES: Reserved for future use"
   (let* ((id (or id (org-id-new)))
          (file-path (vulpea--expand-file-name-template title id file-name))
          (content (vulpea--format-note-content id title head meta tags properties))
-         (full-template (if body
-                            (concat content "\n\n" body)
-                          content))
-         (template `("v" "vulpea-note" plain
-                     (file ,file-path)
-                     ,full-template
-                     :immediate-finish ,immediate-finish
-                     :unnarrowed ,unnarrowed))
-         (org-capture-templates (list template)))
+         (full-content (if body
+                           (concat content "\n\n" body)
+                         content))
+         (dir (file-name-directory file-path)))
 
-    ;; Run org-capture
-    (org-capture nil "v")
+    ;; Ensure directory exists
+    (unless (file-directory-p dir)
+      (make-directory dir t))
 
-    ;; When immediate-finish is t, update DB and return note
-    ;; When immediate-finish is nil, capture is still in progress, return nil
-    (when immediate-finish
-      ;; Verify file was created
-      (unless (file-exists-p file-path)
-        (error "vulpea-create: File %s was not created by org-capture" file-path))
+    ;; Write file directly (no org-capture, no hooks, no blank lines)
+    (with-temp-buffer
+      (insert full-content)
+      (write-region (point-min) (point-max) file-path nil 'silent))
 
-      ;; Fix: org-capture with 'plain' type adds leading newline
-      ;; This breaks property drawer recognition, so we remove it
-      (with-temp-buffer
-        (insert-file-contents file-path)
-        (goto-char (point-min))
-        ;; Remove all leading blank lines (critical for property drawer recognition)
-        (while (and (not (eobp)) (looking-at "^[[:space:]]*$"))
-          (delete-line))
-        (write-region (point-min) (point-max) file-path nil 'silent))
+    ;; Update database with the new file
+    (let ((update-count (vulpea-db-update-file file-path)))
+      (when (zerop update-count)
+        (error "vulpea-create: No notes extracted from file %s (expected ID %s)"
+               file-path id)))
 
-      ;; Check for duplicate property drawers (diagnostic)
-      (let ((prop-count 0))
-        (with-temp-buffer
-          (insert-file-contents file-path)
-          (goto-char (point-min))
-          (while (re-search-forward "^:PROPERTIES:" nil t)
-            (setq prop-count (1+ prop-count)))
-          (when (> prop-count 1)
-            (warn "vulpea-create: Found %d property drawers in %s - check your org-capture hooks!"
-                  prop-count file-path))))
-
-      ;; Update database with the new file
-      (let ((update-count (vulpea-db-update-file file-path)))
-        (when (zerop update-count)
-          (error "vulpea-create: No notes extracted from file %s (expected ID %s)" file-path id)))
-
-      ;; Return the note, with diagnostic if ID mismatch
-      (let ((note (vulpea-db-get-by-id id)))
-        (unless note
-          ;; Debug: show what IDs are actually in the file
-          (let ((actual-ids (emacsql (vulpea-db)
-                                     [:select id :from notes :where (= path $s1)]
-                                     file-path)))
-            (error "vulpea-create: Expected ID %s but found %S in database. Check for hooks adding IDs!"
-                   id actual-ids)))
-        note))))
+    ;; Return the note
+    (or (vulpea-db-get-by-id id)
+        (error "vulpea-create: Note with ID %s not found in database after creation" id))))
 
 
 
