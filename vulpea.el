@@ -457,8 +457,7 @@ See Info node `(org) Template elements' for BODY template syntax."
                      (file ,file-path)
                      ,full-template
                      :immediate-finish ,immediate-finish
-                     :unnarrowed ,unnarrowed
-                     :empty-lines 1))
+                     :unnarrowed ,unnarrowed))
          (org-capture-templates (list template)))
 
     ;; Run org-capture
@@ -470,6 +469,16 @@ See Info node `(org) Template elements' for BODY template syntax."
       ;; Verify file was created
       (unless (file-exists-p file-path)
         (error "vulpea-create: File %s was not created by org-capture" file-path))
+
+      ;; Fix: org-capture with 'plain' type adds leading newline
+      ;; This breaks property drawer recognition, so we remove it
+      (with-temp-buffer
+        (insert-file-contents file-path)
+        (goto-char (point-min))
+        ;; Remove all leading blank lines (critical for property drawer recognition)
+        (while (and (not (eobp)) (looking-at "^[[:space:]]*$"))
+          (delete-line))
+        (write-region (point-min) (point-max) file-path nil 'silent))
 
       ;; Check for duplicate property drawers (diagnostic)
       (let ((prop-count 0))
