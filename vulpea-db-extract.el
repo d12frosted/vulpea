@@ -50,9 +50,7 @@
 (require 'seq)
 (require 'cl-lib)
 (require 'vulpea-db)
-
-(defvar vulpea-buffer-alias-property)
-(declare-function vulpea-buffer-alias-property "vulpea-buffer")
+(require 'vulpea-buffer)
 
 (defsubst vulpea-db--string-no-properties (value)
   "Return VALUE as a plain string without text properties."
@@ -419,17 +417,34 @@ Respects `vulpea-db-index-heading-level' setting:
   "Extract aliases from PROPERTIES alist.
 
 Looks for property defined by `vulpea-buffer-alias-property'.
-If the value is a quoted string, returns it as a single alias.
-Otherwise, splits on spaces."
+Handles both quoted aliases (with spaces) and unquoted aliases properly."
   (when-let ((aliases-str (cdr (assoc vulpea-buffer-alias-property properties))))
     (setq aliases-str (string-trim aliases-str))
-    ;; If it's a quoted string, treat the whole thing as one alias
-    (if (and (> (length aliases-str) 1)
-             (string-prefix-p "\"" aliases-str)
-             (string-suffix-p "\"" aliases-str))
-        (list (substring-no-properties (substring aliases-str 1 -1)))
-      ;; Otherwise split on spaces
-      (vulpea-db--strings-no-properties (split-string aliases-str " " t)))))
+    (let ((result nil)
+          (pos 0))
+      (while (< pos (length aliases-str))
+        ;; Skip whitespace
+        (while (and (< pos (length aliases-str))
+                    (= (aref aliases-str pos) ? ))
+          (setq pos (1+ pos)))
+        (when (< pos (length aliases-str))
+          (let ((char (aref aliases-str pos)))
+            (cond
+             ;; Quoted alias - find matching closing quote
+             ((= char ?\")
+              (let ((end (string-match "\"" aliases-str (1+ pos))))
+                (if end
+                    (progn
+                      (push (substring aliases-str (1+ pos) end) result)
+                      (setq pos (1+ end)))
+                  (error "Unmatched quote in %s" vulpea-buffer-alias-property))))
+             ;; Unquoted alias - find next space or end of string
+             (t
+              (let ((end (or (string-match " " aliases-str pos)
+                             (length aliases-str))))
+                (push (substring aliases-str pos end) result)
+                (setq pos end)))))))
+      (nreverse result))))
 
 (defun vulpea-db--extract-properties (ast-or-node &optional headline)
   "Extract properties from AST-OR-NODE.

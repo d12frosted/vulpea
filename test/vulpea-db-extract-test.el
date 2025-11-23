@@ -187,6 +187,24 @@ Returns absolute path. Caller responsible for cleanup."
           (should (member "Alias2" aliases)))
       (delete-file path))))
 
+(ert-deftest vulpea-db-extract-aliases-mixed-quoted ()
+  "Test alias extraction with mixed quoted and unquoted aliases.
+
+Quoted aliases (with spaces) and unquoted aliases should be
+handled correctly when mixed together."
+  (let ((path (vulpea-test--create-temp-org-file
+               (format ":PROPERTIES:\n:ID: %s\n:ALIASES: \"Pinot Nero\" \"Rulandské modré\" Spätburgunder Blauburgunder\n:END:\n#+TITLE: Pinot Noir\n" (org-id-new)))))
+    (unwind-protect
+        (let* ((ctx (vulpea-db--parse-file path))
+               (node (vulpea-parse-ctx-file-node ctx))
+               (aliases (plist-get node :aliases)))
+          (should (= (length aliases) 4))
+          (should (member "Pinot Nero" aliases))
+          (should (member "Rulandské modré" aliases))
+          (should (member "Spätburgunder" aliases))
+          (should (member "Blauburgunder" aliases)))
+      (delete-file path))))
+
 (ert-deftest vulpea-db-extract-links ()
   "Test link extraction."
   (let ((path (vulpea-test--create-temp-org-file
