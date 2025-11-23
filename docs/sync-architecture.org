@@ -1,0 +1,306 @@
+#+title: Vulpea Sync Architecture
+
+* Overview
+
+All database updates flow through a single function: ~vulpea-db-update-file~
+
+The sync system has two modes:
+1. *Immediate (sync)* - blocks until update completes
+2. *Async (queue-based)* - non-blocking, batched processing
+
+* Core Components
+
+** Central Update Function
+
+#+begin_example
+vulpea-db-update-file(path)
+  ├─ Parse file with org-element
+  ├─ Update database in transaction
+  └─ Register IDs with org-id
+#+end_example
+
+** Mode Control
+
+- ~vulpea-db-autosync-mode~ - global minor mode
+  - When *enabled*: async queue-based updates
+  - When *disabled*: immediate blocking updates
+
+* Flow Diagrams
+
+** 1. Programmatic Note Creation
+
+#+begin_example
+vulpea-create(title, ...)
+  │
+  ├─ Write file to disk
+  ├─ org-id-add-location(id, path)
+  └─ vulpea-db-update-file(path)  ← ALWAYS IMMEDIATE
+      └─ Returns note object
+#+end_example
+
+*Note*: Ignores autosync mode, always immediate
+
+
+** 2. Manual File Update
+
+#+begin_example
+vulpea-db-sync-update-file(path)
+  │
+  ├─ autosync-mode OFF?
+  │   └─ vulpea-db-update-file(path)  ← IMMEDIATE
+  │
+  └─ autosync-mode ON?
+      └─ vulpea-db-sync--enqueue(path)  ← ASYNC
+          ├─ Add to queue (deduplicated)
+          ├─ Reset batch timer
+          └─ Schedule processing
+#+end_example
+
+
+** 3. Directory Sync
+
+#+begin_example
+vulpea-db-sync-update-directory(dir, force)
+  │
+  ├─ Find all .org files in dir
+  │
+  ├─ FORCE mode OR autosync OFF?
+  │   │
+  │   └─ Process IMMEDIATELY (synchronous)
+  │       ├─ Fetch file hashes (1 query)
+  │       ├─ FOR EACH FILE:
+  │       │   ├─ force=t? Always update
+  │       │   └─ force=nil? Smart detection
+  │       │       └─ vulpea-db-sync--update-file-if-changed
+  │       │           ├─ Check mtime/size/hash
+  │       │           └─ vulpea-db-update-file (if changed)
+  │       └─ Report: "Synced N files (X updated, Y unchanged)"
+  │
+  └─ autosync ON AND NOT force?
+      │
+      └─ Process ASYNCHRONOUSLY
+          └─ Enqueue all files
+              └─ Queue processes them in batches
+#+end_example
+
+
+** 4. File Watchers (External Changes)
+
+Three types of file watchers:
+
+*** A. Emacs-internal changes (filenotify)
+
+#+begin_example
+save-buffer
+  │
+  └─ file-notify event
+      └─ vulpea-db-sync--handle-file-notify
+          ├─ Parse event (changed/deleted/renamed)
+          └─ vulpea-db-sync--enqueue(path)  ← ALWAYS ASYNC
+#+end_example
+
+*** B. External changes (fswatch process)
+
+#+begin_example
+git pull / Dropbox sync / external edit
+  │
+  └─ fswatch detects change
+      └─ vulpea-db-sync--handle-fswatch-output
+          ├─ Parse fswatch events
+          └─ vulpea-db-sync--enqueue(path)  ← ALWAYS ASYNC
+#+end_example
+
+*** C. External changes (polling)
+
+#+begin_example
+Timer fires every N seconds
+  │
+  └─ vulpea-db-sync--poll-external-changes
+      ├─ Check mtime for all tracked files
+      ├─ Detect new/deleted/modified files
+      └─ vulpea-db-sync--enqueue(path)  ← ALWAYS ASYNC
+#+end_example
+
+*Note*: All file watchers ALWAYS use async queue, regardless of autosync mode
+
+
+** 5. Async Queue Processing
+
+#+begin_example
+vulpea-db-sync--enqueue(path)
+  │
+  ├─ Add to queue (deduplicated by path)
+  ├─ Reset timer (debouncing)
+  └─ Schedule: run-with-timer(0.01s, vulpea-db-sync--process-queue)
+
+Timer fires after 0.01s of quiet
+  │
+  └─ vulpea-db-sync--process-queue
+      │
+      ├─ Take up to 100 files from queue
+      ├─ Fetch file hashes (1 query for batch)
+      │
+      ├─ Process batch in SINGLE TRANSACTION
+      │   └─ FOR EACH FILE:
+      │       └─ vulpea-db-sync--update-file-if-changed
+      │           ├─ Check mtime/size/hash
+      │           └─ vulpea-db-update-file (if changed)
+      │
+      ├─ Report progress (every 100 files)
+      │
+      └─ More files queued?
+          ├─ Yes: schedule next batch
+          └─ No: report completion
+#+end_example
+
+*Key features:*
+- *Debouncing*: 0.01s delay batches rapid changes
+- *Batch size*: Max 100 files per transaction
+- *Smart detection*: Only updates files that actually changed
+- *Single transaction*: Entire batch is atomic
+
+
+* Decision Table
+
+| Scenario            | autosync-mode | force | Execution          |
+|---------------------+---------------+-------+--------------------|
+| vulpea-create       | ignored       | n/a   | Immediate          |
+| Manual file update  | OFF           | n/a   | Immediate          |
+| Manual file update  | ON            | n/a   | Async (queued)     |
+| Directory sync      | OFF           | n/a   | Immediate + smart  |
+| Directory sync      | ON            | OFF   | Async (queued)     |
+| Directory sync      | ignored       | ON    | Immediate + force  |
+| File watchers       | ignored       | n/a   | Async (always)     |
+| Save buffer         | ignored       | n/a   | Async (always)     |
+
+
+* Smart Change Detection
+
+#+begin_example
+vulpea-db-sync--update-file-if-changed(path)
+  │
+  ├─ Get file attributes (mtime, size)
+  ├─ Get stored info from DB
+  │
+  ├─ mtime or size different?
+  │   │
+  │   ├─ Compute content hash (SHA256)
+  │   │
+  │   └─ hash different?
+  │       ├─ YES: vulpea-db-update-file(path)
+  │       └─ NO: skip (content unchanged despite mtime)
+  │
+  └─ mtime and size same?
+      └─ skip (file unchanged)
+#+end_example
+
+*Why hash check?*
+- mtime can change without content change (e.g., touch, git checkout)
+- Hash ensures we only parse files with actual content changes
+
+
+* Configuration Examples
+
+** Fast startup, manual sync
+
+#+begin_src elisp
+(setq vulpea-db-sync-scan-on-enable nil)
+(vulpea-db-autosync-mode 1)
+;; After git pull:
+(vulpea-db-sync-update-directory org-directory)
+#+end_src
+
+** Auto-detect all changes
+
+#+begin_src elisp
+(setq vulpea-db-sync-scan-on-enable 'async)
+(setq vulpea-db-sync-external-method 'auto)  ; fswatch or poll
+(vulpea-db-autosync-mode 1)
+;; Everything automatic, hands-off
+#+end_src
+
+** Minimal (manual only)
+
+#+begin_src elisp
+;; Don't enable autosync-mode
+;; Manual sync:
+(vulpea-db-sync-update-file buffer-file-name)  ; after save
+(vulpea-db-sync-update-directory org-directory)  ; after git pull
+#+end_src
+
+** Force re-index everything
+
+#+begin_src elisp
+(vulpea-db-sync-update-directory org-directory 'force)
+;; Ignores change detection, re-parses all files
+;; Use after changing vulpea-db-index-heading-level
+#+end_src
+
+
+* Performance Characteristics
+
+** Immediate mode (autosync OFF)
+
+- *Pros*: Predictable, simple, good for small repos
+- *Cons*: Blocks UI during updates, no batching
+- *Best for*: <100 notes, manual workflows
+
+** Async mode (autosync ON)
+
+- *Pros*: Non-blocking, batched, handles external changes
+- *Cons*: Slight delay before DB reflects changes
+- *Best for*: Large repos, collaborative workflows, sync tools
+
+** Smart detection
+
+- *Speedup*: 10-100x faster than force mode
+- *Cost*: One hash per file checked
+- *Use case*: Directory sync, polling, startup scan
+
+
+* Event Flows Summary
+
+#+begin_example
+USER ACTIONS                 FILE CHANGES               PROCESSING
+─────────────────           ──────────────             ───────────
+
+vulpea-create               (creates file)
+    │                             │
+    └─────────────────────────────┴──> vulpea-db-update-file
+                                            └─> [DB updated, immediate]
+
+
+save-buffer                 (modifies file)
+    │                             │
+    └────> filenotify ────────────┴──> enqueue ──> queue ──> batch
+                                                        └─> vulpea-db-update-file
+
+
+git pull                    (modifies many files)
+    │                             │
+    └────> fswatch/poll ──────────┴──> enqueue ──> queue ──> batch
+                                         (dedupe)               └─> vulpea-db-update-file
+                                                                     (smart detection)
+
+
+M-x vulpea-db-sync-update-directory
+    │
+    ├─> autosync ON?
+    │     └─> enqueue all ──> queue ──> batch
+    │                                     └─> vulpea-db-update-file
+    │
+    └─> autosync OFF?
+          └─> immediate ──> for each file
+                               └─> vulpea-db-update-file
+                                    (smart detection)
+#+end_example
+
+
+* Key Insights
+
+1. *Single entry point*: All updates go through ~vulpea-db-update-file~
+2. *Mode independence*: Watchers always async, create always immediate
+3. *Smart by default*: Change detection via hash saves parsing
+4. *Batch processing*: 100 files = 1 transaction = faster
+5. *Debouncing*: Rapid changes batched automatically
+6. *org-id integration*: Happens in ~vulpea-db-update-file~, so all flows get it
