@@ -208,7 +208,7 @@ Creates a temp file with ID and CONTENT, adds it to temp DB, then executes BODY.
   (let* ((id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")
          (file (vulpea-buffer-test--create-temp-file id "")))
     (with-temp-file file
-      (insert (format ":PROPERTIES:\n:ID: %s\n:ROAM_ALIASES: Alias1\n:END:\n#+title: Reference\n" id)))
+      (insert (format ":PROPERTIES:\n:ID: %s\n:ALIASES: Alias1\n:END:\n#+title: Reference\n" id)))
     (let* ((temp-db-file (make-temp-file "vulpea-buffer-test-" nil ".db"))
            (vulpea-db-location temp-db-file)
            (vulpea-db--connection nil))
@@ -231,7 +231,7 @@ Creates a temp file with ID and CONTENT, adds it to temp DB, then executes BODY.
   (let* ((id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")
          (file (vulpea-buffer-test--create-temp-file id "")))
     (with-temp-file file
-      (insert (format ":PROPERTIES:\n:ID: %s\n:ROAM_ALIASES: Alias1 Alias2 Alias3\n:END:\n#+title: Reference\n" id)))
+      (insert (format ":PROPERTIES:\n:ID: %s\n:ALIASES: Alias1 Alias2 Alias3\n:END:\n#+title: Reference\n" id)))
     (let* ((temp-db-file (make-temp-file "vulpea-buffer-test-" nil ".db"))
            (vulpea-db-location temp-db-file)
            (vulpea-db--connection nil))
@@ -254,7 +254,7 @@ Creates a temp file with ID and CONTENT, adds it to temp DB, then executes BODY.
   (let* ((id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")
          (file (vulpea-buffer-test--create-temp-file id "")))
     (with-temp-file file
-      (insert (format ":PROPERTIES:\n:ID: %s\n:ROAM_ALIASES: \"Alias With Spaces\"\n:END:\n#+title: Reference\n" id)))
+      (insert (format ":PROPERTIES:\n:ID: %s\n:ALIASES: \"Alias With Spaces\"\n:END:\n#+title: Reference\n" id)))
     (let* ((temp-db-file (make-temp-file "vulpea-buffer-test-" nil ".db"))
            (vulpea-db-location temp-db-file)
            (vulpea-db--connection nil))
@@ -287,7 +287,7 @@ Creates a temp file with ID and CONTENT, adds it to temp DB, then executes BODY.
   (let* ((id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")
          (file (vulpea-buffer-test--create-temp-file id "")))
     (with-temp-file file
-      (insert (format ":PROPERTIES:\n:ID: %s\n:ROAM_ALIASES: Alias1 Alias2\n:END:\n#+title: Reference\n" id)))
+      (insert (format ":PROPERTIES:\n:ID: %s\n:ALIASES: Alias1 Alias2\n:END:\n#+title: Reference\n" id)))
     (let* ((temp-db-file (make-temp-file "vulpea-buffer-test-" nil ".db"))
            (vulpea-db-location temp-db-file)
            (vulpea-db--connection nil))
@@ -322,7 +322,7 @@ Creates a temp file with ID and CONTENT, adds it to temp DB, then executes BODY.
   (let* ((id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")
          (file (vulpea-buffer-test--create-temp-file id "")))
     (with-temp-file file
-      (insert (format ":PROPERTIES:\n:ID: %s\n:ROAM_ALIASES: Alias1 Alias2\n:END:\n#+title: Reference\n" id)))
+      (insert (format ":PROPERTIES:\n:ID: %s\n:ALIASES: Alias1 Alias2\n:END:\n#+title: Reference\n" id)))
     (let* ((temp-db-file (make-temp-file "vulpea-buffer-test-" nil ".db"))
            (vulpea-db-location temp-db-file)
            (vulpea-db--connection nil))
@@ -347,7 +347,7 @@ Creates a temp file with ID and CONTENT, adds it to temp DB, then executes BODY.
   (let* ((id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")
          (file (vulpea-buffer-test--create-temp-file id "")))
     (with-temp-file file
-      (insert (format ":PROPERTIES:\n:ID: %s\n:ROAM_ALIASES: Alias1 Alias2 Alias3\n:END:\n#+title: Reference\n" id)))
+      (insert (format ":PROPERTIES:\n:ID: %s\n:ALIASES: Alias1 Alias2 Alias3\n:END:\n#+title: Reference\n" id)))
     (let* ((temp-db-file (make-temp-file "vulpea-buffer-test-" nil ".db"))
            (vulpea-db-location temp-db-file)
            (vulpea-db--connection nil))
@@ -372,7 +372,7 @@ Creates a temp file with ID and CONTENT, adds it to temp DB, then executes BODY.
   (let* ((id "eeec8f05-927f-4c61-b39e-2fb8228cf484")
          (file (vulpea-buffer-test--create-temp-file id "")))
     (with-temp-file file
-      (insert (format ":PROPERTIES:\n:ID: %s\n:ROAM_ALIASES: OnlyAlias\n:END:\n#+title: Test\n" id)))
+      (insert (format ":PROPERTIES:\n:ID: %s\n:ALIASES: OnlyAlias\n:END:\n#+title: Test\n" id)))
     (let* ((temp-db-file (make-temp-file "vulpea-buffer-test-" nil ".db"))
            (vulpea-db-location temp-db-file)
            (vulpea-db--connection nil))
@@ -397,7 +397,7 @@ Creates a temp file with ID and CONTENT, adds it to temp DB, then executes BODY.
   (let* ((id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")
          (file (vulpea-buffer-test--create-temp-file id "")))
     (with-temp-file file
-      (insert (format ":PROPERTIES:\n:ID: %s\n:ROAM_ALIASES: Simple \"Alias With Spaces\" Another\n:END:\n#+title: Reference\n" id)))
+      (insert (format ":PROPERTIES:\n:ID: %s\n:ALIASES: Simple \"Alias With Spaces\" Another\n:END:\n#+title: Reference\n" id)))
     (let* ((temp-db-file (make-temp-file "vulpea-buffer-test-" nil ".db"))
            (vulpea-db-location temp-db-file)
            (vulpea-db--connection nil))
@@ -432,7 +432,7 @@ Creates a temp file with ID and CONTENT, adds it to temp DB, then executes BODY.
   (let* ((id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")
          (file (vulpea-buffer-test--create-temp-file id "")))
     (with-temp-file file
-      (insert (format ":PROPERTIES:\n:ID: %s\n:ROAM_ALIASES: Old1 Old2\n:END:\n#+title: Reference\n" id)))
+      (insert (format ":PROPERTIES:\n:ID: %s\n:ALIASES: Old1 Old2\n:END:\n#+title: Reference\n" id)))
     (let* ((temp-db-file (make-temp-file "vulpea-buffer-test-" nil ".db"))
            (vulpea-db-location temp-db-file)
            (vulpea-db--connection nil))
@@ -467,7 +467,7 @@ Creates a temp file with ID and CONTENT, adds it to temp DB, then executes BODY.
   (let* ((id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")
          (file (vulpea-buffer-test--create-temp-file id "")))
     (with-temp-file file
-      (insert (format ":PROPERTIES:\n:ID: %s\n:ROAM_ALIASES: Alias1 Alias2\n:END:\n#+title: Reference\n" id)))
+      (insert (format ":PROPERTIES:\n:ID: %s\n:ALIASES: Alias1 Alias2\n:END:\n#+title: Reference\n" id)))
     (let* ((temp-db-file (make-temp-file "vulpea-buffer-test-" nil ".db"))
            (vulpea-db-location temp-db-file)
            (vulpea-db--connection nil))

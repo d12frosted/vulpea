@@ -57,11 +57,11 @@
 
 ;;; Customization
 
-(defcustom vulpea-buffer-alias-property "ROAM_ALIASES"
+(defcustom vulpea-buffer-alias-property "ALIASES"
   "Property name for note aliases.
 
-Defaults to ROAM_ALIASES for compatibility with org-roam, but can
-be changed to any property name you prefer."
+You can change this to any property name you prefer, such as
+\"ROAM_ALIASES\" for org-roam compatibility."
   :type 'string
   :group 'vulpea)
 

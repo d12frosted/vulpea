@@ -409,7 +409,7 @@
    (should (equal (vulpea-meta-test--file-content "without-meta.org")
                   ":PROPERTIES:
 :ID:                     444f94d7-61e0-4b7c-bb7e-100814c6b4bb
-:ROAM_ALIASES:           \"Alias of the note without meta\"
+:ALIASES:           \"Alias of the note without meta\"
 :END:
 #+title: Note without META
 
@@ -426,7 +426,7 @@ Just some text to make sure that meta is inserted before.
    (should (equal (vulpea-meta-test--file-content "without-meta.org")
                   ":PROPERTIES:
 :ID:                     444f94d7-61e0-4b7c-bb7e-100814c6b4bb
-:ROAM_ALIASES:           \"Alias of the note without meta\"
+:ALIASES:           \"Alias of the note without meta\"
 :END:
 #+title: Note without META
 
@@ -443,7 +443,7 @@ Just some text to make sure that meta is inserted before.
    (should (equal (vulpea-meta-test--file-content "without-meta.org")
                   ":PROPERTIES:
 :ID:                     444f94d7-61e0-4b7c-bb7e-100814c6b4bb
-:ROAM_ALIASES:           \"Alias of the note without meta\"
+:ALIASES:           \"Alias of the note without meta\"
 :END:
 #+title: Note without META
 
@@ -460,7 +460,7 @@ Just some text to make sure that meta is inserted before.
    (should (equal (vulpea-meta-test--file-content "without-meta.org")
                   ":PROPERTIES:
 :ID:                     444f94d7-61e0-4b7c-bb7e-100814c6b4bb
-:ROAM_ALIASES:           \"Alias of the note without meta\"
+:ALIASES:           \"Alias of the note without meta\"
 :END:
 #+title: Note without META
 
@@ -500,7 +500,7 @@ Some fancy description
    (should (equal (vulpea-meta-test--file-content "without-meta.org")
                   ":PROPERTIES:
 :ID:                     444f94d7-61e0-4b7c-bb7e-100814c6b4bb
-:ROAM_ALIASES:           \"Alias of the note without meta\"
+:ALIASES:           \"Alias of the note without meta\"
 :END:
 #+title: Note without META
 
@@ -524,7 +524,7 @@ Just some text to make sure that meta is inserted before.
    (should (equal (vulpea-meta-test--file-content "without-meta.org")
                   ":PROPERTIES:
 :ID:                     444f94d7-61e0-4b7c-bb7e-100814c6b4bb
-:ROAM_ALIASES:           \"Alias of the note without meta\"
+:ALIASES:           \"Alias of the note without meta\"
 :END:
 #+title: Note without META
 
@@ -548,7 +548,7 @@ Just some text to make sure that meta is inserted before.
    (should (equal (vulpea-meta-test--file-content "without-meta.org")
                   ":PROPERTIES:
 :ID:                     444f94d7-61e0-4b7c-bb7e-100814c6b4bb
-:ROAM_ALIASES:           \"Alias of the note without meta\"
+:ALIASES:           \"Alias of the note without meta\"
 :END:
 #+title: Note without META
 
@@ -621,11 +621,11 @@ Just some text to make sure that meta is inserted before.
    ;; Add extra newlines to without-meta.org
    (let ((file-path (expand-file-name "without-meta.org" vulpea-meta-test--notes-dir)))
      (with-current-buffer (find-file-noselect file-path)
-       ;; first line after the body (position 226)
-       (goto-char 226)
+       ;; first line after the body (position 221)
+       (goto-char 221)
        (insert "\n\n\n")
-       ;; first line after the header (position 167)
-       (goto-char 167)
+       ;; first line after the header (position 162)
+       (goto-char 162)
        (insert "\n\n\n\n\n")
        (save-buffer)))
    (vulpea-meta-set "444f94d7-61e0-4b7c-bb7e-100814c6b4bb"
@@ -638,7 +638,7 @@ Just some text to make sure that meta is inserted before.
    (should (equal (vulpea-meta-test--file-content "without-meta.org")
                   ":PROPERTIES:
 :ID:                     444f94d7-61e0-4b7c-bb7e-100814c6b4bb
-:ROAM_ALIASES:           \"Alias of the note without meta\"
+:ALIASES:           \"Alias of the note without meta\"
 :END:
 #+title: Note without META
 

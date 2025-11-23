@@ -113,7 +113,7 @@ If WITH-HEADINGS, add up to MAX-HEADINGS random headings."
       ;; Aliases
       (when aliases
         (princ ":PROPERTIES:\n")
-        (princ (format ":ROAM_ALIASES: %s\n"
+        (princ (format ":ALIASES: %s\n"
                        (mapconcat (lambda (a)
                                     (if (string-match-p " " a)
                                         (format "\"%s\"" a)

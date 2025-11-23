@@ -1,6 +1,6 @@
 :PROPERTIES:
 :ID:                     444f94d7-61e0-4b7c-bb7e-100814c6b4bb
-:ROAM_ALIASES:           "Alias of the note without meta"
+:ALIASES:           "Alias of the note without meta"
 :END:
 #+title: Note without META
 
