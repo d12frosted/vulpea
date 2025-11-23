@@ -438,7 +438,8 @@ compatibility).
 PROPERTIES is a list of (key_str . val_str).
 
 UNNARROWED and IMMEDIATE-FINISH are passed to `org-capture'.
-IMMEDIATE-FINISH defaults to t for programmatic use.
+IMMEDIATE-FINISH defaults to nil (allows editing). Pass t for
+programmatic note creation without user interaction.
 
 META is an alist of (key . value) or (key . (list of values)).
 
@@ -455,7 +456,7 @@ See Info node `(org) Template elements' for BODY template syntax."
          (template `("v" "vulpea-note" plain
                      (file ,file-path)
                      ,full-template
-                     :immediate-finish ,(if (null immediate-finish) t immediate-finish)
+                     :immediate-finish ,immediate-finish
                      :unnarrowed ,unnarrowed
                      :empty-lines 1))
          (org-capture-templates (list template)))
