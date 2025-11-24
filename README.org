@@ -270,6 +270,37 @@ If =vulpea-default-notes-directory= points outside
 =vulpea-db-sync-directories=, new notes won't be indexed until you add the
 missing directory to =vulpea-db-sync-directories= and run a full sync.
 
+*** Default Note Templates
+
+Configure default parameters for note creation to avoid repeating the same settings:
+
+#+begin_src emacs-lisp
+;; Static template (simple configuration)
+(setq vulpea-create-default-template
+      '(:tags ("inbox" "fleeting")
+        :head "#+created: %<[%Y-%m-%d]>\n#+source: %(buffer-name)"
+        :properties (("CREATED" . "%<[%Y-%m-%d]>")
+                     ("AUTHOR" . "%(user-full-name)"))))
+
+;; Dynamic function (context-aware defaults)
+(setq vulpea-create-default-function
+      (lambda (title)
+        (list :tags (if (string-match-p "TODO" title)
+                        '("task" "inbox")
+                      '("fleeting"))
+              :head (format "#+created: %s"
+                            (format-time-string "[%Y-%m-%d]"))
+              :context (list :source (buffer-name)))))
+#+end_src
+
+These defaults apply to all note creation flows (=vulpea-create=, =vulpea-find=, =vulpea-insert=).
+Explicitly passed parameters always override defaults.
+
+Template expansion in defaults supports:
+- =${var}= - Variable substitution (title, slug, timestamp, id, custom)
+- =%(elisp)= - Elisp evaluation (e.g., =%(user-full-name)=)
+- =%<format>= - Timestamp formatting (e.g., =%<[%Y-%m-%d]>=)
+
 ** Key Features
 
 *** 🚀 Async-First Architecture
@@ -324,16 +355,31 @@ missing directory to =vulpea-db-sync-directories= and run a full sync.
 
 #+begin_src emacs-lisp
 ;; Create a new note programmatically
-(vulpea-create "My New Note"
-               :tags '("project" "work")
-               :properties '(("STATUS" . "active"))
-               :immediate-finish t)
+(vulpea-create "My New Note")
 
-;; Create with metadata
+;; With explicit parameters (override defaults)
+(vulpea-create "Project Note"
+               nil  ; file-name (nil = use template)
+               :tags '("project" "work")
+               :properties '(("STATUS" . "active")))
+
+;; With template expansion
+(vulpea-create "Meeting Notes"
+               nil
+               :head "#+date: %<[%Y-%m-%d]>\n#+attendees: %(user-full-name)"
+               :body "## Agenda\n\n## Notes\n\n"
+               :context '(:project "MyProject"))
+
+;; With metadata
 (vulpea-create "Wine Review"
+               nil
                :meta '(("country" . "France")
                        ("rating" . "95")))
 #+end_src
+
+Note: If you've configured =vulpea-create-default-template= or
+=vulpea-create-default-function=, those defaults will be applied automatically.
+Explicit parameters always override defaults.
 
 **** Visiting Notes
 

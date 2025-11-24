@@ -48,6 +48,7 @@
 (require 'vulpea-select)
 (require 'vulpea-utils)
 (require 's)
+
 ;;; Customization
 
 (defgroup vulpea nil
@@ -78,10 +79,61 @@ Can be a string template or a function that accepts title and returns file name.
           (function :tag "Function"))
   :group 'vulpea)
 
+(defcustom vulpea-create-default-function nil
+  "Function to compute default parameters for note creation.
+Called with (title) and should return a plist of default parameters.
+When nil, uses `vulpea-create-default-template' instead.
+
+The function allows dynamic parameter computation based on context:
+
+  (setq vulpea-create-default-function
+        (lambda (title)
+          (list :tags (if (string-match-p \"TODO\" title)
+                          \\='(\"task\" \"inbox\")
+                        \\='(\"note\" \"inbox\"))
+                :head (format \"#+created: %s\"
+                              (format-time-string \"[%Y-%m-%d]\"))
+                :properties (list (cons \"SOURCE\"
+                                        (buffer-name))))))
+
+Parameters explicitly passed to `vulpea-create' override these defaults."
+  :type '(choice (const :tag "Use template instead" nil)
+                 (function :tag "Function returning plist"))
+  :group 'vulpea)
+
+(defcustom vulpea-create-default-template nil
+  "Default template (plist) for note creation.
+Only used when `vulpea-create-default-function' is nil.
+Parameters explicitly passed to `vulpea-create' override these defaults.
+
+Supports all template expansion features:
+  ${var}     - Variable substitution
+  %(elisp)   - Elisp evaluation
+  %<format>  - Timestamp formatting
+
+Example configuration:
+
+  (setq vulpea-create-default-template
+        \\='(:file-name \"${slug}.org\"
+          :tags (\"fleeting\")
+          :head \"#+created: %<[%Y-%m-%d]>\"
+          :properties ((\"CREATED\" . \"%<[%Y-%m-%d]>\")
+                       (\"AUTHOR\" . \"%(user-full-name)\"))
+          :context (:source \"%(buffer-name)\")))
+
+Available parameters:
+  :file-name   - File name template (relative to default directory)
+  :tags        - List of tag strings
+  :head        - Header content after #+filetags
+  :body        - Note body content
+  :properties  - Alist of (key . value) for property drawer
+  :meta        - Alist of (key . value) for metadata
+  :context     - Plist of custom template variables"
+  :type '(choice (const :tag "No default template" nil)
+                 (plist :tag "Template plist"))
+  :group 'vulpea)
+
 ;;; Variables
-
-
-
 
 (defvar vulpea-db-sync-directories)  ; Defined in vulpea-db
 (defvar vulpea-find-default-filter nil
@@ -480,7 +532,22 @@ PROPERTIES values, and META values:
   %<format>  - Timestamp formatting (e.g., %<[%Y-%m-%d]>)
 
 Note: Does not support %a or %i from org-capture."
-  (let* ((id (or id (org-id-new)))
+  ;; Get defaults from function or template
+  (let* ((defaults (cond
+                    (vulpea-create-default-function
+                     (funcall vulpea-create-default-function title))
+                    (vulpea-create-default-template
+                     vulpea-create-default-template)
+                    (t nil)))
+         ;; Merge explicit parameters with defaults (explicit takes precedence)
+         (id (or id (org-id-new)))
+         (file-name (or file-name (plist-get defaults :file-name)))
+         (head (or head (plist-get defaults :head)))
+         (body (or body (plist-get defaults :body)))
+         (tags (or tags (plist-get defaults :tags)))
+         (properties (or properties (plist-get defaults :properties)))
+         (meta (or meta (plist-get defaults :meta)))
+         (context (or context (plist-get defaults :context)))
          (file-path (vulpea--expand-file-name-template title id file-name context))
          ;; Expand templates everywhere with context
          (expanded-head (when head

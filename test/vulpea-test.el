@@ -685,5 +685,128 @@ Uses Unicode normalization to preserve base characters from accented letters."
       (when (file-directory-p vulpea-default-notes-directory)
         (delete-directory vulpea-default-notes-directory t)))))
 
+(ert-deftest vulpea-create-with-default-template ()
+  "Test vulpea-create with default template."
+  (let* ((vulpea-default-notes-directory (make-temp-file "vulpea-test-" t))
+         (vulpea-file-name-template "${slug}.org")
+         (vulpea-create-default-template
+          '(:tags ("inbox" "fleeting")
+            :head "#+created: %<[%Y-%m-%d]>"
+            :properties (("CREATED" . "%<[%Y-%m-%d]>")
+                         ("AUTHOR" . "%(user-login-name)"))))
+         (title "Test Default Template")
+         note created-file)
+    (unwind-protect
+        (progn
+          ;; Create note without any parameters - should use defaults
+          (setq note (vulpea-create title))
+          (should note)
+          (should (vulpea-note-id note))
+
+          ;; Verify file was created
+          (setq created-file (vulpea-note-path note))
+          (should (file-exists-p created-file))
+
+          ;; Verify defaults were applied
+          (with-temp-buffer
+            (insert-file-contents created-file)
+            (let ((content (buffer-string)))
+              ;; Check tags from template
+              (should (string-match-p ":inbox:fleeting:" content))
+              ;; Check head expansion
+              (should (string-match-p "\\+created: \\[20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]\\]" content))
+              ;; Check properties expansion
+              (should (string-match-p ":CREATED:.*\\[20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]\\]" content))
+              (should (string-match-p (format ":AUTHOR:.*%s" (user-login-name)) content)))))
+      ;; Cleanup
+      (when (and created-file (file-exists-p created-file))
+        (when (get-file-buffer created-file)
+          (kill-buffer (get-file-buffer created-file)))
+        (delete-file created-file))
+      (when (file-directory-p vulpea-default-notes-directory)
+        (delete-directory vulpea-default-notes-directory t)))))
+
+(ert-deftest vulpea-create-with-default-function ()
+  "Test vulpea-create with default function."
+  (let* ((vulpea-default-notes-directory (make-temp-file "vulpea-test-" t))
+         (vulpea-file-name-template "${slug}.org")
+         (vulpea-create-default-function
+          (lambda (title)
+            (list :tags (if (string-match-p "TODO" title)
+                            '("task" "inbox")
+                          '("note"))
+                  :head (format "#+created: %s" (format-time-string "[%Y-%m-%d]")))))
+         note1 note2 created-file1 created-file2)
+    (unwind-protect
+        (progn
+          ;; Create note with TODO in title
+          (setq note1 (vulpea-create "TODO Fix bug"))
+          (should note1)
+          (setq created-file1 (vulpea-note-path note1))
+          (should (file-exists-p created-file1))
+
+          ;; Verify task tags applied
+          (with-temp-buffer
+            (insert-file-contents created-file1)
+            (should (string-match-p ":task:inbox:" (buffer-string))))
+
+          ;; Create note without TODO
+          (setq note2 (vulpea-create "Regular Note"))
+          (should note2)
+          (setq created-file2 (vulpea-note-path note2))
+          (should (file-exists-p created-file2))
+
+          ;; Verify note tag applied
+          (with-temp-buffer
+            (insert-file-contents created-file2)
+            (should (string-match-p ":note:" (buffer-string)))
+            (should-not (string-match-p ":task:" (buffer-string)))))
+      ;; Cleanup
+      (dolist (file (list created-file1 created-file2))
+        (when (and file (file-exists-p file))
+          (when (get-file-buffer file)
+            (kill-buffer (get-file-buffer file)))
+          (delete-file file)))
+      (when (file-directory-p vulpea-default-notes-directory)
+        (delete-directory vulpea-default-notes-directory t)))))
+
+(ert-deftest vulpea-create-explicit-overrides-defaults ()
+  "Test that explicit parameters override defaults."
+  (let* ((vulpea-default-notes-directory (make-temp-file "vulpea-test-" t))
+         (vulpea-file-name-template "${slug}.org")
+         (vulpea-create-default-template
+          '(:tags ("default-tag")
+            :head "#+default: value"))
+         (title "Test Override")
+         note created-file)
+    (unwind-protect
+        (progn
+          ;; Create note with explicit parameters that override defaults
+          (setq note (vulpea-create title
+                                    nil
+                                    :tags '("custom-tag")
+                                    :head "#+custom: override"))
+          (should note)
+          (setq created-file (vulpea-note-path note))
+          (should (file-exists-p created-file))
+
+          ;; Verify explicit parameters took precedence
+          (with-temp-buffer
+            (insert-file-contents created-file)
+            (let ((content (buffer-string)))
+              ;; Should have custom tag, not default
+              (should (string-match-p ":custom-tag:" content))
+              (should-not (string-match-p ":default-tag:" content))
+              ;; Should have custom head, not default
+              (should (string-match-p "\\+custom: override" content))
+              (should-not (string-match-p "\\+default: value" content)))))
+      ;; Cleanup
+      (when (and created-file (file-exists-p created-file))
+        (when (get-file-buffer created-file)
+          (kill-buffer (get-file-buffer created-file)))
+        (delete-file created-file))
+      (when (file-directory-p vulpea-default-notes-directory)
+        (delete-directory vulpea-default-notes-directory t)))))
+
 (provide 'vulpea-test)
 ;;; vulpea-test.el ends here
