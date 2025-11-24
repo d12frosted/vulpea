@@ -280,9 +280,8 @@ Uses Unicode normalization to preserve base characters from accented letters."
 
 (ert-deftest vulpea--expand-file-name-template-default ()
   "Test file name template expansion with default template."
-  (let* ((vulpea-file-name-template "${slug}.org")
-         (vulpea-default-notes-directory (make-temp-file "vulpea-test-" t))
-         (result (vulpea--expand-file-name-template "Test Note")))
+  (let* ((vulpea-default-notes-directory (make-temp-file "vulpea-test-" t))
+         (result (vulpea--expand-file-name-template "Test Note" nil "${slug}.org")))
     (unwind-protect
         (progn
           (should (string-match-p "/test_note\\.org$" result))
@@ -293,9 +292,8 @@ Uses Unicode normalization to preserve base characters from accented letters."
 
 (ert-deftest vulpea--expand-file-name-template-with-timestamp ()
   "Test file name template with timestamp."
-  (let* ((vulpea-file-name-template "${timestamp}_${slug}.org")
-         (vulpea-default-notes-directory (make-temp-file "vulpea-test-" t))
-         (result (vulpea--expand-file-name-template "My Note")))
+  (let* ((vulpea-default-notes-directory (make-temp-file "vulpea-test-" t))
+         (result (vulpea--expand-file-name-template "My Note" nil "${timestamp}_${slug}.org")))
     (unwind-protect
         (progn
           (should (string-match-p "/[0-9]\\{14\\}_my_note\\.org$" result))
@@ -305,10 +303,9 @@ Uses Unicode normalization to preserve base characters from accented letters."
 
 (ert-deftest vulpea--expand-file-name-template-with-id ()
   "Test file name template with custom ID."
-  (let* ((vulpea-file-name-template "${id}.org")
-         (vulpea-default-notes-directory (make-temp-file "vulpea-test-" t))
+  (let* ((vulpea-default-notes-directory (make-temp-file "vulpea-test-" t))
          (custom-id "custom-test-id")
-         (result (vulpea--expand-file-name-template "Test" custom-id)))
+         (result (vulpea--expand-file-name-template "Test" custom-id "${id}.org")))
     (unwind-protect
         (progn
           (should (string-suffix-p "/custom-test-id.org" result))
@@ -318,10 +315,11 @@ Uses Unicode normalization to preserve base characters from accented letters."
 
 (ert-deftest vulpea--expand-file-name-template-function ()
   "Test file name template as function."
-  (let* ((vulpea-file-name-template
-          (lambda (title) (concat "prefix-" (downcase title) ".org")))
-         (vulpea-default-notes-directory (make-temp-file "vulpea-test-" t))
-         (result (vulpea--expand-file-name-template "TestNote")))
+  (let* ((vulpea-default-notes-directory (make-temp-file "vulpea-test-" t))
+         (result (vulpea--expand-file-name-template
+                  "TestNote"
+                  nil
+                  (lambda (title) (concat "prefix-" (downcase title) ".org")))))
     (unwind-protect
         (should (string-suffix-p "/prefix-testnote.org" result))
       (when (file-directory-p vulpea-default-notes-directory)
@@ -363,7 +361,7 @@ Uses Unicode normalization to preserve base characters from accented letters."
   (vulpea-test--with-temp-db
     (vulpea-db)
     (let* ((vulpea-default-notes-directory (make-temp-file "vulpea-test-" t))
-           (vulpea-file-name-template "${slug}.org")
+           (vulpea-create-default-template '(:file-name "${slug}.org"))
            (title "Test Note Creation")
            note created-file)
       (unwind-protect
@@ -427,7 +425,7 @@ Uses Unicode normalization to preserve base characters from accented letters."
   (vulpea-test--with-temp-db
     (vulpea-db)
     (let* ((vulpea-default-notes-directory (make-temp-file "vulpea-test-" t))
-           (vulpea-file-name-template "${slug}.org")
+           (vulpea-create-default-template '(:file-name "${slug}.org"))
            (title "Tagged Note")
            (tags '("project" "important"))
            note created-file)
@@ -458,7 +456,7 @@ Uses Unicode normalization to preserve base characters from accented letters."
   (vulpea-test--with-temp-db
     (vulpea-db)
     (let* ((vulpea-default-notes-directory (make-temp-file "vulpea-test-" t))
-           (vulpea-file-name-template "${slug}.org")
+           (vulpea-create-default-template '(:file-name "${slug}.org"))
            (title "Note with Props")
            (props '(("CATEGORY" . "work") ("PRIORITY" . "A")))
            note created-file)
@@ -485,7 +483,7 @@ Uses Unicode normalization to preserve base characters from accented letters."
   (vulpea-test--with-temp-db
     (vulpea-db)
     (let* ((vulpea-default-notes-directory (make-temp-file "vulpea-test-" t))
-           (vulpea-file-name-template "${slug}.org")
+           (vulpea-create-default-template '(:file-name "${slug}.org"))
            (title "Note with Body")
            (body "* Section 1\nContent here\n\n* Section 2\nMore content")
            note created-file)
@@ -512,7 +510,7 @@ Uses Unicode normalization to preserve base characters from accented letters."
   (vulpea-test--with-temp-db
     (vulpea-db)
     (let* ((vulpea-default-notes-directory (make-temp-file "vulpea-test-" t))
-           (vulpea-file-name-template "${slug}.org")
+           (vulpea-create-default-template '(:file-name "${slug}.org"))
            (title "Note with Custom ID")
            (custom-id "CUSTOM-ID-12345")
            note created-file)
@@ -549,7 +547,7 @@ Uses Unicode normalization to preserve base characters from accented letters."
   (vulpea-test--with-temp-db
     (vulpea-db)
     (let* ((vulpea-default-notes-directory (make-temp-file "vulpea-test-" t))
-           (vulpea-file-name-template "${slug}.org")
+           (vulpea-create-default-template '(:file-name "${slug}.org"))
            (title "Immediately Usable Note")
            note created-file)
       (unwind-protect
@@ -582,7 +580,7 @@ Uses Unicode normalization to preserve base characters from accented letters."
 (ert-deftest vulpea-create-with-context ()
   "Test vulpea-create with context for template expansion."
   (let* ((vulpea-default-notes-directory (make-temp-file "vulpea-test-" t))
-         (vulpea-file-name-template "${slug}.org")
+         (vulpea-create-default-template '(:file-name "${slug}.org"))
          (title "Test Context")
          (url "https://example.org")
          (author "John Doe")
@@ -627,7 +625,7 @@ Uses Unicode normalization to preserve base characters from accented letters."
 (ert-deftest vulpea-create-template-expansion-everywhere ()
   "Test template expansion in all fields: tags, properties, meta, head, body."
   (let* ((vulpea-default-notes-directory (make-temp-file "vulpea-test-" t))
-         (vulpea-file-name-template "${slug}.org")
+         (vulpea-create-default-template '(:file-name "${slug}.org"))
          (title "Template Test")
          (test-value "TestValue")
          note created-file)
@@ -688,7 +686,7 @@ Uses Unicode normalization to preserve base characters from accented letters."
 (ert-deftest vulpea-create-with-default-template ()
   "Test vulpea-create with default template."
   (let* ((vulpea-default-notes-directory (make-temp-file "vulpea-test-" t))
-         (vulpea-file-name-template "${slug}.org")
+         (vulpea-create-default-template '(:file-name "${slug}.org"))
          (vulpea-create-default-template
           '(:tags ("inbox" "fleeting")
             :head "#+created: %<[%Y-%m-%d]>"
@@ -729,7 +727,7 @@ Uses Unicode normalization to preserve base characters from accented letters."
 (ert-deftest vulpea-create-with-default-function ()
   "Test vulpea-create with default function."
   (let* ((vulpea-default-notes-directory (make-temp-file "vulpea-test-" t))
-         (vulpea-file-name-template "${slug}.org")
+         (vulpea-create-default-template '(:file-name "${slug}.org"))
          (vulpea-create-default-function
           (lambda (title)
             (list :tags (if (string-match-p "TODO" title)
@@ -773,7 +771,7 @@ Uses Unicode normalization to preserve base characters from accented letters."
 (ert-deftest vulpea-create-explicit-overrides-defaults ()
   "Test that explicit parameters override defaults."
   (let* ((vulpea-default-notes-directory (make-temp-file "vulpea-test-" t))
-         (vulpea-file-name-template "${slug}.org")
+         (vulpea-create-default-template '(:file-name "${slug}.org"))
          (vulpea-create-default-template
           '(:tags ("default-tag")
             :head "#+default: value"))

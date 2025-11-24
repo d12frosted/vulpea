@@ -66,19 +66,6 @@ without specifying an explicit file path."
   :type 'directory
   :group 'vulpea)
 
-(defcustom vulpea-file-name-template "${timestamp}_${slug}.org"
-  "Template for generating file names for new notes.
-Available variables:
-  ${title}     - Note title
-  ${slug}      - URL-friendly version of title
-  ${timestamp} - Current timestamp (format: %Y%m%d%H%M%S)
-  ${id}        - Note ID (UUID)
-
-Can be a string template or a function that accepts title and returns file name."
-  :type '(choice (string :tag "Template string")
-          (function :tag "Function"))
-  :group 'vulpea)
-
 (defcustom vulpea-create-default-function nil
   "Function to compute default parameters for note creation.
 Called with (title) and should return a plist of default parameters.
@@ -101,7 +88,8 @@ Parameters explicitly passed to `vulpea-create' override these defaults."
                  (function :tag "Function returning plist"))
   :group 'vulpea)
 
-(defcustom vulpea-create-default-template nil
+(defcustom vulpea-create-default-template
+  '(:file-name "${timestamp}_${slug}.org")
   "Default template (plist) for note creation.
 Only used when `vulpea-create-default-function' is nil.
 Parameters explicitly passed to `vulpea-create' override these defaults.
@@ -111,10 +99,13 @@ Supports all template expansion features:
   %(elisp)   - Elisp evaluation
   %<format>  - Timestamp formatting
 
-Example configuration:
+Default configuration:
+  \\='(:file-name \"${timestamp}_${slug}.org\")
+
+Example customization:
 
   (setq vulpea-create-default-template
-        \\='(:file-name \"${slug}.org\"
+        \\='(:file-name \"inbox/${slug}.org\"
           :tags (\"fleeting\")
           :head \"#+created: %<[%Y-%m-%d]>\"
           :properties ((\"CREATED\" . \"%<[%Y-%m-%d]>\")
@@ -123,14 +114,20 @@ Example configuration:
 
 Available parameters:
   :file-name   - File name template (relative to default directory)
+                 Can also be a function: (lambda (title) ...)
   :tags        - List of tag strings
   :head        - Header content after #+filetags
   :body        - Note body content
   :properties  - Alist of (key . value) for property drawer
   :meta        - Alist of (key . value) for metadata
-  :context     - Plist of custom template variables"
-  :type '(choice (const :tag "No default template" nil)
-                 (plist :tag "Template plist"))
+  :context     - Plist of custom template variables
+
+Template variables for :file-name:
+  ${title}     - Note title
+  ${slug}      - URL-friendly version of title
+  ${timestamp} - Current timestamp (%Y%m%d%H%M%S)
+  ${id}        - Note ID (UUID)"
+  :type 'plist
   :group 'vulpea)
 
 ;;; Variables
@@ -240,14 +237,16 @@ from org-capture as they don't make sense for programmatic creation."
 
 (defun vulpea--expand-file-name-template (title &optional id template context)
   "Expand file name template with TITLE, ID, TEMPLATE, and CONTEXT.
-If TEMPLATE is nil, uses `vulpea-file-name-template'.
+If TEMPLATE is nil, uses `:file-name' from `vulpea-create-default-template'.
 CONTEXT is a plist of additional template variables.
 Returns absolute file path."
   (let* ((template (or template
-                       (if (functionp vulpea-file-name-template)
-                           (funcall vulpea-file-name-template title)
-                         vulpea-file-name-template)))
-         (file-name (vulpea--expand-template template title id context))
+                       (plist-get vulpea-create-default-template :file-name)
+                       "${slug}.org"))  ; Absolute fallback
+         (template-resolved (if (functionp template)
+                                (funcall template title)
+                              template))
+         (file-name (vulpea--expand-template template-resolved title id context))
          (dir (vulpea--default-directory)))
     (expand-file-name file-name dir)))
 
@@ -495,8 +494,8 @@ This function is designed for programmatic note creation with
 immediate finalization. For interactive note capture with user
 editing, use `org-capture' with vulpea-compatible templates.
 
-FILE-NAME is optional. When nil, uses `vulpea-file-name-template'
-to generate the file name.
+FILE-NAME is optional. When nil, uses `:file-name' from
+`vulpea-create-default-template' to generate the file name.
 
 Returns the created `vulpea-note' object.
 

@@ -248,28 +248,6 @@ Install =fswatch= for the most reliable external change detection (see Dependenc
 (setq vulpea-db-sync-scan-on-enable 'blocking)
 #+end_src
 
-*** File Name Templates
-
-#+begin_src emacs-lisp
-;; Template for new note filenames
-(setq vulpea-file-name-template "${timestamp}_${slug}.org")
-
-;; Available variables: ${title}, ${slug}, ${timestamp}, ${id}
-;; Can also be a function:
-(setq vulpea-file-name-template
-      (lambda (title)
-        (format "%s_%s.org"
-                (format-time-string "%Y%m%d%H%M%S")
-                (vulpea-title-to-slug title))))
-
-;; Default directory for new notes (should be part of sync dirs)
-(setq vulpea-default-notes-directory "~/org/")
-#+end_src
-
-If =vulpea-default-notes-directory= points outside
-=vulpea-db-sync-directories=, new notes won't be indexed until you add the
-missing directory to =vulpea-db-sync-directories= and run a full sync.
-
 *** Default Note Templates
 
 Configure default parameters for note creation to avoid repeating the same settings:
@@ -277,7 +255,8 @@ Configure default parameters for note creation to avoid repeating the same setti
 #+begin_src emacs-lisp
 ;; Static template (simple configuration)
 (setq vulpea-create-default-template
-      '(:tags ("inbox" "fleeting")
+      '(:file-name "${timestamp}_${slug}.org"
+        :tags ("inbox" "fleeting")
         :head "#+created: %<[%Y-%m-%d]>\n#+source: %(buffer-name)"
         :properties (("CREATED" . "%<[%Y-%m-%d]>")
                      ("AUTHOR" . "%(user-full-name)"))))
@@ -285,12 +264,18 @@ Configure default parameters for note creation to avoid repeating the same setti
 ;; Dynamic function (context-aware defaults)
 (setq vulpea-create-default-function
       (lambda (title)
-        (list :tags (if (string-match-p "TODO" title)
+        (list :file-name (format "%s_%s.org"
+                                 (format-time-string "%Y%m%d%H%M%S")
+                                 (vulpea-title-to-slug title))
+              :tags (if (string-match-p "TODO" title)
                         '("task" "inbox")
                       '("fleeting"))
               :head (format "#+created: %s"
                             (format-time-string "[%Y-%m-%d]"))
               :context (list :source (buffer-name)))))
+
+;; Default directory for new notes (should be part of sync dirs)
+(setq vulpea-default-notes-directory "~/org/")
 #+end_src
 
 These defaults apply to all note creation flows (=vulpea-create=, =vulpea-find=, =vulpea-insert=).
@@ -300,6 +285,20 @@ Template expansion in defaults supports:
 - =${var}= - Variable substitution (title, slug, timestamp, id, custom)
 - =%(elisp)= - Elisp evaluation (e.g., =%(user-full-name)=)
 - =%<format>= - Timestamp formatting (e.g., =%<[%Y-%m-%d]>=)
+
+Available template parameters:
+- =:file-name= - File name template (relative to default directory)
+                 Can also be a function: =(lambda (title) ...)=
+- =:tags= - List of tag strings
+- =:head= - Header content after #+filetags
+- =:body= - Note body content
+- =:properties= - Alist of (key . value) for property drawer
+- =:meta= - Alist of (key . value) for metadata
+- =:context= - Plist of custom template variables
+
+If =vulpea-default-notes-directory= points outside
+=vulpea-db-sync-directories=, new notes won't be indexed until you add the
+missing directory to =vulpea-db-sync-directories= and run a full sync
 
 ** Key Features
 
