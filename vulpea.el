@@ -134,28 +134,42 @@ Resolution order:
       (car vulpea-db-sync-directories)
       org-directory))
 
-(defun vulpea--expand-template (template title &optional id)
-  "Expand TEMPLATE with TITLE and optional ID.
+(defun vulpea--expand-template (template title &optional id context)
+  "Expand TEMPLATE with TITLE, optional ID, and CONTEXT.
 TEMPLATE is a string with ${...} placeholders.
-Returns expanded string with placeholders replaced."
+CONTEXT is a plist of additional variables (e.g., :url \"...\").
+Returns expanded string with placeholders replaced.
+
+Built-in variables: ${title}, ${slug}, ${timestamp}, ${id}
+Context variables: ${key} for each :key in CONTEXT."
   (let* ((slug (vulpea-title-to-slug title))
          (timestamp (format-time-string "%Y%m%d%H%M%S"))
-         (id (or id (org-id-new))))
-    (thread-last template
-                 (s-replace "${title}" title)
-                 (s-replace "${slug}" slug)
-                 (s-replace "${timestamp}" timestamp)
-                 (s-replace "${id}" id))))
+         (id (or id (org-id-new)))
+         (result (thread-last template
+                              (s-replace "${title}" title)
+                              (s-replace "${slug}" slug)
+                              (s-replace "${timestamp}" timestamp)
+                              (s-replace "${id}" id))))
+    ;; Expand context variables
+    (when context
+      (let ((ctx context))
+        (while ctx
+          (let* ((key (pop ctx))
+                 (val (pop ctx))
+                 (placeholder (format "${%s}" (substring (symbol-name key) 1))))
+            (setq result (s-replace placeholder (format "%s" val) result))))))
+    result))
 
-(defun vulpea--expand-file-name-template (title &optional id template)
-  "Expand file name template with TITLE and optional ID and TEMPLATE.
+(defun vulpea--expand-file-name-template (title &optional id template context)
+  "Expand file name template with TITLE, ID, TEMPLATE, and CONTEXT.
 If TEMPLATE is nil, uses `vulpea-file-name-template'.
+CONTEXT is a plist of additional template variables.
 Returns absolute file path."
   (let* ((template (or template
                        (if (functionp vulpea-file-name-template)
                            (funcall vulpea-file-name-template title)
                          vulpea-file-name-template)))
-         (file-name (vulpea--expand-template template title id))
+         (file-name (vulpea--expand-template template title id context))
          (dir (vulpea--default-directory)))
     (expand-file-name file-name dir)))
 
@@ -396,7 +410,7 @@ used."
                          head
                          meta
                          body
-                         _context  ; Reserved for future use
+                         context
                          properties
                          tags
                          _capture-properties)  ; Reserved for future use
@@ -432,15 +446,23 @@ Optional parameters:
 - PROPERTIES: Alist of (key_str . val_str) for property drawer
 - META: Alist of (key . value) or (key . (list of values))
 - TAGS: List of tag strings
-- BODY: Note body content (plain text or org-mode template)
-- HEAD: Additional header content after #+filetags
-- CONTEXT: Reserved for future use
+- BODY: Note body content (supports ${var} template expansion)
+- HEAD: Additional header content (supports ${var} template expansion)
+- CONTEXT: Plist of template variables (e.g., :url \"...\")
+  - Built-in variables: ${title}, ${slug}, ${timestamp}, ${id}
+  - Custom variables: ${key} for each :key in CONTEXT
+  - Expansion applies to FILE-NAME, HEAD, and BODY
 - CAPTURE-PROPERTIES: Reserved for future use"
   (let* ((id (or id (org-id-new)))
-         (file-path (vulpea--expand-file-name-template title id file-name))
-         (content (vulpea--format-note-content id title head meta tags properties))
-         (full-content (if body
-                           (concat content "\n\n" body)
+         (file-path (vulpea--expand-file-name-template title id file-name context))
+         ;; Expand templates in head and body with context
+         (expanded-head (when head
+                          (vulpea--expand-template head title id context)))
+         (expanded-body (when body
+                          (vulpea--expand-template body title id context)))
+         (content (vulpea--format-note-content id title expanded-head meta tags properties))
+         (full-content (if expanded-body
+                           (concat content "\n\n" expanded-body)
                          content))
          (dir (file-name-directory file-path)))
 

@@ -579,5 +579,50 @@ Uses Unicode normalization to preserve base characters from accented letters."
         (when (file-directory-p vulpea-default-notes-directory)
           (delete-directory vulpea-default-notes-directory t))))))
 
+(ert-deftest vulpea-create-with-context ()
+  "Test vulpea-create with context for template expansion."
+  (let* ((vulpea-default-notes-directory (make-temp-file "vulpea-test-" t))
+         (vulpea-file-name-template "${slug}.org")
+         (title "Test Context")
+         (url "https://example.org")
+         (author "John Doe")
+         note created-file)
+    (unwind-protect
+        (progn
+          ;; Create note with context variables
+          (setq note (vulpea-create
+                      title
+                      nil
+                      :head "#+url: ${url}\n#+author: ${author}"
+                      :body "Link: ${url}\nBy: ${author}"
+                      :context (list :url url :author author)))
+          (should note)
+          (should (vulpea-note-id note))
+          (should (equal (vulpea-note-title note) title))
+
+          ;; Verify file was created
+          (setq created-file (vulpea-note-path note))
+          (should (file-exists-p created-file))
+
+          ;; Verify content has expanded templates
+          (with-temp-buffer
+            (insert-file-contents created-file)
+            (let ((content (buffer-string)))
+              ;; Check that context variables were expanded
+              (should (string-match-p "\\+url: https://example.org" content))
+              (should (string-match-p "\\+author: John Doe" content))
+              (should (string-match-p "Link: https://example.org" content))
+              (should (string-match-p "By: John Doe" content))
+              ;; Check that template variables are NOT present
+              (should-not (string-match-p "\\${url}" content))
+              (should-not (string-match-p "\\${author}" content)))))
+      ;; Cleanup
+      (when (and created-file (file-exists-p created-file))
+        (when (get-file-buffer created-file)
+          (kill-buffer (get-file-buffer created-file)))
+        (delete-file created-file))
+      (when (file-directory-p vulpea-default-notes-directory)
+        (delete-directory vulpea-default-notes-directory t)))))
+
 (provide 'vulpea-test)
 ;;; vulpea-test.el ends here
