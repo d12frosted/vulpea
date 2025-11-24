@@ -412,8 +412,7 @@ used."
                          body
                          context
                          properties
-                         tags
-                         _capture-properties)  ; Reserved for future use
+                         tags)
   "Create a new note file with TITLE programmatically.
 
 This function is designed for programmatic note creation with
@@ -451,8 +450,7 @@ Optional parameters:
 - CONTEXT: Plist of template variables (e.g., :url \"...\")
   - Built-in variables: ${title}, ${slug}, ${timestamp}, ${id}
   - Custom variables: ${key} for each :key in CONTEXT
-  - Expansion applies to FILE-NAME, HEAD, and BODY
-- CAPTURE-PROPERTIES: Reserved for future use"
+  - Expansion applies to FILE-NAME, HEAD, and BODY"
   (let* ((id (or id (org-id-new)))
          (file-path (vulpea--expand-file-name-template title id file-name context))
          ;; Expand templates in head and body with context
