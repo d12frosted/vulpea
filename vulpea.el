@@ -136,20 +136,31 @@ Resolution order:
 
 (defun vulpea--expand-template (template title &optional id context)
   "Expand TEMPLATE with TITLE, optional ID, and CONTEXT.
-TEMPLATE is a string with ${...} placeholders.
+TEMPLATE is a string with placeholders:
+  ${var}     - Variable substitution
+  %(elisp)   - Elisp evaluation
+  %<format>  - Timestamp formatting
+
 CONTEXT is a plist of additional variables (e.g., :url \"...\").
 Returns expanded string with placeholders replaced.
 
 Built-in variables: ${title}, ${slug}, ${timestamp}, ${id}
-Context variables: ${key} for each :key in CONTEXT."
+Context variables: ${key} for each :key in CONTEXT.
+
+Note: Does not support %a (annotation) or %i (initial content)
+from org-capture as they don't make sense for programmatic creation."
   (let* ((slug (vulpea-title-to-slug title))
          (timestamp (format-time-string "%Y%m%d%H%M%S"))
          (id (or id (org-id-new)))
-         (result (thread-last template
+         (result template))
+
+    ;; Expand ${var} placeholders
+    (setq result (thread-last result
                               (s-replace "${title}" title)
                               (s-replace "${slug}" slug)
                               (s-replace "${timestamp}" timestamp)
-                              (s-replace "${id}" id))))
+                              (s-replace "${id}" id)))
+
     ;; Expand context variables
     (when context
       (let ((ctx context))
@@ -158,6 +169,21 @@ Context variables: ${key} for each :key in CONTEXT."
                  (val (pop ctx))
                  (placeholder (format "${%s}" (substring (symbol-name key) 1))))
             (setq result (s-replace placeholder (format "%s" val) result))))))
+
+    ;; Expand %(elisp) - evaluate elisp expressions
+    (while (string-match "%\\((.+?)\\)" result)
+      (let* ((expr (match-string 1 result))
+             (value (condition-case err
+                        (eval (car (read-from-string expr)))
+                      (error (format "ERROR: %S" err)))))
+        (setq result (replace-match (format "%s" value) t t result))))
+
+    ;; Expand %<format> - format timestamps
+    (while (string-match "%<\\(.+?\\)>" result)
+      (let* ((format-str (match-string 1 result))
+             (value (format-time-string format-str)))
+        (setq result (replace-match value t t result))))
+
     result))
 
 (defun vulpea--expand-file-name-template (title &optional id template context)
@@ -257,9 +283,7 @@ start the capture process."
         (vulpea-visit note other-window)
       ;; New note - create it
       (when (not require-match)
-        (let ((new-note (vulpea-create (vulpea-note-title note)
-                                       nil  ; Let template generate filename
-                                       :immediate-finish nil)))  ; Allow editing
+        (let ((new-note (vulpea-create (vulpea-note-title note))))
           (when new-note
             (vulpea-visit new-note other-window)))))))
 
@@ -445,20 +469,49 @@ Optional parameters:
 - PROPERTIES: Alist of (key_str . val_str) for property drawer
 - META: Alist of (key . value) or (key . (list of values))
 - TAGS: List of tag strings
-- BODY: Note body content (supports ${var} template expansion)
-- HEAD: Additional header content (supports ${var} template expansion)
+- BODY: Note body content (supports template expansion)
+- HEAD: Additional header content (supports template expansion)
 - CONTEXT: Plist of template variables (e.g., :url \"...\")
-  - Built-in variables: ${title}, ${slug}, ${timestamp}, ${id}
-  - Custom variables: ${key} for each :key in CONTEXT
-  - Expansion applies to FILE-NAME, HEAD, and BODY"
+
+Template expansion is supported in FILE-NAME, HEAD, BODY, TAGS,
+PROPERTIES values, and META values:
+  ${var}     - Variable substitution (title, slug, timestamp, id, custom)
+  %(elisp)   - Elisp evaluation (e.g., %(user-full-name))
+  %<format>  - Timestamp formatting (e.g., %<[%Y-%m-%d]>)
+
+Note: Does not support %a or %i from org-capture."
   (let* ((id (or id (org-id-new)))
          (file-path (vulpea--expand-file-name-template title id file-name context))
-         ;; Expand templates in head and body with context
+         ;; Expand templates everywhere with context
          (expanded-head (when head
                           (vulpea--expand-template head title id context)))
          (expanded-body (when body
                           (vulpea--expand-template body title id context)))
-         (content (vulpea--format-note-content id title expanded-head meta tags properties))
+         (expanded-tags (when tags
+                          (mapcar (lambda (tag)
+                                    (vulpea--expand-template tag title id context))
+                                  tags)))
+         (expanded-properties (when properties
+                                (mapcar (lambda (prop)
+                                          (cons (car prop)
+                                                (vulpea--expand-template (cdr prop) title id context)))
+                                        properties)))
+         (expanded-meta (when meta
+                          (mapcar (lambda (kvp)
+                                    (cons (car kvp)
+                                          (if (listp (cdr kvp))
+                                              ;; List of values
+                                              (mapcar (lambda (val)
+                                                        (if (stringp val)
+                                                            (vulpea--expand-template val title id context)
+                                                          val))
+                                                      (cdr kvp))
+                                            ;; Single value
+                                            (if (stringp (cdr kvp))
+                                                (vulpea--expand-template (cdr kvp) title id context)
+                                              (cdr kvp)))))
+                                  meta)))
+         (content (vulpea--format-note-content id title expanded-head expanded-meta expanded-tags expanded-properties))
          (full-content (if expanded-body
                            (concat content "\n\n" expanded-body)
                          content))

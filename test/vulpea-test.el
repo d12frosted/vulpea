@@ -624,5 +624,66 @@ Uses Unicode normalization to preserve base characters from accented letters."
       (when (file-directory-p vulpea-default-notes-directory)
         (delete-directory vulpea-default-notes-directory t)))))
 
+(ert-deftest vulpea-create-template-expansion-everywhere ()
+  "Test template expansion in all fields: tags, properties, meta, head, body."
+  (let* ((vulpea-default-notes-directory (make-temp-file "vulpea-test-" t))
+         (vulpea-file-name-template "${slug}.org")
+         (title "Template Test")
+         (test-value "TestValue")
+         note created-file)
+    (unwind-protect
+        (progn
+          ;; Create note with templates everywhere
+          (setq note (vulpea-create
+                      title
+                      nil
+                      :tags (list "tag-${custom}" "%(concat \"gen\" \"erated\")")
+                      :properties (list (cons "CUSTOM" "${custom}")
+                                        (cons "USER" "%(user-login-name)")
+                                        (cons "DATE" "%<[%Y-%m-%d]>"))
+                      :head "#+created: %<[%Y-%m-%d %H:%M]>\n#+custom: ${custom}"
+                      :body "Value: ${custom}\nUser: %(user-login-name)\nTime: %<[%Y-%m-%d]>"
+                      :context (list :custom test-value)))
+          (should note)
+          (should (vulpea-note-id note))
+
+          ;; Verify file was created
+          (setq created-file (vulpea-note-path note))
+          (should (file-exists-p created-file))
+
+          ;; Verify all expansions
+          (with-temp-buffer
+            (insert-file-contents created-file)
+            (let ((content (buffer-string)))
+              ;; Tags expansion
+              (should (string-match-p ":tag-TestValue:" content))
+              (should (string-match-p ":generated:" content))
+
+              ;; Properties expansion
+              (should (string-match-p ":CUSTOM:.*TestValue" content))
+              (should (string-match-p (format ":USER:.*%s" (user-login-name)) content))
+              (should (string-match-p ":DATE:.*\\[20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]\\]" content))
+
+              ;; Head expansion
+              (should (string-match-p "\\+created: \\[20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]" content))
+              (should (string-match-p "\\+custom: TestValue" content))
+
+              ;; Body expansion
+              (should (string-match-p "Value: TestValue" content))
+              (should (string-match-p (format "User: %s" (user-login-name)) content))
+              (should (string-match-p "Time: \\[20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]\\]" content))
+
+              ;; Verify no unexpanded templates remain
+              (should-not (string-match-p "\\${custom}" content))
+              (should-not (string-match-p "%(" content))
+              (should-not (string-match-p "%<" content)))))
+      ;; Cleanup
+      (when (and created-file (file-exists-p created-file))
+        (when (get-file-buffer created-file)
+          (kill-buffer (get-file-buffer created-file)))
+        (delete-file created-file))
+      (when (file-directory-p vulpea-default-notes-directory)
+        (delete-directory vulpea-default-notes-directory t)))))
+
 (provide 'vulpea-test)
 ;;; vulpea-test.el ends here
