@@ -220,12 +220,19 @@ from org-capture as they don't make sense for programmatic creation."
             (setq result (s-replace placeholder (format "%s" val) result))))))
 
     ;; Expand %(elisp) - evaluate elisp expressions
+    ;; Note: save-match-data is critical because eval'd expressions may
+    ;; call functions that do string matching, corrupting our match data
     (while (string-match "%\\((.+?)\\)" result)
       (let* ((expr (match-string 1 result))
-             (value (condition-case err
-                        (eval (car (read-from-string expr)))
-                      (error (format "ERROR: %S" err)))))
-        (setq result (replace-match (format "%s" value) t t result))))
+             (match-beg (match-beginning 0))
+             (match-end (match-end 0))
+             (value (save-match-data
+                      (condition-case err
+                          (eval (car (read-from-string expr)))
+                        (error (format "ERROR: %S" err))))))
+        (setq result (concat (substring result 0 match-beg)
+                             (format "%s" value)
+                             (substring result match-end)))))
 
     ;; Expand %<format> - format timestamps
     (while (string-match "%<\\(.+?\\)>" result)
