@@ -258,6 +258,24 @@ from being inserted into the normalized tags table."
     (should (= (length (vulpea-db-query-by-tags-none '("beer"))) 1))
     (should (= (length (vulpea-db-query-by-tags-none '("wine"))) 0))))
 
+(ert-deftest vulpea-db-query-tags ()
+  "Test getting all unique tags from database."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "note1" "Note 1" :tags '("wine" "red"))
+    (vulpea-test--insert-test-note "note2" "Note 2" :tags '("wine" "white"))
+    (vulpea-test--insert-test-note "note3" "Note 3" :tags '("work"))
+
+    (let ((tags (vulpea-db-query-tags)))
+      (should (= (length tags) 4))
+      (should (equal tags '("red" "white" "wine" "work"))))))
+
+(ert-deftest vulpea-db-query-tags-empty ()
+  "Test getting tags from empty database."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (should (null (vulpea-db-query-tags)))))
+
 ;;; Link Query Tests
 
 (ert-deftest vulpea-db-query-by-links-some-single ()

@@ -48,6 +48,8 @@
 (require 'dash)
 (require 'org-element)
 (require 'seq)
+
+(declare-function vulpea-db-query-tags "vulpea-db-query")
 (require 's)
 
 (require 'url-parse)
@@ -76,29 +78,62 @@ If the title is already set, replace its value."
   (vulpea-buffer-prop-set "title" title))
 
 (defun vulpea-buffer-tags-get ()
-  "Return filetags value in current buffer."
-  (vulpea-buffer-prop-get-list "filetags" "[ :]"))
+  "Return tags for the note at point.
+
+At file level (outline-level 0), returns filetags.
+At heading level, returns heading tags."
+  (if (= (org-outline-level) 0)
+      (vulpea-buffer-prop-get-list "filetags" "[ :]")
+    (org-get-tags nil t)))
 
 (defun vulpea-buffer-tags-set (&rest tags)
-  "Set TAGS in current buffer.
+  "Set TAGS for the note at point.
 
-If filetags value is already set, replace it."
-  (if tags
-      (vulpea-buffer-prop-set
-       "filetags" (concat ":" (string-join tags ":") ":"))
-    (vulpea-buffer-prop-remove "filetags")))
+At file level (outline-level 0), sets filetags.
+At heading level, sets heading tags.
+Duplicate tags are automatically removed."
+  (let ((tags (seq-uniq tags)))
+    (if (= (org-outline-level) 0)
+        (if tags
+            (vulpea-buffer-prop-set
+             "filetags" (concat ":" (string-join tags ":") ":"))
+          (vulpea-buffer-prop-remove "filetags"))
+      (save-excursion
+        (org-back-to-heading t)
+        (org-set-tags tags)))))
 
-(defun vulpea-buffer-tags-add (tag)
-  "Add a TAG to filetags in current buffer."
-  (let* ((tags (vulpea-buffer-tags-get))
-         (tags (append tags (list tag))))
-    (apply #'vulpea-buffer-tags-set tags)))
+(defun vulpea-buffer-tags-add (&optional tags)
+  "Add TAGS to the note at point.
 
-(defun vulpea-buffer-tags-remove (tag)
-  "Remove a TAG from filetags in current buffer."
-  (let* ((tags (vulpea-buffer-tags-get))
-         (tags (delete tag tags)))
-    (apply #'vulpea-buffer-tags-set tags)))
+At file level (outline-level 0), modifies filetags.
+At heading level, modifies heading tags.
+
+When called interactively, prompt for tags to add with completion
+from existing tags in the database."
+  (interactive
+   (list (completing-read-multiple
+          "Tag: "
+          (ignore-errors (vulpea-db-query-tags)))))
+  (let* ((tags (if (listp tags) tags (list tags)))
+         (current-tags (vulpea-buffer-tags-get))
+         (new-tags (append current-tags tags)))
+    (apply #'vulpea-buffer-tags-set new-tags)))
+
+(defun vulpea-buffer-tags-remove (&optional tags)
+  "Remove TAGS from the note at point.
+
+At file level (outline-level 0), modifies filetags.
+At heading level, modifies heading tags.
+
+When called interactively, prompt for tags to remove from current tags."
+  (interactive)
+  (let* ((current-tags (vulpea-buffer-tags-get)))
+    (unless current-tags
+      (user-error "No tags to remove"))
+    (let* ((tags (or (if (listp tags) tags (list tags))
+                     (completing-read-multiple "Remove tag: " current-tags)))
+           (new-tags (seq-difference current-tags tags #'string-equal)))
+      (apply #'vulpea-buffer-tags-set new-tags))))
 
 (defun vulpea-buffer-alias-get ()
   "Get list of aliases for the note at point.

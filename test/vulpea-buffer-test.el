@@ -193,6 +193,85 @@ Creates a temp file with ID and CONTENT, adds it to temp DB, then executes BODY.
                        (vulpea-buffer-tags-get))
                      nil)))))
 
+(ert-deftest vulpea-buffer-tags-set-removes-duplicates ()
+  "Test that setting tags removes duplicates."
+  (let ((id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"))
+    (vulpea-buffer-test--with-temp-db-and-file id "#+title: Reference\n"
+      (should (equal (vulpea-utils-with-note (vulpea-db-get-by-id id)
+                       (vulpea-buffer-tags-set "tag1" "tag2" "tag1" "tag3" "tag2")
+                       (save-buffer)
+                       (vulpea-buffer-tags-get))
+                     '("tag1" "tag2" "tag3"))))))
+
+(ert-deftest vulpea-buffer-tags-add-multiple ()
+  "Test adding multiple tags at once."
+  (let ((id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"))
+    (vulpea-buffer-test--with-temp-db-and-file id "#+title: Reference\n#+filetags: :existing:\n"
+      (should (equal (vulpea-utils-with-note (vulpea-db-get-by-id id)
+                       (vulpea-buffer-tags-add '("new1" "new2"))
+                       (save-buffer)
+                       (vulpea-buffer-tags-get))
+                     '("existing" "new1" "new2"))))))
+
+(ert-deftest vulpea-buffer-tags-remove-multiple ()
+  "Test removing multiple tags at once."
+  (let ((id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"))
+    (vulpea-buffer-test--with-temp-db-and-file id "#+title: Reference\n#+filetags: :tag1:tag2:tag3:tag4:\n"
+      (should (equal (vulpea-utils-with-note (vulpea-db-get-by-id id)
+                       (vulpea-buffer-tags-remove '("tag1" "tag3"))
+                       (save-buffer)
+                       (vulpea-buffer-tags-get))
+                     '("tag2" "tag4"))))))
+
+(ert-deftest vulpea-buffer-tags-heading-get ()
+  "Test getting tags from heading-level note."
+  (let ((id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"))
+    (vulpea-buffer-test--with-temp-db-and-file id "#+title: Reference\n\n* Heading :tag1:tag2:\n"
+      (vulpea-utils-with-note (vulpea-db-get-by-id id)
+        (goto-char (point-max))
+        (org-back-to-heading)
+        (should (equal (vulpea-buffer-tags-get) '("tag1" "tag2")))))))
+
+(ert-deftest vulpea-buffer-tags-heading-set ()
+  "Test setting tags on heading-level note."
+  (let ((id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"))
+    (vulpea-buffer-test--with-temp-db-and-file id "#+title: Reference\n\n* Heading\n"
+      (vulpea-utils-with-note (vulpea-db-get-by-id id)
+        (goto-char (point-max))
+        (org-back-to-heading)
+        (vulpea-buffer-tags-set "newtag1" "newtag2")
+        (should (equal (vulpea-buffer-tags-get) '("newtag1" "newtag2")))))))
+
+(ert-deftest vulpea-buffer-tags-heading-add ()
+  "Test adding tag to heading-level note."
+  (let ((id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"))
+    (vulpea-buffer-test--with-temp-db-and-file id "#+title: Reference\n\n* Heading :existing:\n"
+      (vulpea-utils-with-note (vulpea-db-get-by-id id)
+        (goto-char (point-max))
+        (org-back-to-heading)
+        (vulpea-buffer-tags-add "newtag")
+        (should (equal (vulpea-buffer-tags-get) '("existing" "newtag")))))))
+
+(ert-deftest vulpea-buffer-tags-heading-remove ()
+  "Test removing tag from heading-level note."
+  (let ((id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"))
+    (vulpea-buffer-test--with-temp-db-and-file id "#+title: Reference\n\n* Heading :tag1:tag2:tag3:\n"
+      (vulpea-utils-with-note (vulpea-db-get-by-id id)
+        (goto-char (point-max))
+        (org-back-to-heading)
+        (vulpea-buffer-tags-remove "tag2")
+        (should (equal (vulpea-buffer-tags-get) '("tag1" "tag3")))))))
+
+(ert-deftest vulpea-buffer-tags-heading-set-from-body ()
+  "Test setting tags when point is in heading body, not on heading line."
+  (let ((id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"))
+    (vulpea-buffer-test--with-temp-db-and-file id "#+title: Reference\n\n* Heading\nSome body text\n"
+      (vulpea-utils-with-note (vulpea-db-get-by-id id)
+        (goto-char (point-max))  ; point is after body text
+        (vulpea-buffer-tags-set "newtag")
+        (org-back-to-heading)
+        (should (equal (vulpea-buffer-tags-get) '("newtag")))))))
+
 ;;; vulpea-buffer-alias-* Tests
 
 (ert-deftest vulpea-buffer-alias-get-empty ()

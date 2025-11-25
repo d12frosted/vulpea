@@ -395,6 +395,18 @@ Returns list of `vulpea-note' structs."
                        key value)))
     (mapcar #'vulpea-db--row-to-note rows)))
 
+;;; Tag Queries
+
+(defun vulpea-db-query-tags ()
+  "Return list of all unique tags in the database.
+
+Queries the normalized tags table directly for efficient retrieval.
+Returns a sorted list of tag strings."
+  (mapcar #'car
+          (emacsql (vulpea-db)
+                   [:select :distinct [tag] :from tags
+                    :order :by tag])))
+
 ;;; Statistics
 
 (defun vulpea-db-count-notes ()
