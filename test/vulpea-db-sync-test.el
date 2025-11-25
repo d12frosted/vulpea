@@ -644,7 +644,7 @@ Returns absolute path. Caller responsible for cleanup."
             (vulpea-db-update-file path)
             (should (vulpea-db-get-by-id "fswatch-delete"))
             (delete-file path)
-            (vulpea-db-sync--fswatch-filter nil (format "%s Removed" path))
+            (vulpea-db-sync--fswatch-filter nil (format "%s|||Removed\n" path))
             (should-not (vulpea-db-get-by-id "fswatch-delete")))
         (when (file-exists-p path)
           (delete-file path))))))
@@ -696,7 +696,287 @@ Returns absolute path. Caller responsible for cleanup."
             (vulpea-db-sync--check-external-changes)
             (should-not (vulpea-db-get-by-id "poll-delete")))
         (when (file-directory-p dir)
-          (delete-directory dir t)))))) 
+          (delete-directory dir t))))))
+
+(ert-deftest vulpea-db-sync-polling-detects-new-files ()
+  "Polling detects externally created files."
+  (vulpea-test--with-temp-db
+    (let* ((dir (make-temp-file "vulpea-poll-new-" t))
+           (vulpea-db-sync-directories (list dir))
+           (vulpea-db-sync--file-attributes (make-hash-table :test 'equal))
+           (vulpea-db-sync--queue nil))
+      (unwind-protect
+          (progn
+            (vulpea-db)
+            ;; Initialize cache with empty directory
+            (vulpea-db-sync--update-file-attributes-cache)
+            (should (= 0 (hash-table-count vulpea-db-sync--file-attributes)))
+
+            ;; Create a new file externally
+            (let ((file (expand-file-name "new-note.org" dir)))
+              (with-temp-file file
+                (insert ":PROPERTIES:\n:ID: new-file\n:END:\n#+TITLE: New File\n"))
+
+              ;; Check for external changes
+              (vulpea-db-sync--check-external-changes)
+
+              ;; File should be queued for sync
+              (should (assoc file vulpea-db-sync--queue))
+              ;; File should be in cache now
+              (should (gethash file vulpea-db-sync--file-attributes))))
+        (when (file-directory-p dir)
+          (delete-directory dir t))))))
+
+(ert-deftest vulpea-db-sync-polling-detects-directory-deletion ()
+  "Polling removes all files when directory is deleted."
+  (vulpea-test--with-temp-db
+    (let* ((dir (make-temp-file "vulpea-poll-dirdelete-" t))
+           (subdir (expand-file-name "subdir" dir))
+           (vulpea-db-sync-directories (list dir))
+           (vulpea-db-sync--file-attributes (make-hash-table :test 'equal)))
+      (unwind-protect
+          (progn
+            (make-directory subdir t)
+            ;; Create files in subdir
+            (let ((file1 (expand-file-name "note1.org" subdir))
+                  (file2 (expand-file-name "note2.org" subdir)))
+              (with-temp-file file1
+                (insert ":PROPERTIES:\n:ID: dir-del-1\n:END:\n#+TITLE: Note 1\n"))
+              (with-temp-file file2
+                (insert ":PROPERTIES:\n:ID: dir-del-2\n:END:\n#+TITLE: Note 2\n"))
+
+              (vulpea-db)
+              (vulpea-db-update-file file1)
+              (vulpea-db-update-file file2)
+              (should (vulpea-db-get-by-id "dir-del-1"))
+              (should (vulpea-db-get-by-id "dir-del-2"))
+
+              ;; Initialize cache
+              (vulpea-db-sync--update-file-attributes-cache)
+              (should (gethash file1 vulpea-db-sync--file-attributes))
+              (should (gethash file2 vulpea-db-sync--file-attributes))
+
+              ;; Delete the subdirectory
+              (delete-directory subdir t)
+
+              ;; Check for external changes
+              (vulpea-db-sync--check-external-changes)
+
+              ;; Both files should be removed from database
+              (should-not (vulpea-db-get-by-id "dir-del-1"))
+              (should-not (vulpea-db-get-by-id "dir-del-2"))
+              ;; Both should be removed from cache
+              (should-not (gethash file1 vulpea-db-sync--file-attributes))
+              (should-not (gethash file2 vulpea-db-sync--file-attributes))))
+        (when (file-directory-p dir)
+          (delete-directory dir t))))))
+
+(ert-deftest vulpea-db-sync-polling-handles-directory-rename ()
+  "Polling handles directory rename (old files removed, new files added)."
+  (vulpea-test--with-temp-db
+    (let* ((dir (make-temp-file "vulpea-poll-dirrename-" t))
+           (subdir (expand-file-name "old-name" dir))
+           (newdir (expand-file-name "new-name" dir))
+           (vulpea-db-sync-directories (list dir))
+           (vulpea-db-sync--file-attributes (make-hash-table :test 'equal))
+           (vulpea-db-sync--queue nil))
+      (unwind-protect
+          (progn
+            (make-directory subdir t)
+            (let ((file (expand-file-name "note.org" subdir)))
+              (with-temp-file file
+                (insert ":PROPERTIES:\n:ID: dir-rename\n:END:\n#+TITLE: Note\n"))
+
+              (vulpea-db)
+              (vulpea-db-update-file file)
+              (should (vulpea-db-get-by-id "dir-rename"))
+
+              ;; Initialize cache
+              (vulpea-db-sync--update-file-attributes-cache)
+              (should (gethash file vulpea-db-sync--file-attributes))
+
+              ;; Rename directory
+              (rename-file subdir newdir)
+              (let ((new-file (expand-file-name "note.org" newdir)))
+
+                ;; Check for external changes
+                (vulpea-db-sync--check-external-changes)
+
+                ;; Old file should be removed from database
+                (should-not (emacsql (vulpea-db)
+                                     [:select * :from files :where (= path $s1)]
+                                     file))
+                ;; Old file should be removed from cache
+                (should-not (gethash file vulpea-db-sync--file-attributes))
+                ;; New file should be in cache and queued
+                (should (gethash new-file vulpea-db-sync--file-attributes))
+                (should (assoc new-file vulpea-db-sync--queue)))))
+        (when (file-directory-p dir)
+          (delete-directory dir t))))))
+
+;;; fswatch event handling tests
+
+(ert-deftest vulpea-db-sync-fswatch-renamed-event-removes-file ()
+  "fswatch Renamed event removes files that no longer exist (e.g., moved to trash)."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((path (vulpea-test--create-temp-org-file
+                  ":PROPERTIES:\n:ID: fswatch-trash\n:END:\n#+TITLE: Trash Me\n"))
+           (vulpea-db-sync--queue nil))
+      (unwind-protect
+          (progn
+            (vulpea-db-update-file path)
+            (should (vulpea-db-get-by-id "fswatch-trash"))
+            ;; Delete file (simulates move to trash)
+            (delete-file path)
+            ;; fswatch sends Renamed event when file is moved to trash
+            (vulpea-db-sync--fswatch-filter nil (format "%s|||Renamed\n" path))
+            ;; File should be removed from database (because file-exists-p is false)
+            (should-not (vulpea-db-get-by-id "fswatch-trash")))
+        (when (file-exists-p path)
+          (delete-file path))))))
+
+(ert-deftest vulpea-db-sync-fswatch-directory-removal ()
+  "fswatch directory removal removes all files under that directory."
+  (vulpea-test--with-temp-db
+    (let* ((dir (make-temp-file "vulpea-fswatch-dirremove-" t))
+           (file1 (expand-file-name "note1.org" dir))
+           (file2 (expand-file-name "note2.org" dir))
+           (vulpea-db-sync--queue nil))
+      (unwind-protect
+          (progn
+            (with-temp-file file1
+              (insert ":PROPERTIES:\n:ID: fswatch-dir-1\n:END:\n#+TITLE: Note 1\n"))
+            (with-temp-file file2
+              (insert ":PROPERTIES:\n:ID: fswatch-dir-2\n:END:\n#+TITLE: Note 2\n"))
+
+            (vulpea-db)
+            (vulpea-db-update-file file1)
+            (vulpea-db-update-file file2)
+            (should (vulpea-db-get-by-id "fswatch-dir-1"))
+            (should (vulpea-db-get-by-id "fswatch-dir-2"))
+
+            ;; Delete directory
+            (delete-directory dir t)
+
+            ;; fswatch sends Removed event for directory
+            (vulpea-db-sync--fswatch-filter nil (format "%s/|||Removed\n" dir))
+
+            ;; Both files should be removed from database
+            (should-not (vulpea-db-get-by-id "fswatch-dir-1"))
+            (should-not (vulpea-db-get-by-id "fswatch-dir-2")))
+        (when (file-directory-p dir)
+          (delete-directory dir t))))))
+
+(ert-deftest vulpea-db-sync-fswatch-file-not-exists-fallback ()
+  "fswatch handles files that no longer exist via file-exists-p check."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((path (vulpea-test--create-temp-org-file
+                  ":PROPERTIES:\n:ID: fswatch-noexist\n:END:\n#+TITLE: Gone\n"))
+           (vulpea-db-sync--queue nil))
+      (unwind-protect
+          (progn
+            (vulpea-db-update-file path)
+            (should (vulpea-db-get-by-id "fswatch-noexist"))
+            ;; Delete file
+            (delete-file path)
+            ;; fswatch sends Updated event (not Removed), but file doesn't exist
+            (vulpea-db-sync--fswatch-filter nil (format "%s|||Updated\n" path))
+            ;; File should be removed due to file-exists-p check
+            (should-not (vulpea-db-get-by-id "fswatch-noexist")))
+        (when (file-exists-p path)
+          (delete-file path))))))
+
+(ert-deftest vulpea-db-sync-fswatch-multiple-events ()
+  "fswatch handles multiple events in single output."
+  (vulpea-test--with-temp-db
+    (let* ((dir (make-temp-file "vulpea-fswatch-multi-" t))
+           (file1 (expand-file-name "note1.org" dir))
+           (file2 (expand-file-name "note2.org" dir))
+           (vulpea-db-sync--queue nil))
+      (unwind-protect
+          (progn
+            (with-temp-file file1
+              (insert ":PROPERTIES:\n:ID: multi-1\n:END:\n#+TITLE: Note 1\n"))
+            (with-temp-file file2
+              (insert ":PROPERTIES:\n:ID: multi-2\n:END:\n#+TITLE: Note 2\n"))
+
+            (vulpea-db)
+            (vulpea-db-update-file file1)
+            (vulpea-db-update-file file2)
+
+            ;; Delete both files
+            (delete-file file1)
+            (delete-file file2)
+
+            ;; fswatch sends multiple events in single output
+            (vulpea-db-sync--fswatch-filter
+             nil
+             (format "%s|||Removed\n%s|||Removed\n" file1 file2))
+
+            ;; Both files should be removed
+            (should-not (vulpea-db-get-by-id "multi-1"))
+            (should-not (vulpea-db-get-by-id "multi-2")))
+        (when (file-directory-p dir)
+          (delete-directory dir t))))))
+
+(ert-deftest vulpea-db-sync-fswatch-directory-created-scans ()
+  "fswatch Created event for directory scans for org files inside."
+  (vulpea-test--with-temp-db
+    (let* ((root (make-temp-file "vulpea-fswatch-newdir-" t))
+           (subdir (expand-file-name "newdir" root))
+           (vulpea-db-sync--queue nil))
+      (unwind-protect
+          (progn
+            (vulpea-db)
+            ;; Create directory with org file
+            (make-directory subdir t)
+            (let ((file (expand-file-name "note.org" subdir)))
+              (with-temp-file file
+                (insert ":PROPERTIES:\n:ID: newdir-note\n:END:\n#+TITLE: New Dir Note\n"))
+
+              ;; fswatch sends Created event for directory
+              (vulpea-db-sync--fswatch-filter nil (format "%s|||Created\n" subdir))
+
+              ;; File inside should be queued
+              (should (assoc file vulpea-db-sync--queue))))
+        (when (file-directory-p root)
+          (delete-directory root t))))))
+
+(ert-deftest vulpea-db-sync-handle-removed-file-directory-prefix ()
+  "Handle removed file correctly cleans up directory prefix matches."
+  (vulpea-test--with-temp-db
+    (let* ((dir "/tmp/vulpea-test-dir")
+           (file1 (concat dir "/note1.org"))
+           (file2 (concat dir "/subdir/note2.org")))
+      (vulpea-db)
+      ;; Manually insert files into database
+      (emacsql (vulpea-db)
+               [:insert :into files :values $v1]
+               (vector file1 "hash1" 12345 100))
+      (emacsql (vulpea-db)
+               [:insert :into files :values $v1]
+               (vector file2 "hash2" 12346 100))
+
+      ;; Verify files are in database
+      (should (emacsql (vulpea-db)
+                       [:select path :from files :where (= path $s1)]
+                       file1))
+      (should (emacsql (vulpea-db)
+                       [:select path :from files :where (= path $s1)]
+                       file2))
+
+      ;; Remove directory
+      (vulpea-db-sync--handle-removed-file dir)
+
+      ;; Both files should be removed
+      (should-not (emacsql (vulpea-db)
+                           [:select path :from files :where (= path $s1)]
+                           file1))
+      (should-not (emacsql (vulpea-db)
+                           [:select path :from files :where (= path $s1)]
+                           file2)))))
 
 (provide 'vulpea-db-sync-test)
 ;;; vulpea-db-sync-test.el ends here

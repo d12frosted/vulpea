@@ -873,7 +873,12 @@ OUTPUT may contain multiple events separated by newlines."
           (puthash file (file-attributes file) vulpea-db-sync--file-attributes))))))
 
 (defun vulpea-db-sync--check-external-changes ()
-  "Check for externally modified files by comparing mtimes."
+  "Check for externally modified files by comparing mtimes.
+
+Detects three types of changes:
+- New files: files not previously in the cache
+- Modified files: files with changed modification time
+- Deleted files: files in cache but no longer on disk"
   (let ((seen (make-hash-table :test 'equal)))
     (dolist (dir vulpea-db-sync-directories)
       (when (file-directory-p dir)
@@ -883,11 +888,15 @@ OUTPUT may contain multiple events separated by newlines."
                   (cached-attr (gethash file vulpea-db-sync--file-attributes)))
               (puthash file curr-attr vulpea-db-sync--file-attributes)
               (puthash file t seen)
-              (when (and cached-attr
-                         (not (equal (file-attribute-modification-time curr-attr)
-                                     (file-attribute-modification-time cached-attr))))
-                (vulpea-db-sync--enqueue file)))))))
-    ;; Detect deletions
+              (cond
+               ;; New file - not in cache before
+               ((not cached-attr)
+                (vulpea-db-sync--enqueue file))
+               ;; Modified file - mtime changed
+               ((not (equal (file-attribute-modification-time curr-attr)
+                            (file-attribute-modification-time cached-attr)))
+                (vulpea-db-sync--enqueue file))))))))
+    ;; Detect deletions - files in cache but not seen on disk
     (let (removed)
       (maphash (lambda (path _)
                  (unless (gethash path seen)
