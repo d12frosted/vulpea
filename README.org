@@ -1,9 +1,6 @@
 #+OPTIONS: toc:nil
 
 * Vulpea
-:PROPERTIES:
-:ID:                     4897a1f9-10be-4489-a732-7daa4785d80f
-:END:
 
 #+begin_html
 <p align="center">
@@ -603,6 +600,84 @@ For creating many notes programmatically, use synchronous mode:
 ;; All updates complete before proceeding
 #+end_src
 
+** API Quick Reference
+
+*** Core Functions
+
+| Function             | Description                               |
+|----------------------+-------------------------------------------|
+| =vulpea-find=          | Interactive note selection and navigation |
+| =vulpea-find-backlink= | Find notes linking to current note        |
+| =vulpea-insert=        | Insert link to a note (with completion)   |
+| =vulpea-create=        | Create a new note programmatically        |
+| =vulpea-visit=         | Visit a note by ID or note object         |
+
+*** Query Functions
+
+| Function                       | Description                             |
+|--------------------------------+-----------------------------------------|
+| =vulpea-db-query=                | Query all notes with optional predicate |
+| =vulpea-db-get-by-id=            | Get single note by ID (fastest)         |
+| =vulpea-db-search-by-title=      | Search notes by title substring         |
+| =vulpea-db-query-by-tags-some=   | Notes with ANY of the given tags        |
+| =vulpea-db-query-by-tags-every=  | Notes with ALL of the given tags        |
+| =vulpea-db-query-by-tags-none=   | Notes WITHOUT any of the given tags     |
+| =vulpea-db-query-by-links-some=  | Notes linking to ANY of the given IDs   |
+| =vulpea-db-query-by-links-every= | Notes linking to ALL of the given IDs   |
+| =vulpea-db-query-by-meta=        | Notes where metadata key equals value   |
+| =vulpea-db-query-by-meta-key=    | Notes having a specific metadata key    |
+| =vulpea-db-query-by-level=       | Notes at specific heading level         |
+| =vulpea-db-query-tags=           | Get list of all unique tags             |
+
+*** Note Accessors
+
+| Function                  | Description                     |
+|---------------------------+---------------------------------|
+| =vulpea-note-id=            | Get note's unique identifier    |
+| =vulpea-note-path=          | Get note's file path            |
+| =vulpea-note-title=         | Get note's title                |
+| =vulpea-note-tags=          | Get note's tags (list)          |
+| =vulpea-note-aliases=       | Get note's aliases (list)       |
+| =vulpea-note-links=         | Get note's outgoing links       |
+| =vulpea-note-meta=          | Get note's metadata (alist)     |
+| =vulpea-note-level=         | Get heading level (0 = file)    |
+| =vulpea-note-meta-get=      | Get first value of metadata key |
+| =vulpea-note-meta-get-list= | Get all values of metadata key  |
+
+*** Buffer Functions
+
+| Function                   | Description                      |
+|----------------------------+----------------------------------|
+| =vulpea-buffer-title-get=    | Get title from current buffer    |
+| =vulpea-buffer-title-set=    | Set title in current buffer      |
+| =vulpea-buffer-tags-get=     | Get tags (file or heading level) |
+| =vulpea-buffer-tags-set=     | Set tags (file or heading level) |
+| =vulpea-buffer-tags-add=     | Add tags interactively           |
+| =vulpea-buffer-tags-remove=  | Remove tags interactively        |
+| =vulpea-buffer-alias-get=    | Get aliases from current note    |
+| =vulpea-buffer-alias-add=    | Add an alias                     |
+| =vulpea-buffer-alias-remove= | Remove an alias                  |
+| =vulpea-buffer-meta-set=     | Set metadata value               |
+
+*** Sync Functions
+
+| Function                        | Description                              |
+|---------------------------------+------------------------------------------|
+| =vulpea-db-autosync-mode=         | Toggle automatic file watching           |
+| =vulpea-db-sync-full-scan=        | Scan all directories (with =C-u= to force) |
+| =vulpea-db-sync-update-file=      | Update single file                       |
+| =vulpea-db-sync-update-directory= | Update entire directory                  |
+| =vulpea-db-update-file=           | Immediate synchronous update             |
+
+*** Utility Functions
+
+| Function              | Description                        |
+|-----------------------+------------------------------------|
+| =vulpea-select=         | Select note with completion        |
+| =vulpea-select-from=    | Select from provided note list     |
+| =vulpea-title-to-slug=  | Convert title to URL-friendly slug |
+| =vulpea-db-count-notes= | Count total notes in database      |
+
 ** Advanced Topics
 
 *** Note Indexing Requirements
@@ -744,19 +819,19 @@ See [[file:docs/architecture.org][Architecture Documentation]] for detailed desi
 
 Actual benchmarks (MacBook Pro 2021, M1 Pro):
 
-| Parse Method | 1K notes | 10K notes | 100K notes | Throughput |
-|--------------+----------+-----------+------------+------------|
-| single-temp-buffer | 1.3s | 8.9s | 1.6min | ~1k files/sec |
-| temp-buffer | 2.2s | 22s | 30min | ~460/sec (degrades) |
-| find-file | 26s | 4.9min | 102min | ~34/sec (degrades) |
+| Parse Method       | 1K notes | 10K notes | 100K notes | Throughput          |
+|--------------------+----------+-----------+------------+---------------------|
+| single-temp-buffer | 1.3s     | 8.9s      | 1.6min     | ~1k files/sec       |
+| temp-buffer        | 2.2s     | 22s       | 30min      | ~460/sec (degrades) |
+| find-file          | 26s      | 4.9min    | 102min     | ~34/sec (degrades)  |
 
 Query performance (typical):
 
-| Operation | Time | Scale |
-|-----------+------+-------|
-| Get by ID | <5ms | Any |
-| Tag query | <50ms | 100k notes |
-| Link query | <25ms | 100k notes |
+| Operation    | Time   | Scale      |
+|--------------+--------+------------|
+| Get by ID    | <5ms   | Any        |
+| Tag query    | <50ms  | 100k notes |
+| Link query   | <25ms  | 100k notes |
 | Title search | <100ms | 100k notes |
 
 See [[file:bench/PERFORMANCE.md][bench/PERFORMANCE.md]] for detailed benchmarks and optimization guide.
@@ -814,10 +889,110 @@ Migration guide will be provided before official v2 release.
 
 For now:
 1. Keep v1 for production use
-2. Test v2 on a separate note collection
+2. Test v2 separately
 3. Wait for migration guide before switching
 
 Migration utilities planned for v2 release.
+
+** org-roam Compatibility
+
+Vulpea v2 can coexist with org-roam, but they are independent systems with significant overlap.
+
+*** Current Status
+
+- *Separate databases*: Vulpea maintains its own SQLite database, independent from org-roam's
+- *No integration*: Vulpea v2 does not enhance or extend org-roam functionality
+- *Overlapping features*: Both provide note indexing, linking, and querying
+
+*** Using Both Together
+
+If you use both systems:
+
+1. Both will index your notes independently
+2. Database operations don't interfere with each other
+3. You can use Vulpea's query API alongside org-roam's
+
+*** Why No Compatibility Layer?
+
+Vulpea v2 was designed as a standalone library because:
+
+1. The author doesn't use org-roam features beyond the database (which v2 replaces)
+2. It's unclear what a compatibility layer would provide
+3. Both systems work independently without conflicts
+
+*** Future Direction
+
+We're open to adding compatibility features if users identify concrete needs. If you use both systems and have suggestions, please [[https://github.com/d12frosted/vulpea/issues][open an issue]] describing your use case.
+
+** Troubleshooting
+
+*** Notes Not Appearing in Database
+
+*Symptom*: Files exist but =vulpea-db-query= returns empty or missing notes.
+
+*Solutions*:
+1. Ensure notes have =ID= properties (use =M-x org-id-get-create=)
+2. Check =vulpea-db-sync-directories= includes your notes directory
+3. Run =M-x vulpea-db-sync-full-scan= to rebuild the database
+4. Verify files aren't excluded by =VULPEA_IGNORE= property
+
+*** Slow Startup with Large Collections
+
+*Symptom*: Emacs hangs when enabling =vulpea-db-autosync-mode=.
+
+*Solutions*:
+1. Set =vulpea-db-sync-scan-on-enable= to =nil= (skip initial scan)
+2. Run =vulpea-db-sync-full-scan= manually after startup
+3. Use =single-temp-buffer= parse method for faster syncing
+4. Disable heading-level indexing if not needed: =(setq vulpea-db-index-heading-level nil)=
+5. Install =fd= to ensure quick filesystem traversal
+
+*** External Changes Not Detected
+
+*Symptom*: Files modified by git/Dropbox/other tools aren't synced.
+
+*Solutions*:
+1. Install =fswatch= (recommended): =brew install fswatch= / =apt install fswatch=
+2. Check =vulpea-db-sync-external-method= is set to ='auto= or ='fswatch=
+3. Verify fswatch is running: check =*Messages*= for "Started fswatch monitoring"
+4. As fallback, use polling: =(setq vulpea-db-sync-external-method 'poll)=
+
+*** Database Corruption or Stale Data
+
+*Symptom*: Queries return outdated information or errors.
+
+*Solutions*:
+1. Run =M-x vulpea-db-sync-full-scan= with =C-u= prefix to force rebuild
+2. If issues persist, delete the database file and restart:
+   #+begin_src emacs-lisp
+   (delete-file vulpea-db-location)
+   (vulpea-db-sync-full-scan)
+   #+end_src
+
+*** Performance Degrades Over Time
+
+*Symptom*: Sync operations get slower with repeated use.
+
+*Solutions*:
+1. Switch to =single-temp-buffer= parse method if you don't need per-file hooks
+2. Guard heavy =org-mode-hook= functions:
+   #+begin_src emacs-lisp
+   (add-hook 'org-mode-hook
+             (lambda ()
+               (unless (bound-and-true-p vulpea-db--active-parse-method)
+                 ;; Your heavy hook code here
+                 )))
+   #+end_src
+3. Restart Emacs periodically for very large collections (100k+)
+
+*** Template Expansion Not Working
+
+*Symptom*: =${var}= or =%(elisp)= placeholders appear literally in created notes.
+
+*Solutions*:
+1. Ensure you're using =vulpea-create=, not =org-capture= directly
+2. Check template syntax: =${title}=, =%(user-full-name)=, =%<[%Y-%m-%d]>=
+3. For elisp expressions, ensure they don't have unbalanced parentheses
 
 ** Development
 
