@@ -314,13 +314,30 @@ Optionally performs initial scan based on `vulpea-db-sync-scan-on-enable'."
     (remhash path vulpea-db-sync--queue-set)))
 
 (defun vulpea-db-sync--handle-removed-file (path)
-  "Permanently remove PATH from database tracking."
+  "Permanently remove PATH from database tracking.
+
+PATH can be a file or directory. If PATH is a directory (detected
+by trailing slash or by having files under it in the database),
+all files under that directory are removed."
   (vulpea-db-sync--drop-from-queue path)
   (vulpea-db-sync--unwatch-file path)
   (let ((db (vulpea-db)))
     (emacsql-with-transaction db
+      ;; Try exact match first
       (vulpea-db--delete-file-notes path)
-      (emacsql db [:delete :from files :where (= path $s1)] path))))
+      (emacsql db [:delete :from files :where (= path $s1)] path)
+      ;; Also handle directory removal - delete all files under this path
+      ;; This handles the case when a directory is deleted externally
+      (let ((dir-prefix (if (string-suffix-p "/" path)
+                            path
+                          (concat path "/"))))
+        (dolist (file-path (mapcar #'car
+                                   (emacsql db [:select path :from files
+                                                :where (like path $s1)]
+                                            (concat dir-prefix "%"))))
+          (vulpea-db--delete-file-notes file-path))
+        (emacsql db [:delete :from files :where (like path $s1)]
+                 (concat dir-prefix "%"))))))
 
 (defun vulpea-db-sync--file-notify-callback (event)
   "Handle file notification EVENT."
@@ -773,32 +790,46 @@ Use this for programmatic operations that create many notes."
                           "--event=Updated"
                           "--event=Created"
                           "--event=Removed"
+                          "--event=Renamed"          ; needed to detect moves (e.g., to trash)
                           "--exclude" "\\.#.*$"      ; exclude auto-save files
                           "--exclude" "#.*#$"        ; exclude backup files
                           "--exclude" ".*~$"         ; exclude backup files
                           "--exclude" "\\.git/"      ; exclude .git directory
-                          "--format" "%p\0%f"        ; include event flag with NUL separator
+                          "--format" "%p|||%f"      ; include event flag with ||| separator
                           ,@(nreverse valid-dirs))
                :filter #'vulpea-db-sync--fswatch-filter
                :sentinel #'vulpea-db-sync--fswatch-sentinel))
         (message "Vulpea: Started fswatch monitoring")))))
 
 (defun vulpea-db-sync--fswatch-filter (_proc output)
-  "Process fswatch OUTPUT."
-  (let* ((raw (string-trim-right output))
-         (parts (split-string raw "\0" t))
-         (flags (car (last parts)))
-         (file (mapconcat #'identity (butlast parts) "\0")))
-    (when (and file
-               (not (string-match-p "/\\.git/" file))
-               (not (string-match-p "/\\.#" file))
-               (not (string-match-p "#$" file))
-               (not (string-match-p "~$" file)))
-      (cond
-       ((and flags (string-match-p "Removed" flags))
-        (vulpea-db-sync--handle-removed-file file))
-       ((vulpea-db-sync--org-file-p file)
-        (vulpea-db-sync--enqueue file))))))
+  "Process fswatch OUTPUT.
+
+OUTPUT may contain multiple events separated by newlines."
+  (dolist (line (split-string output "\n" t))
+    (let* ((raw (string-trim line))
+           (parts (split-string raw "|||" t))
+           (file (car parts))
+           (flags (cadr parts)))
+      (when (and file
+                 (not (string-empty-p file))
+                 (not (string-match-p "/\\.git/" file))
+                 (not (string-match-p "/\\.#" file))
+                 (not (string-match-p "#$" file))
+                 (not (string-match-p "~$" file)))
+        (cond
+         ;; Explicit removal event
+         ((and flags (string-match-p "Removed" flags))
+          (vulpea-db-sync--handle-removed-file file))
+         ;; File/directory no longer exists (e.g., moved to trash)
+         ((not (file-exists-p file))
+          (vulpea-db-sync--handle-removed-file file))
+         ;; Directory created/renamed - scan for org files inside
+         ((file-directory-p file)
+          (dolist (org-file (directory-files-recursively file "\\.org\\'"))
+            (vulpea-db-sync--enqueue org-file)))
+         ;; Regular file change
+         ((vulpea-db-sync--org-file-p file)
+          (vulpea-db-sync--enqueue file)))))))
 
 (defun vulpea-db-sync--fswatch-sentinel (proc event)
   "Handle fswatch PROC sentinel EVENT."
