@@ -297,6 +297,201 @@ If =vulpea-default-notes-directory= points outside
 =vulpea-db-sync-directories=, new notes won't be indexed until you add the
 missing directory to =vulpea-db-sync-directories= and run a full sync
 
+** Journal Module
+
+Vulpea includes a full-featured journal system for daily notes with customizable widgets, calendar integration, and a two-pane interface.
+
+*** Quick Start
+
+#+begin_src emacs-lisp
+;; Load journal module
+(require 'vulpea-journal)
+
+;; Optional: load built-in widgets
+(require 'vulpea-journal-widgets)
+
+;; Open today's journal
+(vulpea-journal)
+
+;; Open journal for specific date
+(vulpea-journal (encode-time 0 0 12 25 11 2024))
+#+end_src
+
+*** Configuration
+
+All journal configuration is in a single template variable:
+
+#+begin_src emacs-lisp
+(setq vulpea-journal-default-template
+      '(:file-name "journal/%Y%m%d.org"   ; strftime, relative to vulpea-directory
+        :title "%Y-%m-%d %A"              ; strftime
+        :tags ("journal" "daily")         ; first tag identifies journal notes
+        :head "#+created: %<[%Y-%m-%d]>"
+        :body "* Morning\n\n* Evening\n"
+        :properties (("CREATED" . "%<[%Y-%m-%d %H:%M]>"))))
+#+end_src
+
+| Key           | Required | Description                                            |
+|---------------+----------+--------------------------------------------------------|
+| =:file-name=    | yes      | File path (strftime), relative to =vulpea-directory=     |
+| =:title=        | yes      | Note title format (strftime)                           |
+| =:tags=         | yes      | Tags list (first tag identifies journal notes)         |
+| =:head=         | no       | Header content after #+title                           |
+| =:body=         | no       | Note body content                                      |
+| =:properties=   | no       | Alist for property drawer                              |
+| =:meta=         | no       | Alist for metadata                                     |
+| =:context=      | no       | Plist for template variables                           |
+
+Can also be a function for dynamic configuration:
+
+#+begin_src emacs-lisp
+(setq vulpea-journal-default-template
+      (lambda (date)
+        (list :file-name (format-time-string "journal/%Y/%m/%Y%m%d.org" date)
+              :title (format-time-string "%Y-%m-%d %A" date)
+              :tags '("journal"))))
+#+end_src
+
+*Note on syntax:* =:file-name= and =:title= use strftime format (=%Y%m%d=) expanded for the target date. Other keys (=:head=, =:body=, etc.) use vulpea's =%<format>= syntax expanded at creation time.
+
+*** Two-Pane Interface
+
+The journal opens in a two-window layout:
+- *Left*: Org-mode buffer for editing the daily note
+- *Right*: Widgets buffer showing contextual information
+
+Navigation keybindings in the widgets buffer:
+
+| Key       | Action                    |
+|-----------+---------------------------|
+| =n= / =p=     | Next / previous widget    |
+| =TAB=       | Toggle widget collapse    |
+| =<=         | Previous day              |
+| =>=         | Next day                  |
+| =t=         | Jump to today             |
+| =j=         | Jump to specific date     |
+| =C=         | Open calendar             |
+| =q=         | Quit journal view         |
+
+*** Built-in Widgets
+
+Enable widgets by setting =vulpea-journal-widgets=:
+
+#+begin_src emacs-lisp
+;; Configure which widgets to display (in order)
+(setq vulpea-journal-widgets
+      '(calendar created-today links-to-today previous-years))
+#+end_src
+
+**** Calendar Widget
+
+Compact month calendar showing days with journal entries. Click any day to navigate.
+
+#+begin_src emacs-lisp
+;; Week start: 0 = Sunday, 1 = Monday
+(setq vulpea-journal-widget-calendar-week-start 1)
+#+end_src
+
+**** Created Today Widget
+
+Lists notes created on the current journal date.
+
+#+begin_src emacs-lisp
+;; Exclude journal notes from the list
+(setq vulpea-journal-widget-created-today-exclude-journal t)
+#+end_src
+
+**** Links to Today Widget
+
+Shows notes that link to the current journal entry (backlinks).
+
+**** Previous Years Widget
+
+Displays journal entries from the same date in previous years with content preview.
+
+#+begin_src emacs-lisp
+;; Number of years to look back
+(setq vulpea-journal-widget-previous-years-count 5)
+
+;; Characters to show in preview
+(setq vulpea-journal-widget-previous-years-preview-chars 200)
+
+;; Handle leap year edge cases (Feb 29 / Mar 1)
+(setq vulpea-journal-widget-previous-years-handle-leap-year t)
+#+end_src
+
+*** Calendar Integration
+
+Vulpea integrates with Emacs calendar mode:
+
+#+begin_src emacs-lisp
+;; Enable calendar integration
+(setq vulpea-journal-calendar-mark-entries t)
+
+;; Face for marked days
+(setq vulpea-journal-calendar-entry-face 'diary-face)
+#+end_src
+
+When enabled, dates with journal entries are highlighted in the calendar. Press =j= in calendar to open that day's journal.
+
+*** Creating Custom Widgets
+
+Define new widgets using the =vulpea-journal-define-widget= macro:
+
+#+begin_src emacs-lisp
+(require 'vulpea-journal-widget)
+
+(vulpea-journal-define-widget my-tasks
+  :title "Tasks Due Today"
+  :order 25                              ; Display order (lower = earlier)
+  :collapsible t                         ; Can be collapsed
+  :default-collapsed nil                 ; Start expanded
+  :query #'my-tasks-query                ; (date) -> list of items
+  :render #'my-tasks-render              ; (item) -> propertized string
+  :empty-message "No tasks due today")
+
+(defun my-tasks-query (date)
+  "Return tasks due on DATE."
+  (vulpea-db-query
+   (lambda (note)
+     (when-let ((deadline (vulpea-note-deadline note)))
+       (time-equal-p (date-to-day date)
+                     (date-to-day deadline))))))
+
+(defun my-tasks-render (note)
+  "Render NOTE as a task item."
+  (concat "• " (vulpea-note-title note) "\n"))
+#+end_src
+
+Widget properties:
+
+| Property            | Description                           | Default     |
+|---------------------+---------------------------------------+-------------|
+| =:title=              | Display title                         | (required)  |
+| =:order=              | Display order (lower = earlier)       | 50          |
+| =:collapsible=        | Can be collapsed                      | t           |
+| =:default-collapsed=  | Start collapsed                       | nil         |
+| =:query=              | Function =(date) -> list=               | (required)  |
+| =:render=             | Function =(item) -> string=             | (required)  |
+| =:empty-message=      | Shown when query returns nil          | "No items"  |
+| =:keymap=             | Widget-specific keybindings           | nil         |
+
+*** API Reference
+
+| Function                       | Description                        |
+|--------------------------------+------------------------------------|
+| =vulpea-journal=                 | Open journal (today or given date) |
+| =vulpea-journal-today=           | Open today's journal               |
+| =vulpea-journal-note=            | Get or create note for date        |
+| =vulpea-journal-find-note=       | Find existing note for date        |
+| =vulpea-journal-note-p=          | Check if note is a journal entry   |
+| =vulpea-journal-goto-date=       | Navigate to specific date          |
+| =vulpea-journal-goto-next-day=   | Navigate to next day               |
+| =vulpea-journal-goto-prev-day=   | Navigate to previous day           |
+| =vulpea-journal-dates-in-month=  | Get journal dates in a month       |
+| =vulpea-journal-dates-in-range=  | Get journal dates in date range    |
+| =vulpea-journal-refresh-widgets= | Refresh widgets buffer             |
+
 ** Key Features
 
 *** 🚀 Async-First Architecture
@@ -804,6 +999,12 @@ Indexed tables for efficient filtering:
 - =vulpea-buffer.el= - Buffer-local operations
 - =vulpea-select.el= - Completion interface
 - =vulpea-utils.el= - Utility functions
+
+**** Journal Modules
+
+- =vulpea-journal.el= - Daily notes, two-pane interface, calendar integration
+- =vulpea-journal-widget.el= - Widget system using ewoc
+- =vulpea-journal-widgets.el= - Built-in widgets (calendar, created-today, links-to-today, previous-years)
 
 **** Design Principles
 
