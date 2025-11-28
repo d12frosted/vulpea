@@ -36,6 +36,9 @@
 (require 'org)
 (require 'vulpea-note)
 
+;; Avoid circular dependency: vulpea-db-extract -> vulpea-buffer -> vulpea-utils
+(declare-function vulpea-db-update-file "vulpea-db-extract")
+
 (defvar vulpea-utils--uuid-regexp
   (concat
    "\\("
@@ -134,6 +137,39 @@ beginning of the buffer. Otherwise at the heading with note id."
     (when (> (vulpea-note-level ,note) 0)
      (goto-char (org-find-entry-with-id (vulpea-note-id ,note))))
     ,@body))
+
+(defmacro vulpea-utils-with-note-sync (note &rest body)
+  "Execute BODY with buffer visiting NOTE, then save and sync.
+
+Like `vulpea-utils-with-note', but after BODY completes:
+1. Saves the buffer
+2. Synchronously updates the database
+
+This is the idiomatic way to modify a note and ensure the
+database reflects those changes immediately. Use this when you
+need to query the updated data right after modification.
+
+Example:
+  (vulpea-utils-with-note-sync event
+    (vulpea-buffer-meta-set \"key\" \"value\" \\='append))
+  ;; Database is now up-to-date, safe to query
+
+If note level is equal to 0, then the point is placed at the
+beginning of the buffer. Otherwise at the heading with note id.
+
+Returns the result of the last form in BODY."
+  (declare (indent 1) (debug t))
+  (let ((result (make-symbol "result"))
+        (path (make-symbol "path")))
+    `(let ((,path (vulpea-note-path ,note))
+           ,result)
+       (with-current-buffer (find-file-noselect ,path)
+         (when (> (vulpea-note-level ,note) 0)
+           (goto-char (org-find-entry-with-id (vulpea-note-id ,note))))
+         (setq ,result (progn ,@body))
+         (save-buffer))
+       (vulpea-db-update-file ,path)
+       ,result)))
 
 (defun vulpea-utils-link-make-string (note &optional description)
   "Make a bracket link to NOTE.

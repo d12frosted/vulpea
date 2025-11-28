@@ -866,12 +866,43 @@ For creating many notes programmatically, use synchronous mode:
 
 *** Utility Functions
 
-| Function              | Description                        |
-|-----------------------+------------------------------------|
-| =vulpea-select=         | Select note with completion        |
-| =vulpea-select-from=    | Select from provided note list     |
-| =vulpea-title-to-slug=  | Convert title to URL-friendly slug |
-| =vulpea-db-count-notes= | Count total notes in database      |
+| Function                       | Description                             |
+|--------------------------------+-----------------------------------------|
+| =vulpea-select=                  | Select note with completion             |
+| =vulpea-select-from=             | Select from provided note list          |
+| =vulpea-title-to-slug=           | Convert title to URL-friendly slug      |
+| =vulpea-db-count-notes=          | Count total notes in database           |
+| =vulpea-utils-with-note=         | Execute body with buffer visiting note  |
+| =vulpea-utils-with-note-sync=    | Execute body, save, and sync database   |
+
+**** Modifying Notes Programmatically
+
+Use =vulpea-utils-with-note-sync= when you need to modify a note and
+immediately query the updated data:
+
+#+begin_src emacs-lisp
+;; Modify and sync - database is updated immediately
+(vulpea-utils-with-note-sync event
+  (vulpea-buffer-meta-set "status" "done" 'append))
+
+;; Safe to query right away
+(vulpea-meta-get event "status")  ; => "done"
+#+end_src
+
+For read-only operations or when async sync is acceptable, use
+=vulpea-utils-with-note=:
+
+#+begin_src emacs-lisp
+;; Read-only - no sync needed
+(vulpea-utils-with-note event
+  (org-entry-get nil "CUSTOM_ID"))
+
+;; Or when you'll trigger sync manually later
+(vulpea-utils-with-note event
+  (vulpea-buffer-meta-set "key" "value")
+  (save-buffer))
+;; Async sync will happen via file watcher
+#+end_src
 
 ** Advanced Topics
 
