@@ -23,19 +23,15 @@ Vulpea v2 is a complete rewrite. This guide helps you migrate from v1.
 
 * Before You Migrate
 
-** Backup
+We recommend testing v2 in a separate Emacs session before fully switching.
 
-1. Export your notes (they're just org files)
-2. Note your current configuration
-
-** Test Separately
-
-We recommend testing v2 separately before switching:
+Note your current v1 configuration - you'll need to translate settings to v2 equivalents.
 
 #+begin_src emacs-lisp
-;; In a separate Emacs config or session
-(add-to-list 'load-path "/path/to/vulpea-v2")
-(setq vulpea-db-location "~/.emacs.d/vulpea-v2.db")  ; Different file
+;; v2 uses its own database, separate from org-roam-db-location
+;; Can be stored in cache directory
+(setq vulpea-db-location
+      (expand-file-name "vulpea/vulpea.db" user-emacs-cache-directory))
 #+end_src
 
 * Configuration Migration
@@ -99,9 +95,11 @@ Most query functions have similar names but may have different signatures.
 #+begin_src emacs-lisp
 (vulpea-create title
                nil  ; file-name (nil = use template)
-               :tags '("tag")
-               :immediate-finish t)
+               :tags '("project" "work")
+               :head "#+created: %<[%Y-%m-%d]>")
 #+end_src
+
+Note: v2 always creates notes immediately (no capture buffer). The old =immediate-finish= parameter is gone.
 
 ** Metadata
 
@@ -116,15 +114,13 @@ The metadata API is largely unchanged:
 
 ** Buffer Functions
 
-Similar API with some renames:
+Buffer functions are unchanged:
 
-| v1                        | v2                         |
-|---------------------------+----------------------------|
-| =vulpea-buffer-title-get= | =vulpea-buffer-title-get=  |
-| =vulpea-buffer-title-set= | =vulpea-buffer-title-set=  |
-| =vulpea-buffer-tags-get=  | =vulpea-buffer-tags-get=   |
-| =vulpea-buffer-tags-set=  | =vulpea-buffer-tags-set=   |
-| =vulpea-buffer-meta-set=  | =vulpea-buffer-meta-set=   |
+- =vulpea-buffer-title-get=
+- =vulpea-buffer-title-set=
+- =vulpea-buffer-tags-get=
+- =vulpea-buffer-tags-set=
+- =vulpea-buffer-meta-set=
 
 * Database Migration
 
