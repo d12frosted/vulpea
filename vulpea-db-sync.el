@@ -705,27 +705,6 @@ is enabled."
                    updated
                    unchanged))))))
 
-;;; Sync Mode
-
-(defmacro vulpea-with-sync-db (&rest body)
-  "Execute BODY with synchronous database update.
-
-Disables autosync, executes BODY, then processes all pending updates
-synchronously before re-enabling autosync.
-
-Use this for programmatic operations that create many notes."
-  (declare (indent 0))
-  `(let ((was-enabled vulpea-db-autosync-mode))
-    (when was-enabled
-     (vulpea-db-autosync-mode -1))
-    (unwind-protect
-        (progn ,@body)
-      (when was-enabled
-       ;; Process any pending updates synchronously
-       (while vulpea-db-sync--queue
-        (vulpea-db-sync--process-queue))
-       (vulpea-db-autosync-mode +1)))))
-
 ;;; External Monitoring
 
 (defun vulpea-db-sync--setup-external-monitoring ()

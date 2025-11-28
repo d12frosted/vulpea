@@ -267,33 +267,6 @@ Returns absolute path. Caller responsible for cleanup."
         (delete-file path)
         (setq vulpea-db-sync--queue nil)))))
 
-;;; Sync Mode Tests
-
-(ert-deftest vulpea-db-sync-with-sync-db ()
-  "Test synchronous mode macro."
-  (vulpea-test--with-temp-db
-    (vulpea-db)
-    (let ((vulpea-db-autosync-mode nil)
-          (files nil))
-      (unwind-protect
-          (progn
-            ;; Use sync mode
-            (vulpea-with-sync-db
-              (dotimes (i 3)
-                (let ((path (vulpea-test--create-temp-org-file
-                             (format ":PROPERTIES:\n:ID: note-%d\n:END:\n#+TITLE: Note %d\n" i i))))
-                  (push path files)
-                  (vulpea-db-update-file path))))
-
-            ;; All files should be in database
-            (let ((count (caar (emacsql (vulpea-db)
-                                        [:select (funcall count *) :from notes]))))
-              (should (= count 3))))
-
-        (dolist (file files)
-          (when (file-exists-p file)
-            (delete-file file)))))))
-
 ;;; External Monitoring Tests
 
 (ert-deftest vulpea-db-sync-external-setup-auto-with-fswatch ()

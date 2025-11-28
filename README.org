@@ -782,19 +782,6 @@ Key features:
 (vulpea-db-sync-full-scan 'force)
 #+end_src
 
-**** Programmatic Batch Operations
-
-For creating many notes programmatically, use synchronous mode:
-
-#+begin_src emacs-lisp
-(vulpea-with-sync-db
-  (dotimes (i 100)
-    (vulpea-create (format "Note %d" i)
-                   :tags '("generated")
-                   :immediate-finish t)))
-;; All updates complete before proceeding
-#+end_src
-
 ** API Quick Reference
 
 *** Core Functions

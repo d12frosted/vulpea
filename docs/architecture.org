@@ -98,18 +98,6 @@ Based on existing =vulpea-sync.el= prototype (PR #194):
 - Transaction queue with batching delay (configurable)
 - Process updates in idle timer bursts
 
-*** Dual-Mode Support
-#+begin_src elisp
-;; Normal operation - async
-(vulpea-db-autosync-mode +1)
-
-;; Programmatic usage - sync
-(vulpea-with-sync-db
-  (dotimes (i 100)
-    (vulpea-create :title (format "Note %d" i))))
-;; Blocks until all updates complete
-#+end_src
-
 *** Status
 IMPLEMENTED - vulpea-db-sync.el provides autosync-mode with file-notify, fswatch, and polling support
 
