@@ -529,9 +529,9 @@ See =test/vulpea-db-extract-test.el= for:
 
 ** Related Documentation
 
-- [[file:v2-architecture-decisions.org][Architecture Decisions]] :: Design rationale
-- [[file:v2-implementation-guide.org][Implementation Guide]] :: Core implementation details
-- [[file:v2-usage-analysis.org][Usage Analysis]] :: Real-world usage patterns
+- [[file:architecture.org][Architecture]] :: Design decisions and rationale
+- [[file:api-reference.org][API Reference]] :: Core API documentation
+- [[file:sync-architecture.org][Sync Architecture]] :: File watching and async updates
 
 ** External Resources
 

@@ -1,0 +1,306 @@
+#+TITLE: Troubleshooting Vulpea
+#+AUTHOR: Boris Buliga
+
+Solutions to common issues with Vulpea.
+
+* Notes Not Appearing
+
+** Symptom
+
+=vulpea-find= shows nothing, or specific notes are missing from queries.
+
+** Causes and Solutions
+
+*** Notes lack ID properties
+
+Vulpea only indexes entries with =ID= properties.
+
+*Check:* Open a note and look for the property drawer:
+
+#+begin_src org
+:PROPERTIES:
+:ID: some-uuid-here
+:END:
+#+end_src
+
+*Fix:* Add ID with =M-x org-id-get-create=
+
+*** Directory not configured
+
+*Check:*
+
+#+begin_src emacs-lisp
+(message "%S" vulpea-db-sync-directories)
+#+end_src
+
+*Fix:* Add your notes directory:
+
+#+begin_src emacs-lisp
+(setq vulpea-db-sync-directories '("~/org/"))
+#+end_src
+
+*** Database not synced
+
+*Check:*
+
+#+begin_src emacs-lisp
+(vulpea-db-count-notes)  ; Should be > 0
+#+end_src
+
+*Fix:* Run initial sync:
+
+#+begin_src emacs-lisp
+(vulpea-db-sync-full-scan)
+#+end_src
+
+*** Note is ignored
+
+Notes with =VULPEA_IGNORE= property are excluded.
+
+*Check:* Look for the property:
+
+#+begin_src org
+:PROPERTIES:
+:VULPEA_IGNORE: t
+:END:
+#+end_src
+
+*Fix:* Remove the property if you want the note indexed.
+
+* Slow Performance
+
+** Slow Startup
+
+*** Symptom
+
+Emacs hangs when enabling =vulpea-db-autosync-mode=.
+
+*** Cause
+
+Initial scan is processing all files.
+
+*** Solutions
+
+1. *Skip startup scan:*
+
+   #+begin_src emacs-lisp
+   (setq vulpea-db-sync-scan-on-enable nil)
+   #+end_src
+
+2. *Run sync manually* when convenient:
+
+   #+begin_src emacs-lisp
+   (vulpea-db-sync-full-scan)
+   #+end_src
+
+** Slow Sync Operations
+
+*** Symptom
+
+Full scans take a long time, even on subsequent runs.
+
+*** Solutions
+
+1. *Install =fd=* for faster file discovery:
+
+   #+begin_src bash
+   brew install fd        # macOS
+   apt install fd-find    # Debian/Ubuntu
+   pacman -S fd           # Arch
+   #+end_src
+
+2. *Use faster parse method:*
+
+   #+begin_src emacs-lisp
+   (setq vulpea-db-parse-method 'single-temp-buffer)
+   #+end_src
+
+3. *Disable heading indexing* if you only use file-level notes:
+
+   #+begin_src emacs-lisp
+   (setq vulpea-db-index-heading-level nil)
+   #+end_src
+
+** Performance Degrades Over Time
+
+*** Symptom
+
+Operations get slower with repeated use.
+
+*** Cause
+
+Heavy =org-mode-hook= functions running during parsing.
+
+*** Solution
+
+Guard hook functions to skip during Vulpea parsing:
+
+#+begin_src emacs-lisp
+(add-hook 'org-mode-hook
+          (lambda ()
+            (unless (bound-and-true-p vulpea-db--active-parse-method)
+              ;; Your heavy code here
+              )))
+#+end_src
+
+* External Changes Not Detected
+
+** Symptom
+
+Files modified by git, Dropbox, or other tools don't update in the database.
+
+** Solutions
+
+*** Install fswatch
+
+The most reliable solution:
+
+#+begin_src bash
+brew install fswatch      # macOS
+apt install fswatch       # Debian/Ubuntu
+pacman -S fswatch         # Arch
+#+end_src
+
+*** Configure external detection
+
+#+begin_src emacs-lisp
+;; Auto-detect best method (recommended)
+(setq vulpea-db-sync-external-method 'auto)
+#+end_src
+
+*** Verify fswatch is running
+
+Check =*Messages*= buffer for:
+
+#+begin_example
+Vulpea: Started fswatch monitoring for ...
+#+end_example
+
+*** Fallback to polling
+
+If fswatch isn't available:
+
+#+begin_src emacs-lisp
+(setq vulpea-db-sync-external-method 'poll)
+(setq vulpea-db-sync-poll-interval 2)  ; seconds
+#+end_src
+
+* Database Issues
+
+** Stale or Incorrect Data
+
+*** Symptom
+
+Queries return outdated information or wrong results.
+
+*** Solution
+
+Rebuild the database:
+
+#+begin_src emacs-lisp
+;; Force complete re-index
+(vulpea-db-sync-full-scan 'force)
+#+end_src
+
+Or with =C-u= prefix: =C-u M-x vulpea-db-sync-full-scan=
+
+** Database Corruption
+
+*** Symptom
+
+Errors when querying, or Emacs crashes when using Vulpea.
+
+*** Solution
+
+Delete and rebuild:
+
+#+begin_src emacs-lisp
+;; Close database
+(vulpea-db-close)
+
+;; Delete file
+(delete-file vulpea-db-location)
+
+;; Rebuild
+(vulpea-db-sync-full-scan)
+#+end_src
+
+* Template Issues
+
+** Template Expansion Not Working
+
+*** Symptom
+
+Placeholders like =${title}= appear literally in created notes.
+
+*** Causes
+
+1. *Wrong function:* Template expansion only works with =vulpea-create=, not =org-capture= directly.
+
+2. *Syntax error:* Check for balanced parentheses in =%(elisp)= expressions.
+
+*** Correct Syntax
+
+- Variables: =${title}=, =${slug}=, =${timestamp}=, =${id}=
+- Elisp: =%(user-full-name)=, =%(format-time-string "%Y")=
+- Timestamps: =%<[%Y-%m-%d]>=
+
+** Journal Template Not Applied
+
+*** Symptom
+
+Journal notes don't use your configured template.
+
+*** Check
+
+Ensure template is set before opening journal:
+
+#+begin_src emacs-lisp
+(setq vulpea-journal-default-template
+      '(:file-name "journal/%Y%m%d.org"
+        :title "%Y-%m-%d %A"
+        :tags ("journal")))
+#+end_src
+
+* Compatibility Issues
+
+** With org-roam
+
+Vulpea v2 is independent from org-roam. Both can coexist:
+
+- They maintain separate databases
+- No configuration overlap
+- Use either or both for queries
+
+** With Other Packages
+
+If conflicts occur with other org-mode packages:
+
+1. *Load order:* Load Vulpea after org-mode
+
+2. *Hook conflicts:* Guard Vulpea's hooks:
+
+   #+begin_src emacs-lisp
+   (setq vulpea-db-parse-method 'find-file)  ; Most compatible
+   #+end_src
+
+* Getting Help
+
+If none of these solutions work:
+
+1. *Check existing issues:* [[https://github.com/d12frosted/vulpea/issues][GitHub Issues]]
+
+2. *Open new issue* with:
+   - Vulpea version (branch/commit)
+   - Emacs version
+   - Steps to reproduce
+   - Error messages (from =*Messages*= buffer)
+
+3. *Debug info:*
+
+   #+begin_src emacs-lisp
+   (message "Vulpea dirs: %S" vulpea-db-sync-directories)
+   (message "DB location: %s" vulpea-db-location)
+   (message "Note count: %d" (vulpea-db-count-notes))
+   (message "Autosync: %s" vulpea-db-autosync-mode)
+   #+end_src

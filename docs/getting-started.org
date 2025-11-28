@@ -1,0 +1,242 @@
+#+TITLE: Getting Started with Vulpea
+#+AUTHOR: Boris Buliga
+
+This guide walks you through installing Vulpea, setting up your first database, and understanding the core concepts.
+
+* Installation
+
+** From Source
+
+Vulpea v2 is currently on the =v2-rewrite= branch:
+
+#+begin_src bash
+git clone https://github.com/d12frosted/vulpea
+cd vulpea
+git checkout v2-rewrite
+#+end_src
+
+Add to your Emacs configuration:
+
+#+begin_src emacs-lisp
+(add-to-list 'load-path "/path/to/vulpea")
+(require 'vulpea)
+#+end_src
+
+** Dependencies
+
+*Required:*
+- Emacs 27.2 or later
+- =org-mode= 9.4.4 or later
+- =emacsql= 4.3.0+ with =emacsql-sqlite-builtin=
+- =s= 1.12+
+- =dash= 2.19+
+
+*Optional but recommended:*
+
+| Tool      | What it does                                              | How to install                                               |
+|-----------+-----------------------------------------------------------+--------------------------------------------------------------|
+| =fd=      | Fast file finding (15× faster than =find=)                | =brew install fd= / =apt install fd-find= / =pacman -S fd=   |
+| =fswatch= | Detects file changes made outside Emacs (git, sync tools) | =brew install fswatch= / =apt install fswatch= / =pacman -S fswatch= |
+
+Without these tools, Vulpea uses slower but functional alternatives.
+
+* First-Time Setup
+
+** Step 1: Configure Directories
+
+Tell Vulpea where your notes live:
+
+#+begin_src emacs-lisp
+(require 'vulpea)
+
+;; Directory (or directories) containing your org notes
+(setq vulpea-db-sync-directories '("~/org/"))
+
+;; Where to store the database (optional, has sensible default)
+(setq vulpea-db-location
+      (expand-file-name "vulpea.db" user-emacs-directory))
+#+end_src
+
+** Step 2: Build the Database
+
+The first time you use Vulpea, it needs to scan all your notes:
+
+#+begin_src emacs-lisp
+(vulpea-db-sync-full-scan)
+#+end_src
+
+Or interactively: =M-x vulpea-db-sync-full-scan=
+
+This may take a few minutes for large collections. You'll see progress messages like:
+
+#+begin_example
+Vulpea: Syncing 1234 files...
+Vulpea: Progress: 500/1234 files (450 updated, 50 unchanged)
+Vulpea: Sync complete - 1234 files (1200 updated, 34 unchanged, 2.5s)
+#+end_example
+
+** Step 3: Enable Auto-Sync
+
+Once the initial scan completes, enable automatic syncing:
+
+#+begin_src emacs-lisp
+(vulpea-db-autosync-mode +1)
+#+end_src
+
+This starts file watchers that keep the database up-to-date as you edit notes. Changes are processed in the background without interrupting your work.
+
+** Step 4: Verify It Works
+
+Try finding a note:
+
+#+begin_example
+M-x vulpea-find
+#+end_example
+
+You should see a completion interface with your notes. Select one to open it.
+
+If no notes appear, see [[*Troubleshooting][Troubleshooting]] below.
+
+* Core Concepts
+
+** Notes and IDs
+
+Vulpea only indexes org entries that have an =ID= property. This is how Vulpea identifies and tracks notes.
+
+*File-level note:*
+
+#+begin_src org
+:PROPERTIES:
+:ID: 5093fc4e-8c63-4e60-a1da-83fc7ecd5db7
+:END:
+#+title: My Note
+
+Content here...
+#+end_src
+
+*Heading-level note:*
+
+#+begin_src org
+,* My Heading
+:PROPERTIES:
+:ID: cfc39858-351d-4f1e-8f98-10d16d71f49e
+:END:
+
+Content here...
+#+end_src
+
+To add an ID to an existing entry: =M-x org-id-get-create=
+
+** Tags
+
+Vulpea indexes both file-level tags (=#+filetags:=) and heading tags:
+
+#+begin_src org
+#+filetags: :project:work:
+
+,* TODO Task :urgent:
+#+end_src
+
+Query notes by tags using =vulpea-db-query-by-tags-some= or =vulpea-db-query-by-tags-every=.
+
+** Links
+
+Vulpea tracks all =id:= links between notes:
+
+#+begin_src org
+See [[id:other-note-id][Other Note]] for details.
+#+end_src
+
+This enables backlink queries - finding all notes that link to a given note.
+
+** Metadata
+
+Vulpea supports structured metadata using description lists:
+
+#+begin_src org
+- author :: John Smith
+- rating :: 95
+- related :: [[id:another-note][Another Note]]
+#+end_src
+
+Metadata is queryable and supports type coercion (strings, numbers, links to other notes).
+
+→ See [[file:user-guide.org][User Guide]] for details on working with metadata.
+
+* What Gets Indexed
+
+Vulpea extracts and stores:
+
+| Data        | Source                          | Example Query                           |
+|-------------+---------------------------------+-----------------------------------------|
+| Title       | =#+title:= or heading text      | =vulpea-db-search-by-title=             |
+| Tags        | =#+filetags:= and heading tags  | =vulpea-db-query-by-tags-some=          |
+| Links       | =id:= links in content          | =vulpea-db-query-by-links-some=         |
+| Metadata    | Description lists (=key :: val=)  | =vulpea-db-query-by-meta=               |
+| Aliases     | =ROAM_ALIASES= property         | Included in completion candidates       |
+| TODO state  | =TODO=, =DONE=, etc.            | Available in =vulpea-note= struct       |
+| Timestamps  | =SCHEDULED=, =DEADLINE=, =CLOSED= | Available in =vulpea-note= struct       |
+
+* Excluding Notes
+
+To prevent a note from being indexed, add the =VULPEA_IGNORE= property:
+
+#+begin_src org
+:PROPERTIES:
+:ID: some-uuid
+:VULPEA_IGNORE: t
+:END:
+#+title: Private Note
+
+This won't appear in Vulpea queries.
+#+end_src
+
+* Troubleshooting
+
+** No notes appear in vulpea-find
+
+1. *Check IDs* - Notes need =ID= properties. Use =M-x org-id-get-create= to add them.
+
+2. *Check directories* - Verify =vulpea-db-sync-directories= includes your notes:
+   #+begin_src emacs-lisp
+   (message "%S" vulpea-db-sync-directories)
+   #+end_src
+
+3. *Rebuild database* - Run =M-x vulpea-db-sync-full-scan=
+
+4. *Check note count*:
+   #+begin_src emacs-lisp
+   (vulpea-db-count-notes)  ; Should return number > 0
+   #+end_src
+
+** Database sync is slow
+
+For large collections (10k+ notes):
+
+1. Install =fd= for faster file discovery
+2. Consider disabling heading-level indexing:
+   #+begin_src emacs-lisp
+   (setq vulpea-db-index-heading-level nil)
+   #+end_src
+3. Use faster parse method:
+   #+begin_src emacs-lisp
+   (setq vulpea-db-parse-method 'single-temp-buffer)
+   #+end_src
+
+→ See [[file:configuration.org][Configuration]] for performance tuning options.
+
+** External changes not detected
+
+If files modified by git or sync tools aren't updating:
+
+1. Install =fswatch=: =brew install fswatch= (macOS) or =apt install fswatch= (Linux)
+2. Verify it's being used:
+   #+begin_src emacs-lisp
+   (setq vulpea-db-sync-external-method 'auto)  ; or 'fswatch
+   #+end_src
+
+* Next Steps
+
+- [[file:user-guide.org][User Guide]] - Daily usage, interactive commands
+- [[file:configuration.org][Configuration]] - All options, performance tuning
+- [[file:api-reference.org][API Reference]] - Programmatic usage for building tools

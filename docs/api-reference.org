@@ -1,0 +1,404 @@
+#+TITLE: Vulpea API Reference
+#+AUTHOR: Boris Buliga
+
+This reference covers the programmatic API for building tools with Vulpea.
+
+* The vulpea-note Struct
+
+All query functions return =vulpea-note= structs:
+
+#+begin_src emacs-lisp
+(vulpea-note-id note)            ; UUID string
+(vulpea-note-path note)          ; Absolute file path
+(vulpea-note-level note)         ; 0 = file-level, 1+ = heading
+(vulpea-note-title note)         ; Note title
+(vulpea-note-primary-title note) ; Primary title (without aliases)
+(vulpea-note-aliases note)       ; List of alias strings
+(vulpea-note-tags note)          ; List of tag strings
+(vulpea-note-links note)         ; List of (type . target) pairs
+(vulpea-note-meta note)          ; Alist of metadata
+(vulpea-note-properties note)    ; Alist of org properties
+(vulpea-note-todo note)          ; TODO state string or nil
+(vulpea-note-priority note)      ; Priority character or nil
+(vulpea-note-scheduled note)     ; Scheduled timestamp or nil
+(vulpea-note-deadline note)      ; Deadline timestamp or nil
+(vulpea-note-closed note)        ; Closed timestamp or nil
+(vulpea-note-outline-path note)  ; List of parent headings
+(vulpea-note-attach-dir note)    ; Attachment directory or nil
+#+end_src
+
+* Getting Notes
+
+** By ID
+
+The fastest way to get a single note:
+
+#+begin_src emacs-lisp
+(vulpea-db-get-by-id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")
+;; => #s(vulpea-note :id "5093fc4e..." :title "My Note" ...)
+;; => nil if not found
+#+end_src
+
+** By Title Search
+
+Find notes matching a title substring:
+
+#+begin_src emacs-lisp
+(vulpea-db-search-by-title "meeting")
+;; => list of notes with "meeting" in title
+#+end_src
+
+* Query Functions
+
+All query functions return lists of =vulpea-note= structs.
+
+** By Tags
+
+#+begin_src emacs-lisp
+;; Notes with ANY of these tags
+(vulpea-db-query-by-tags-some '("project" "task"))
+
+;; Notes with ALL of these tags
+(vulpea-db-query-by-tags-every '("project" "active"))
+
+;; Notes WITHOUT any of these tags
+(vulpea-db-query-by-tags-none '("archive" "deprecated"))
+#+end_src
+
+** By Links
+
+#+begin_src emacs-lisp
+;; Notes linking to ANY of these IDs (backlinks)
+(vulpea-db-query-by-links-some '("target-note-id"))
+
+;; Filter by link type
+(vulpea-db-query-by-links-some '("note-id") "id")
+
+;; Notes linking to ALL of these IDs
+(vulpea-db-query-by-links-every '("id-1" "id-2"))
+#+end_src
+
+** By Metadata
+
+#+begin_src emacs-lisp
+;; Notes with a specific metadata key
+(vulpea-db-query-by-meta-key "status")
+
+;; Notes where key equals value
+(vulpea-db-query-by-meta "status" "active")
+
+;; With type specification
+(vulpea-db-query-by-meta "region" "region-id" "note")
+#+end_src
+
+** By Level
+
+#+begin_src emacs-lisp
+;; File-level notes only
+(vulpea-db-query-by-level 0)
+
+;; First-level headings only
+(vulpea-db-query-by-level 1)
+#+end_src
+
+** Custom Predicate
+
+For complex queries:
+
+#+begin_src emacs-lisp
+(vulpea-db-query
+ (lambda (note)
+   (and (member "project" (vulpea-note-tags note))
+        (string-prefix-p "2025" (vulpea-note-title note)))))
+#+end_src
+
+** Get All Tags
+
+#+begin_src emacs-lisp
+(vulpea-db-query-tags)
+;; => ("project" "task" "meeting" ...)
+#+end_src
+
+* Statistics
+
+#+begin_src emacs-lisp
+(vulpea-db-count-notes)               ; Total notes
+(vulpea-db-count-file-level-notes)    ; File-level only
+(vulpea-db-count-heading-level-notes) ; Heading-level only
+#+end_src
+
+* Reading Metadata
+
+** Single Value
+
+#+begin_src emacs-lisp
+;; Default: returns string
+(vulpea-note-meta-get note "country")
+;; => "France"
+
+;; As number
+(vulpea-note-meta-get note "rating" 'number)
+;; => 95
+
+;; As symbol
+(vulpea-note-meta-get note "status" 'symbol)
+;; => 'active
+
+;; As link (extracts ID or URL)
+(vulpea-note-meta-get note "url" 'link)
+;; => "https://example.com"
+
+;; As note (resolves id: link to vulpea-note)
+(vulpea-note-meta-get note "region" 'note)
+;; => #s(vulpea-note :id "region-id" :title "Bordeaux" ...)
+#+end_src
+
+** Multiple Values
+
+When a key has multiple entries:
+
+#+begin_src org
+- grape :: Cabernet Sauvignon
+- grape :: Merlot
+#+end_src
+
+#+begin_src emacs-lisp
+(vulpea-note-meta-get-list note "grape")
+;; => ("Cabernet Sauvignon" "Merlot")
+
+(vulpea-note-meta-get-list note "ratings" 'number)
+;; => (95 92 88)
+#+end_src
+
+* Creating Notes
+
+#+begin_src emacs-lisp
+;; Simple
+(vulpea-create "My Note")
+;; => #s(vulpea-note ...)
+
+;; With options
+(vulpea-create "Project Note"
+               nil                              ; file-name (nil = use template)
+               :tags '("project" "work")
+               :properties '(("STATUS" . "active"))
+               :meta '(("client" . "Acme Corp"))
+               :head "#+created: %<[%Y-%m-%d]>"
+               :body "* Tasks\n\n* Notes\n")
+#+end_src
+
+Returns the created =vulpea-note=.
+
+* Visiting Notes
+
+#+begin_src emacs-lisp
+;; By ID
+(vulpea-visit "note-id")
+
+;; By note struct
+(vulpea-visit note)
+
+;; In other window
+(vulpea-visit note t)
+#+end_src
+
+* Buffer Functions
+
+These operate on the current buffer (must be an org file).
+
+** Title
+
+#+begin_src emacs-lisp
+(vulpea-buffer-title-get)              ; Get title
+(vulpea-buffer-title-set "New Title")  ; Set title
+#+end_src
+
+** Tags
+
+#+begin_src emacs-lisp
+(vulpea-buffer-tags-get)               ; Get tags
+(vulpea-buffer-tags-set '("a" "b"))    ; Set tags
+(vulpea-buffer-tags-add "new-tag")     ; Add tag (interactive)
+(vulpea-buffer-tags-remove "old-tag")  ; Remove tag (interactive)
+#+end_src
+
+** Aliases
+
+#+begin_src emacs-lisp
+(vulpea-buffer-alias-get)              ; Get aliases
+(vulpea-buffer-alias-add "Alias")      ; Add alias
+(vulpea-buffer-alias-remove "Alias")   ; Remove alias
+#+end_src
+
+** Metadata
+
+#+begin_src emacs-lisp
+;; Set metadata (in current buffer)
+(vulpea-buffer-meta-set "key" "value")
+(vulpea-buffer-meta-set "rating" "95")
+#+end_src
+
+* Modifying Notes Programmatically
+
+** With Async Sync
+
+For modifications where immediate database update isn't needed:
+
+#+begin_src emacs-lisp
+(vulpea-utils-with-note note
+  (vulpea-buffer-meta-set "status" "reviewed")
+  (save-buffer))
+;; Database updates asynchronously via file watcher
+#+end_src
+
+** With Immediate Sync
+
+When you need to query updated data right away:
+
+#+begin_src emacs-lisp
+(vulpea-utils-with-note-sync note
+  (vulpea-buffer-meta-set "status" "done"))
+;; Database is already updated here
+(vulpea-note-meta-get (vulpea-db-get-by-id id) "status")
+;; => "done"
+#+end_src
+
+* Selection Interface
+
+** Select Note
+
+#+begin_src emacs-lisp
+;; Basic selection
+(vulpea-select "Select note")
+;; => selected vulpea-note or nil
+
+;; With filter
+(vulpea-select "Select project"
+               :filter-fn (lambda (note)
+                            (member "project" (vulpea-note-tags note))))
+
+;; With initial input
+(vulpea-select "Select" :initial-prompt "meeting")
+#+end_src
+
+** Select from List
+
+#+begin_src emacs-lisp
+(vulpea-select-from "Choose" notes)
+;; => selected note from provided list
+#+end_src
+
+* Synchronization
+
+** Immediate Update
+
+#+begin_src emacs-lisp
+;; Update specific file (synchronous)
+(vulpea-db-update-file "/path/to/note.org")
+
+;; Update via sync system (async if autosync enabled)
+(vulpea-db-sync-update-file "/path/to/note.org")
+#+end_src
+
+** Batch Operations
+
+#+begin_src emacs-lisp
+;; Update directory
+(vulpea-db-sync-update-directory "~/org/")
+
+;; Full scan
+(vulpea-db-sync-full-scan)
+
+;; Force re-index
+(vulpea-db-sync-full-scan 'force)
+#+end_src
+
+* Utility Functions
+
+#+begin_src emacs-lisp
+;; Convert title to URL-friendly slug
+(vulpea-title-to-slug "My Note Title")
+;; => "my-note-title"
+
+;; Make org link to note
+(vulpea-utils-link-make-string note)
+;; => "[[id:abc123][Note Title]]"
+
+(vulpea-utils-link-make-string note "Custom Description")
+;; => "[[id:abc123][Custom Description]]"
+#+end_src
+
+* Database Access
+
+For advanced use cases, direct database access:
+
+#+begin_src emacs-lisp
+;; Get database connection
+(vulpea-db)
+
+;; Run raw SQL
+(emacsql (vulpea-db)
+         [:select * :from notes :where (= id $s1)]
+         "note-id")
+#+end_src
+
+→ See [[file:plugin-guide.org][Plugin Guide]] for custom tables and extractors.
+
+* Quick Reference Tables
+
+** Core Functions
+
+| Function             | Description                               |
+|----------------------+-------------------------------------------|
+| =vulpea-find=        | Interactive note selection and navigation |
+| =vulpea-find-backlink= | Find notes linking to current note      |
+| =vulpea-insert=      | Insert link to a note                     |
+| =vulpea-create=      | Create new note programmatically          |
+| =vulpea-visit=       | Visit note by ID or struct                |
+
+** Query Functions
+
+| Function                         | Description                       |
+|----------------------------------+-----------------------------------|
+| =vulpea-db-query=                | Query with predicate              |
+| =vulpea-db-get-by-id=            | Get single note by ID             |
+| =vulpea-db-search-by-title=      | Search by title substring         |
+| =vulpea-db-query-by-tags-some=   | Notes with ANY tags               |
+| =vulpea-db-query-by-tags-every=  | Notes with ALL tags               |
+| =vulpea-db-query-by-tags-none=   | Notes WITHOUT tags                |
+| =vulpea-db-query-by-links-some=  | Notes linking to ANY IDs          |
+| =vulpea-db-query-by-links-every= | Notes linking to ALL IDs          |
+| =vulpea-db-query-by-meta=        | Notes with metadata key=value     |
+| =vulpea-db-query-by-meta-key=    | Notes having metadata key         |
+| =vulpea-db-query-by-level=       | Notes at specific level           |
+| =vulpea-db-query-tags=           | Get all unique tags               |
+
+** Buffer Functions
+
+| Function                     | Description              |
+|------------------------------+--------------------------|
+| =vulpea-buffer-title-get=    | Get buffer title         |
+| =vulpea-buffer-title-set=    | Set buffer title         |
+| =vulpea-buffer-tags-get=     | Get buffer tags          |
+| =vulpea-buffer-tags-set=     | Set buffer tags          |
+| =vulpea-buffer-tags-add=     | Add tag interactively    |
+| =vulpea-buffer-tags-remove=  | Remove tag interactively |
+| =vulpea-buffer-alias-get=    | Get aliases              |
+| =vulpea-buffer-alias-add=    | Add alias                |
+| =vulpea-buffer-alias-remove= | Remove alias             |
+| =vulpea-buffer-meta-set=     | Set metadata value       |
+
+** Sync Functions
+
+| Function                          | Description                    |
+|-----------------------------------+--------------------------------|
+| =vulpea-db-autosync-mode=         | Toggle auto-sync               |
+| =vulpea-db-update-file=           | Immediate sync update          |
+| =vulpea-db-sync-update-file=      | Update file (async if enabled) |
+| =vulpea-db-sync-update-directory= | Update directory               |
+| =vulpea-db-sync-full-scan=        | Scan all directories           |
+
+* Next Steps
+
+- [[file:plugin-guide.org][Plugin Guide]] - Custom extractors and tables
+- [[file:architecture.org][Architecture]] - Internal design decisions

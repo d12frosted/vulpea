@@ -1,0 +1,174 @@
+#+TITLE: Migration Guide: Vulpea v1 to v2
+#+AUTHOR: Boris Buliga
+
+Vulpea v2 is a complete rewrite. This guide helps you migrate from v1.
+
+* Overview of Changes
+
+** What's Different
+
+| Aspect       | v1                           | v2                              |
+|--------------+------------------------------+---------------------------------|
+| Database     | org-roam's database          | Custom database                 |
+| Sync         | Save hooks (blocking)        | File watchers (async)           |
+| Dependencies | Requires org-roam            | Standalone                      |
+| API          | Built on org-roam functions  | Native functions                |
+| Performance  | Limited by org-roam          | Optimized for 100k+ notes       |
+
+** What's the Same
+
+- Note format (org files with IDs)
+- Metadata syntax (description lists)
+- Core concepts (tags, links, metadata)
+
+* Before You Migrate
+
+** Backup
+
+1. Export your notes (they're just org files)
+2. Note your current configuration
+
+** Test Separately
+
+We recommend testing v2 separately before switching:
+
+#+begin_src emacs-lisp
+;; In a separate Emacs config or session
+(add-to-list 'load-path "/path/to/vulpea-v2")
+(setq vulpea-db-location "~/.emacs.d/vulpea-v2.db")  ; Different file
+#+end_src
+
+* Configuration Migration
+
+** Directory Configuration
+
+*v1:*
+#+begin_src emacs-lisp
+;; Used org-roam-directory
+#+end_src
+
+*v2:*
+#+begin_src emacs-lisp
+(setq vulpea-db-sync-directories '("~/org/"))
+(setq vulpea-default-notes-directory "~/org/")
+#+end_src
+
+** Database Location
+
+*v1:* Used org-roam's database
+
+*v2:*
+#+begin_src emacs-lisp
+(setq vulpea-db-location
+      (expand-file-name "vulpea.db" user-emacs-directory))
+#+end_src
+
+** Enabling Sync
+
+*v1:* Relied on org-roam-db-autosync-mode
+
+*v2:*
+#+begin_src emacs-lisp
+(vulpea-db-autosync-mode +1)
+#+end_src
+
+* API Migration
+
+** Query Functions
+
+Most query functions have similar names but may have different signatures.
+
+| v1 Function                      | v2 Equivalent                    |
+|----------------------------------+----------------------------------|
+| =vulpea-db-query=                | =vulpea-db-query=                |
+| =vulpea-db-get-by-id=            | =vulpea-db-get-by-id=            |
+| =vulpea-db-get-title=            | Use =vulpea-db-search-by-title=  |
+| =vulpea-db-query-by-tags-some=   | =vulpea-db-query-by-tags-some=   |
+| =vulpea-db-query-by-tags-every=  | =vulpea-db-query-by-tags-every=  |
+| =vulpea-db-query-by-links-some=  | =vulpea-db-query-by-links-some=  |
+| =vulpea-db-query-by-links-every= | =vulpea-db-query-by-links-every= |
+
+** Note Creation
+
+*v1:*
+#+begin_src emacs-lisp
+(vulpea-create title template-key nil nil 'immediate-finish)
+#+end_src
+
+*v2:*
+#+begin_src emacs-lisp
+(vulpea-create title
+               nil  ; file-name (nil = use template)
+               :tags '("tag")
+               :immediate-finish t)
+#+end_src
+
+** Metadata
+
+The metadata API is largely unchanged:
+
+#+begin_src emacs-lisp
+;; Both versions
+(vulpea-note-meta-get note "key")
+(vulpea-note-meta-get note "key" 'number)
+(vulpea-note-meta-get-list note "key")
+#+end_src
+
+** Buffer Functions
+
+Similar API with some renames:
+
+| v1                        | v2                         |
+|---------------------------+----------------------------|
+| =vulpea-buffer-title-get= | =vulpea-buffer-title-get=  |
+| =vulpea-buffer-title-set= | =vulpea-buffer-title-set=  |
+| =vulpea-buffer-tags-get=  | =vulpea-buffer-tags-get=   |
+| =vulpea-buffer-tags-set=  | =vulpea-buffer-tags-set=   |
+| =vulpea-buffer-meta-set=  | =vulpea-buffer-meta-set=   |
+
+* Database Migration
+
+v2 uses a different database schema. You cannot reuse the v1/org-roam database.
+
+** Building Fresh Database
+
+#+begin_src emacs-lisp
+;; Configure v2
+(setq vulpea-db-sync-directories '("~/org/"))
+(setq vulpea-db-location "~/.emacs.d/vulpea.db")
+
+;; Build database
+(vulpea-db-sync-full-scan)
+#+end_src
+
+Your notes don't change - only the database is rebuilt.
+
+* org-roam Compatibility
+
+v2 does not depend on org-roam, but they can coexist:
+
+- Each maintains its own database
+- No conflicts between them
+- Use either or both for queries
+
+If you want to keep org-roam for some features while using Vulpea for others, both can be loaded simultaneously.
+
+* Breaking Changes Summary
+
+1. *Different database* - Must rebuild, cannot migrate
+2. *No org-roam dependency* - org-roam functions not available
+3. *Async sync* - Updates happen in background, not on save
+4. *New configuration variables* - Review all settings
+5. *API changes* - Some functions renamed or have new signatures
+
+* Getting Help
+
+If you encounter migration issues:
+
+1. Check [[file:troubleshooting.org][Troubleshooting]] for common problems
+2. Open an issue at [[https://github.com/d12frosted/vulpea/issues][GitHub]]
+
+Include:
+- Your v1 configuration
+- What you're trying to migrate
+- Error messages

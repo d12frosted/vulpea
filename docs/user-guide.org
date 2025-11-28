@@ -1,0 +1,316 @@
+#+TITLE: Vulpea User Guide
+#+AUTHOR: Boris Buliga
+
+This guide covers daily usage of Vulpea - finding notes, creating links, and working with metadata.
+
+* Finding Notes
+
+** vulpea-find
+
+The primary way to navigate your notes:
+
+#+begin_example
+M-x vulpea-find
+#+end_example
+
+This opens a completion interface showing all your notes. Type to filter, then select a note to open it.
+
+Features:
+- Searches titles and aliases
+- Shows tags in the completion display
+- Creates a new note if you enter a title that doesn't exist
+
+** vulpea-find-backlink
+
+Find notes that link to the current note:
+
+#+begin_example
+M-x vulpea-find-backlink
+#+end_example
+
+This is useful for discovering connections - seeing what other notes reference the one you're viewing.
+
+* Creating Links
+
+** vulpea-insert
+
+Insert a link to another note:
+
+#+begin_example
+M-x vulpea-insert
+#+end_example
+
+This opens completion to select a note, then inserts an =id:= link at point:
+
+#+begin_src org
+See [[id:abc123][Selected Note Title]] for details.
+#+end_src
+
+If you type a title that doesn't exist, Vulpea offers to create a new note.
+
+* Creating Notes
+
+** From vulpea-find
+
+When you use =vulpea-find= and type a title that doesn't exist, Vulpea asks if you want to create it.
+
+** Programmatically
+
+For scripts or custom commands:
+
+#+begin_src emacs-lisp
+;; Simple creation
+(vulpea-create "My New Note")
+
+;; With tags
+(vulpea-create "Project Note"
+               nil  ; use default file-name template
+               :tags '("project" "work"))
+
+;; With metadata
+(vulpea-create "Book Review"
+               nil
+               :meta '(("author" . "Jane Smith")
+                       ("rating" . "4")))
+#+end_src
+
+** Default Templates
+
+Configure defaults that apply to all new notes:
+
+#+begin_src emacs-lisp
+(setq vulpea-create-default-template
+      '(:tags ("inbox")
+        :head "#+created: %<[%Y-%m-%d]>"))
+#+end_src
+
+Or use a function for dynamic defaults:
+
+#+begin_src emacs-lisp
+(setq vulpea-create-default-function
+      (lambda (title)
+        (list :tags (if (string-match-p "TODO" title)
+                        '("task")
+                      '("note")))))
+#+end_src
+
+→ See [[file:configuration.org][Configuration]] for all template options.
+
+* Working with Metadata
+
+Metadata lets you attach structured data to notes using description lists:
+
+#+begin_src org
+#+title: Château Margaux 2015
+
+- country :: France
+- region :: [[id:bordeaux-id][Bordeaux]]
+- price :: 450
+- rating :: 95
+#+end_src
+
+** Reading Metadata
+
+In elisp (for scripts or custom commands):
+
+#+begin_src emacs-lisp
+(let ((note (vulpea-db-get-by-id "wine-id")))
+  ;; Get as string (default)
+  (vulpea-note-meta-get note "country")  ; => "France"
+
+  ;; Get as number
+  (vulpea-note-meta-get note "price" 'number)  ; => 450
+
+  ;; Get linked note
+  (vulpea-note-meta-get note "region" 'note))  ; => <vulpea-note>
+#+end_src
+
+For multiple values with the same key:
+
+#+begin_src org
+- grape :: Cabernet Sauvignon
+- grape :: Merlot
+- grape :: Petit Verdot
+#+end_src
+
+#+begin_src emacs-lisp
+(vulpea-note-meta-get-list note "grape")
+;; => ("Cabernet Sauvignon" "Merlot" "Petit Verdot")
+#+end_src
+
+** Setting Metadata
+
+In a note buffer:
+
+#+begin_src emacs-lisp
+;; Add or update metadata
+(vulpea-buffer-meta-set "status" "reviewed")
+(vulpea-buffer-meta-set "rating" "95")
+#+end_src
+
+To modify a note programmatically and sync immediately:
+
+#+begin_src emacs-lisp
+(vulpea-utils-with-note-sync note
+  (vulpea-buffer-meta-set "status" "done"))
+;; Database is now updated
+#+end_src
+
+* Working with Tags
+
+** Viewing Tags
+
+Tags appear in note completion and are accessible via:
+
+#+begin_src emacs-lisp
+(vulpea-note-tags note)  ; => ("project" "work")
+#+end_src
+
+** Adding Tags Interactively
+
+In a note buffer:
+
+#+begin_example
+M-x vulpea-buffer-tags-add
+#+end_example
+
+** Removing Tags
+
+#+begin_example
+M-x vulpea-buffer-tags-remove
+#+end_example
+
+** Setting Tags Programmatically
+
+#+begin_src emacs-lisp
+;; In a note buffer
+(vulpea-buffer-tags-set '("project" "active"))
+#+end_src
+
+* Managing Aliases
+
+Aliases are alternative titles for a note, useful when the same concept has multiple names.
+
+** In Your Notes
+
+Aliases are stored in the =ROAM_ALIASES= property (configurable):
+
+#+begin_src org
+:PROPERTIES:
+:ID: abc123
+:ROAM_ALIASES: "PKM" "Personal Knowledge Management"
+:END:
+#+title: Zettelkasten
+#+end_src
+
+Now searching for "PKM" in =vulpea-find= will find this note.
+
+** Adding Aliases
+
+#+begin_example
+M-x vulpea-buffer-alias-add
+#+end_example
+
+Or programmatically:
+
+#+begin_src emacs-lisp
+(vulpea-buffer-alias-add "Alternative Name")
+#+end_src
+
+** Removing Aliases
+
+#+begin_example
+M-x vulpea-buffer-alias-remove
+#+end_example
+
+** Configuring Alias Property
+
+By default, aliases are stored in =ROAM_ALIASES=. To change:
+
+#+begin_src emacs-lisp
+(setq vulpea-buffer-alias-property "ALIASES")
+#+end_src
+
+* Synchronization
+
+** Automatic Sync
+
+With =vulpea-db-autosync-mode= enabled, Vulpea automatically:
+
+- Detects when you save org files
+- Detects external changes (git pull, sync tools) if =fswatch= is installed
+- Updates the database in the background
+
+You don't need to do anything - it just works.
+
+** Manual Sync
+
+If you need to force a sync:
+
+| Command                         | What it does                        |
+|---------------------------------+-------------------------------------|
+| =M-x vulpea-db-sync-update-file=  | Update current file                 |
+| =M-x vulpea-db-sync-full-scan=    | Scan all directories                |
+| =C-u M-x vulpea-db-sync-full-scan= | Force re-index everything           |
+
+** Checking Sync Status
+
+#+begin_src emacs-lisp
+;; Count notes in database
+(vulpea-db-count-notes)
+
+;; Check if autosync is running
+vulpea-db-autosync-mode
+#+end_src
+
+* Tips and Workflows
+
+** Zettelkasten-Style Notes
+
+1. Create atomic notes with =vulpea-find= (type new title to create)
+2. Link related notes with =vulpea-insert=
+3. Explore connections with =vulpea-find-backlink=
+4. Use tags for broad categories, metadata for specific attributes
+
+** Project Notes
+
+#+begin_src org
+:PROPERTIES:
+:ID: project-123
+:END:
+#+title: Website Redesign
+#+filetags: :project:active:
+
+- status :: in-progress
+- deadline :: 2025-01-15
+- client :: [[id:client-456][Acme Corp]]
+
+,* Tasks
+,* Notes
+,* Resources
+#+end_src
+
+Query all active projects:
+
+#+begin_src emacs-lisp
+(vulpea-db-query-by-tags-every '("project" "active"))
+#+end_src
+
+** Quick Capture Integration
+
+Integrate with org-capture for quick note creation:
+
+#+begin_src emacs-lisp
+(setq org-capture-templates
+      '(("n" "Note" plain
+         (file (lambda ()
+                 (vulpea-note-path
+                  (vulpea-create "Quick Note"))))
+         "%?")))
+#+end_src
+
+* Next Steps
+
+- [[file:configuration.org][Configuration]] - All options and performance tuning
+- [[file:api-reference.org][API Reference]] - Building custom tools
+- [[file:journal.org][Journal Module]] - Daily notes with widgets
