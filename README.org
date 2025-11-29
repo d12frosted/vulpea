@@ -45,8 +45,8 @@ Vulpea solves this by maintaining a database of your notes that stays in sync wi
 ** Quick Start
 
 #+begin_src emacs-lisp
-;; 1. Configure
-(setq vulpea-db-sync-directories '("~/org/"))
+;; 1. Configure (defaults to org-directory, so often not needed)
+;; (setq vulpea-db-sync-directories '("~/org/"))
 
 ;; 2. Build database (first time only)
 (vulpea-db-sync-full-scan)

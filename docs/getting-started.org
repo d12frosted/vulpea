@@ -44,18 +44,17 @@ Without these tools, Vulpea uses slower but functional alternatives.
 
 ** Step 1: Configure Directories
 
-Tell Vulpea where your notes live:
+Vulpea defaults to using =org-directory=, so if that's already set correctly, you may not need any configuration:
 
 #+begin_src emacs-lisp
 (require 'vulpea)
 
-;; Directory (or directories) containing your org notes
+;; If org-directory is already set, you're done!
+;; Otherwise, tell Vulpea where your notes live:
 (setq vulpea-db-sync-directories '("~/org/"))
-
-;; Where to store the database (optional, has sensible default)
-(setq vulpea-db-location
-      (expand-file-name "vulpea.db" user-emacs-directory))
 #+end_src
+
+*Note:* Set =org-directory= (or =vulpea-db-sync-directories=) before loading Vulpea so the defaults are computed correctly.
 
 ** Step 2: Build the Database
 

@@ -5,16 +5,9 @@ This guide covers all configuration options, organized by category.
 
 * Essential Settings
 
-These settings should be configured before using Vulpea.
+Vulpea works out of the box if =org-directory= is set. These settings let you customize behavior.
 
-** Database Location
-
-#+begin_src emacs-lisp
-(setq vulpea-db-location
-      (expand-file-name "vulpea.db" user-emacs-directory))
-#+end_src
-
-Default: =~/.emacs.d/vulpea.db=
+*Note:* Set =org-directory= before loading Vulpea so the defaults are computed correctly.
 
 ** Directories to Index
 
@@ -24,15 +17,28 @@ Default: =~/.emacs.d/vulpea.db=
 
 Vulpea watches these directories recursively for =.org= files.
 
+Default: =(list org-directory)=
+
 ** Default Notes Directory
 
 Where new notes are created:
 
 #+begin_src emacs-lisp
-(setq vulpea-default-notes-directory "~/org/")
+(setq vulpea-default-notes-directory "~/org/notes/")
 #+end_src
 
+Default: first entry in =vulpea-db-sync-directories=
+
 *Important:* This must be inside one of your =vulpea-db-sync-directories=, otherwise new notes won't be indexed.
+
+** Database Location
+
+#+begin_src emacs-lisp
+(setq vulpea-db-location
+      (expand-file-name "vulpea.db" user-emacs-directory))
+#+end_src
+
+Default: =~/.emacs.d/vulpea.db=
 
 * Note Creation Templates
 
@@ -252,16 +258,26 @@ With optimized settings on modern hardware (M1 Mac):
 
 → See [[file:../bench/PERFORMANCE.md][bench/PERFORMANCE.md]] for detailed benchmarks.
 
-* Complete Example Configuration
+* Example Configurations
+
+** Minimal (uses org-directory)
+
+#+begin_src emacs-lisp
+;; Set org-directory before loading vulpea
+(setq org-directory "~/org/")
+
+(require 'vulpea)
+(vulpea-db-autosync-mode +1)
+#+end_src
+
+** Full configuration
 
 #+begin_src emacs-lisp
 (require 'vulpea)
 
-;; Directories
-(setq vulpea-db-sync-directories '("~/org/"))
+;; Directories (only needed if different from org-directory)
+(setq vulpea-db-sync-directories '("~/org/" "~/work-notes/"))
 (setq vulpea-default-notes-directory "~/org/notes/")
-(setq vulpea-db-location
-      (expand-file-name "vulpea.db" user-emacs-directory))
 
 ;; Performance (for large collections)
 (setq vulpea-db-parse-method 'single-temp-buffer)

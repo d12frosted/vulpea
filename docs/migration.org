@@ -45,9 +45,12 @@ Note your current v1 configuration - you'll need to translate settings to v2 equ
 
 *v2:*
 #+begin_src emacs-lisp
+;; Defaults to org-directory, so often no config needed!
+;; Only set if different from org-directory:
 (setq vulpea-db-sync-directories '("~/org/"))
-(setq vulpea-default-notes-directory "~/org/")
 #+end_src
+
+Note: =vulpea-default-notes-directory= defaults to the first entry in =vulpea-db-sync-directories=, so you typically don't need to set it.
 
 ** Database Location
 
