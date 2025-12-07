@@ -536,5 +536,148 @@ from being inserted into the normalized tags table."
       (should (equal (vulpea-note-todo note) "TODO"))
       (should (equal (vulpea-note-priority note) "A")))))
 
+;;; File Path Query Tests
+
+(ert-deftest vulpea-db-query-by-file-path-basic ()
+  "Test querying notes by file path."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "note1" "Note 1" :path "/tmp/file1.org" :level 0)
+    (vulpea-test--insert-test-note "note2" "Note 2" :path "/tmp/file1.org" :level 1)
+    (vulpea-test--insert-test-note "note3" "Note 3" :path "/tmp/file2.org" :level 0)
+
+    (let ((notes (vulpea-db-query-by-file-path "/tmp/file1.org")))
+      (should (= (length notes) 2))
+      (should (member "note1" (mapcar #'vulpea-note-id notes)))
+      (should (member "note2" (mapcar #'vulpea-note-id notes))))))
+
+(ert-deftest vulpea-db-query-by-file-path-with-level ()
+  "Test querying notes by file path with level filter."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "note1" "Note 1" :path "/tmp/file1.org" :level 0)
+    (vulpea-test--insert-test-note "note2" "Note 2" :path "/tmp/file1.org" :level 1)
+    (vulpea-test--insert-test-note "note3" "Note 3" :path "/tmp/file1.org" :level 2)
+
+    (let ((notes (vulpea-db-query-by-file-path "/tmp/file1.org" 0)))
+      (should (= (length notes) 1))
+      (should (equal (vulpea-note-id (car notes)) "note1")))
+
+    (let ((notes (vulpea-db-query-by-file-path "/tmp/file1.org" 1)))
+      (should (= (length notes) 1))
+      (should (equal (vulpea-note-id (car notes)) "note2")))))
+
+(ert-deftest vulpea-db-query-by-file-path-not-found ()
+  "Test querying notes by non-existent file path."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "note1" "Note 1" :path "/tmp/file1.org")
+
+    (should-not (vulpea-db-query-by-file-path "/tmp/nonexistent.org"))))
+
+(ert-deftest vulpea-db-query-by-file-paths-basic ()
+  "Test querying notes by multiple file paths."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "note1" "Note 1" :path "/tmp/file1.org")
+    (vulpea-test--insert-test-note "note2" "Note 2" :path "/tmp/file2.org")
+    (vulpea-test--insert-test-note "note3" "Note 3" :path "/tmp/file3.org")
+
+    (let ((notes (vulpea-db-query-by-file-paths '("/tmp/file1.org" "/tmp/file2.org"))))
+      (should (= (length notes) 2))
+      (should (member "note1" (mapcar #'vulpea-note-id notes)))
+      (should (member "note2" (mapcar #'vulpea-note-id notes)))
+      (should-not (member "note3" (mapcar #'vulpea-note-id notes))))))
+
+(ert-deftest vulpea-db-query-by-file-paths-with-level ()
+  "Test querying notes by multiple file paths with level filter."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "note1" "Note 1" :path "/tmp/file1.org" :level 0)
+    (vulpea-test--insert-test-note "note2" "Note 2" :path "/tmp/file1.org" :level 1)
+    (vulpea-test--insert-test-note "note3" "Note 3" :path "/tmp/file2.org" :level 0)
+    (vulpea-test--insert-test-note "note4" "Note 4" :path "/tmp/file2.org" :level 1)
+
+    (let ((notes (vulpea-db-query-by-file-paths '("/tmp/file1.org" "/tmp/file2.org") 0)))
+      (should (= (length notes) 2))
+      (should (member "note1" (mapcar #'vulpea-note-id notes)))
+      (should (member "note3" (mapcar #'vulpea-note-id notes))))))
+
+(ert-deftest vulpea-db-query-by-file-paths-empty ()
+  "Test querying notes by empty file paths list."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "note1" "Note 1" :path "/tmp/file1.org")
+
+    (should-not (vulpea-db-query-by-file-paths nil))
+    (should-not (vulpea-db-query-by-file-paths '()))))
+
+;;; Directory Query Tests
+
+(ert-deftest vulpea-db-query-by-directory-basic ()
+  "Test querying notes by directory."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "note1" "Note 1" :path "/tmp/notes/file1.org")
+    (vulpea-test--insert-test-note "note2" "Note 2" :path "/tmp/notes/file2.org")
+    (vulpea-test--insert-test-note "note3" "Note 3" :path "/tmp/other/file3.org")
+
+    (let ((notes (vulpea-db-query-by-directory "/tmp/notes")))
+      (should (= (length notes) 2))
+      (should (member "note1" (mapcar #'vulpea-note-id notes)))
+      (should (member "note2" (mapcar #'vulpea-note-id notes)))
+      (should-not (member "note3" (mapcar #'vulpea-note-id notes))))))
+
+(ert-deftest vulpea-db-query-by-directory-with-trailing-slash ()
+  "Test querying notes by directory with trailing slash."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "note1" "Note 1" :path "/tmp/notes/file1.org")
+    (vulpea-test--insert-test-note "note2" "Note 2" :path "/tmp/other/file2.org")
+
+    (let ((notes (vulpea-db-query-by-directory "/tmp/notes/")))
+      (should (= (length notes) 1))
+      (should (equal (vulpea-note-id (car notes)) "note1")))))
+
+(ert-deftest vulpea-db-query-by-directory-subdirectories ()
+  "Test querying notes includes subdirectories."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "note1" "Note 1" :path "/tmp/notes/file1.org")
+    (vulpea-test--insert-test-note "note2" "Note 2" :path "/tmp/notes/sub/file2.org")
+    (vulpea-test--insert-test-note "note3" "Note 3" :path "/tmp/notes/sub/deep/file3.org")
+    (vulpea-test--insert-test-note "note4" "Note 4" :path "/tmp/other/file4.org")
+
+    (let ((notes (vulpea-db-query-by-directory "/tmp/notes")))
+      (should (= (length notes) 3))
+      (should (member "note1" (mapcar #'vulpea-note-id notes)))
+      (should (member "note2" (mapcar #'vulpea-note-id notes)))
+      (should (member "note3" (mapcar #'vulpea-note-id notes))))))
+
+(ert-deftest vulpea-db-query-by-directory-with-level ()
+  "Test querying notes by directory with level filter."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "note1" "Note 1" :path "/tmp/notes/file1.org" :level 0)
+    (vulpea-test--insert-test-note "note2" "Note 2" :path "/tmp/notes/file1.org" :level 1)
+    (vulpea-test--insert-test-note "note3" "Note 3" :path "/tmp/notes/file2.org" :level 0)
+
+    (let ((notes (vulpea-db-query-by-directory "/tmp/notes" 0)))
+      (should (= (length notes) 2))
+      (should (member "note1" (mapcar #'vulpea-note-id notes)))
+      (should (member "note3" (mapcar #'vulpea-note-id notes))))
+
+    (let ((notes (vulpea-db-query-by-directory "/tmp/notes" 1)))
+      (should (= (length notes) 1))
+      (should (equal (vulpea-note-id (car notes)) "note2")))))
+
+(ert-deftest vulpea-db-query-by-directory-empty ()
+  "Test querying notes by directory with no matches."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "note1" "Note 1" :path "/tmp/notes/file1.org")
+
+    (should-not (vulpea-db-query-by-directory "/tmp/other"))))
+
 (provide 'vulpea-db-query-test)
 ;;; vulpea-db-query-test.el ends here

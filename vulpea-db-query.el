@@ -339,6 +339,73 @@ Returns list of `vulpea-note' structs."
                        level)))
     (mapcar #'vulpea-db--row-to-note rows)))
 
+;;; File Path Queries
+
+(defun vulpea-db-query-by-file-path (file-path &optional level)
+  "Get notes at FILE-PATH, optionally filtered by LEVEL.
+
+FILE-PATH is an absolute path to an org file.
+LEVEL is optional filter: 0 for file-level, 1+ for headings.
+When LEVEL is nil, returns all notes from the file.
+
+Returns list of `vulpea-note' structs."
+  (let ((rows (if level
+                  (emacsql (vulpea-db)
+                           [:select * :from notes
+                            :where (and (= path $s1)
+                                        (= level $s2))]
+                           file-path level)
+                (emacsql (vulpea-db)
+                         [:select * :from notes
+                          :where (= path $s1)]
+                         file-path))))
+    (mapcar #'vulpea-db--row-to-note rows)))
+
+(defun vulpea-db-query-by-file-paths (file-paths &optional level)
+  "Get notes at any of FILE-PATHS, optionally filtered by LEVEL.
+
+FILE-PATHS is a list of absolute paths to org files.
+LEVEL is optional filter: 0 for file-level, 1+ for headings.
+When LEVEL is nil, returns all notes from the files.
+
+Returns list of `vulpea-note' structs."
+  (when file-paths
+    (let ((rows (if level
+                    (emacsql (vulpea-db)
+                             [:select * :from notes
+                              :where (and (in path $v1)
+                                          (= level $s2))]
+                             (vconcat file-paths) level)
+                  (emacsql (vulpea-db)
+                           [:select * :from notes
+                            :where (in path $v1)]
+                           (vconcat file-paths)))))
+      (mapcar #'vulpea-db--row-to-note rows))))
+
+(defun vulpea-db-query-by-directory (directory &optional level)
+  "Get notes under DIRECTORY, optionally filtered by LEVEL.
+
+DIRECTORY is an absolute path to a directory.
+LEVEL is optional filter: 0 for file-level, 1+ for headings.
+When LEVEL is nil, returns all notes from the directory.
+
+Uses prefix matching on file paths, so includes all subdirectories.
+
+Returns list of `vulpea-note' structs."
+  (let* ((dir (file-name-as-directory directory))
+         (pattern (concat dir "%"))
+         (rows (if level
+                   (emacsql (vulpea-db)
+                            [:select * :from notes
+                             :where (and (like path $s1)
+                                         (= level $s2))]
+                            pattern level)
+                 (emacsql (vulpea-db)
+                          [:select * :from notes
+                           :where (like path $s1)]
+                          pattern))))
+    (mapcar #'vulpea-db--row-to-note rows)))
+
 (defun vulpea-db-search-by-title (pattern &optional case-sensitive)
   "Search notes by PATTERN in title.
 
