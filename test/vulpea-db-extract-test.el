@@ -21,7 +21,9 @@
 
 (require 'ert)
 (require 'vulpea-db)
+(require 'vulpea-db-query)
 (require 'vulpea-db-extract)
+(require 'vulpea-note)
 
 ;;; Test Infrastructure
 
@@ -215,7 +217,9 @@ handled correctly when mixed together."
                (links (plist-get node :links)))
           (should (= (length links) 2))
           (should (member "note-1" (mapcar (lambda (l) (plist-get l :dest)) links)))
-          (should (member "note-2" (mapcar (lambda (l) (plist-get l :dest)) links))))
+          (should (member "note-2" (mapcar (lambda (l) (plist-get l :dest)) links)))
+          ;; All links should have position
+          (should (cl-every (lambda (l) (plist-get l :pos)) links)))
       (delete-file path))))
 
 (ert-deftest vulpea-db-extract-links-all-types ()
@@ -240,6 +244,48 @@ handled correctly when mixed together."
           (should (member "test.org" (mapcar (lambda (l) (plist-get l :dest)) links)))
           (should (member "//example.com" (mapcar (lambda (l) (plist-get l :dest)) links))))
       (delete-file path))))
+
+(ert-deftest vulpea-db-extract-links-positions ()
+  "Test that link positions are correctly extracted."
+  (let ((path (vulpea-test--create-temp-org-file
+               ":PROPERTIES:\n:ID: test-id\n:END:\n#+TITLE: Test\n\nFirst [[id:link-1][link]] then [[id:link-2][second]].\n")))
+    (unwind-protect
+        (let* ((ctx (vulpea-db--parse-file path))
+               (node (vulpea-parse-ctx-file-node ctx))
+               (links (plist-get node :links))
+               (link-1 (seq-find (lambda (l) (equal (plist-get l :dest) "link-1")) links))
+               (link-2 (seq-find (lambda (l) (equal (plist-get l :dest) "link-2")) links)))
+          (should (= (length links) 2))
+          ;; Both links should have positions
+          (should (plist-get link-1 :pos))
+          (should (plist-get link-2 :pos))
+          ;; First link should have smaller position than second
+          (should (< (plist-get link-1 :pos) (plist-get link-2 :pos))))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-links-positions-round-trip ()
+  "Test link positions survive database round-trip."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((path (vulpea-test--create-temp-org-file
+                 ":PROPERTIES:\n:ID: test-links-pos\n:END:\n#+TITLE: Test\n\nFirst [[id:link-1][link]] then [[id:link-2][second]].\n")))
+      (unwind-protect
+          (progn
+            (vulpea-db-update-file path)
+            (let* ((note (vulpea-db-get-by-id "test-links-pos"))
+                   (links (vulpea-note-links note))
+                   (link-1 (seq-find (lambda (l) (equal (plist-get l :dest) "link-1")) links))
+                   (link-2 (seq-find (lambda (l) (equal (plist-get l :dest) "link-2")) links)))
+              (should (= (length links) 2))
+              ;; Both links should have positions
+              (should (plist-get link-1 :pos))
+              (should (plist-get link-2 :pos))
+              ;; Positions should be numbers
+              (should (numberp (plist-get link-1 :pos)))
+              (should (numberp (plist-get link-2 :pos)))
+              ;; First link should have smaller position than second
+              (should (< (plist-get link-1 :pos) (plist-get link-2 :pos)))))
+        (delete-file path)))))
 
 (ert-deftest vulpea-db-extract-links-file-vs-heading ()
   "Test that file-level links don't include heading links."

@@ -104,7 +104,7 @@ to be queried. Excluding them keeps the database cleaner and faster."
       (tags)                        ; JSON array ["tag1", "tag2"]
       (aliases)                     ; JSON array
       (meta)                        ; JSON object {key: [value1, value2]}
-      (links)                       ; JSON array [{dest, type}]
+      (links)                       ; JSON array [{dest, type, pos}]
       (todo)
       (priority)
       (scheduled)
@@ -126,8 +126,9 @@ to be queried. Excluding them keeps the database cleaner and faster."
     (links
      [(source :not-null)
       (dest :not-null)
-      (type :not-null)]
-     (:primary-key [source dest type])
+      (type :not-null)
+      (pos :not-null)]
+     (:primary-key [source dest type pos])
      (:foreign-key [source] :references notes [id] :on-delete :cascade))
 
     (meta
@@ -308,7 +309,7 @@ Arguments:
   ALIASES - list of aliases
   META - alist of (key . values) where values is list of plists with
     :type and :value
-  LINKS - list of plists with :dest and :type
+  LINKS - list of plists with :dest, :type, and :pos
   TODO - TODO state
   PRIORITY - priority level
   SCHEDULED - scheduled timestamp
@@ -345,7 +346,8 @@ Arguments:
                  (mapcar (lambda (link)
                            (vector id
                                    (plist-get link :dest)
-                                   (plist-get link :type)))
+                                   (plist-get link :type)
+                                   (plist-get link :pos)))
                          links)))
 
       ;; 4. Insert into normalized meta table

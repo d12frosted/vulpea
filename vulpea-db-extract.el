@@ -518,7 +518,7 @@ Returns alist of (key . value) pairs."
 (defun vulpea-db--extract-links (ast-or-node &optional no-recursion)
   "Extract all links from AST-OR-NODE.
 
-Returns list of plists with :dest and :type.
+Returns list of plists with :dest, :type, and :pos.
 Captures all link types: id:, roam:, file:, http:, https:,
 attachment:, elisp:, and any other org-mode link type.
 
@@ -528,9 +528,10 @@ from child headlines."
   (org-element-map ast-or-node 'link
     (lambda (link)
       (let ((type (org-element-property :type link))
-            (path (org-element-property :path link)))
+            (path (org-element-property :path link))
+            (pos (org-element-property :begin link)))
         (when (and type path)
-          (list :dest path :type type))))
+          (list :dest path :type type :pos pos))))
     nil nil (when no-recursion 'headline)))
 
 (defun vulpea-db--extract-meta (element)

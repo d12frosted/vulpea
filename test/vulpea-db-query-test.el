@@ -283,9 +283,9 @@ from being inserted into the normalized tags table."
   (vulpea-test--with-temp-db
     (vulpea-db)
     (vulpea-test--insert-test-note "note1" "Note 1"
-                                   :links '((:dest "target" :type "id")))
+                                   :links '((:dest "target" :type "id" :pos 100)))
     (vulpea-test--insert-test-note "note2" "Note 2"
-                                   :links '((:dest "other" :type "id")))
+                                   :links '((:dest "other" :type "id" :pos 100)))
     (vulpea-test--insert-test-note "note3" "Note 3")
 
     (let ((notes (vulpea-db-query-by-links-some '("target"))))
@@ -297,11 +297,11 @@ from being inserted into the normalized tags table."
   (vulpea-test--with-temp-db
     (vulpea-db)
     (vulpea-test--insert-test-note "note1" "Note 1"
-                                   :links '((:dest "target1" :type "id")))
+                                   :links '((:dest "target1" :type "id" :pos 100)))
     (vulpea-test--insert-test-note "note2" "Note 2"
-                                   :links '((:dest "target2" :type "id")))
+                                   :links '((:dest "target2" :type "id" :pos 100)))
     (vulpea-test--insert-test-note "note3" "Note 3"
-                                   :links '((:dest "other" :type "id")))
+                                   :links '((:dest "other" :type "id" :pos 100)))
 
     (let ((notes (vulpea-db-query-by-links-some '("target1" "target2"))))
       (should (= (length notes) 2))
@@ -313,9 +313,9 @@ from being inserted into the normalized tags table."
   (vulpea-test--with-temp-db
     (vulpea-db)
     (vulpea-test--insert-test-note "note1" "Note 1"
-                                   :links '((:dest "target" :type "id")))
+                                   :links '((:dest "target" :type "id" :pos 100)))
     (vulpea-test--insert-test-note "note2" "Note 2"
-                                   :links '((:dest "target" :type "file")))
+                                   :links '((:dest "target" :type "file" :pos 100)))
 
     (let ((notes (vulpea-db-query-by-links-some '("target") "id")))
       (should (= (length notes) 1))
@@ -326,7 +326,7 @@ from being inserted into the normalized tags table."
   (vulpea-test--with-temp-db
     (vulpea-db)
     (vulpea-test--insert-test-note "note1" "Note 1"
-                                   :links '((:dest "target" :type "id")))
+                                   :links '((:dest "target" :type "id" :pos 100)))
 
     (let ((notes (vulpea-db-query-by-links-some '(("id" . "target")))))
       (should (= (length notes) 1))
@@ -337,10 +337,10 @@ from being inserted into the normalized tags table."
   (vulpea-test--with-temp-db
     (vulpea-db)
     (vulpea-test--insert-test-note "note1" "Note 1"
-                                   :links '((:dest "target1" :type "id")
-                                           (:dest "target2" :type "id")))
+                                   :links '((:dest "target1" :type "id" :pos 100)
+                                           (:dest "target2" :type "id" :pos 200)))
     (vulpea-test--insert-test-note "note2" "Note 2"
-                                   :links '((:dest "target1" :type "id")))
+                                   :links '((:dest "target1" :type "id" :pos 100)))
 
     (let ((notes (vulpea-db-query-by-links-every '("target1" "target2"))))
       (should (= (length notes) 1))
@@ -516,7 +516,7 @@ from being inserted into the normalized tags table."
                                    :aliases '("alias1")
                                    :properties '((key . "value"))
                                    :meta '(("country" . ("France")))
-                                   :links '((:dest "target" :type "id"))
+                                   :links '((:dest "target" :type "id" :pos 100))
                                    :todo "TODO"
                                    :priority "A")
 
@@ -532,7 +532,7 @@ from being inserted into the normalized tags table."
       (should (equal (vulpea-note-properties note) '((key . "value"))))
       (should (equal (vulpea-note-meta note)
                      '(("country" . ("France")))))
-      (should (equal (vulpea-note-links note) '((:dest "target" :type "id"))))
+      (should (equal (vulpea-note-links note) '((:dest "target" :type "id" :pos 100))))
       (should (equal (vulpea-note-todo note) "TODO"))
       (should (equal (vulpea-note-priority note) "A")))))
 
