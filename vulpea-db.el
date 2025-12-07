@@ -75,6 +75,18 @@ significant performance improvement."
   :type '(choice boolean function)
   :group 'vulpea-db)
 
+(defcustom vulpea-db-exclude-archived t
+  "Whether to exclude archived entries from the database.
+
+When non-nil (default), entries are excluded if they:
+- Have the archive tag (value of `org-archive-tag') directly or inherited
+- Have the ARCHIVE_TIME property set
+
+Archived entries are typically historical references that don't need
+to be queried. Excluding them keeps the database cleaner and faster."
+  :type 'boolean
+  :group 'vulpea-db)
+
 ;;; Constants
 
 (defconst vulpea-db-version 2

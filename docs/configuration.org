@@ -130,6 +130,24 @@ Control whether headings with IDs are indexed:
 
 If you only use file-level notes, disable this for significant speedup.
 
+** Archive Exclusion
+
+By default, archived entries are excluded from the database:
+
+#+begin_src emacs-lisp
+;; Exclude archived entries (default)
+(setq vulpea-db-exclude-archived t)
+
+;; Include archived entries
+(setq vulpea-db-exclude-archived nil)
+#+end_src
+
+An entry is considered archived if:
+- It has the =org-archive-tag= (default: "Archive") directly or inherited from parent headlines or filetags
+- It has the =ARCHIVE_TIME= property (set automatically by =org-archive-subtree=)
+
+This keeps your database clean by excluding historical entries that are typically only kept for reference. If you need to query archived content, set this to =nil= and run =vulpea-db-sync= to rebuild.
+
 ** Sync Batch Settings
 
 Control how updates are batched:

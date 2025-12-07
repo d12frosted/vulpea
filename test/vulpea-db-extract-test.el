@@ -641,5 +641,104 @@ This serves as documentation for plugin authors."
         (delete-file temp-db-file))
       (delete-file path))))
 
+;;; Archive Exclusion Tests
+
+(ert-deftest vulpea-db-extract-archive-file-by-tag ()
+  "Test file-level node with archive tag is excluded."
+  (let ((org-archive-tag "Archive")
+        (vulpea-db-exclude-archived t)
+        (path (vulpea-test--create-temp-org-file
+               ":PROPERTIES:\n:ID: archived-file\n:END:\n#+TITLE: Archived File\n#+FILETAGS: :Archive:\n")))
+    (unwind-protect
+        (let* ((ctx (vulpea-db--parse-file path))
+               (node (vulpea-parse-ctx-file-node ctx)))
+          (should (null node)))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-archive-file-by-property ()
+  "Test file-level node with ARCHIVE_TIME property is excluded."
+  (let ((vulpea-db-exclude-archived t)
+        (path (vulpea-test--create-temp-org-file
+               ":PROPERTIES:\n:ID: archived-file\n:ARCHIVE_TIME: 2025-12-07 Sun 11:30\n:END:\n#+TITLE: Archived File\n")))
+    (unwind-protect
+        (let* ((ctx (vulpea-db--parse-file path))
+               (node (vulpea-parse-ctx-file-node ctx)))
+          (should (null node)))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-archive-heading-direct-tag ()
+  "Test heading with direct archive tag is excluded."
+  (let ((org-archive-tag "Archive")
+        (vulpea-db-exclude-archived t)
+        (vulpea-db-index-heading-level t)
+        (path (vulpea-test--create-temp-org-file
+               ":PROPERTIES:\n:ID: file-id\n:END:\n#+TITLE: File\n\n* Normal Heading\n:PROPERTIES:\n:ID: normal-id\n:END:\n\n* Archived Heading :Archive:\n:PROPERTIES:\n:ID: archived-id\n:END:\n")))
+    (unwind-protect
+        (let* ((ctx (vulpea-db--parse-file path))
+               (nodes (vulpea-parse-ctx-heading-nodes ctx)))
+          (should (= (length nodes) 1))
+          (should (equal (plist-get (car nodes) :id) "normal-id")))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-archive-heading-inherited-tag ()
+  "Test heading with inherited archive tag is excluded."
+  (let ((org-archive-tag "Archive")
+        (vulpea-db-exclude-archived t)
+        (vulpea-db-index-heading-level t)
+        (path (vulpea-test--create-temp-org-file
+               ":PROPERTIES:\n:ID: file-id\n:END:\n#+TITLE: File\n\n* Normal Heading\n:PROPERTIES:\n:ID: normal-id\n:END:\n\n* Archive :Archive:\n\n** Nested Archived Heading\n:PROPERTIES:\n:ID: nested-archived-id\n:END:\n")))
+    (unwind-protect
+        (let* ((ctx (vulpea-db--parse-file path))
+               (nodes (vulpea-parse-ctx-heading-nodes ctx)))
+          ;; Only normal-id should be present, nested-archived-id excluded
+          (should (= (length nodes) 1))
+          (should (equal (plist-get (car nodes) :id) "normal-id")))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-archive-heading-by-property ()
+  "Test heading with ARCHIVE_TIME property is excluded."
+  (let ((vulpea-db-exclude-archived t)
+        (vulpea-db-index-heading-level t)
+        (path (vulpea-test--create-temp-org-file
+               ":PROPERTIES:\n:ID: file-id\n:END:\n#+TITLE: File\n\n* Normal Heading\n:PROPERTIES:\n:ID: normal-id\n:END:\n\n* Archived Heading\n:PROPERTIES:\n:ID: archived-id\n:ARCHIVE_TIME: 2025-12-07 Sun 11:30\n:END:\n")))
+    (unwind-protect
+        (let* ((ctx (vulpea-db--parse-file path))
+               (nodes (vulpea-parse-ctx-heading-nodes ctx)))
+          (should (= (length nodes) 1))
+          (should (equal (plist-get (car nodes) :id) "normal-id")))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-archive-heading-filetag ()
+  "Test heading is excluded when file has archive filetag."
+  (let ((org-archive-tag "Archive")
+        (vulpea-db-exclude-archived t)
+        (vulpea-db-index-heading-level t)
+        (path (vulpea-test--create-temp-org-file
+               ":PROPERTIES:\n:ID: file-id\n:END:\n#+TITLE: File\n#+FILETAGS: :Archive:\n\n* Heading\n:PROPERTIES:\n:ID: heading-id\n:END:\n")))
+    (unwind-protect
+        (let* ((ctx (vulpea-db--parse-file path))
+               (file-node (vulpea-parse-ctx-file-node ctx))
+               (heading-nodes (vulpea-parse-ctx-heading-nodes ctx)))
+          ;; Both file and heading should be excluded
+          (should (null file-node))
+          (should (null heading-nodes)))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-archive-disabled ()
+  "Test archived entries are included when exclusion is disabled."
+  (let ((org-archive-tag "Archive")
+        (vulpea-db-exclude-archived nil)
+        (vulpea-db-index-heading-level t)
+        (path (vulpea-test--create-temp-org-file
+               ":PROPERTIES:\n:ID: file-id\n:END:\n#+TITLE: File\n#+FILETAGS: :Archive:\n\n* Archived Heading :Archive:\n:PROPERTIES:\n:ID: archived-id\n:ARCHIVE_TIME: 2025-12-07 Sun 11:30\n:END:\n")))
+    (unwind-protect
+        (let* ((ctx (vulpea-db--parse-file path))
+               (file-node (vulpea-parse-ctx-file-node ctx))
+               (heading-nodes (vulpea-parse-ctx-heading-nodes ctx)))
+          ;; Both should be present when exclusion is disabled
+          (should file-node)
+          (should (= (length heading-nodes) 1)))
+      (delete-file path))))
+
 (provide 'vulpea-db-extract-test)
 ;;; vulpea-db-extract-test.el ends here

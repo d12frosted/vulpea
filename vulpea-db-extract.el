@@ -63,6 +63,43 @@
   (when values
     (mapcar #'substring-no-properties values)))
 
+;;; Archive Detection
+
+(defun vulpea-db--archived-p (element properties filetags)
+  "Check if ELEMENT is archived and should be excluded.
+
+ELEMENT is either nil (for file-level) or a headline element.
+PROPERTIES is the alist of properties for the element.
+FILETAGS is the list of file-level tags.
+
+Returns non-nil if the element is archived, which means:
+- It has ARCHIVE_TIME property, or
+- It has `org-archive-tag' directly or inherited from parent headlines,
+  or from filetags."
+  (when vulpea-db-exclude-archived
+    (or
+     ;; Check ARCHIVE_TIME property
+     (assoc "ARCHIVE_TIME" properties)
+     ;; Check for archive tag
+     (let ((archive-tag (bound-and-true-p org-archive-tag)))
+       (when archive-tag
+         (or
+          ;; Check filetags
+          (member archive-tag filetags)
+          ;; Check headline tags (direct and inherited)
+          (when element
+            (vulpea-db--headline-has-tag-p element archive-tag))))))))
+
+(defun vulpea-db--headline-has-tag-p (headline tag)
+  "Check if HEADLINE has TAG directly or inherited from ancestors."
+  (or
+   ;; Direct tag on this headline
+   (member tag (org-element-property :tags headline))
+   ;; Inherited from parent headline
+   (let ((parent (org-element-property :parent headline)))
+     (when (and parent (eq (org-element-type parent) 'headline))
+       (vulpea-db--headline-has-tag-p parent tag)))))
+
 ;;; Parse Context
 
 (cl-defstruct vulpea-parse-ctx
@@ -289,7 +326,8 @@ Returns plist with:
 
 Returns nil if:
 - File has no ID property in property drawer
-- File has VULPEA_IGNORE property set to non-nil value"
+- File has VULPEA_IGNORE property set to non-nil value
+- File is archived (when `vulpea-db-exclude-archived' is non-nil)"
   (let* ((keywords (org-element-map ast 'keyword
                      (lambda (kw)
                        (cons (vulpea-db--string-no-properties
@@ -298,15 +336,16 @@ Returns nil if:
                               (org-element-property :value kw))))))
          (properties (vulpea-db--extract-properties ast nil))
          (id (cdr (assoc "ID" properties)))
-         (ignored (cdr (assoc "VULPEA_IGNORE" properties))))
+         (ignored (cdr (assoc "VULPEA_IGNORE" properties)))
+         (filetags-str (cdr (assoc "FILETAGS" keywords)))
+         (filetags (when filetags-str
+                     (split-string filetags-str ":" t)))
+         (archived (vulpea-db--archived-p nil properties filetags)))
 
-    ;; Only index if ID exists and not explicitly ignored
-    (when (and id (not ignored))
+    ;; Only index if ID exists, not explicitly ignored, and not archived
+    (when (and id (not ignored) (not archived))
       (let* ((title (or (cdr (assoc "TITLE" keywords))
                         (file-name-base path)))
-             (filetags (cdr (assoc "FILETAGS" keywords)))
-             (tags (when filetags
-                     (split-string filetags ":" t)))
              (meta (vulpea-db--extract-meta ast))
              (links (vulpea-db--extract-links ast t))  ; Don't recurse into headlines
              (aliases (vulpea-db--extract-aliases properties))
@@ -318,7 +357,7 @@ Returns nil if:
         (list :id id
               :title title
               :aliases aliases
-              :tags tags
+              :tags filetags
               :links links
               :properties properties
               :meta meta
@@ -338,16 +377,27 @@ Each plist has same structure as file-node.
 Skips headings that:
 - Have no ID property
 - Have VULPEA_IGNORE property set to non-nil value
+- Are archived (when `vulpea-db-exclude-archived' is non-nil)
 
 Respects `vulpea-db-index-heading-level' setting."
   (when (vulpea-db--should-index-headings-p path)
-    (org-element-map ast 'headline
-      (lambda (headline)
-        (when-let ((id (org-element-property :ID headline)))
-          (let* ((properties (vulpea-db--extract-properties ast headline))
-                 (ignored (cdr (assoc "VULPEA_IGNORE" properties))))
-            ;; Only index if not explicitly ignored
-            (unless ignored
+    ;; Extract filetags once for archive checking
+    (let* ((filetags-str (org-element-map ast 'keyword
+                           (lambda (kw)
+                             (when (string= "FILETAGS"
+                                            (org-element-property :key kw))
+                               (org-element-property :value kw)))
+                           nil t))
+           (filetags (when filetags-str
+                       (split-string filetags-str ":" t))))
+      (org-element-map ast 'headline
+        (lambda (headline)
+          (when-let ((id (org-element-property :ID headline)))
+            (let* ((properties (vulpea-db--extract-properties ast headline))
+                   (ignored (cdr (assoc "VULPEA_IGNORE" properties)))
+                   (archived (vulpea-db--archived-p headline properties filetags)))
+              ;; Only index if not explicitly ignored and not archived
+              (unless (or ignored archived)
               (let* ((title (vulpea-db--string-no-properties
                              (org-element-property :raw-value headline)))
                      (tags (vulpea-db--strings-no-properties
@@ -397,7 +447,7 @@ Respects `vulpea-db-index-heading-level' setting."
                                 (vulpea-db--string-no-properties
                                  (org-element-property :raw-value closed)))
                       :outline-path outline-path
-                      :attach-dir attach-dir)))))))))
+                      :attach-dir attach-dir))))))))))
 
 (defun vulpea-db--should-index-headings-p (path)
   "Check if headings should be indexed for PATH.
