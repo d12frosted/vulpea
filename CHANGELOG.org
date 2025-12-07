@@ -17,6 +17,7 @@ This is a complete rewrite of Vulpea that removes the dependency on =org-roam=. 
 *Fixes*
 
 - Fix inconsistency where directory scans (=vulpea-db-sync-update-directory=, =vulpea-db-sync-full-scan=, initial scan, and polling) would index files in hidden directories (paths containing =/.*=), while file watchers excluded them. Now all sync methods consistently exclude hidden directories.
+- Fix fswatch filter incorrectly processing partial paths when output is split across buffer boundaries, which could cause scanning of directories outside the watched paths.
 
 *Features*
 

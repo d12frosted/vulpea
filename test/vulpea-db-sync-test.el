@@ -611,6 +611,7 @@ Returns absolute path. Caller responsible for cleanup."
     (vulpea-db)
     (let* ((path (vulpea-test--create-temp-org-file
                   ":PROPERTIES:\n:ID: fswatch-delete\n:END:\n#+TITLE: Remove via fswatch\n"))
+           (vulpea-db-sync-directories (list temporary-file-directory))
            (vulpea-db-sync--queue nil))
       (unwind-protect
           (progn
@@ -795,6 +796,7 @@ Returns absolute path. Caller responsible for cleanup."
     (vulpea-db)
     (let* ((path (vulpea-test--create-temp-org-file
                   ":PROPERTIES:\n:ID: fswatch-trash\n:END:\n#+TITLE: Trash Me\n"))
+           (vulpea-db-sync-directories (list temporary-file-directory))
            (vulpea-db-sync--queue nil))
       (unwind-protect
           (progn
@@ -815,6 +817,7 @@ Returns absolute path. Caller responsible for cleanup."
     (let* ((dir (make-temp-file "vulpea-fswatch-dirremove-" t))
            (file1 (expand-file-name "note1.org" dir))
            (file2 (expand-file-name "note2.org" dir))
+           (vulpea-db-sync-directories (list dir))
            (vulpea-db-sync--queue nil))
       (unwind-protect
           (progn
@@ -847,6 +850,7 @@ Returns absolute path. Caller responsible for cleanup."
     (vulpea-db)
     (let* ((path (vulpea-test--create-temp-org-file
                   ":PROPERTIES:\n:ID: fswatch-noexist\n:END:\n#+TITLE: Gone\n"))
+           (vulpea-db-sync-directories (list temporary-file-directory))
            (vulpea-db-sync--queue nil))
       (unwind-protect
           (progn
@@ -867,6 +871,7 @@ Returns absolute path. Caller responsible for cleanup."
     (let* ((dir (make-temp-file "vulpea-fswatch-multi-" t))
            (file1 (expand-file-name "note1.org" dir))
            (file2 (expand-file-name "note2.org" dir))
+           (vulpea-db-sync-directories (list dir))
            (vulpea-db-sync--queue nil))
       (unwind-protect
           (progn
@@ -899,6 +904,7 @@ Returns absolute path. Caller responsible for cleanup."
   (vulpea-test--with-temp-db
     (let* ((root (make-temp-file "vulpea-fswatch-newdir-" t))
            (subdir (expand-file-name "newdir" root))
+           (vulpea-db-sync-directories (list root))
            (vulpea-db-sync--queue nil))
       (unwind-protect
           (progn

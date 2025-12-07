@@ -160,6 +160,9 @@ Each entry is (path . timestamp).")
 (defvar vulpea-db-sync--fswatch-process nil
   "Process handle for fswatch external monitoring.")
 
+(defvar vulpea-db-sync--fswatch-buffer ""
+  "Buffer for incomplete fswatch output lines.")
+
 (defvar vulpea-db-sync--poll-timer nil
   "Timer for polling-based external monitoring.")
 
@@ -744,6 +747,9 @@ is enabled."
       (delete-process vulpea-db-sync--fswatch-process))
     (setq vulpea-db-sync--fswatch-process nil))
 
+  ;; Clear fswatch buffer
+  (setq vulpea-db-sync--fswatch-buffer "")
+
   ;; Stop polling timer
   (when vulpea-db-sync--poll-timer
     (cancel-timer vulpea-db-sync--poll-timer)
@@ -793,35 +799,59 @@ is enabled."
                :sentinel #'vulpea-db-sync--fswatch-sentinel))
         (message "Vulpea: Started fswatch monitoring")))))
 
+(defun vulpea-db-sync--fswatch-path-valid-p (path)
+  "Return non-nil if PATH is within a watched directory."
+  (and path
+       (file-name-absolute-p path)
+       (seq-some (lambda (dir)
+                   (string-prefix-p (file-name-as-directory dir) path))
+                 vulpea-db-sync-directories)))
+
 (defun vulpea-db-sync--fswatch-filter (_proc output)
   "Process fswatch OUTPUT.
 
-OUTPUT may contain multiple events separated by newlines."
-  (dolist (line (split-string output "\n" t))
-    (let* ((raw (string-trim line))
-           (parts (split-string raw "|||" t))
-           (file (car parts))
-           (flags (cadr parts)))
-      (when (and file
-                 (not (string-empty-p file))
-                 (not (string-match-p "/\\.git/" file))
-                 (not (string-match-p "/\\.#" file))
-                 (not (string-match-p "#$" file))
-                 (not (string-match-p "~$" file)))
-        (cond
-         ;; Explicit removal event
-         ((and flags (string-match-p "Removed" flags))
-          (vulpea-db-sync--handle-removed-file file))
-         ;; File/directory no longer exists (e.g., moved to trash)
-         ((not (file-exists-p file))
-          (vulpea-db-sync--handle-removed-file file))
-         ;; Directory created/renamed - scan for org files inside
-         ((file-directory-p file)
-          (dolist (org-file (directory-files-recursively file "\\.org\\'"))
-            (vulpea-db-sync--enqueue org-file)))
-         ;; Regular file change
-         ((vulpea-db-sync--org-file-p file)
-          (vulpea-db-sync--enqueue file)))))))
+OUTPUT may contain multiple events separated by newlines.
+Handles partial lines by buffering incomplete output."
+  ;; Prepend any buffered incomplete line from previous call
+  (setq output (concat vulpea-db-sync--fswatch-buffer output))
+
+  ;; Split into lines, keeping track of whether output ends with newline
+  (let* ((ends-with-newline (string-suffix-p "\n" output))
+         (lines (split-string output "\n" t)))
+
+    ;; If output doesn't end with newline, last line is incomplete - buffer it
+    (if ends-with-newline
+        (setq vulpea-db-sync--fswatch-buffer "")
+      (setq vulpea-db-sync--fswatch-buffer (or (car (last lines)) ""))
+      (setq lines (butlast lines)))
+
+    ;; Process complete lines
+    (dolist (line lines)
+      (let* ((raw (string-trim line))
+             (parts (split-string raw "|||" t))
+             (file (car parts))
+             (flags (cadr parts)))
+        (when (and file
+                   (not (string-empty-p file))
+                   (vulpea-db-sync--fswatch-path-valid-p file)
+                   (not (string-match-p "/\\.git/" file))
+                   (not (string-match-p "/\\.#" file))
+                   (not (string-match-p "#$" file))
+                   (not (string-match-p "~$" file)))
+          (cond
+           ;; Explicit removal event
+           ((and flags (string-match-p "Removed" flags))
+            (vulpea-db-sync--handle-removed-file file))
+           ;; File/directory no longer exists (e.g., moved to trash)
+           ((not (file-exists-p file))
+            (vulpea-db-sync--handle-removed-file file))
+           ;; Directory created/renamed - scan for org files inside
+           ((file-directory-p file)
+            (dolist (org-file (vulpea-db-sync--list-org-files file))
+              (vulpea-db-sync--enqueue org-file)))
+           ;; Regular file change
+           ((vulpea-db-sync--org-file-p file)
+            (vulpea-db-sync--enqueue file))))))))
 
 (defun vulpea-db-sync--fswatch-sentinel (proc event)
   "Handle fswatch PROC sentinel EVENT."
