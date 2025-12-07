@@ -12,6 +12,7 @@
 :ID:                     32a267f4-dd27-44b9-a045-5835a5c8503f
 :END:
 
+- Fix inconsistency where directory scans (=vulpea-db-sync-update-directory=, =vulpea-db-sync-full-scan=, initial scan, and polling) would index files in hidden directories (paths containing =/.*=), while file watchers excluded them. Now all sync methods consistently exclude hidden directories.
 - Exclude archived entries from the database by default. Controlled by =vulpea-db-exclude-archived= (default =t=). Entries are considered archived if they have the =org-archive-tag= (directly or inherited) or the =ARCHIVE_TIME= property.
 - Include attachment directory in =vulpea-note= and =notes= table.
 - [[https://github.com/d12frosted/vulpea/issues/130][vulpea#130]] Introduce mechanism to automatically rebuild database when needed. This happens either on the first usage of Vulpea or when =vulpea-db-version= increases.

@@ -917,6 +917,83 @@ Returns absolute path. Caller responsible for cleanup."
         (when (file-directory-p root)
           (delete-directory root t))))))
 
+;;; Hidden Directory Filtering Tests
+
+(ert-deftest vulpea-db-sync-org-file-p-excludes-hidden-directories ()
+  "Test that org-file-p excludes files in hidden directories."
+  ;; Regular files should pass
+  (should (vulpea-db-sync--org-file-p "/path/to/note.org"))
+  (should (vulpea-db-sync--org-file-p "/path/to/subdir/note.org"))
+
+  ;; Files in hidden directories should fail
+  (should-not (vulpea-db-sync--org-file-p "/path/.hidden/note.org"))
+  (should-not (vulpea-db-sync--org-file-p "/path/to/.archive/note.org"))
+  (should-not (vulpea-db-sync--org-file-p "/path/.git/config.org"))
+  (should-not (vulpea-db-sync--org-file-p "/.hidden/note.org"))
+
+  ;; Non-org files should fail
+  (should-not (vulpea-db-sync--org-file-p "/path/to/note.txt"))
+  (should-not (vulpea-db-sync--org-file-p "/path/to/note.org.bak"))
+
+  ;; Nil should fail
+  (should-not (vulpea-db-sync--org-file-p nil)))
+
+(ert-deftest vulpea-db-sync-list-org-files-excludes-hidden ()
+  "Test that list-org-files excludes files in hidden directories."
+  (let* ((dir (make-temp-file "vulpea-test-hidden-" t))
+         (visible-file (expand-file-name "note.org" dir))
+         (hidden-dir (expand-file-name ".hidden" dir))
+         (hidden-file (expand-file-name "secret.org" hidden-dir)))
+    (unwind-protect
+        (progn
+          ;; Create visible file
+          (with-temp-file visible-file
+            (insert "visible"))
+
+          ;; Create hidden directory and file
+          (make-directory hidden-dir t)
+          (with-temp-file hidden-file
+            (insert "hidden"))
+
+          ;; List should only include visible file
+          (let ((files (vulpea-db-sync--list-org-files dir)))
+            (should (= 1 (length files)))
+            (should (member visible-file files))
+            (should-not (member hidden-file files))))
+      (when (file-directory-p dir)
+        (delete-directory dir t)))))
+
+(ert-deftest vulpea-db-sync-update-directory-excludes-hidden ()
+  "Test that update-directory excludes files in hidden directories."
+  (vulpea-test--with-temp-db
+    (let* ((dir (make-temp-file "vulpea-test-hidden-sync-" t))
+           (visible-file (expand-file-name "visible.org" dir))
+           (hidden-dir (expand-file-name ".archive" dir))
+           (hidden-file (expand-file-name "archived.org" hidden-dir))
+           (vulpea-db-autosync-mode nil))
+      (unwind-protect
+          (progn
+            ;; Create visible file
+            (with-temp-file visible-file
+              (insert ":PROPERTIES:\n:ID: visible-id\n:END:\n#+TITLE: Visible\n"))
+
+            ;; Create hidden directory and file
+            (make-directory hidden-dir t)
+            (with-temp-file hidden-file
+              (insert ":PROPERTIES:\n:ID: hidden-id\n:END:\n#+TITLE: Hidden\n"))
+
+            ;; Sync directory
+            (vulpea-db)
+            (vulpea-db-sync-update-directory dir)
+
+            ;; Only visible file should be in database
+            (should (vulpea-db-get-by-id "visible-id"))
+            (should-not (vulpea-db-get-by-id "hidden-id")))
+        (when (file-directory-p dir)
+          (delete-directory dir t))))))
+
+;;; File Removal Tests
+
 (ert-deftest vulpea-db-sync-handle-removed-file-directory-prefix ()
   "Handle removed file correctly cleans up directory prefix matches."
   (vulpea-test--with-temp-db

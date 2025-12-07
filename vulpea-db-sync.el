@@ -219,7 +219,7 @@ Optionally performs initial scan based on `vulpea-db-sync-scan-on-enable'."
        ;; Queue all files for async processing
        (message "Vulpea: Queueing files for async scan...")
        (dolist (dir vulpea-db-sync-directories)
-         (dolist (file (directory-files-recursively dir "\\.org\\'"))
+         (dolist (file (vulpea-db-sync--list-org-files dir))
            (vulpea-db-sync--enqueue file))))
       ('blocking
        ;; Scan synchronously (blocks Emacs)
@@ -298,10 +298,22 @@ Optionally performs initial scan based on `vulpea-db-sync-scan-on-enable'."
           (delq entry vulpea-db-sync--watchers))))
 
 (defun vulpea-db-sync--org-file-p (path)
-  "Return non-nil when PATH points to a tracked org file."
+  "Return non-nil when PATH points to a tracked org file.
+
+Excludes:
+- Non-.org files
+- Files in hidden directories (paths containing /.)"
   (and path
        (string-suffix-p ".org" path)
        (not (string-match-p "/\\." path))))
+
+(defun vulpea-db-sync--list-org-files (dir)
+  "List all tracked org files in DIR recursively.
+
+Uses `vulpea-db-sync--org-file-p' to filter files, ensuring
+consistency with file watcher filtering."
+  (seq-filter #'vulpea-db-sync--org-file-p
+              (directory-files-recursively dir "\\.org\\'")))
 
 (defun vulpea-db-sync--drop-from-queue (path)
   "Remove PATH from the pending queue."
@@ -635,6 +647,7 @@ Otherwise, updates immediately."
   "Update database for all org files in DIR recursively.
 
 Only updates files that have actually changed (by checking mtime/size/hash).
+Files in hidden directories (paths containing /.) are excluded.
 
 With optional FORCE argument, bypass change detection and re-index all files.
 This is useful when changing configuration like `vulpea-db-index-heading-level'.
@@ -642,7 +655,7 @@ This is useful when changing configuration like `vulpea-db-index-heading-level'.
 FORCE mode is always synchronous/blocking, even when `vulpea-db-autosync-mode'
 is enabled."
   (interactive "DDirectory: ")
-  (let ((files (directory-files-recursively dir "\\.org\\'")))
+  (let ((files (vulpea-db-sync--list-org-files dir)))
     (if (and vulpea-db-autosync-mode (not force))
         ;; Async mode: queue all files (smart detection in queue processing)
         (progn
@@ -847,7 +860,7 @@ OUTPUT may contain multiple events separated by newlines."
   "Update cache of file attributes for all org files."
   (dolist (dir vulpea-db-sync-directories)
     (when (file-directory-p dir)
-      (dolist (file (directory-files-recursively dir "\\.org\\'" t))
+      (dolist (file (vulpea-db-sync--list-org-files dir))
         (when (file-exists-p file)
           (puthash file (file-attributes file) vulpea-db-sync--file-attributes))))))
 
@@ -861,7 +874,7 @@ Detects three types of changes:
   (let ((seen (make-hash-table :test 'equal)))
     (dolist (dir vulpea-db-sync-directories)
       (when (file-directory-p dir)
-        (dolist (file (directory-files-recursively dir "\\.org\\'" t))
+        (dolist (file (vulpea-db-sync--list-org-files dir))
           (when (file-exists-p file)
             (let ((curr-attr (file-attributes file))
                   (cached-attr (gethash file vulpea-db-sync--file-attributes)))
