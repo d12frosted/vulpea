@@ -7,13 +7,27 @@
 :ID:                     e3f3602c-426e-451e-bcb5-b59b99e3b10e
 :END:
 
-** TBD
+** TBD (v2 rewrite)
 :PROPERTIES:
 :ID:                     32a267f4-dd27-44b9-a045-5835a5c8503f
 :END:
 
+This is a complete rewrite of Vulpea that removes the dependency on =org-roam=. Vulpea now manages its own database and provides all functionality independently.
+
+*Fixes*
+
 - Fix inconsistency where directory scans (=vulpea-db-sync-update-directory=, =vulpea-db-sync-full-scan=, initial scan, and polling) would index files in hidden directories (paths containing =/.*=), while file watchers excluded them. Now all sync methods consistently exclude hidden directories.
+
+*Features*
+
 - Exclude archived entries from the database by default. Controlled by =vulpea-db-exclude-archived= (default =t=). Entries are considered archived if they have the =org-archive-tag= (directly or inherited) or the =ARCHIVE_TIME= property.
+
+** v0.4.0
+
+Last release based on =org-roam=. Future versions (v2) will be independent of =org-roam=.
+
+*Features*
+
 - Include attachment directory in =vulpea-note= and =notes= table.
 - [[https://github.com/d12frosted/vulpea/issues/130][vulpea#130]] Introduce mechanism to automatically rebuild database when needed. This happens either on the first usage of Vulpea or when =vulpea-db-version= increases.
 - [[https://github.com/d12frosted/vulpea/pull/158][vulpea#158]] Introduce mechanism to define more tables in Org Roam database (see =vulpea-db-define-table=). And provide a hook to fill defined tables with data (see =vulpea-db-insert-note-functions=).
