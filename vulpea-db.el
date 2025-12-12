@@ -164,7 +164,8 @@ Uses hybrid approach:
     (idx-meta-note meta [note-id])
     (idx-notes-path notes [path])
     (idx-notes-title notes [title])
-    (idx-notes-modified notes [modified-at]))
+    (idx-notes-modified notes [modified-at])
+    (idx-notes-created notes [created-at]))
   "Database indices for performance.")
 
 ;;; Variables

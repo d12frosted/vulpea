@@ -39,6 +39,7 @@ Vulpea now has its own file synchronization system (=vulpea-db-sync.el=):
 - =vulpea-db-query-by-directory= - query notes by directory path.
 - =vulpea-db-query-by-file-path= - query notes by exact file path.
 - =vulpea-db-search-by-title= - search notes by title substring.
+- =vulpea-db-query-by-created-date= - query notes by creation date (from =CREATED= property).
 
 *Fixes*
 
@@ -48,6 +49,7 @@ Vulpea now has its own file synchronization system (=vulpea-db-sync.el=):
 *Features*
 
 - Exclude archived entries from the database by default. Controlled by =vulpea-db-exclude-archived= (default =t=). Entries are considered archived if they have the =org-archive-tag= (directly or inherited) or the =ARCHIVE_TIME= property.
+- Populate =created-at= column from =CREATED= property during extraction. Enables efficient querying of notes by creation date via =vulpea-db-query-by-created-date=.
 
 ** v0.4.0
 

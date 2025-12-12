@@ -786,5 +786,76 @@ This serves as documentation for plugin authors."
           (should (= (length heading-nodes) 1)))
       (delete-file path))))
 
+;;; Created-At Extraction Tests
+
+(ert-deftest vulpea-db-extract-created-at-from-property ()
+  "Test created-at is populated from CREATED property."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((path (vulpea-test--create-temp-org-file
+                 ":PROPERTIES:\n:ID: note-with-created\n:CREATED: [2025-12-08 Sun 14:30]\n:END:\n#+TITLE: Note With Created\n")))
+      (unwind-protect
+          (progn
+            (vulpea-db-update-file path)
+            ;; Verify created-at was stored
+            (let ((row (car (emacsql (vulpea-db)
+                                     [:select [created-at] :from notes
+                                      :where (= id $s1)]
+                                     "note-with-created"))))
+              (should row)
+              (should (equal (car row) "2025-12-08"))))
+        (delete-file path)))))
+
+(ert-deftest vulpea-db-extract-created-at-iso-format ()
+  "Test created-at extraction from ISO date format."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((path (vulpea-test--create-temp-org-file
+                 ":PROPERTIES:\n:ID: note-iso-date\n:CREATED: 2025-12-08\n:END:\n#+TITLE: Note ISO Date\n")))
+      (unwind-protect
+          (progn
+            (vulpea-db-update-file path)
+            (let ((row (car (emacsql (vulpea-db)
+                                     [:select [created-at] :from notes
+                                      :where (= id $s1)]
+                                     "note-iso-date"))))
+              (should row)
+              (should (equal (car row) "2025-12-08"))))
+        (delete-file path)))))
+
+(ert-deftest vulpea-db-extract-created-at-heading-level ()
+  "Test created-at extraction at heading level."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((path (vulpea-test--create-temp-org-file
+                 ":PROPERTIES:\n:ID: file-id\n:END:\n#+TITLE: File\n\n* Heading\n:PROPERTIES:\n:ID: heading-with-created\n:CREATED: [2025-12-09]\n:END:\n")))
+      (unwind-protect
+          (let ((vulpea-db-index-heading-level t))
+            (vulpea-db-update-file path)
+            (let ((row (car (emacsql (vulpea-db)
+                                     [:select [created-at] :from notes
+                                      :where (= id $s1)]
+                                     "heading-with-created"))))
+              (should row)
+              (should (equal (car row) "2025-12-09"))))
+        (delete-file path)))))
+
+(ert-deftest vulpea-db-extract-created-at-missing ()
+  "Test created-at is null when CREATED property is missing."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((path (vulpea-test--create-temp-org-file
+                 ":PROPERTIES:\n:ID: note-no-created\n:END:\n#+TITLE: Note Without Created\n")))
+      (unwind-protect
+          (progn
+            (vulpea-db-update-file path)
+            (let ((row (car (emacsql (vulpea-db)
+                                     [:select [created-at] :from notes
+                                      :where (= id $s1)]
+                                     "note-no-created"))))
+              (should row)
+              (should (null (car row)))))
+        (delete-file path)))))
+
 (provide 'vulpea-db-extract-test)
 ;;; vulpea-db-extract-test.el ends here

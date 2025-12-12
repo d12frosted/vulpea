@@ -63,6 +63,22 @@
   (when values
     (mapcar #'substring-no-properties values)))
 
+(defun vulpea-db--extract-created-date (properties)
+  "Extract date from CREATED property in PROPERTIES alist.
+
+Supports various date formats:
+- \"[2025-12-08 Sun 14:30]\" - Org timestamp with time
+- \"[2025-12-08]\" - Org timestamp without time
+- \"2025-12-08\" - ISO date
+
+Returns date string in YYYY-MM-DD format, or nil if not found."
+  (when-let ((created (cdr (assoc "CREATED" properties))))
+    (when (string-match "\\([0-9]\\{4\\}\\)-\\([0-9]\\{2\\}\\)-\\([0-9]\\{2\\}\\)" created)
+      (format "%s-%s-%s"
+              (match-string 1 created)
+              (match-string 2 created)
+              (match-string 3 created)))))
+
 ;;; Archive Detection
 
 (defun vulpea-db--archived-p (element properties filetags)
@@ -768,7 +784,9 @@ Returns number of notes updated (file-level + headings)."
 
 CTX is the parse context containing AST and other metadata.
 Runs registered extractors after insertion."
-  (let* ((modified-at (format-time-string "%Y-%m-%d %H:%M:%S")))
+  (let* ((modified-at (format-time-string "%Y-%m-%d %H:%M:%S"))
+         (properties (plist-get data :properties))
+         (created-at (vulpea-db--extract-created-date properties)))
     ;; First insert the note so foreign keys can reference it
     (vulpea-db--insert-note
      :id (plist-get data :id)
@@ -776,7 +794,7 @@ Runs registered extractors after insertion."
      :level level
      :pos pos
      :title (plist-get data :title)
-     :properties (plist-get data :properties)
+     :properties properties
      :tags (plist-get data :tags)
      :aliases (plist-get data :aliases)
      :meta (plist-get data :meta)
@@ -788,6 +806,7 @@ Runs registered extractors after insertion."
      :closed (plist-get data :closed)
      :outline-path (plist-get data :outline-path)
      :attach-dir (plist-get data :attach-dir)
+     :created-at created-at
      :modified-at modified-at)
 
     ;; Then run extractors that may insert into foreign-keyed tables

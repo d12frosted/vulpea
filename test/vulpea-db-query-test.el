@@ -679,5 +679,65 @@ from being inserted into the normalized tags table."
 
     (should-not (vulpea-db-query-by-directory "/tmp/other"))))
 
+;;; Created-At Query Tests
+
+(ert-deftest vulpea-db-query-by-created-date-basic ()
+  "Test querying notes by creation date."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "note1" "Note 1"
+                                   :created-at "2025-12-08")
+    (vulpea-test--insert-test-note "note2" "Note 2"
+                                   :created-at "2025-12-08")
+    (vulpea-test--insert-test-note "note3" "Note 3"
+                                   :created-at "2025-12-09")
+
+    (let ((notes (vulpea-db-query-by-created-date "2025-12-08")))
+      (should (= (length notes) 2))
+      (should (member "note1" (mapcar #'vulpea-note-id notes)))
+      (should (member "note2" (mapcar #'vulpea-note-id notes)))
+      (should-not (member "note3" (mapcar #'vulpea-note-id notes))))))
+
+(ert-deftest vulpea-db-query-by-created-date-with-level ()
+  "Test querying notes by creation date with level filter."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "note1" "Note 1"
+                                   :level 0
+                                   :created-at "2025-12-08")
+    (vulpea-test--insert-test-note "note2" "Note 2"
+                                   :level 1
+                                   :created-at "2025-12-08")
+    (vulpea-test--insert-test-note "note3" "Note 3"
+                                   :level 0
+                                   :created-at "2025-12-08")
+
+    (let ((notes (vulpea-db-query-by-created-date "2025-12-08" 0)))
+      (should (= (length notes) 2))
+      (should (member "note1" (mapcar #'vulpea-note-id notes)))
+      (should (member "note3" (mapcar #'vulpea-note-id notes)))
+      (should-not (member "note2" (mapcar #'vulpea-note-id notes))))))
+
+(ert-deftest vulpea-db-query-by-created-date-not-found ()
+  "Test querying notes by creation date with no matches."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "note1" "Note 1"
+                                   :created-at "2025-12-08")
+
+    (should-not (vulpea-db-query-by-created-date "2025-12-09"))))
+
+(ert-deftest vulpea-db-query-by-created-date-null ()
+  "Test querying notes excludes those without created-at."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "note1" "Note 1"
+                                   :created-at "2025-12-08")
+    (vulpea-test--insert-test-note "note2" "Note 2")  ; No created-at
+
+    (let ((notes (vulpea-db-query-by-created-date "2025-12-08")))
+      (should (= (length notes) 1))
+      (should (equal (vulpea-note-id (car notes)) "note1")))))
+
 (provide 'vulpea-db-query-test)
 ;;; vulpea-db-query-test.el ends here

@@ -110,7 +110,7 @@
      :title "Test"
      :properties nil
      :tags '("wine" "red")
-     :links '((:dest "other-id" :type "id"))
+     :links '((:dest "other-id" :type "id" :pos 100))
      :modified-at "2025-11-16")
 
     ;; Check tags table
@@ -194,7 +194,7 @@
      :title "Test"
      :properties nil
      :tags '("tag1")
-     :links '((:dest "other" :type "id"))
+     :links '((:dest "other" :type "id" :pos 100))
      :meta '(("key" . ((:value "val" :type "string"))))
      :modified-at "2025-11-16")
 
