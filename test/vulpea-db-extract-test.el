@@ -857,5 +857,44 @@ This serves as documentation for plugin authors."
               (should (null (car row)))))
         (delete-file path)))))
 
+;;; Properties Table Tests
+
+(ert-deftest vulpea-db-extract-properties-table-populated ()
+  "Test properties table is populated during extraction."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((path (vulpea-test--create-temp-org-file
+                 ":PROPERTIES:\n:ID: note-with-props\n:CREATED: [2025-12-08]\n:CATEGORY: journal\n:END:\n#+TITLE: Note With Properties\n")))
+      (unwind-protect
+          (progn
+            (vulpea-db-update-file path)
+            ;; Verify properties were stored in normalized table
+            (let ((props (emacsql (vulpea-db)
+                                  [:select [key value] :from properties
+                                   :where (= note-id $s1)
+                                   :order-by [(asc key)]]
+                                  "note-with-props")))
+              (should (>= (length props) 2))
+              (should (member '("CATEGORY" "journal") props))
+              (should (member '("CREATED" "[2025-12-08]") props))))
+        (delete-file path)))))
+
+(ert-deftest vulpea-db-extract-properties-table-heading ()
+  "Test properties table is populated for headings."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((path (vulpea-test--create-temp-org-file
+                 ":PROPERTIES:\n:ID: file-id\n:END:\n#+TITLE: File\n\n* Heading\n:PROPERTIES:\n:ID: heading-props\n:CUSTOM_PROP: custom-value\n:END:\n")))
+      (unwind-protect
+          (let ((vulpea-db-index-heading-level t))
+            (vulpea-db-update-file path)
+            (let ((props (emacsql (vulpea-db)
+                                  [:select [key value] :from properties
+                                   :where (= note-id $s1)]
+                                  "heading-props")))
+              (should props)
+              (should (member '("CUSTOM_PROP" "custom-value") props))))
+        (delete-file path)))))
+
 (provide 'vulpea-db-extract-test)
 ;;; vulpea-db-extract-test.el ends here

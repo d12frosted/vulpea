@@ -679,6 +679,53 @@ from being inserted into the normalized tags table."
 
     (should-not (vulpea-db-query-by-directory "/tmp/other"))))
 
+;;; Property-Based Query Tests
+
+(ert-deftest vulpea-db-query-by-property-basic ()
+  "Test querying notes by property key and value."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "note1" "Note 1"
+                                   :properties '(("CATEGORY" . "journal")
+                                                 ("CREATED" . "2025-12-08")))
+    (vulpea-test--insert-test-note "note2" "Note 2"
+                                   :properties '(("CATEGORY" . "journal")))
+    (vulpea-test--insert-test-note "note3" "Note 3"
+                                   :properties '(("CATEGORY" . "project")))
+
+    (let ((notes (vulpea-db-query-by-property "CATEGORY" "journal")))
+      (should (= (length notes) 2))
+      (should (member "note1" (mapcar #'vulpea-note-id notes)))
+      (should (member "note2" (mapcar #'vulpea-note-id notes)))
+      (should-not (member "note3" (mapcar #'vulpea-note-id notes))))))
+
+(ert-deftest vulpea-db-query-by-property-key-basic ()
+  "Test querying notes by property key."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "note1" "Note 1"
+                                   :properties '(("CREATED" . "2025-12-08")))
+    (vulpea-test--insert-test-note "note2" "Note 2"
+                                   :properties '(("CREATED" . "2025-12-09")))
+    (vulpea-test--insert-test-note "note3" "Note 3"
+                                   :properties '(("CATEGORY" . "other")))
+
+    (let ((notes (vulpea-db-query-by-property-key "CREATED")))
+      (should (= (length notes) 2))
+      (should (member "note1" (mapcar #'vulpea-note-id notes)))
+      (should (member "note2" (mapcar #'vulpea-note-id notes)))
+      (should-not (member "note3" (mapcar #'vulpea-note-id notes))))))
+
+(ert-deftest vulpea-db-query-by-property-not-found ()
+  "Test querying notes by property with no matches."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "note1" "Note 1"
+                                   :properties '(("CATEGORY" . "journal")))
+
+    (should-not (vulpea-db-query-by-property "CATEGORY" "project"))
+    (should-not (vulpea-db-query-by-property-key "NONEXISTENT"))))
+
 ;;; Created-At Query Tests
 
 (ert-deftest vulpea-db-query-by-created-date-basic ()

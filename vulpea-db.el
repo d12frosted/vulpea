@@ -137,6 +137,13 @@ to be queried. Excluding them keeps the database cleaner and faster."
       (value :not-null)]
      (:foreign-key [note-id] :references notes [id] :on-delete :cascade))
 
+    (properties
+     [(note-id :not-null)
+      (key :not-null)
+      (value :not-null)]
+     (:primary-key [note-id key])
+     (:foreign-key [note-id] :references notes [id] :on-delete :cascade))
+
     ;; File tracking for change detection
     (files
      [(path :not-null :primary-key)
@@ -162,6 +169,8 @@ Uses hybrid approach:
     (idx-links-source links [source])
     (idx-meta-key meta [key])
     (idx-meta-note meta [note-id])
+    (idx-properties-key properties [key])
+    (idx-properties-note properties [note-id])
     (idx-notes-path notes [path])
     (idx-notes-title notes [title])
     (idx-notes-modified notes [modified-at])
@@ -357,7 +366,13 @@ Arguments:
                  (cl-loop for (key . values) in meta
                           append (mapcar (lambda (v)
                                            (vector id key v))
-                                         values)))))))
+                                         values))))
+
+      ;; 5. Insert into normalized properties table
+      (when properties
+        (emacsql db [:insert :into properties :values $v1]
+                 (cl-loop for (key . value) in properties
+                          collect (vector id key value)))))))
 
 (defun vulpea-db--delete-file-notes (path)
   "Delete all notes from PATH.

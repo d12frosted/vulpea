@@ -40,6 +40,8 @@ Vulpea now has its own file synchronization system (=vulpea-db-sync.el=):
 - =vulpea-db-query-by-file-path= - query notes by exact file path.
 - =vulpea-db-search-by-title= - search notes by title substring.
 - =vulpea-db-query-by-created-date= - query notes by creation date (from =CREATED= property).
+- =vulpea-db-query-by-property= - query notes by property key and value.
+- =vulpea-db-query-by-property-key= - query notes that have a specific property.
 
 *Fixes*
 
@@ -50,6 +52,7 @@ Vulpea now has its own file synchronization system (=vulpea-db-sync.el=):
 
 - Exclude archived entries from the database by default. Controlled by =vulpea-db-exclude-archived= (default =t=). Entries are considered archived if they have the =org-archive-tag= (directly or inherited) or the =ARCHIVE_TIME= property.
 - Populate =created-at= column from =CREATED= property during extraction. Enables efficient querying of notes by creation date via =vulpea-db-query-by-created-date=.
+- Add normalized =properties= table for efficient property-based queries. Properties are now stored both in the JSON blob (for full note retrieval) and in a normalized table (for indexed queries via =vulpea-db-query-by-property= and =vulpea-db-query-by-property-key=).
 
 ** v0.4.0
 
