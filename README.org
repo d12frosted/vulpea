@@ -7,8 +7,8 @@
   <img width="256px" src="./images/logo.png" alt="Banner">
 </p>
 <p align="center">
-  <a href="https://github.com/d12frosted/vulpea/tree/v2-rewrite"><img alt="v2-rewrite branch" src="https://img.shields.io/badge/branch-v2--rewrite-blue"/></a>
-  <a href="https://github.com/d12frosted/vulpea/actions"><img alt="Tests" src="https://img.shields.io/badge/tests-passing-green"/></a>
+  <a href="https://github.com/d12frosted/vulpea/releases"><img alt="Release" src="https://img.shields.io/github/v/release/d12frosted/vulpea?include_prereleases"/></a>
+  <a href="https://github.com/d12frosted/vulpea/actions"><img alt="CI" src="https://github.com/d12frosted/vulpea/actions/workflows/main.yml/badge.svg"/></a>
 </p>
 #+end_html
 
@@ -65,12 +65,21 @@ Vulpea solves this by maintaining a database of your notes that stays in sync wi
 
 ** Installation
 
-*Note:* v2 is currently on the =v2-rewrite= branch and not yet released to package archives.
+*Note:* v2 is not yet released to package archives. Install from source or use a package manager that supports Git.
+
+#+begin_src emacs-lisp
+;; Using straight.el
+(straight-use-package
+ '(vulpea :host github :repo "d12frosted/vulpea"))
+
+;; Using elpaca
+(elpaca (vulpea :host github :repo "d12frosted/vulpea"))
+#+end_src
+
+Or clone manually:
 
 #+begin_src bash
 git clone https://github.com/d12frosted/vulpea
-cd vulpea
-git checkout v2-rewrite
 #+end_src
 
 #+begin_src emacs-lisp
