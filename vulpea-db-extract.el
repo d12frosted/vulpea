@@ -222,13 +222,13 @@ by initializing org-mode only once and reusing the buffer."
   (declare (indent 0))
   `(progn
      (unless (and vulpea-db--parse-buffer
-                  (buffer-live-p vulpea-db--parse-buffer))
-       (setq vulpea-db--parse-buffer (generate-new-buffer " *vulpea-parse*"))
-       (with-current-buffer vulpea-db--parse-buffer
-         (let ((delay-mode-hooks (not vulpea-db--parse-buffer-run-hooks)))
-           (org-mode))))
+              (buffer-live-p vulpea-db--parse-buffer))
+      (setq vulpea-db--parse-buffer (generate-new-buffer " *vulpea-parse*"))
+      (with-current-buffer vulpea-db--parse-buffer
+       (let ((delay-mode-hooks (not vulpea-db--parse-buffer-run-hooks)))
+        (org-mode))))
      (with-current-buffer vulpea-db--parse-buffer
-       ,@body)))
+      ,@body)))
 
 (defun vulpea-db--parse-with-temp-buffer (path rerun-org-mode)
   "Parse org file at PATH using shared temp buffer.
@@ -414,56 +414,56 @@ Respects `vulpea-db-index-heading-level' setting."
                    (archived (vulpea-db--archived-p headline properties filetags)))
               ;; Only index if not explicitly ignored and not archived
               (unless (or ignored archived)
-              (let* ((title (vulpea-db--string-no-properties
-                             (org-element-property :raw-value headline)))
-                     (tags (vulpea-db--strings-no-properties
-                            (org-element-property :tags headline)))
-                     (level (org-element-property :level headline))
-                     (pos (org-element-property :begin headline))
-                     (todo (vulpea-db--string-no-properties
-                            (org-element-property :todo-keyword headline)))
-                     (priority (org-element-property :priority headline))
-                     (scheduled (org-element-property :scheduled headline))
-                     (deadline (org-element-property :deadline headline))
-                     (closed (org-element-property :closed headline))
-                     (meta (vulpea-db--extract-meta headline))
-                     (links (vulpea-db--extract-links headline))
-                     (outline-path (let (path
-                                                 (current headline))
-                                     (while (setq current (org-element-property :parent current))
-                                       (when (eq (org-element-type current) 'headline)
-                                         (push (vulpea-db--string-no-properties
-                                                (org-element-property :raw-value current))
-                                               path)))
-                                     path))
-                     (attach-dir (with-current-buffer buffer
-                                   (require 'org-attach)
-                                   (save-excursion
-                                     (goto-char pos)
-                                     (org-attach-dir nil 'no-fs-check)))))
+                (let* ((title (vulpea-db--string-no-properties
+                               (org-element-property :raw-value headline)))
+                       (tags (vulpea-db--strings-no-properties
+                              (org-element-property :tags headline)))
+                       (level (org-element-property :level headline))
+                       (pos (org-element-property :begin headline))
+                       (todo (vulpea-db--string-no-properties
+                              (org-element-property :todo-keyword headline)))
+                       (priority (org-element-property :priority headline))
+                       (scheduled (org-element-property :scheduled headline))
+                       (deadline (org-element-property :deadline headline))
+                       (closed (org-element-property :closed headline))
+                       (meta (vulpea-db--extract-meta headline))
+                       (links (vulpea-db--extract-links headline))
+                       (outline-path (let (path
+                                           (current headline))
+                                       (while (setq current (org-element-property :parent current))
+                                         (when (eq (org-element-type current) 'headline)
+                                           (push (vulpea-db--string-no-properties
+                                                  (org-element-property :raw-value current))
+                                                 path)))
+                                       path))
+                       (attach-dir (with-current-buffer buffer
+                                     (require 'org-attach)
+                                     (save-excursion
+                                       (goto-char pos)
+                                       (org-attach-dir nil 'no-fs-check)))))
 
-                (list :id id
-                      :level level
-                      :pos pos
-                      :title title
-                      :aliases nil  ; Only file-level has aliases
-                      :tags tags
-                      :links links
-                      :properties properties
-                      :meta meta
-                      :todo todo
-                      :priority priority
-                      :scheduled (when scheduled
-                                   (vulpea-db--string-no-properties
-                                    (org-element-property :raw-value scheduled)))
-                      :deadline (when deadline
+                  (list :id id
+                        :level level
+                        :pos pos
+                        :title title
+                        :aliases nil  ; Only file-level has aliases
+                        :tags tags
+                        :links links
+                        :properties properties
+                        :meta meta
+                        :todo todo
+                        :priority priority
+                        :scheduled (when scheduled
+                                     (vulpea-db--string-no-properties
+                                      (org-element-property :raw-value scheduled)))
+                        :deadline (when deadline
+                                    (vulpea-db--string-no-properties
+                                     (org-element-property :raw-value deadline)))
+                        :closed (when closed
                                   (vulpea-db--string-no-properties
-                                   (org-element-property :raw-value deadline)))
-                      :closed (when closed
-                                (vulpea-db--string-no-properties
-                                 (org-element-property :raw-value closed)))
-                      :outline-path outline-path
-                      :attach-dir attach-dir))))))))))
+                                   (org-element-property :raw-value closed)))
+                        :outline-path outline-path
+                        :attach-dir attach-dir))))))))))
 
 (defun vulpea-db--should-index-headings-p (path)
   "Check if headings should be indexed for PATH.
