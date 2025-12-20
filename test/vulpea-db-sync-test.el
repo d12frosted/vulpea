@@ -1033,5 +1033,63 @@
                            [:select path :from files :where (= path $s1)]
                            file2)))))
 
+(ert-deftest vulpea-db-sync-handle-removed-file-special-chars ()
+  "Handle removed file with GLOB special characters in path."
+  (vulpea-test--with-temp-db
+    ;; Test paths with GLOB wildcards: *, ?, [
+    (let* ((dir-with-star "/tmp/vulpea*test")
+           (dir-with-question "/tmp/vulpea?test")
+           (dir-with-bracket "/tmp/vulpea[1]test")
+           (file-star (concat dir-with-star "/note.org"))
+           (file-question (concat dir-with-question "/note.org"))
+           (file-bracket (concat dir-with-bracket "/note.org"))
+           ;; File that should NOT be matched by wildcards
+           (file-similar "/tmp/vulpeaXtest/note.org"))
+      (vulpea-db)
+      ;; Insert all files
+      (dolist (file (list file-star file-question file-bracket file-similar))
+        (emacsql (vulpea-db)
+                 [:insert :into files :values $v1]
+                 (vector file "hash" 12345 100)))
+
+      ;; Remove directory with * - should only remove that specific dir
+      (vulpea-db-sync--handle-removed-file dir-with-star)
+      (should-not (emacsql (vulpea-db)
+                           [:select path :from files :where (= path $s1)]
+                           file-star))
+      ;; Other files should still exist
+      (should (emacsql (vulpea-db)
+                       [:select path :from files :where (= path $s1)]
+                       file-question))
+      (should (emacsql (vulpea-db)
+                       [:select path :from files :where (= path $s1)]
+                       file-bracket))
+      (should (emacsql (vulpea-db)
+                       [:select path :from files :where (= path $s1)]
+                       file-similar))
+
+      ;; Remove directory with ? - should only remove that specific dir
+      (vulpea-db-sync--handle-removed-file dir-with-question)
+      (should-not (emacsql (vulpea-db)
+                           [:select path :from files :where (= path $s1)]
+                           file-question))
+      ;; Remaining files should still exist
+      (should (emacsql (vulpea-db)
+                       [:select path :from files :where (= path $s1)]
+                       file-bracket))
+      (should (emacsql (vulpea-db)
+                       [:select path :from files :where (= path $s1)]
+                       file-similar))
+
+      ;; Remove directory with [] - should only remove that specific dir
+      (vulpea-db-sync--handle-removed-file dir-with-bracket)
+      (should-not (emacsql (vulpea-db)
+                           [:select path :from files :where (= path $s1)]
+                           file-bracket))
+      ;; Similar file should still exist (wasn't matched by wildcards)
+      (should (emacsql (vulpea-db)
+                       [:select path :from files :where (= path $s1)]
+                       file-similar)))))
+
 (provide 'vulpea-db-sync-test)
 ;;; vulpea-db-sync-test.el ends here

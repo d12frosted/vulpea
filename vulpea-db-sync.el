@@ -206,6 +206,17 @@ When disabled:
       (vulpea-db-sync--start)
     (vulpea-db-sync--stop)))
 
+;;; Utilities
+
+(defun vulpea-db-sync--escape-glob-pattern (str)
+  "Escape special SQLite GLOB characters in STR.
+Escapes *, ?, and [ so they match literally when used with GLOB.
+These are escaped by wrapping in brackets: * -> [*], ? -> [?], [ -> [[]]."
+  (replace-regexp-in-string
+   "[][*?]"
+   (lambda (m) (format "[%s]" m))
+   str))
+
 ;;; Core Functions
 
 (defun vulpea-db-sync--start ()
@@ -343,16 +354,21 @@ all files under that directory are removed."
       (emacsql db [:delete :from files :where (= path $s1)] path)
       ;; Also handle directory removal - delete all files under this path
       ;; This handles the case when a directory is deleted externally
-      (let ((dir-prefix (if (string-suffix-p "/" path)
-                            path
-                          (concat path "/"))))
+      ;; Use GLOB instead of LIKE - GLOB uses * and ? as wildcards,
+      ;; which avoids issues with % and _ in directory names
+      (let* ((dir-prefix (if (string-suffix-p "/" path)
+                             path
+                           (concat path "/")))
+             ;; Escape GLOB special characters: *, ?, [
+             (escaped-prefix (vulpea-db-sync--escape-glob-pattern dir-prefix))
+             (glob-pattern (concat escaped-prefix "*")))
         (dolist (file-path (mapcar #'car
                                    (emacsql db [:select path :from files
-                                                :where (like path $s1)]
-                                            (concat dir-prefix "%"))))
+                                                :where (glob path $s1)]
+                                            glob-pattern)))
           (vulpea-db--delete-file-notes file-path))
-        (emacsql db [:delete :from files :where (like path $s1)]
-                 (concat dir-prefix "%"))))))
+        (emacsql db [:delete :from files :where (glob path $s1)]
+                 glob-pattern)))))
 
 (defun vulpea-db-sync--file-notify-callback (event)
   "Handle file notification EVENT."
