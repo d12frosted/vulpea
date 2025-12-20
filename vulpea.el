@@ -86,7 +86,7 @@ The function allows dynamic parameter computation based on context:
 
 Parameters explicitly passed to `vulpea-create' override these defaults."
   :type '(choice (const :tag "Use template instead" nil)
-                 (function :tag "Function returning plist"))
+          (function :tag "Function returning plist"))
   :group 'vulpea)
 
 (defcustom vulpea-create-default-template
