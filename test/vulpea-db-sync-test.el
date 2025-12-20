@@ -23,30 +23,7 @@
 (require 'vulpea-db)
 (require 'vulpea-db-query)
 (require 'vulpea-db-sync)
-
-;;; Test Infrastructure
-
-(defmacro vulpea-test--with-temp-db (&rest body)
-  "Execute BODY with temporary database."
-  (declare (indent 0))
-  `(let* ((temp-file (make-temp-file "vulpea-test-" nil ".db"))
-          (vulpea-db-location temp-file)
-          (vulpea-db--connection nil))
-     (unwind-protect
-         (progn ,@body)
-       (when vulpea-db--connection
-         (vulpea-db-close))
-       (when (file-exists-p temp-file)
-         (delete-file temp-file)))))
-
-(defun vulpea-test--create-temp-org-file (content)
-  "Create temporary org file with CONTENT.
-
-Returns absolute path. Caller responsible for cleanup."
-  (let ((temp-file (make-temp-file "vulpea-test-" nil ".org")))
-    (with-temp-file temp-file
-      (insert content))
-    temp-file))
+(require 'vulpea-test-helpers)
 
 ;;; Queue Tests
 

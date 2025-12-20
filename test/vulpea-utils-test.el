@@ -25,17 +25,8 @@
 (require 'vulpea-db-extract)
 (require 'vulpea-db-query)
 (require 'vulpea-buffer)
+(require 'vulpea-test-helpers)
 (require 'org-id)
-
-;;; Test Helpers
-
-(defun vulpea-test--create-temp-org-file (content)
-  "Create temporary org file with CONTENT.
-Returns the file path."
-  (let ((file (make-temp-file "vulpea-test-" nil ".org")))
-    (with-temp-file file
-      (insert content))
-    file))
 
 ;;; vulpea-utils-with-note Tests
 
@@ -102,28 +93,6 @@ Returns the file path."
                    5))))
 
 ;;; vulpea-utils-with-note-sync Tests
-
-(defmacro vulpea-test--with-temp-db-and-file (id content &rest body)
-  "Execute BODY with temporary database and file.
-Creates a temp file with ID and CONTENT, adds it to temp DB."
-  (declare (indent 2))
-  `(let* ((temp-db-file (make-temp-file "vulpea-utils-test-" nil ".db"))
-          (vulpea-db-location temp-db-file)
-          (vulpea-db--connection nil)
-          (temp-org-file (make-temp-file "vulpea-utils-test-" nil ".org")))
-     (with-temp-file temp-org-file
-       (insert (format ":PROPERTIES:\n:ID: %s\n:END:\n%s" ,id ,content)))
-     (unwind-protect
-         (progn
-           (vulpea-db)
-           (vulpea-db-update-file temp-org-file)
-           ,@body)
-       (when vulpea-db--connection
-         (vulpea-db-close))
-       (when (file-exists-p temp-db-file)
-         (delete-file temp-db-file))
-       (when (file-exists-p temp-org-file)
-         (delete-file temp-org-file)))))
 
 (ert-deftest vulpea-utils-with-note-sync-saves-and-syncs ()
   "Test vulpea-utils-with-note-sync saves buffer and syncs database."

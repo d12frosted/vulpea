@@ -9,6 +9,7 @@
 (eldev-use-package-archive 'melpa-unstable)
 
 ;; allow to load test helpers
+(eldev-add-loading-roots 'test "test")
 (eldev-add-loading-roots 'test "test/utils")
 
 ;; Tell checkdoc not to demand two spaces after a period.

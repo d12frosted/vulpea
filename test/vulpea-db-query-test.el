@@ -22,44 +22,7 @@
 (require 'ert)
 (require 'vulpea-db)
 (require 'vulpea-db-query)
-
-;;; Test Infrastructure
-
-(defmacro vulpea-test--with-temp-db (&rest body)
-  "Execute BODY with temporary database."
-  (declare (indent 0))
-  `(let* ((temp-file (make-temp-file "vulpea-test-" nil ".db"))
-          (vulpea-db-location temp-file)
-          (vulpea-db--connection nil))
-     (unwind-protect
-         (progn ,@body)
-       (when vulpea-db--connection
-         (vulpea-db-close))
-       (when (file-exists-p temp-file)
-         (delete-file temp-file)))))
-
-;;; Test Helpers
-
-(defun vulpea-test--insert-test-note (id title &rest args)
-  "Insert a test note with ID and TITLE.
-
-ARGS is a plist with optional fields:
-  :path, :level, :pos, :tags, :links, :meta, :properties, etc."
-  (apply #'vulpea-db--insert-note
-         :id id
-         :path (or (plist-get args :path) (format "/tmp/%s.org" id))
-         :level (or (plist-get args :level) 0)
-         :pos (or (plist-get args :pos) 0)
-         :title title
-         :properties (plist-get args :properties)
-         :tags (plist-get args :tags)
-         :aliases (plist-get args :aliases)
-         :meta (plist-get args :meta)
-         :links (plist-get args :links)
-         :todo (plist-get args :todo)
-         :priority (plist-get args :priority)
-         :modified-at (or (plist-get args :modified-at) "2025-11-16 10:00:00")
-         args))
+(require 'vulpea-test-helpers)
 
 ;;; Query Tests
 
