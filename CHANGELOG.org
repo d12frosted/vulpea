@@ -7,7 +7,9 @@
 :ID:                     e3f3602c-426e-451e-bcb5-b59b99e3b10e
 :END:
 
-** TBD (v2 rewrite)
+** Unreleased
+
+** v2.0.0-rc.1
 :PROPERTIES:
 :ID:                     32a267f4-dd27-44b9-a045-5835a5c8503f
 :END:
