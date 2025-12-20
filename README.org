@@ -105,6 +105,13 @@ git checkout v2-rewrite
 | [[file:docs/plugin-guide.org][Plugin Guide]] | Writing custom extractors for domain-specific data |
 | [[file:docs/troubleshooting.org][Troubleshooting]] | Common issues and solutions |
 
+** Ecosystem
+
+Companion packages that extend Vulpea:
+
+- [[https://github.com/d12frosted/vulpea-ui][vulpea-ui]] - Sidebar infrastructure and widget framework. Provides a per-frame sidebar with outline, backlinks, forward links, and stats widgets. Easy API for creating custom widgets.
+- [[https://github.com/d12frosted/vulpea-journal][vulpea-journal]] - Daily journaling with calendar integration. Creates one note per day with sidebar widgets for navigation, calendar view, and "on this day" from previous years.
+
 ** Real-World Usage
 
 - [[https://github.com/d12frosted/vino][vino]] - Wine cellar management with rich metadata
