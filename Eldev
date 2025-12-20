@@ -15,6 +15,9 @@
 ;; Tell checkdoc not to demand two spaces after a period.
 (setq sentence-end-double-space nil)
 
+;; Exclude bench directory from linting
+(setf eldev-standard-excludes `(:or ,eldev-standard-excludes "bench/"))
+
 ;; Teach linter how to properly indent emacsql vectors
 (eldev-add-extra-dependencies 'lint 'emacsql)
 (add-hook 'eldev-lint-hook

@@ -206,19 +206,19 @@ work, e.g. `(unless (bound-and-true-p 'vulpea-db--active-parse-method) …)'.")
 
 (defvar vulpea-db--parse-buffer nil
   "Reusable buffer for parsing org files.
-Caching the buffer with org-mode already initialized provides
+Caching the buffer with `org-mode' already initialized provides
 significant performance improvement (12x faster) by avoiding
-repeated org-mode activation overhead.")
+repeated `org-mode' activation overhead.")
 
 (defvar vulpea-db--parse-buffer-run-hooks t
   "Whether `org-mode' should run hooks when initializing parse buffer.")
 
 (defmacro vulpea-db--with-parse-buffer (&rest body)
-  "Execute BODY in a reusable parse buffer with org-mode initialized.
+  "Execute BODY in a reusable parse buffer with `org-mode' initialized.
 
 The buffer is created once and reused across multiple file parses.
-This avoids the expensive org-mode initialization overhead (0.7ms per file)
-by initializing org-mode only once and reusing the buffer."
+This avoids the expensive `org-mode' initialization overhead (0.7ms per file)
+by initializing `org-mode' only once and reusing the buffer."
   (declare (indent 0))
   `(progn
      (unless (and vulpea-db--parse-buffer
@@ -536,7 +536,7 @@ Returns alist of (key . value) pairs."
 
 Returns list of plists with :dest, :type, and :pos.
 Captures all link types: id:, roam:, file:, http:, https:,
-attachment:, elisp:, and any other org-mode link type.
+attachment:, elisp:, and any other `org-mode' link type.
 
 If NO-RECURSION is non-nil, stops recursion at headline boundaries.
 This is useful for file-level extraction to avoid collecting links
