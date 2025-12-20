@@ -362,6 +362,7 @@ start the capture process."
 
 
 
+;;;###autoload
 (defun vulpea-visit (note-or-id &optional other-window)
   "Visit NOTE-OR-ID.
 
@@ -486,6 +487,7 @@ used."
 
 
 
+;;;###autoload
 (cl-defun vulpea-create (title
                          &optional file-name
                          &key
