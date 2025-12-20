@@ -295,5 +295,101 @@ ARGS is a plist with optional fields:
       (should (vulpea-note-links-to-any-p note "target3" "target1"))
       (should-not (vulpea-note-links-to-any-p note "target3" "target4")))))
 
+;;; Expand Aliases Tests
+
+(ert-deftest vulpea-note-expand-aliases-no-aliases ()
+  "Test expanding note with no aliases returns single note."
+  (let* ((note (make-vulpea-note
+                :id "test-id"
+                :title "Original Title"
+                :level 0
+                :tags '("tag1")))
+         (expanded (vulpea-note-expand-aliases note)))
+    (should (= (length expanded) 1))
+    (should (eq (car expanded) note))
+    (should (equal (vulpea-note-title (car expanded)) "Original Title"))
+    (should-not (vulpea-note-primary-title (car expanded)))))
+
+(ert-deftest vulpea-note-expand-aliases-with-aliases ()
+  "Test expanding note with aliases returns note per name."
+  (let* ((note (make-vulpea-note
+                :id "test-id"
+                :title "Original Title"
+                :aliases '("Alias1" "Alias2")
+                :level 0
+                :tags '("tag1")))
+         (expanded (vulpea-note-expand-aliases note)))
+    ;; Should have 3 notes: original + 2 aliases
+    (should (= (length expanded) 3))
+
+    ;; First note is the original (same object)
+    (should (eq (car expanded) note))
+    (should (equal (vulpea-note-title (car expanded)) "Original Title"))
+    (should-not (vulpea-note-primary-title (car expanded)))
+
+    ;; Second note has first alias as title
+    (let ((alias1-note (nth 1 expanded)))
+      (should (equal (vulpea-note-title alias1-note) "Alias1"))
+      (should (equal (vulpea-note-primary-title alias1-note) "Original Title"))
+      (should (equal (vulpea-note-id alias1-note) "test-id"))
+      (should (equal (vulpea-note-tags alias1-note) '("tag1"))))
+
+    ;; Third note has second alias as title
+    (let ((alias2-note (nth 2 expanded)))
+      (should (equal (vulpea-note-title alias2-note) "Alias2"))
+      (should (equal (vulpea-note-primary-title alias2-note) "Original Title"))
+      (should (equal (vulpea-note-id alias2-note) "test-id")))))
+
+(ert-deftest vulpea-note-expand-aliases-preserves-all-fields ()
+  "Test that expanded alias notes preserve all fields from original."
+  (let* ((note (make-vulpea-note
+                :id "test-id"
+                :path "/path/to/note.org"
+                :title "Original Title"
+                :aliases '("Alias")
+                :level 2
+                :pos 100
+                :tags '("tag1" "tag2")
+                :links '((:dest "other-id" :type "id"))
+                :properties '(("CATEGORY" . "test"))
+                :meta '(("key" . ("value")))
+                :todo "TODO"
+                :priority "A"
+                :outline-path '("Parent")
+                :attach-dir "/attach"))
+         (expanded (vulpea-note-expand-aliases note))
+         (alias-note (nth 1 expanded)))
+    ;; All fields should be preserved
+    (should (equal (vulpea-note-id alias-note) "test-id"))
+    (should (equal (vulpea-note-path alias-note) "/path/to/note.org"))
+    (should (equal (vulpea-note-level alias-note) 2))
+    (should (equal (vulpea-note-pos alias-note) 100))
+    (should (equal (vulpea-note-tags alias-note) '("tag1" "tag2")))
+    (should (equal (vulpea-note-aliases alias-note) '("Alias")))
+    (should (equal (vulpea-note-links alias-note) '((:dest "other-id" :type "id"))))
+    (should (equal (vulpea-note-properties alias-note) '(("CATEGORY" . "test"))))
+    (should (equal (vulpea-note-meta alias-note) '(("key" . ("value")))))
+    (should (equal (vulpea-note-todo alias-note) "TODO"))
+    (should (equal (vulpea-note-priority alias-note) "A"))
+    (should (equal (vulpea-note-outline-path alias-note) '("Parent")))
+    (should (equal (vulpea-note-attach-dir alias-note) "/attach"))
+    ;; Title and primary-title should be swapped for alias
+    (should (equal (vulpea-note-title alias-note) "Alias"))
+    (should (equal (vulpea-note-primary-title alias-note) "Original Title"))))
+
+(ert-deftest vulpea-note-expand-aliases-copies-are-independent ()
+  "Test that alias notes are independent copies."
+  (let* ((note (make-vulpea-note
+                :id "test-id"
+                :title "Original"
+                :aliases '("Alias")
+                :level 0))
+         (expanded (vulpea-note-expand-aliases note))
+         (alias-note (nth 1 expanded)))
+    ;; Modifying alias note should not affect original
+    (setf (vulpea-note-tags alias-note) '("new-tag"))
+    (should-not (vulpea-note-tags note))
+    (should-not (vulpea-note-tags (car expanded)))))
+
 (provide 'vulpea-note-test)
 ;;; vulpea-note-test.el ends here

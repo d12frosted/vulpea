@@ -225,5 +225,102 @@ ARGS is a plist with optional fields:
     (should (string-match-p "#tag1" annotation))
     (should (string-match-p "#tag2" annotation))))
 
+;;; Expand Aliases in Selection Tests
+
+(ert-deftest vulpea-select-annotate-with-primary-title ()
+  "Test vulpea-select-annotate shows primary title for alias notes."
+  (let* ((note (make-vulpea-note
+                :id "test-id"
+                :title "Alias Name"
+                :primary-title "Original Title"
+                :level 0
+                :tags '("tag1")))
+         (annotation (vulpea-select-annotate note)))
+    ;; Should contain primary title in parentheses
+    (should (string-match-p "(Original Title)" annotation))
+    ;; Should contain tags
+    (should (string-match-p "#tag1" annotation))))
+
+(ert-deftest vulpea-select-from-expand-aliases ()
+  "Test vulpea-select-from expands aliases when requested."
+  (let* ((note1 (make-vulpea-note
+                 :id "id1"
+                 :title "Original Title"
+                 :aliases '("Alias1" "Alias2")
+                 :level 0))
+         (note2 (make-vulpea-note
+                 :id "id2"
+                 :title "Other Note"
+                 :level 0))
+         (notes (list note1 note2))
+         (completions-seen nil)
+         (result
+          (cl-letf (((symbol-function 'completing-read)
+                     (lambda (_prompt collection &rest _)
+                       (setq completions-seen collection)
+                       ;; Select the alias
+                       (car (seq-find
+                             (lambda (entry)
+                               (string-match-p "Alias1" (car entry)))
+                             collection)))))
+            (vulpea-select-from "Note" notes :expand-aliases t))))
+
+    ;; Should have 4 completions: Original + 2 aliases + Other Note
+    (should (= (length completions-seen) 4))
+
+    ;; Result should have alias as title and original as primary-title
+    (should (equal (vulpea-note-title result) "Alias1"))
+    (should (equal (vulpea-note-primary-title result) "Original Title"))
+    (should (equal (vulpea-note-id result) "id1"))))
+
+(ert-deftest vulpea-select-from-no-expand-aliases-by-default ()
+  "Test vulpea-select-from does not expand aliases by default."
+  (let* ((note (make-vulpea-note
+                :id "id1"
+                :title "Original Title"
+                :aliases '("Alias1" "Alias2")
+                :level 0))
+         (notes (list note))
+         (completions-seen nil))
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (_prompt collection &rest _)
+                 (setq completions-seen collection)
+                 (caar collection))))
+      (vulpea-select-from "Note" notes))
+
+    ;; Should have only 1 completion (no expansion)
+    (should (= (length completions-seen) 1))))
+
+(ert-deftest vulpea-select-expand-aliases ()
+  "Test vulpea-select passes expand-aliases to vulpea-select-from."
+  ;; Test that vulpea-select correctly passes :expand-aliases by mocking
+  ;; vulpea-db-query to return a note with aliases
+  (let* ((test-note (make-vulpea-note
+                     :id "test-id"
+                     :title "Original Title"
+                     :aliases '("Alias1")
+                     :level 0))
+         (completions-seen nil)
+         (result
+          (cl-letf (((symbol-function 'vulpea-db-query)
+                     (lambda (_filter-fn)
+                       (list test-note)))
+                    ((symbol-function 'completing-read)
+                     (lambda (_prompt collection &rest _)
+                       (setq completions-seen collection)
+                       ;; Select the alias
+                       (car (seq-find
+                             (lambda (entry)
+                               (string-match-p "Alias1" (car entry)))
+                             collection)))))
+            (vulpea-select "Note" :expand-aliases t))))
+
+    ;; Should have 2 completions: Original + Alias
+    (should (= (length completions-seen) 2))
+
+    ;; Result should have alias as title
+    (should (equal (vulpea-note-title result) "Alias1"))
+    (should (equal (vulpea-note-primary-title result) "Original Title"))))
+
 (provide 'vulpea-select-test)
 ;;; vulpea-select-test.el ends here

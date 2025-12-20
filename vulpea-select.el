@@ -34,6 +34,7 @@
 ;;; Code:
 
 (require 'vulpea-utils)
+(require 'vulpea-note)
 (require 'vulpea-db)
 (require 'vulpea-db-query)
 
@@ -81,7 +82,8 @@ Accepts a `vulpea-note'. Returns a `string'.")
                          &key
                          require-match
                          initial-prompt
-                         filter-fn)
+                         filter-fn
+                         expand-aliases)
   "Select a note.
 
 Returns a selected `vulpea-note'. If `vulpea-note-id' is nil, it
@@ -94,18 +96,26 @@ PROMPT is a message to present.
 INITIAL-PROMPT is the initial title prompt.
 
 FILTER-FN is the function to apply on the candidates, which takes
-as its argument a `vulpea-note'."
+as its argument a `vulpea-note'.
+
+When EXPAND-ALIASES is non-nil, each note with aliases will appear
+multiple times in the completion list - once for the original title
+and once for each alias. When an alias is selected, the returned
+note will have that alias as `vulpea-note-title' and the original
+title stored in `vulpea-note-primary-title'."
   (let ((notes (vulpea-db-query filter-fn)))
     (vulpea-select-from
      prompt notes
      :require-match require-match
-     :initial-prompt initial-prompt)))
+     :initial-prompt initial-prompt
+     :expand-aliases expand-aliases)))
 
 (cl-defun vulpea-select-from (prompt
                               notes
                               &key
                               require-match
-                              initial-prompt)
+                              initial-prompt
+                              expand-aliases)
   "Select a note from the list of NOTES.
 
 Returns a selected `vulpea-note'. If `vulpea-note-id' is nil, it
@@ -115,16 +125,25 @@ When REQUIRE-MATCH is non-nil, use may select only existing note.
 
 PROMPT is a message to present.
 
-INITIAL-PROMPT is the initial title prompt."
-  (let* ((completions (seq-map
+INITIAL-PROMPT is the initial title prompt.
+
+When EXPAND-ALIASES is non-nil, each note with aliases will appear
+multiple times in the completion list - once for the original title
+and once for each alias. When an alias is selected, the returned
+note will have that alias as `vulpea-note-title' and the original
+title stored in `vulpea-note-primary-title'."
+  (let* ((expanded-notes (if expand-aliases
+                             (seq-mapcat #'vulpea-note-expand-aliases notes)
+                           notes))
+         (completions (seq-map
                        (lambda (n)
                          (cons (vulpea-select-describe n)
                                n))
-                       notes))
+                       expanded-notes))
          (notes-table (make-hash-table :test #'equal)))
     (seq-each (lambda (note)
                 (puthash (vulpea-note-id note) note notes-table))
-              notes)
+              expanded-notes)
     (let ((note (completing-read
                  (concat prompt ": ")
                  completions
@@ -139,6 +158,7 @@ INITIAL-PROMPT is the initial title prompt."
                                        &key
                                        require-match
                                        initial-prompt
+                                       expand-aliases
                                        select-fn)
   "Collect multiple elements from list of NOTES.
 
@@ -148,12 +168,19 @@ PROMPT is a message to present.
 
 INITIAL-PROMPT is the initial title prompt.
 
+When EXPAND-ALIASES is non-nil, each note with aliases will appear
+multiple times in the completion list - once for the original title
+and once for each alias. When an alias is selected, the returned
+note will have that alias as `vulpea-note-title' and the original
+title stored in `vulpea-note-primary-title'.
+
 It behaves the same as the following code
 
   (vulpea-utils-collect-while
     #\\='vulpea-select-from nil prompt notes
     :require-match require-match
-    :initial-prompt initial-prompt)
+    :initial-prompt initial-prompt
+    :expand-aliases expand-aliases)
 
 The only difference, it allows to select a single note only once, i.e.
 the next prompt iteration doesn't contain already selected notes.
@@ -172,7 +199,8 @@ of `vulpea-select-from'. Signatures must match."
                (concat prompt " (C-g to stop)")
                notes
                :require-match require-match
-               :initial-prompt initial-prompt))
+               :initial-prompt initial-prompt
+               :expand-aliases expand-aliases))
         (setq notes (--remove (string-equal (vulpea-note-id it)
                                             (vulpea-note-id value))
                               notes))

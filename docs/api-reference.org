@@ -279,6 +279,12 @@ When you need to query updated data right away:
 
 ;; With initial input
 (vulpea-select "Select" :initial-prompt "meeting")
+
+;; With alias expansion (allows selecting by alias)
+(vulpea-select "Select" :expand-aliases t)
+;; When alias is selected, returned note has:
+;; - title = the selected alias
+;; - primary-title = the original title
 #+end_src
 
 ** Select from List
@@ -286,6 +292,10 @@ When you need to query updated data right away:
 #+begin_src emacs-lisp
 (vulpea-select-from "Choose" notes)
 ;; => selected note from provided list
+
+;; With alias expansion
+(vulpea-select-from "Choose" notes :expand-aliases t)
+;; Each note with aliases appears multiple times in completion
 #+end_src
 
 * Synchronization
@@ -326,6 +336,18 @@ When you need to query updated data right away:
 
 (vulpea-utils-link-make-string note "Custom Description")
 ;; => "[[id:abc123][Custom Description]]"
+
+;; Expand note into multiple notes based on aliases
+(vulpea-note-expand-aliases note)
+;; Returns a list of notes:
+;; - First element: original note (unchanged)
+;; - Additional elements: copies with each alias as title
+;;   and original title as primary-title
+;;
+;; Example with note having title "Full Name" and aliases ("Alias1" "Alias2"):
+;; => (note-with-title="Full Name"
+;;     note-with-title="Alias1" primary-title="Full Name"
+;;     note-with-title="Alias2" primary-title="Full Name")
 #+end_src
 
 * Database Access

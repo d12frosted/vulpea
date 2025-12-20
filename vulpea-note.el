@@ -106,6 +106,38 @@ Slots:
                             (vulpea-note-links note))))
     (cl-some (lambda (link) (member link note-links)) links)))
 
+;;; Note Expansion
+
+(defun vulpea-note-expand-aliases (note)
+  "Expand NOTE into multiple notes based on aliases.
+
+Returns a list of `vulpea-note' structures:
+- First element has the original title
+- Subsequent elements have each alias as title, with `primary-title'
+  set to the original title
+
+This is useful for selection interfaces where you want users to be
+able to select a note by any of its names (title or aliases) and
+have the selected name preserved in the result.
+
+Example:
+  (vulpea-note-expand-aliases
+   (make-vulpea-note :title \"Original\" :aliases \\='(\"Alias1\" \"Alias2\")))
+  => list of 3 notes:
+     - note with title=\"Original\"
+     - note with title=\"Alias1\", primary-title=\"Original\"
+     - note with title=\"Alias2\", primary-title=\"Original\""
+  (let ((title (vulpea-note-title note))
+        (aliases (vulpea-note-aliases note)))
+    (cons note
+          (mapcar
+           (lambda (alias)
+             (let ((copy (copy-vulpea-note note)))
+               (setf (vulpea-note-title copy) alias)
+               (setf (vulpea-note-primary-title copy) title)
+               copy))
+           aliases))))
+
 ;;; Metadata Access
 
 (defun vulpea-note-meta-get-list (note prop &optional type)
