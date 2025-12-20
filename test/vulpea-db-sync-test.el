@@ -208,6 +208,28 @@
               (should (equal title "Version 2"))))
         (delete-file path)))))
 
+(ert-deftest vulpea-db-sync-update-if-changed-deleted-file ()
+  "Test updating file that was deleted after being indexed."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((path (vulpea-test--create-temp-org-file
+                 ":PROPERTIES:\n:ID: deleted-id\n:END:\n#+TITLE: To Be Deleted\n")))
+      ;; Index the file first
+      (vulpea-db-update-file path)
+
+      ;; Verify note exists
+      (should (vulpea-db-get-by-id "deleted-id"))
+
+      ;; Delete the file
+      (delete-file path)
+
+      ;; Call update-if-changed - should return 'deleted and clean up db
+      (let ((result (vulpea-db-sync--update-file-if-changed path)))
+        (should (eq result 'deleted)))
+
+      ;; Note should be removed from database
+      (should-not (vulpea-db-get-by-id "deleted-id")))))
+
 ;;; Manual Update Tests
 
 (ert-deftest vulpea-db-sync-update-file-sync ()

@@ -503,19 +503,24 @@ all files under that directory are removed."
               (run-with-timer vulpea-db-sync-batch-delay nil
                               #'vulpea-db-sync--process-queue))))))
 
-(defun vulpea-db-sync--update-file-if-changed (path &optional hash-cache)
+(cl-defun vulpea-db-sync--update-file-if-changed (path &optional hash-cache)
   "Update database for PATH only if file has changed.
 
 Uses content hash and mtime to detect changes.
 HASH-CACHE is an optional hash table mapping paths to stored info.
 If not provided, queries database directly (slower).
-Returns t if file was updated, nil otherwise."
-  (let* ((attrs (file-attributes path))
-         (current-mtime (float-time (file-attribute-modification-time attrs)))
-         (current-size (file-attribute-size attrs))
-         (stored-info (if hash-cache
-                          (gethash path hash-cache)
-                        (vulpea-db--get-file-hash path))))
+Returns t if file was updated, nil if unchanged, \\='deleted if file
+no longer exists."
+  (let ((attrs (file-attributes path)))
+    (unless attrs
+      ;; File was deleted between queue and processing
+      (vulpea-db--delete-file-notes path)
+      (cl-return-from vulpea-db-sync--update-file-if-changed 'deleted))
+    (let* ((current-mtime (float-time (file-attribute-modification-time attrs)))
+           (current-size (file-attribute-size attrs))
+           (stored-info (if hash-cache
+                            (gethash path hash-cache)
+                          (vulpea-db--get-file-hash path))))
 
     (if (or (null stored-info)
             (not (equal (plist-get stored-info :mtime) current-mtime))
@@ -533,7 +538,7 @@ Returns t if file was updated, nil otherwise."
             ;; Hash same, no update needed
             nil))
       ;; No change detected
-      nil)))
+      nil))))
 
 ;;; Cleanup
 
