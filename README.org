@@ -106,7 +106,6 @@ In case you have [[https://github.com/raxod502/straight.el/#integration-with-use
 
 #+begin_src emacs-lisp
   (use-package! vulpea
-    :demand t
     :hook ((org-roam-db-autosync-mode . vulpea-db-autosync-enable)))
 #+end_src
 
