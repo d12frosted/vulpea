@@ -289,6 +289,53 @@ These operate on the current buffer (must be an org file).
 
 When setting multiple metadata properties, prefer =vulpea-meta-set-batch= over multiple =vulpea-meta-set= calls - it's significantly faster (up to 10x for 20 properties) since it only parses the file once.
 
+** Heading-Level Metadata
+
+Both file-level and heading-level notes can have their own metadata. The metadata API automatically scopes operations to the correct level based on the note's =level= attribute.
+
+For file-level notes (=level = 0=), metadata is the first description list before any headings:
+
+#+begin_src org
+:PROPERTIES:
+:ID:       file-id
+:END:
+#+title: My Note
+
+- status :: active
+- count :: 42
+
+Content here...
+
+* Some Heading
+:PROPERTIES:
+:ID:       heading-id
+:END:
+
+- status :: done
+
+Heading content...
+#+end_src
+
+For heading-level notes (=level > 0=), metadata is the first description list within that heading's subtree:
+
+#+begin_src emacs-lisp
+;; Get the file-level note
+(let ((file-note (vulpea-db-get-by-id "file-id")))
+  (vulpea-meta-get file-note "status"))
+;; => "active"
+
+;; Get the heading-level note
+(let ((heading-note (vulpea-db-get-by-id "heading-id")))
+  (vulpea-meta-get heading-note "status"))
+;; => "done"
+
+;; Each note has its own metadata scope
+(vulpea-meta-set file-note "status" "review")    ; Only affects file-level
+(vulpea-meta-set heading-note "status" "pending") ; Only affects heading
+#+end_src
+
+This scoping applies to all =vulpea-meta-*= and =vulpea-buffer-meta-*= functions.
+
 * Modifying Notes Programmatically
 
 ** With Async Sync

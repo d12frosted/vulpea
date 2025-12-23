@@ -469,8 +469,10 @@ Just some text to make sure that meta is inserted before.
 Just some text to make sure that meta is inserted before.
 "))))
 
-(ert-deftest vulpea-meta-format-in-first-header ()
-  "Test formatting single meta inside first header."
+(ert-deftest vulpea-meta-format-in-file-level-note ()
+  "Test setting meta for file-level note creates meta at file level.
+Even if a heading contains metadata, file-level notes get their
+own metadata at file level, consistent with heading-level scoping."
   (vulpea-meta-test--with-temp-db
    (vulpea-meta-set "7de1afc6-4aef-4ed3-9939-0f2e00971705" "status" 'done)
    (vulpea-meta-test--save-all-buffers)
@@ -480,9 +482,12 @@ Just some text to make sure that meta is inserted before.
 :END:
 #+TITLE: meta in the first header
 
+- status :: done
+
 * Metadata
 
-- status :: done
+- status :: in progress
+
 * Description
 
 Some fancy description
@@ -753,6 +758,211 @@ strange symbols like % and ', just like this [[https://en.wikipedia.org/wiki/I,_
      (vulpea-meta-set-batch "05907606-f836-45bf-bd36-a8444308eddd" nil)
      (vulpea-meta-test--save-all-buffers)
      (should (equal content-before (vulpea-meta-test--file-content "with-meta.org"))))))
+
+;;; Heading-level metadata Tests
+
+(ert-deftest vulpea-meta-heading-get-string ()
+  "Test getting string value from heading-level note."
+  (vulpea-meta-test--with-temp-db
+   (should (equal (vulpea-meta-get "11111111-1111-1111-1111-111111111111" "section-one-status" 'string)
+                  "active"))))
+
+(ert-deftest vulpea-meta-heading-get-number ()
+  "Test getting number value from heading-level note."
+  (vulpea-meta-test--with-temp-db
+   (should (equal (vulpea-meta-get "11111111-1111-1111-1111-111111111111" "section-one-count" 'number)
+                  42))))
+
+(ert-deftest vulpea-meta-heading-get-symbol ()
+  "Test getting symbol value from heading-level note."
+  (vulpea-meta-test--with-temp-db
+   (should (equal (vulpea-meta-get "33333333-3333-3333-3333-333333333333" "section-three-symbol" 'symbol)
+                  'completed))))
+
+(ert-deftest vulpea-meta-heading-get-list ()
+  "Test getting list values from heading-level note."
+  (vulpea-meta-test--with-temp-db
+   (should (equal (vulpea-meta-get-list "11111111-1111-1111-1111-111111111111" "section-one-tags" 'string)
+                  '("alpha" "beta")))))
+
+(ert-deftest vulpea-meta-heading-get-returns-nil-for-file-prop ()
+  "Test that heading-level note does not see file-level meta."
+  (vulpea-meta-test--with-temp-db
+   ;; Section One should NOT see file-prop which is file-level meta
+   (should (equal (vulpea-meta-get "11111111-1111-1111-1111-111111111111" "file-prop" 'string)
+                  nil))))
+
+(ert-deftest vulpea-meta-heading-nested-get ()
+  "Test getting meta from nested (subsection) heading."
+  (vulpea-meta-test--with-temp-db
+   (should (equal (vulpea-meta-get "11111111-1111-1111-1111-111111111112" "subsection-prop" 'string)
+                  "nested value"))))
+
+(ert-deftest vulpea-meta-heading-nested-does-not-see-parent ()
+  "Test that nested heading does not see parent heading meta."
+  (vulpea-meta-test--with-temp-db
+   ;; Subsection 1.1 should NOT see section-one-status from parent
+   (should (equal (vulpea-meta-get "11111111-1111-1111-1111-111111111112" "section-one-status" 'string)
+                  nil))))
+
+(ert-deftest vulpea-meta-heading-without-meta ()
+  "Test getting meta from heading without any meta returns nil."
+  (vulpea-meta-test--with-temp-db
+   (should (equal (vulpea-meta-get "22222222-2222-2222-2222-222222222222" "any-prop" 'string)
+                  nil))))
+
+(ert-deftest vulpea-meta-file-level-does-not-see-heading-meta ()
+  "Test that file-level note does not see heading-level meta."
+  (vulpea-meta-test--with-temp-db
+   ;; File-level note should NOT see section-one-status
+   (should (equal (vulpea-meta-get "a1b2c3d4-e5f6-7890-abcd-ef1234567890" "section-one-status" 'string)
+                  nil))
+   ;; But should see file-prop
+   (should (equal (vulpea-meta-get "a1b2c3d4-e5f6-7890-abcd-ef1234567890" "file-prop" 'string)
+                  "file value"))))
+
+(ert-deftest vulpea-meta-heading-set-new-prop ()
+  "Test setting a new property in heading-level note."
+  (vulpea-meta-test--with-temp-db
+   (vulpea-meta-set "11111111-1111-1111-1111-111111111111" "new-prop" "new value")
+   (should (equal (vulpea-meta-get "11111111-1111-1111-1111-111111111111" "new-prop" 'string)
+                  "new value"))
+   ;; Original props should still be there
+   (should (equal (vulpea-meta-get "11111111-1111-1111-1111-111111111111" "section-one-status" 'string)
+                  "active"))))
+
+(ert-deftest vulpea-meta-heading-set-replace-prop ()
+  "Test replacing existing property in heading-level note."
+  (vulpea-meta-test--with-temp-db
+   (vulpea-meta-set "11111111-1111-1111-1111-111111111111" "section-one-status" "inactive")
+   (should (equal (vulpea-meta-get "11111111-1111-1111-1111-111111111111" "section-one-status" 'string)
+                  "inactive"))))
+
+(ert-deftest vulpea-meta-heading-set-does-not-affect-file-level ()
+  "Test that setting heading-level meta does not affect file-level meta."
+  (vulpea-meta-test--with-temp-db
+   (vulpea-meta-set "11111111-1111-1111-1111-111111111111" "file-prop" "heading value")
+   ;; Heading should have its new value
+   (should (equal (vulpea-meta-get "11111111-1111-1111-1111-111111111111" "file-prop" 'string)
+                  "heading value"))
+   ;; File-level should still have original value
+   (should (equal (vulpea-meta-get "a1b2c3d4-e5f6-7890-abcd-ef1234567890" "file-prop" 'string)
+                  "file value"))))
+
+(ert-deftest vulpea-meta-heading-set-in-empty-heading ()
+  "Test setting meta in heading without existing meta."
+  (vulpea-meta-test--with-temp-db
+   (vulpea-meta-set "22222222-2222-2222-2222-222222222222" "new-prop" "value")
+   (should (equal (vulpea-meta-get "22222222-2222-2222-2222-222222222222" "new-prop" 'string)
+                  "value"))))
+
+(ert-deftest vulpea-meta-heading-set-list-values ()
+  "Test setting list values in heading-level note."
+  (vulpea-meta-test--with-temp-db
+   (vulpea-meta-set "11111111-1111-1111-1111-111111111111" "section-one-tags" '("x" "y" "z"))
+   (should (equal (vulpea-meta-get-list "11111111-1111-1111-1111-111111111111" "section-one-tags" 'string)
+                  '("x" "y" "z")))))
+
+(ert-deftest vulpea-meta-heading-remove ()
+  "Test removing property from heading-level note."
+  (vulpea-meta-test--with-temp-db
+   (vulpea-meta-remove "11111111-1111-1111-1111-111111111111" "section-one-status")
+   (should (equal (vulpea-meta-get "11111111-1111-1111-1111-111111111111" "section-one-status" 'string)
+                  nil))
+   ;; Other props should still exist
+   (should (equal (vulpea-meta-get "11111111-1111-1111-1111-111111111111" "section-one-count" 'number)
+                  42))))
+
+(ert-deftest vulpea-meta-heading-remove-does-not-affect-file ()
+  "Test that removing heading-level meta does not affect file-level."
+  (vulpea-meta-test--with-temp-db
+   ;; First add same-named prop to heading
+   (vulpea-meta-set "11111111-1111-1111-1111-111111111111" "file-prop" "heading value")
+   ;; Remove from heading
+   (vulpea-meta-remove "11111111-1111-1111-1111-111111111111" "file-prop")
+   ;; File-level should still have its value
+   (should (equal (vulpea-meta-get "a1b2c3d4-e5f6-7890-abcd-ef1234567890" "file-prop" 'string)
+                  "file value"))))
+
+(ert-deftest vulpea-meta-heading-clean ()
+  "Test cleaning all meta from heading-level note."
+  (vulpea-meta-test--with-temp-db
+   (vulpea-meta-clean "11111111-1111-1111-1111-111111111111")
+   ;; All section one meta should be gone
+   (should (equal (vulpea-meta-get "11111111-1111-1111-1111-111111111111" "section-one-status" 'string)
+                  nil))
+   (should (equal (vulpea-meta-get "11111111-1111-1111-1111-111111111111" "section-one-count" 'number)
+                  nil))
+   ;; File-level meta should still exist
+   (should (equal (vulpea-meta-get "a1b2c3d4-e5f6-7890-abcd-ef1234567890" "file-prop" 'string)
+                  "file value"))))
+
+(ert-deftest vulpea-meta-heading-clean-does-not-affect-siblings ()
+  "Test that cleaning heading meta does not affect sibling headings."
+  (vulpea-meta-test--with-temp-db
+   (vulpea-meta-clean "11111111-1111-1111-1111-111111111111")
+   ;; Section Three meta should still exist
+   (should (equal (vulpea-meta-get "33333333-3333-3333-3333-333333333333" "section-three-symbol" 'symbol)
+                  'completed))))
+
+(ert-deftest vulpea-meta-heading-set-batch ()
+  "Test batch setting in heading-level note."
+  (vulpea-meta-test--with-temp-db
+   (vulpea-meta-set-batch "11111111-1111-1111-1111-111111111111"
+                          '(("section-one-status" . "done")
+                            ("section-one-priority" . 1)
+                            ("section-one-new" . "batch value")))
+   (should (equal (vulpea-meta-get "11111111-1111-1111-1111-111111111111" "section-one-status" 'string)
+                  "done"))
+   (should (equal (vulpea-meta-get "11111111-1111-1111-1111-111111111111" "section-one-priority" 'number)
+                  1))
+   (should (equal (vulpea-meta-get "11111111-1111-1111-1111-111111111111" "section-one-new" 'string)
+                  "batch value"))))
+
+(ert-deftest vulpea-meta-heading-set-batch-in-empty-heading ()
+  "Test batch setting in heading without existing meta."
+  (vulpea-meta-test--with-temp-db
+   (vulpea-meta-set-batch "22222222-2222-2222-2222-222222222222"
+                          '(("status" . "active")
+                            ("count" . 5)))
+   (should (equal (vulpea-meta-get "22222222-2222-2222-2222-222222222222" "status" 'string)
+                  "active"))
+   (should (equal (vulpea-meta-get "22222222-2222-2222-2222-222222222222" "count" 'number)
+                  5))))
+
+(ert-deftest vulpea-meta-heading-set-batch-does-not-affect-file ()
+  "Test that batch setting in heading does not affect file-level."
+  (vulpea-meta-test--with-temp-db
+   (vulpea-meta-set-batch "11111111-1111-1111-1111-111111111111"
+                          '(("file-prop" . "heading batch value")))
+   ;; Heading has its value
+   (should (equal (vulpea-meta-get "11111111-1111-1111-1111-111111111111" "file-prop" 'string)
+                  "heading batch value"))
+   ;; File still has original
+   (should (equal (vulpea-meta-get "a1b2c3d4-e5f6-7890-abcd-ef1234567890" "file-prop" 'string)
+                  "file value"))))
+
+(ert-deftest vulpea-meta-heading-format-insertion ()
+  "Test that meta is inserted correctly in heading."
+  (vulpea-meta-test--with-temp-db
+   (vulpea-meta-set "22222222-2222-2222-2222-222222222222" "new-status" "pending")
+   (vulpea-meta-test--save-all-buffers)
+   (let ((content (vulpea-meta-test--file-content "heading-meta.org")))
+     ;; The new meta should be in section two
+     (should (string-match-p "\\* Section Two" content))
+     (should (string-match-p "- new-status :: pending" content))
+     ;; File-level meta should be intact
+     (should (string-match-p "- file-prop :: file value" content)))))
+
+(ert-deftest vulpea-meta-heading-nested-set ()
+  "Test setting meta in nested heading."
+  (vulpea-meta-test--with-temp-db
+   (vulpea-meta-set "11111111-1111-1111-1111-111111111112" "nested-new" "deep value")
+   (should (equal (vulpea-meta-get "11111111-1111-1111-1111-111111111112" "nested-new" 'string)
+                  "deep value"))
+   ;; Parent heading meta should be unaffected
+   (should (equal (vulpea-meta-get "11111111-1111-1111-1111-111111111111" "section-one-status" 'string)
+                  "active"))))
 
 (provide 'vulpea-meta-test)
 ;;; vulpea-meta-test.el ends here

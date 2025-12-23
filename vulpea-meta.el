@@ -51,10 +51,15 @@
 (defun vulpea-meta (note-or-id)
   "Get metadata for NOTE-OR-ID.
 
-Return plist (:file :buffer :pl)
+Return plist (:file :buffer :pl :bound)
 
-Metadata is defined by the first description list in the note,
-e.g. list like:
+For file-level notes (level = 0), metadata is the first
+description list in the file.
+
+For heading-level notes (level > 0), metadata is the first
+description list within that heading's subtree.
+
+Metadata is defined by a description list, e.g.:
 
 - key1 :: value1
 - key2 :: value21
@@ -69,11 +74,21 @@ key.
 In case you are doing multiple calls to meta API, it's better to
 get metadata using this function and use bang version of
 functions, e.g. `vulpea-buffer-meta-get!'."
-  (when-let ((file (if (stringp note-or-id)
-                       (vulpea-db-get-file-by-id note-or-id)
-                     (vulpea-note-path note-or-id))))
-    (vulpea-utils-with-file file
-      (vulpea-buffer-meta))))
+  (let* ((note (if (stringp note-or-id)
+                   (vulpea-db-get-by-id note-or-id)
+                 note-or-id))
+         (file (when note (vulpea-note-path note)))
+         (level (when note (vulpea-note-level note)))
+         (pos (when note (vulpea-note-pos note))))
+    (when file
+      (vulpea-utils-with-file file
+        (if (and level (> level 0) pos)
+            ;; Heading-level note - navigate to position and scope to heading
+            (progn
+              (goto-char pos)
+              (vulpea-buffer-meta 'heading))
+          ;; File-level note - use buffer scope
+          (vulpea-buffer-meta))))))
 
 (defun vulpea-meta-get-list (note-or-id prop &optional type)
   "Get all values of PROP from NOTE-OR-ID.
@@ -117,12 +132,25 @@ Please note that all occurrences of PROP are replaced by VALUE.
 
 When PROP is not yet set, VALUE is inserted at the beginning of
 the meta, unless the optional argument APPEND is non-nil, in
-which case VALUE is added at the end of the meta."
-  (when-let ((file (if (stringp note-or-id)
-                       (vulpea-db-get-file-by-id note-or-id)
-                     (vulpea-note-path note-or-id))))
-    (vulpea-utils-with-file file
-      (vulpea-buffer-meta-set prop value append))))
+which case VALUE is added at the end of the meta.
+
+For heading-level notes (level > 0), operates within that
+heading's subtree."
+  (let* ((note (if (stringp note-or-id)
+                   (vulpea-db-get-by-id note-or-id)
+                 note-or-id))
+         (file (when note (vulpea-note-path note)))
+         (level (when note (vulpea-note-level note)))
+         (pos (when note (vulpea-note-pos note))))
+    (when file
+      (vulpea-utils-with-file file
+        (if (and level (> level 0) pos)
+            ;; Heading-level note - navigate to position and scope to heading
+            (progn
+              (goto-char pos)
+              (vulpea-buffer-meta-set prop value append 'heading))
+          ;; File-level note - use buffer scope
+          (vulpea-buffer-meta-set prop value append))))))
 
 (defun vulpea-meta-set-batch (note-or-id props-alist)
   "Set multiple meta properties for NOTE-OR-ID efficiently.
@@ -133,16 +161,29 @@ VALUE can be a single value or a list of values.
 This function is much more efficient than calling `vulpea-meta-set'
 multiple times, as it only parses the file once.
 
+For heading-level notes (level > 0), operates within that
+heading's subtree.
+
 Example:
   (vulpea-meta-set-batch note
     \\='((\"status\" . \"active\")
       (\"priority\" . 1)
       (\"tags\" . (\"a\" \"b\" \"c\"))))"
-  (when-let ((file (if (stringp note-or-id)
-                       (vulpea-db-get-file-by-id note-or-id)
-                     (vulpea-note-path note-or-id))))
-    (vulpea-utils-with-file file
-      (vulpea-buffer-meta-set-batch props-alist))))
+  (let* ((note (if (stringp note-or-id)
+                   (vulpea-db-get-by-id note-or-id)
+                 note-or-id))
+         (file (when note (vulpea-note-path note)))
+         (level (when note (vulpea-note-level note)))
+         (pos (when note (vulpea-note-pos note))))
+    (when file
+      (vulpea-utils-with-file file
+        (if (and level (> level 0) pos)
+            ;; Heading-level note - navigate to position and scope to heading
+            (progn
+              (goto-char pos)
+              (vulpea-buffer-meta-set-batch props-alist 'heading))
+          ;; File-level note - use buffer scope
+          (vulpea-buffer-meta-set-batch props-alist))))))
 
 (defun vulpea-meta--read-value (type)
   "Read value of TYPE."
@@ -189,7 +230,10 @@ Example:
     (user-error "Current buffer is not a note")))
 
 (defun vulpea-meta-remove (&optional note-or-id prop)
-  "Delete values of PROP for NOTE-OR-ID."
+  "Delete values of PROP for NOTE-OR-ID.
+
+For heading-level notes (level > 0), operates within that
+heading's subtree."
   (interactive)
   ;; handle interactive call, e.g. guess the note and read a prop
   (when (called-interactively-p 'any)
@@ -215,14 +259,27 @@ Example:
                     (seq-uniq props))))))
 
   ;; do the dirty work
-  (when-let ((file (if (stringp note-or-id)
-                       (vulpea-db-get-file-by-id note-or-id)
-                     (vulpea-note-path note-or-id))))
-    (vulpea-utils-with-file file
-      (vulpea-buffer-meta-remove prop))))
+  (let* ((note (if (stringp note-or-id)
+                   (vulpea-db-get-by-id note-or-id)
+                 note-or-id))
+         (file (when note (vulpea-note-path note)))
+         (level (when note (vulpea-note-level note)))
+         (pos (when note (vulpea-note-pos note))))
+    (when file
+      (vulpea-utils-with-file file
+        (if (and level (> level 0) pos)
+            ;; Heading-level note - navigate to position and scope to heading
+            (progn
+              (goto-char pos)
+              (vulpea-buffer-meta-remove prop 'heading))
+          ;; File-level note - use buffer scope
+          (vulpea-buffer-meta-remove prop))))))
 
 (defun vulpea-meta-clean (&optional note-or-id)
-  "Delete all meta from NOTE-OR-ID."
+  "Delete all meta from NOTE-OR-ID.
+
+For heading-level notes (level > 0), operates within that
+heading's subtree."
   (interactive)
   ;; handle interactive call, e.g. guess the note
   (when (called-interactively-p 'any)
@@ -234,11 +291,21 @@ Example:
         (user-error "Current buffer is not a note"))))
 
   ;; do the dirty work
-  (when-let ((file (if (stringp note-or-id)
-                       (vulpea-db-get-file-by-id note-or-id)
-                     (vulpea-note-path note-or-id))))
-    (vulpea-utils-with-file file
-      (vulpea-buffer-meta-clean))))
+  (let* ((note (if (stringp note-or-id)
+                   (vulpea-db-get-by-id note-or-id)
+                 note-or-id))
+         (file (when note (vulpea-note-path note)))
+         (level (when note (vulpea-note-level note)))
+         (pos (when note (vulpea-note-pos note))))
+    (when file
+      (vulpea-utils-with-file file
+        (if (and level (> level 0) pos)
+            ;; Heading-level note - navigate to position and scope to heading
+            (progn
+              (goto-char pos)
+              (vulpea-buffer-meta-clean 'heading))
+          ;; File-level note - use buffer scope
+          (vulpea-buffer-meta-clean))))))
 
 (provide 'vulpea-meta)
 ;;; vulpea-meta.el ends here

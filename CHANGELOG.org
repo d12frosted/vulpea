@@ -18,6 +18,7 @@
 - [[https://github.com/d12frosted/vulpea/issues/178][vulpea#178]] Add =file-title= slot to =vulpea-note= that stores the title of the file containing the note. For file-level notes, this equals the note's title. For heading-level notes, this is the parent file's title. Useful for displaying context without additional queries.
 - [[https://github.com/d12frosted/vulpea/issues/178][vulpea#178]] Add =vulpea-select-describe-outline= and =vulpea-select-describe-outline-full= functions for displaying notes with their parent hierarchy in selection interfaces. Set =vulpea-select-describe-fn= to use them.
 - [[https://github.com/d12frosted/vulpea/issues/128][vulpea#128]] Add =:candidates-fn= argument to =vulpea-insert=, aligning with =vulpea-find=. Allows customizing the source of candidates for note selection during insert.
+- [[https://github.com/d12frosted/vulpea/issues/75][vulpea#75]] Add heading-level metadata support to =vulpea-meta-*= and =vulpea-buffer-meta-*= functions. Metadata operations now scope to the correct level based on the note: file-level notes access metadata before any headings, while heading-level notes access metadata within their subtree. This ensures consistent behavior between database extraction (which already supported heading-level meta) and the API.
 
 *Performance*
 

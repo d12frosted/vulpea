@@ -666,5 +666,409 @@ Creates a temp file with ID and CONTENT, adds it to temp DB, then executes BODY.
   (should-error (vulpea-buffer-meta-format '(1 2 3))
                 :type 'user-error))
 
+;;; vulpea-buffer-meta with bound parameter Tests
+
+(defmacro vulpea-buffer-test--with-temp-buffer (content &rest body)
+  "Execute BODY with a temp buffer containing CONTENT in org-mode."
+  (declare (indent 1))
+  `(with-temp-buffer
+     (insert ,content)
+     (org-mode)
+     ,@body))
+
+(ert-deftest vulpea-buffer-meta-bound-nil-searches-whole-buffer ()
+  "Test that bound=nil searches the entire buffer."
+  (vulpea-buffer-test--with-temp-buffer
+   ":PROPERTIES:
+:ID: file-id
+:END:
+#+title: Test
+
+- file-prop :: file-value
+
+* Heading
+:PROPERTIES:
+:ID: heading-id
+:END:
+
+- heading-prop :: heading-value
+"
+   (goto-char (point-min))
+   (let ((meta (vulpea-buffer-meta nil)))
+     ;; Should find file-level meta (first descriptive list in buffer)
+     (should (vulpea-buffer-meta-get! meta "file-prop" 'string))
+     (should (equal (vulpea-buffer-meta-get! meta "file-prop" 'string) "file-value")))))
+
+(ert-deftest vulpea-buffer-meta-bound-buffer-searches-whole-buffer ()
+  "Test that bound='buffer searches the entire buffer."
+  (vulpea-buffer-test--with-temp-buffer
+   ":PROPERTIES:
+:ID: file-id
+:END:
+#+title: Test
+
+- file-prop :: file-value
+
+* Heading
+
+- heading-prop :: heading-value
+"
+   (goto-char (point-min))
+   (let ((meta (vulpea-buffer-meta 'buffer)))
+     (should (equal (vulpea-buffer-meta-get! meta "file-prop" 'string) "file-value")))))
+
+(ert-deftest vulpea-buffer-meta-bound-heading-at-file-level ()
+  "Test bound='heading when point is before first heading."
+  (vulpea-buffer-test--with-temp-buffer
+   ":PROPERTIES:
+:ID: file-id
+:END:
+#+title: Test
+
+- file-prop :: file-value
+
+* Heading
+
+- heading-prop :: heading-value
+"
+   (goto-char (point-min))
+   (let ((meta (vulpea-buffer-meta 'heading)))
+     ;; Should find file-level meta only
+     (should (equal (vulpea-buffer-meta-get! meta "file-prop" 'string) "file-value"))
+     (should (equal (vulpea-buffer-meta-get! meta "heading-prop" 'string) nil)))))
+
+(ert-deftest vulpea-buffer-meta-bound-heading-at-heading ()
+  "Test bound='heading when point is at a heading."
+  (vulpea-buffer-test--with-temp-buffer
+   ":PROPERTIES:
+:ID: file-id
+:END:
+#+title: Test
+
+- file-prop :: file-value
+
+* Heading
+:PROPERTIES:
+:ID: heading-id
+:END:
+
+- heading-prop :: heading-value
+"
+   ;; Move to the heading
+   (goto-char (point-min))
+   (re-search-forward "^\\* Heading")
+   (beginning-of-line)
+   (let ((meta (vulpea-buffer-meta 'heading)))
+     ;; Should find heading-level meta only
+     (should (equal (vulpea-buffer-meta-get! meta "heading-prop" 'string) "heading-value"))
+     (should (equal (vulpea-buffer-meta-get! meta "file-prop" 'string) nil)))))
+
+(ert-deftest vulpea-buffer-meta-bound-heading-in-heading-body ()
+  "Test bound='heading when point is in heading body."
+  (vulpea-buffer-test--with-temp-buffer
+   ":PROPERTIES:
+:ID: file-id
+:END:
+#+title: Test
+
+- file-prop :: file-value
+
+* Heading
+:PROPERTIES:
+:ID: heading-id
+:END:
+
+- heading-prop :: heading-value
+
+Some body content here.
+"
+   ;; Move into the heading body
+   (goto-char (point-min))
+   (re-search-forward "body content")
+   (let ((meta (vulpea-buffer-meta 'heading)))
+     ;; Should find heading-level meta
+     (should (equal (vulpea-buffer-meta-get! meta "heading-prop" 'string) "heading-value"))
+     (should (equal (vulpea-buffer-meta-get! meta "file-prop" 'string) nil)))))
+
+(ert-deftest vulpea-buffer-meta-bound-position-at-file-level ()
+  "Test bound=<position> when position is before first heading."
+  (vulpea-buffer-test--with-temp-buffer
+   ":PROPERTIES:
+:ID: file-id
+:END:
+#+title: Test
+
+- file-prop :: file-value
+
+* Heading
+
+- heading-prop :: heading-value
+"
+   (let ((meta (vulpea-buffer-meta 1)))  ; Position 1 is before any heading
+     (should (equal (vulpea-buffer-meta-get! meta "file-prop" 'string) "file-value"))
+     (should (equal (vulpea-buffer-meta-get! meta "heading-prop" 'string) nil)))))
+
+(ert-deftest vulpea-buffer-meta-bound-position-at-heading ()
+  "Test bound=<position> when position is at a heading."
+  (vulpea-buffer-test--with-temp-buffer
+   ":PROPERTIES:
+:ID: file-id
+:END:
+#+title: Test
+
+- file-prop :: file-value
+
+* Heading
+:PROPERTIES:
+:ID: heading-id
+:END:
+
+- heading-prop :: heading-value
+"
+   ;; Find the heading position
+   (goto-char (point-min))
+   (re-search-forward "^\\* Heading")
+   (beginning-of-line)
+   (let ((heading-pos (point))
+         meta)
+     (goto-char (point-min))  ; Move away from heading
+     (setq meta (vulpea-buffer-meta heading-pos))
+     (should (equal (vulpea-buffer-meta-get! meta "heading-prop" 'string) "heading-value"))
+     (should (equal (vulpea-buffer-meta-get! meta "file-prop" 'string) nil)))))
+
+(ert-deftest vulpea-buffer-meta-bound-nested-heading ()
+  "Test that nested headings are properly isolated."
+  (vulpea-buffer-test--with-temp-buffer
+   ":PROPERTIES:
+:ID: file-id
+:END:
+#+title: Test
+
+- file-prop :: file-value
+
+* Parent
+:PROPERTIES:
+:ID: parent-id
+:END:
+
+- parent-prop :: parent-value
+
+** Child
+:PROPERTIES:
+:ID: child-id
+:END:
+
+- child-prop :: child-value
+"
+   ;; At parent heading - should not see child meta
+   (goto-char (point-min))
+   (re-search-forward "^\\* Parent")
+   (beginning-of-line)
+   (let ((meta (vulpea-buffer-meta 'heading)))
+     (should (equal (vulpea-buffer-meta-get! meta "parent-prop" 'string) "parent-value"))
+     (should (equal (vulpea-buffer-meta-get! meta "child-prop" 'string) nil)))
+
+   ;; At child heading - should not see parent meta
+   (re-search-forward "^\\*\\* Child")
+   (beginning-of-line)
+   (let ((meta (vulpea-buffer-meta 'heading)))
+     (should (equal (vulpea-buffer-meta-get! meta "child-prop" 'string) "child-value"))
+     (should (equal (vulpea-buffer-meta-get! meta "parent-prop" 'string) nil)))))
+
+(ert-deftest vulpea-buffer-meta-set-with-bound-heading ()
+  "Test setting meta with bound='heading."
+  (vulpea-buffer-test--with-temp-buffer
+   ":PROPERTIES:
+:ID: file-id
+:END:
+#+title: Test
+
+- file-prop :: file-value
+
+* Heading
+:PROPERTIES:
+:ID: heading-id
+:END:
+
+Some content.
+"
+   ;; Move to heading
+   (goto-char (point-min))
+   (re-search-forward "^\\* Heading")
+   (beginning-of-line)
+   ;; Set meta at heading level
+   (vulpea-buffer-meta-set "new-prop" "new-value" nil 'heading)
+   ;; Verify heading got the meta
+   (let ((meta (vulpea-buffer-meta 'heading)))
+     (should (equal (vulpea-buffer-meta-get! meta "new-prop" 'string) "new-value")))
+   ;; Verify file-level still has original and not new prop
+   (goto-char (point-min))
+   (let ((meta (vulpea-buffer-meta 'heading)))
+     (should (equal (vulpea-buffer-meta-get! meta "file-prop" 'string) "file-value"))
+     (should (equal (vulpea-buffer-meta-get! meta "new-prop" 'string) nil)))))
+
+(ert-deftest vulpea-buffer-meta-set-batch-with-bound ()
+  "Test batch setting meta with bound parameter."
+  (vulpea-buffer-test--with-temp-buffer
+   ":PROPERTIES:
+:ID: file-id
+:END:
+#+title: Test
+
+* Heading
+:PROPERTIES:
+:ID: heading-id
+:END:
+
+- existing :: old-value
+"
+   ;; Move to heading
+   (goto-char (point-min))
+   (re-search-forward "^\\* Heading")
+   (beginning-of-line)
+   ;; Batch set at heading level
+   (vulpea-buffer-meta-set-batch '(("existing" . "new-value")
+                                    ("added" . "added-value"))
+                                  'heading)
+   ;; Verify changes
+   (let ((meta (vulpea-buffer-meta 'heading)))
+     (should (equal (vulpea-buffer-meta-get! meta "existing" 'string) "new-value"))
+     (should (equal (vulpea-buffer-meta-get! meta "added" 'string) "added-value")))))
+
+(ert-deftest vulpea-buffer-meta-remove-with-bound ()
+  "Test removing meta with bound parameter."
+  (vulpea-buffer-test--with-temp-buffer
+   ":PROPERTIES:
+:ID: file-id
+:END:
+#+title: Test
+
+- file-prop :: file-value
+
+* Heading
+:PROPERTIES:
+:ID: heading-id
+:END:
+
+- heading-prop :: heading-value
+- other-prop :: other-value
+"
+   ;; Move to heading
+   (goto-char (point-min))
+   (re-search-forward "^\\* Heading")
+   (beginning-of-line)
+   ;; Remove at heading level
+   (vulpea-buffer-meta-remove "heading-prop" 'heading)
+   ;; Verify removal
+   (let ((meta (vulpea-buffer-meta 'heading)))
+     (should (equal (vulpea-buffer-meta-get! meta "heading-prop" 'string) nil))
+     (should (equal (vulpea-buffer-meta-get! meta "other-prop" 'string) "other-value")))
+   ;; Verify file-level unaffected
+   (goto-char (point-min))
+   (let ((meta (vulpea-buffer-meta 'heading)))
+     (should (equal (vulpea-buffer-meta-get! meta "file-prop" 'string) "file-value")))))
+
+(ert-deftest vulpea-buffer-meta-clean-with-bound ()
+  "Test cleaning all meta with bound parameter."
+  (vulpea-buffer-test--with-temp-buffer
+   ":PROPERTIES:
+:ID: file-id
+:END:
+#+title: Test
+
+- file-prop :: file-value
+
+* Heading
+:PROPERTIES:
+:ID: heading-id
+:END:
+
+- prop1 :: value1
+- prop2 :: value2
+"
+   ;; Move to heading
+   (goto-char (point-min))
+   (re-search-forward "^\\* Heading")
+   (beginning-of-line)
+   ;; Clean at heading level
+   (vulpea-buffer-meta-clean 'heading)
+   ;; Verify cleaning
+   (let ((meta (vulpea-buffer-meta 'heading)))
+     (should (equal (vulpea-buffer-meta-get! meta "prop1" 'string) nil))
+     (should (equal (vulpea-buffer-meta-get! meta "prop2" 'string) nil)))
+   ;; Verify file-level unaffected
+   (goto-char (point-min))
+   (let ((meta (vulpea-buffer-meta 'heading)))
+     (should (equal (vulpea-buffer-meta-get! meta "file-prop" 'string) "file-value")))))
+
+(ert-deftest vulpea-buffer-meta-insertion-point-after-property-drawer ()
+  "Test that new meta is inserted after property drawer."
+  (vulpea-buffer-test--with-temp-buffer
+   ":PROPERTIES:
+:ID: file-id
+:END:
+#+title: Test
+
+* Heading
+:PROPERTIES:
+:ID: heading-id
+:END:
+
+Content after property drawer.
+"
+   (goto-char (point-min))
+   (re-search-forward "^\\* Heading")
+   (beginning-of-line)
+   (vulpea-buffer-meta-set "new-prop" "new-value" nil 'heading)
+   ;; Check buffer content
+   (let ((content (buffer-string)))
+     ;; Meta should be after property drawer, before content
+     (should (string-match-p ":END:\n\n- new-prop :: new-value" content))
+     (should (string-match-p "new-value\n\nContent" content)))))
+
+(ert-deftest vulpea-buffer-meta-heading-without-property-drawer ()
+  "Test setting meta on heading without property drawer."
+  (vulpea-buffer-test--with-temp-buffer
+   ":PROPERTIES:
+:ID: file-id
+:END:
+#+title: Test
+
+* Heading Without Props
+
+Some content.
+"
+   (goto-char (point-min))
+   (re-search-forward "^\\* Heading")
+   (beginning-of-line)
+   (vulpea-buffer-meta-set "new-prop" "new-value" nil 'heading)
+   ;; Check buffer content - should be after heading line
+   (let ((content (buffer-string)))
+     ;; Meta is inserted right after heading line
+     (should (string-match-p "\\* Heading Without Props\n- new-prop :: new-value" content)))))
+
+(ert-deftest vulpea-buffer-meta-get-list-with-bound ()
+  "Test getting list of values with bound parameter."
+  (vulpea-buffer-test--with-temp-buffer
+   ":PROPERTIES:
+:ID: file-id
+:END:
+#+title: Test
+
+* Heading
+:PROPERTIES:
+:ID: heading-id
+:END:
+
+- tags :: alpha
+- tags :: beta
+- tags :: gamma
+"
+   (goto-char (point-min))
+   (re-search-forward "^\\* Heading")
+   (beginning-of-line)
+   (should (equal (vulpea-buffer-meta-get-list "tags" 'string 'heading)
+                  '("alpha" "beta" "gamma")))))
+
 (provide 'vulpea-buffer-test)
 ;;; vulpea-buffer-test.el ends here

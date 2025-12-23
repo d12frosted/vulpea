@@ -290,12 +290,18 @@ If nil it defaults to `split-string-default-separators', normally
 
 
 
-(defun vulpea-buffer-meta ()
+(defun vulpea-buffer-meta (&optional bound)
   "Get metadata from the current buffer.
 
-Return plist (:file :buffer :pl)
+Return plist (:file :buffer :pl :bound)
 
-Metadata is defined by the first description list in the note,
+BOUND controls the scope of metadata extraction:
+- nil or \\='buffer: search the entire buffer (legacy behavior)
+- \\='heading: if point is in a heading, scope to that subtree;
+  otherwise scope to content before first heading
+- A position (number): scope to the subtree at that position
+
+Metadata is defined by the first description list in the scope,
 e.g. list like:
 
 - key1 :: value1
@@ -313,7 +319,34 @@ get metadata using this function and use bang version of
 functions, e.g. `vulpea-buffer-meta-get!'."
   (let* ((file (buffer-file-name (current-buffer)))
          (buf (org-element-parse-buffer))
-         (pls (org-element-map buf 'plain-list #'identity))
+         ;; Determine the element to search within
+         (scope-element
+          (cond
+           ;; No bound or 'buffer - search whole buffer
+           ((or (null bound) (eq bound 'buffer))
+            buf)
+           ;; 'heading - auto-detect based on current position
+           ((eq bound 'heading)
+            (save-excursion
+              (if (org-before-first-heading-p)
+                  ;; Before first heading - get file-level section
+                  (vulpea-buffer-meta--file-level-section buf)
+                ;; At or after a heading - find the section within the headline
+                (org-back-to-heading-or-point-min t)
+                (let ((heading-pos (point)))
+                  (vulpea-buffer-meta--heading-section buf heading-pos)))))
+           ;; Position - find heading at that position
+           ((numberp bound)
+            (save-excursion
+              (goto-char bound)
+              (if (org-before-first-heading-p)
+                  (vulpea-buffer-meta--file-level-section buf)
+                (org-back-to-heading-or-point-min t)
+                (let ((heading-pos (point)))
+                  (vulpea-buffer-meta--heading-section buf heading-pos)))))
+           (t buf)))
+         ;; Find the first descriptive list, stopping at headlines
+         (pls (org-element-map scope-element 'plain-list #'identity nil nil 'headline))
          (pl (seq-find
               (lambda (pl)
                 (equal 'descriptive
@@ -321,7 +354,34 @@ functions, e.g. `vulpea-buffer-meta-get!'."
               pls)))
     (list :file file
           :buffer buf
-          :pl pl)))
+          :pl pl
+          :bound bound)))
+
+(defun vulpea-buffer-meta--file-level-section (buf)
+  "Get the file-level section from parsed buffer BUF.
+Returns the section element before any headlines, or nil if none exists."
+  ;; The file-level section is a direct child of org-data, before any headline
+  (let ((children (org-element-contents buf)))
+    (cl-find-if
+     (lambda (el)
+       (eq (org-element-type el) 'section))
+     children)))
+
+(defun vulpea-buffer-meta--heading-section (buf heading-pos)
+  "Get the section element from the heading at HEADING-POS in BUF.
+Returns the section child of the headline, which contains the
+metadata but not nested subheadings."
+  (let ((heading-el (org-element-map buf 'headline
+                      (lambda (hl)
+                        (when (= (org-element-property :begin hl) heading-pos)
+                          hl))
+                      nil t)))
+    (when heading-el
+      ;; Get the first section child of the headline
+      (cl-find-if
+       (lambda (el)
+         (eq (org-element-type el) 'section))
+       (org-element-contents heading-el)))))
 
 (defun vulpea-buffer-meta-props (&optional meta)
   "Return list of all props from META."
@@ -333,9 +393,10 @@ functions, e.g. `vulpea-buffer-meta-get!'."
                   (org-element-contents
                    (org-element-property :tag it))))))))
 
-(defsubst vulpea-buffer-meta-get (prop type)
-  "Get all values of metadata PROP of TYPE from buffer."
-  (vulpea-buffer-meta-get! (vulpea-buffer-meta) prop type))
+(defsubst vulpea-buffer-meta-get (prop type &optional bound)
+  "Get all values of metadata PROP of TYPE from buffer.
+BOUND controls the scope - see `vulpea-buffer-meta' for details."
+  (vulpea-buffer-meta-get! (vulpea-buffer-meta bound) prop type))
 
 (defun vulpea-buffer-meta--get (meta prop)
   "Get all values of PROP from META.
@@ -355,9 +416,10 @@ Return plist (:file :buffer :pl :items)"
            items-all)))
     (plist-put meta :items items)))
 
-(defsubst vulpea-buffer-meta-get-list (prop &optional type)
-  "Get all values of metadata PROP of TYPE as a list from buffer."
-  (vulpea-buffer-meta-get-list! (vulpea-buffer-meta) prop type))
+(defsubst vulpea-buffer-meta-get-list (prop &optional type bound)
+  "Get all values of metadata PROP of TYPE as a list from buffer.
+BOUND controls the scope - see `vulpea-buffer-meta' for details."
+  (vulpea-buffer-meta-get-list! (vulpea-buffer-meta bound) prop type))
 
 (defun vulpea-buffer-meta-get-list! (meta prop &optional type)
   "Get all values of PROP from META.
@@ -446,7 +508,7 @@ one is returned. In case all values are required, use
 `vulpea-buffer-meta-get-list'."
   (car (vulpea-buffer-meta-get-list! meta prop type)))
 
-(defun vulpea-buffer-meta-set (prop value &optional append)
+(defun vulpea-buffer-meta-set (prop value &optional append bound)
   "Set VALUE of PROP in current buffer.
 
 If the VALUE is a list, then each element is inserted
@@ -456,9 +518,13 @@ Please note that all occurrences of PROP are replaced by VALUE.
 
 When PROP is not yet set, VALUE is inserted at the beginning of
 the meta, unless the optional argument APPEND is non-nil, in
-which case VALUE is added at the end of the meta."
+which case VALUE is added at the end of the meta.
+
+BOUND controls the scope - see `vulpea-buffer-meta' for details.
+When BOUND is \\='heading or a position, operates within that
+heading's subtree."
   (let* ((values (if (listp value) value (list value)))
-         (meta (vulpea-buffer-meta--get (vulpea-buffer-meta) prop))
+         (meta (vulpea-buffer-meta--get (vulpea-buffer-meta bound) prop))
          (buffer (plist-get meta :buffer))
          (pl (plist-get meta :pl))
          (items (plist-get meta :items))
@@ -467,7 +533,7 @@ which case VALUE is added at the end of the meta."
      ;; descriptive plain list exists, update it
      (pl
       ;; TODO: inline
-      (vulpea-buffer-meta-remove prop)
+      (vulpea-buffer-meta-remove prop bound)
       (cond
        ;; property already set, remove it and set again
        (img
@@ -512,22 +578,7 @@ which case VALUE is added at the end of the meta."
 
      ;; descriptive plain list does not exist, create one
      (t
-      ;; insert either after the last keyword in the buffer, or
-      ;; after the property drawer if it is present on the first
-      ;; line or on the fist line
-      (let*
-          ((element
-            (or
-             (car
-              (last
-               (org-element-map buffer 'keyword #'identity)))
-             (car
-              (org-element-map buffer 'property-drawer #'identity))))
-           (point
-            (if element
-                (- (org-element-property :end element)
-                   (org-element-property :post-blank element))
-              (point-min))))
+      (let ((point (vulpea-buffer-meta--insertion-point buffer bound)))
         (goto-char point)
         (insert "\n")
         (seq-do
@@ -537,11 +588,57 @@ which case VALUE is added at the end of the meta."
                    "\n"))
          values))))))
 
-(defun vulpea-buffer-meta-set-batch (props-alist)
+(defun vulpea-buffer-meta--insertion-point (buffer bound)
+  "Find the insertion point for new metadata.
+BUFFER is the parsed org buffer.
+BOUND controls the scope - see `vulpea-buffer-meta' for details."
+  (cond
+   ;; Heading scope - find insertion point within heading
+   ((or (eq bound 'heading) (numberp bound))
+    (save-excursion
+      (when (numberp bound)
+        (goto-char bound))
+      (if (org-before-first-heading-p)
+          ;; File level - use original logic
+          (let ((element
+                 (or
+                  (car (last (org-element-map buffer 'keyword #'identity)))
+                  (car (org-element-map buffer 'property-drawer #'identity)))))
+            (if element
+                (- (org-element-property :end element)
+                   (org-element-property :post-blank element))
+              (point-min)))
+        ;; In a heading - find property drawer or end of heading line
+        (org-back-to-heading-or-point-min t)
+        (let* ((heading-pos (point))
+               (section (vulpea-buffer-meta--heading-section buffer heading-pos))
+               (prop-drawer (when section
+                              (org-element-map section 'property-drawer
+                                #'identity nil t))))
+          (if prop-drawer
+              (- (org-element-property :end prop-drawer)
+                 (org-element-property :post-blank prop-drawer))
+            ;; No property drawer - insert after heading line
+            (end-of-line)
+            (point))))))
+   ;; Buffer scope - original logic
+   (t
+    (let ((element
+           (or
+            (car (last (org-element-map buffer 'keyword #'identity)))
+            (car (org-element-map buffer 'property-drawer #'identity)))))
+      (if element
+          (- (org-element-property :end element)
+             (org-element-property :post-blank element))
+        (point-min))))))
+
+(defun vulpea-buffer-meta-set-batch (props-alist &optional bound)
   "Set multiple meta properties in current buffer efficiently.
 
 PROPS-ALIST is an alist where each element is (PROP . VALUE).
 VALUE can be a single value or a list of values.
+
+BOUND controls the scope - see `vulpea-buffer-meta' for details.
 
 This function parses the buffer only once, making it much more
 efficient than calling `vulpea-buffer-meta-set' multiple times.
@@ -552,7 +649,7 @@ Example:
       (\"priority\" . 1)
       (\"tags\" . (\"a\" \"b\" \"c\"))))"
   (when props-alist
-    (let* ((meta (vulpea-buffer-meta))
+    (let* ((meta (vulpea-buffer-meta bound))
            (buffer (plist-get meta :buffer))
            (pl (plist-get meta :pl))
            (items-all (when pl (org-element-map pl 'item #'identity)))
@@ -617,18 +714,7 @@ Example:
 
        ;; Case 2: no descriptive list, create one
        (t
-        (let* ((element
-                (or
-                 (car
-                  (last
-                   (org-element-map buffer 'keyword #'identity)))
-                 (car
-                  (org-element-map buffer 'property-drawer #'identity))))
-               (point
-                (if element
-                    (- (org-element-property :end element)
-                       (org-element-property :post-blank element))
-                  (point-min))))
+        (let ((point (vulpea-buffer-meta--insertion-point buffer bound)))
           (goto-char point)
           (insert "\n")
           (dolist (pair props-alist)
@@ -639,9 +725,10 @@ Example:
                         (vulpea-buffer-meta-format val)
                         "\n"))))))))))
 
-(defun vulpea-buffer-meta-remove (prop)
-  "Delete values of PROP from current buffer."
-  (let* ((meta (vulpea-buffer-meta--get (vulpea-buffer-meta) prop))
+(defun vulpea-buffer-meta-remove (prop &optional bound)
+  "Delete values of PROP from current buffer.
+BOUND controls the scope - see `vulpea-buffer-meta' for details."
+  (let* ((meta (vulpea-buffer-meta--get (vulpea-buffer-meta bound) prop))
          (items (plist-get meta :items))
          (pl (plist-get meta :pl)))
     (when (car items)
@@ -656,9 +743,10 @@ Example:
              (delete-region begin end)))
          (seq-reverse items))))))
 
-(defun vulpea-buffer-meta-clean ()
-  "Delete all meta from current buffer."
-  (when-let* ((meta (vulpea-buffer-meta))
+(defun vulpea-buffer-meta-clean (&optional bound)
+  "Delete all meta from current buffer.
+BOUND controls the scope - see `vulpea-buffer-meta' for details."
+  (when-let* ((meta (vulpea-buffer-meta bound))
               (pl (plist-get meta :pl)))
     (delete-region
      (org-element-property :begin pl)
