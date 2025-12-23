@@ -190,6 +190,83 @@
     (should (string-match-p "#tag1" annotation))
     (should (string-match-p "#tag2" annotation))))
 
+;;; Describe Outline Tests
+
+(ert-deftest vulpea-select-describe-outline-file-level ()
+  "Test describe-outline shows just title for file-level notes."
+  (let* ((note (make-vulpea-note
+                :id "file-id"
+                :title "File Title"
+                :level 0
+                :outline-path nil))
+         (description (vulpea-select-describe-outline note)))
+    ;; Should just be the title, no prefix
+    (should (equal description "File Title"))))
+
+(ert-deftest vulpea-select-describe-outline-heading ()
+  "Test describe-outline shows outline path for heading notes."
+  (let* ((note (make-vulpea-note
+                :id "heading-id"
+                :title "Task"
+                :level 2
+                :outline-path '("Projects" "Work")))
+         (description (vulpea-select-describe-outline note)))
+    ;; Should show outline path before title
+    (should (string-match-p "Projects" description))
+    (should (string-match-p "Work" description))
+    (should (string-match-p "Task" description))
+    ;; Path should come before title
+    (should (< (string-match "Projects" description)
+               (string-match "Task" description)))))
+
+(ert-deftest vulpea-select-describe-outline-full-file-level ()
+  "Test describe-outline-full shows just title for file-level notes."
+  (let* ((note (make-vulpea-note
+                :id "file-id"
+                :title "File Title"
+                :file-title "File Title"
+                :level 0
+                :outline-path nil))
+         (description (vulpea-select-describe-outline-full note)))
+    ;; Should just be the title, no prefix (file-title equals title)
+    (should (equal description "File Title"))))
+
+(ert-deftest vulpea-select-describe-outline-full-heading ()
+  "Test describe-outline-full shows file title and outline path."
+  (let* ((note (make-vulpea-note
+                :id "heading-id"
+                :title "Task"
+                :file-title "My Notes"
+                :level 2
+                :outline-path '("Projects")))
+         (description (vulpea-select-describe-outline-full note)))
+    ;; Should show file title, outline path, and note title
+    (should (string-match-p "My Notes" description))
+    (should (string-match-p "Projects" description))
+    (should (string-match-p "Task" description))
+    ;; File title should come first
+    (should (< (string-match "My Notes" description)
+               (string-match "Projects" description)))
+    ;; Outline path should come before note title
+    (should (< (string-match "Projects" description)
+               (string-match "Task" description)))))
+
+(ert-deftest vulpea-select-describe-outline-full-direct-child ()
+  "Test describe-outline-full for heading directly under file."
+  (let* ((note (make-vulpea-note
+                :id "heading-id"
+                :title "First Heading"
+                :file-title "Parent File"
+                :level 1
+                :outline-path nil))
+         (description (vulpea-select-describe-outline-full note)))
+    ;; Should show file title and note title (no outline-path for level 1)
+    (should (string-match-p "Parent File" description))
+    (should (string-match-p "First Heading" description))
+    ;; File title should come first
+    (should (< (string-match "Parent File" description)
+               (string-match "First Heading" description)))))
+
 ;;; Expand Aliases in Selection Tests
 
 (ert-deftest vulpea-select-annotate-with-primary-title ()

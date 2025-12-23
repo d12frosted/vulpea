@@ -25,6 +25,7 @@ All query functions return =vulpea-note= structs:
 (vulpea-note-closed note)        ; Closed timestamp or nil
 (vulpea-note-outline-path note)  ; List of parent headings
 (vulpea-note-attach-dir note)    ; Attachment directory or nil
+(vulpea-note-file-title note)    ; Title of file containing note
 #+end_src
 
 * Getting Notes
@@ -297,6 +298,25 @@ When you need to query updated data right away:
 (vulpea-select-from "Choose" notes :expand-aliases t)
 ;; Each note with aliases appears multiple times in completion
 #+end_src
+
+** Customizing Selection Display
+
+Control how notes are displayed in completion with =vulpea-select-describe-fn=:
+
+#+begin_src emacs-lisp
+;; Default: just the title
+(setq vulpea-select-describe-fn #'vulpea-note-title)
+
+;; Show outline path (parent headings) before title
+;; Example: "Projects → Work → Task"
+(setq vulpea-select-describe-fn #'vulpea-select-describe-outline)
+
+;; Show file title and outline path before title
+;; Example: "My Notes → Projects → Task"
+(setq vulpea-select-describe-fn #'vulpea-select-describe-outline-full)
+#+end_src
+
+The outline variants are useful when using headings as notes (=vulpea-db-index-heading-level=) to disambiguate notes with identical titles.
 
 * Synchronization
 

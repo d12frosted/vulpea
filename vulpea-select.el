@@ -78,6 +78,58 @@ Accepts a `vulpea-note'. Returns a `string'.")
         ""
       (concat " " (string-join sections " ")))))
 
+;;; Describe Functions
+
+(defun vulpea-select-describe-outline (note)
+  "Describe NOTE with outline path prefix.
+
+Shows the parent heading hierarchy before the note title.
+For example, if a note titled \"Task\" is under \"Projects > Work\",
+this displays: \"Projects → Work → Task\".
+
+File-level notes are displayed without prefix.
+
+To use this function, set `vulpea-select-describe-fn':
+
+  (setq vulpea-select-describe-fn
+        #\\='vulpea-select-describe-outline)"
+  (let ((outline-path (vulpea-note-outline-path note))
+        (title (vulpea-note-title note)))
+    (if outline-path
+        (concat
+         (propertize
+          (concat (string-join outline-path " → ") " → ")
+          'face 'completions-annotations)
+         title)
+      title)))
+
+(defun vulpea-select-describe-outline-full (note)
+  "Describe NOTE with file title and outline path prefix.
+
+Shows the file title and parent heading hierarchy before the note title.
+For example, if a note titled \"Task\" is in file \"My Notes\" under
+heading \"Projects\", this displays: \"My Notes → Projects → Task\".
+
+File-level notes show just the title (no prefix needed since
+file-title equals the title).
+
+To use this function, set `vulpea-select-describe-fn':
+
+  (setq vulpea-select-describe-fn
+        #\\='vulpea-select-describe-outline-full)"
+  (let ((file-title (vulpea-note-file-title note))
+        (outline-path (vulpea-note-outline-path note))
+        (title (vulpea-note-title note))
+        (level (vulpea-note-level note)))
+    (if (and level (> level 0) file-title)
+        (let ((full-path (cons file-title (or outline-path '()))))
+          (concat
+           (propertize
+            (concat (string-join full-path " → ") " → ")
+            'face 'completions-annotations)
+           title))
+      title)))
+
 (cl-defun vulpea-select (prompt
                          &key
                          require-match
