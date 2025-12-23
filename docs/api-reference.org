@@ -171,6 +171,43 @@ When a key has multiple entries:
 ;; => (95 92 88)
 #+end_src
 
+** Access Patterns
+
+There are multiple ways to read metadata, each with different trade-offs:
+
+| Function                  | Source              | Speed   | Always Fresh? |
+|---------------------------+---------------------+---------+---------------|
+| =vulpea-note-meta-get=    | Note struct (from DB) | Fast    | No (needs sync) |
+| =vulpea-meta-get=         | File on disk        | Slower  | Yes           |
+| =vulpea-buffer-meta-get!= | Pre-parsed metadata | Fastest | Depends       |
+
+*Prefer =vulpea-note-meta-get=* for most cases - it reads from the note struct which is populated from the database:
+
+#+begin_src emacs-lisp
+(vulpea-note-meta-get note "status")
+#+end_src
+
+*Use =vulpea-meta-get=* when you need to read directly from the file (always fresh, but slower):
+
+#+begin_src emacs-lisp
+(vulpea-meta-get note-or-id "status")
+#+end_src
+
+*Use bang functions* when reading multiple values from the same note via file access. Parse once and reuse:
+
+#+begin_src emacs-lisp
+;; Inefficient: parses file 3 times
+(vulpea-meta-get note "a")
+(vulpea-meta-get note "b")
+(vulpea-meta-get note "c")
+
+;; Efficient: parses file once
+(let ((meta (vulpea-meta note)))
+  (vulpea-buffer-meta-get! meta "a")
+  (vulpea-buffer-meta-get! meta "b")
+  (vulpea-buffer-meta-get! meta "c"))
+#+end_src
+
 * Creating Notes
 
 #+begin_src emacs-lisp
