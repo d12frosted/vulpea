@@ -107,7 +107,8 @@ ROW is a vector from the notes table with all fields in schema order."
         (deadline (elt row 13))
         (closed (elt row 14))
         (outline-path (elt row 15))
-        (attach-dir (elt row 16)))
+        (attach-dir (elt row 16))
+        (file-title (elt row 17)))
     (make-vulpea-note
      :id id
      :path path
@@ -129,7 +130,8 @@ ROW is a vector from the notes table with all fields in schema order."
      :deadline deadline
      :closed closed
      :outline-path outline-path
-     :attach-dir attach-dir)))
+     :attach-dir attach-dir
+     :file-title file-title)))
 
 ;;; Core Query Functions
 

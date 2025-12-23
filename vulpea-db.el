@@ -112,6 +112,7 @@ to be queried. Excluding them keeps the database cleaner and faster."
       (closed)
       (outline-path)
       (attach-dir)
+      (file-title)                  ; Title of file containing this note
       (created-at)
       (modified-at :not-null)]
      (:unique [path level pos]))
@@ -303,7 +304,7 @@ Converts plists to alists so `json-encode' creates objects."
                                        properties tags aliases meta links
                                        todo priority scheduled deadline
                                        closed outline-path attach-dir
-                                       created-at modified-at)
+                                       file-title created-at modified-at)
   "Insert note into database.
 
 Updates both materialized notes table and normalized tables.
@@ -327,6 +328,7 @@ Arguments:
   CLOSED - closed timestamp
   OUTLINE-PATH - path to heading
   ATTACH-DIR - attachment directory
+  FILE-TITLE - title of the file containing this note
   CREATED-AT - creation timestamp
   MODIFIED-AT - modification timestamp"
   (let ((db (vulpea-db)))
@@ -341,7 +343,7 @@ Arguments:
                         (if meta (json-encode (vulpea-db--meta-to-json meta)) "null")
                         (if links (json-encode (vulpea-db--links-to-json links)) "null")
                         todo priority scheduled deadline closed
-                        outline-path attach-dir
+                        outline-path attach-dir file-title
                         created-at modified-at)))
 
       ;; 2. Insert into normalized tags table

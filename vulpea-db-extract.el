@@ -256,8 +256,9 @@ after loading PATH so file-local keywords and hooks are respected."
              (mtime (float-time (file-attribute-modification-time attrs)))
              (size (file-attribute-size attrs))
              (hash (secure-hash 'sha256 content))
-             (file-node (vulpea-db--extract-file-node ast path (current-buffer)))
-             (heading-nodes (vulpea-db--extract-heading-nodes ast path (current-buffer)))
+             (file-title (vulpea-db--extract-file-title ast path))
+             (file-node (vulpea-db--extract-file-node ast path (current-buffer) file-title))
+             (heading-nodes (vulpea-db--extract-heading-nodes ast path (current-buffer) file-title))
              (t4 (current-time)))
 
         ;; Accumulate detailed timing if enabled
@@ -316,13 +317,14 @@ Respects `vulpea-db-parse-method' setting for parsing approach."
                       (attrs (file-attributes path))
                       (mtime (float-time (file-attribute-modification-time attrs)))
                       (size (file-attribute-size attrs))
-                      (hash (secure-hash 'sha256 content)))
+                      (hash (secure-hash 'sha256 content))
+                      (file-title (vulpea-db--extract-file-title ast path)))
 
                  (make-vulpea-parse-ctx
                   :path path
                   :ast ast
-                  :file-node (vulpea-db--extract-file-node ast path (current-buffer))
-                  :heading-nodes (vulpea-db--extract-heading-nodes ast path (current-buffer))
+                  :file-node (vulpea-db--extract-file-node ast path (current-buffer) file-title)
+                  :heading-nodes (vulpea-db--extract-heading-nodes ast path (current-buffer) file-title)
                   :hash hash
                   :mtime mtime
                   :size size)))
@@ -333,12 +335,27 @@ Respects `vulpea-db-parse-method' setting for parsing approach."
       (_
        (error "Unsupported vulpea-db-parse-method: %s" vulpea-db-parse-method)))))
 
-(defun vulpea-db--extract-file-node (ast path buffer)
+(defun vulpea-db--extract-file-title (ast path)
+  "Extract file title from AST at PATH.
+
+Returns the #+TITLE keyword value if present, otherwise the filename base."
+  (let ((keywords (org-element-map ast 'keyword
+                    (lambda (kw)
+                      (cons (vulpea-db--string-no-properties
+                             (org-element-property :key kw))
+                            (vulpea-db--string-no-properties
+                             (org-element-property :value kw)))))))
+    (or (cdr (assoc "TITLE" keywords))
+        (file-name-base path))))
+
+(defun vulpea-db--extract-file-node (ast path buffer file-title)
   "Extract file-level node data from AST at PATH in BUFFER.
+
+FILE-TITLE is the title of the file (from #+TITLE or filename).
 
 Returns plist with:
   :id :title :aliases :tags :links :properties :meta
-  :todo :priority :scheduled :deadline :closed :attach-dir
+  :todo :priority :scheduled :deadline :closed :attach-dir :file-title
 
 Returns nil if:
 - File has no ID property in property drawer
@@ -360,9 +377,7 @@ Returns nil if:
 
     ;; Only index if ID exists, not explicitly ignored, and not archived
     (when (and id (not ignored) (not archived))
-      (let* ((title (or (cdr (assoc "TITLE" keywords))
-                        (file-name-base path)))
-             (meta (vulpea-db--extract-meta ast))
+      (let* ((meta (vulpea-db--extract-meta ast))
              (links (vulpea-db--extract-links ast t))  ; Don't recurse into headlines
              (aliases (vulpea-db--extract-aliases properties))
              (attach-dir (with-current-buffer buffer
@@ -371,7 +386,7 @@ Returns nil if:
                              (goto-char (point-min))
                              (org-attach-dir nil 'no-fs-check)))))
         (list :id id
-              :title title
+              :title file-title
               :aliases aliases
               :tags filetags
               :links links
@@ -382,10 +397,13 @@ Returns nil if:
               :scheduled nil
               :deadline nil
               :closed nil
-              :attach-dir attach-dir)))))
+              :attach-dir attach-dir
+              :file-title file-title)))))
 
-(defun vulpea-db--extract-heading-nodes (ast path buffer)
+(defun vulpea-db--extract-heading-nodes (ast path buffer file-title)
   "Extract heading-level nodes from AST at PATH in BUFFER.
+
+FILE-TITLE is the title of the file containing the headings.
 
 Returns list of plists, one per heading with ID property.
 Each plist has same structure as file-node.
@@ -463,7 +481,8 @@ Respects `vulpea-db-index-heading-level' setting."
                                   (vulpea-db--string-no-properties
                                    (org-element-property :raw-value closed)))
                         :outline-path outline-path
-                        :attach-dir attach-dir))))))))))
+                        :attach-dir attach-dir
+                        :file-title file-title))))))))))
 
 (defun vulpea-db--should-index-headings-p (path)
   "Check if headings should be indexed for PATH.
@@ -806,6 +825,7 @@ Runs registered extractors after insertion."
      :closed (plist-get data :closed)
      :outline-path (plist-get data :outline-path)
      :attach-dir (plist-get data :attach-dir)
+     :file-title (plist-get data :file-title)
      :created-at created-at
      :modified-at modified-at)
 

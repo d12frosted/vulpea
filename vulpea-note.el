@@ -62,7 +62,8 @@ Slots:
   deadline     - Deadline timestamp
   closed       - Closed timestamp
   outline-path - Path to heading
-  attach-dir   - Attachment directory"
+  attach-dir   - Attachment directory
+  file-title   - Title of the file containing this note"
   id
   path
   level
@@ -80,7 +81,8 @@ Slots:
   deadline
   closed
   outline-path
-  attach-dir)
+  attach-dir
+  file-title)
 
 ;;; Predicates
 

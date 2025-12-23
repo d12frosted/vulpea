@@ -95,25 +95,30 @@ ARGS is a plist with optional fields:
   :properties - alist of properties ((key . value))
   :todo       - TODO state
   :priority   - priority character
+  :file-title - title of the file containing this note
   :modified-at - modification timestamp (default: 2025-11-16 10:00:00)
 
 This inserts directly into the database without creating actual
 org files. Useful for testing query functions."
-  (apply #'vulpea-db--insert-note
-         :id id
-         :path (or (plist-get args :path) (format "/tmp/%s.org" id))
-         :level (or (plist-get args :level) 0)
-         :pos (or (plist-get args :pos) 0)
-         :title title
-         :properties (plist-get args :properties)
-         :tags (plist-get args :tags)
-         :aliases (plist-get args :aliases)
-         :meta (plist-get args :meta)
-         :links (plist-get args :links)
-         :todo (plist-get args :todo)
-         :priority (plist-get args :priority)
-         :modified-at (or (plist-get args :modified-at) "2025-11-16 10:00:00")
-         args))
+  (let ((level (or (plist-get args :level) 0)))
+    (apply #'vulpea-db--insert-note
+           :id id
+           :path (or (plist-get args :path) (format "/tmp/%s.org" id))
+           :level level
+           :pos (or (plist-get args :pos) 0)
+           :title title
+           :properties (plist-get args :properties)
+           :tags (plist-get args :tags)
+           :aliases (plist-get args :aliases)
+           :meta (plist-get args :meta)
+           :links (plist-get args :links)
+           :todo (plist-get args :todo)
+           :priority (plist-get args :priority)
+           ;; For file-level notes, file-title equals title by default
+           :file-title (or (plist-get args :file-title)
+                           (if (= level 0) title nil))
+           :modified-at (or (plist-get args :modified-at) "2025-11-16 10:00:00")
+           args)))
 
 (provide 'vulpea-test-helpers)
 ;;; vulpea-test-helpers.el ends here

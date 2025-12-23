@@ -319,7 +319,8 @@
                 :todo "TODO"
                 :priority "A"
                 :outline-path '("Parent")
-                :attach-dir "/attach"))
+                :attach-dir "/attach"
+                :file-title "Parent File"))
          (expanded (vulpea-note-expand-aliases note))
          (alias-note (nth 1 expanded)))
     ;; All fields should be preserved
@@ -336,6 +337,7 @@
     (should (equal (vulpea-note-priority alias-note) "A"))
     (should (equal (vulpea-note-outline-path alias-note) '("Parent")))
     (should (equal (vulpea-note-attach-dir alias-note) "/attach"))
+    (should (equal (vulpea-note-file-title alias-note) "Parent File"))
     ;; Title and primary-title should be swapped for alias
     (should (equal (vulpea-note-title alias-note) "Alias"))
     (should (equal (vulpea-note-primary-title alias-note) "Original Title"))))

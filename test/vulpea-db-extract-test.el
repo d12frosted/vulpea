@@ -834,6 +834,82 @@ This serves as documentation for plugin authors."
               (should (null (car row)))))
         (delete-file path)))))
 
+;;; File-Title Tests
+
+(ert-deftest vulpea-db-extract-file-title-file-level ()
+  "Test file-level note has file-title equal to its title."
+  (let ((path (vulpea-test--create-temp-org-file
+               ":PROPERTIES:\n:ID: file-id\n:END:\n#+TITLE: My File Title\n")))
+    (unwind-protect
+        (let* ((ctx (vulpea-db--parse-file path))
+               (node (vulpea-parse-ctx-file-node ctx)))
+          (should (equal (plist-get node :title) "My File Title"))
+          (should (equal (plist-get node :file-title) "My File Title")))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-file-title-heading-level ()
+  "Test heading-level note has file-title from file."
+  (let ((path (vulpea-test--create-temp-org-file
+               ":PROPERTIES:\n:ID: file-id\n:END:\n#+TITLE: Parent File\n\n* Child Heading\n:PROPERTIES:\n:ID: heading-id\n:END:\n")))
+    (unwind-protect
+        (let* ((vulpea-db-index-heading-level t)
+               (ctx (vulpea-db--parse-file path))
+               (nodes (vulpea-parse-ctx-heading-nodes ctx))
+               (node (car nodes)))
+          (should (equal (plist-get node :title) "Child Heading"))
+          (should (equal (plist-get node :file-title) "Parent File")))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-file-title-fallback-to-filename ()
+  "Test file-title falls back to filename when no #+TITLE."
+  (let ((path (vulpea-test--create-temp-org-file
+               ":PROPERTIES:\n:ID: file-id\n:END:\n\n* Heading\n:PROPERTIES:\n:ID: heading-id\n:END:\n")))
+    (unwind-protect
+        (let* ((vulpea-db-index-heading-level t)
+               (ctx (vulpea-db--parse-file path))
+               (file-node (vulpea-parse-ctx-file-node ctx))
+               (heading-nodes (vulpea-parse-ctx-heading-nodes ctx))
+               (expected-title (file-name-base path)))
+          ;; File-level note should use filename as title and file-title
+          (should (equal (plist-get file-node :title) expected-title))
+          (should (equal (plist-get file-node :file-title) expected-title))
+          ;; Heading-level note should have file-title from filename
+          (should (equal (plist-get (car heading-nodes) :file-title) expected-title)))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-file-title-round-trip ()
+  "Test file-title survives database round-trip."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((path (vulpea-test--create-temp-org-file
+                 ":PROPERTIES:\n:ID: file-id\n:END:\n#+TITLE: Parent File\n\n* Child Heading\n:PROPERTIES:\n:ID: heading-id\n:END:\n")))
+      (unwind-protect
+          (let ((vulpea-db-index-heading-level t))
+            (vulpea-db-update-file path)
+            ;; Check file-level note
+            (let ((file-note (vulpea-db-get-by-id "file-id")))
+              (should (equal (vulpea-note-title file-note) "Parent File"))
+              (should (equal (vulpea-note-file-title file-note) "Parent File")))
+            ;; Check heading-level note
+            (let ((heading-note (vulpea-db-get-by-id "heading-id")))
+              (should (equal (vulpea-note-title heading-note) "Child Heading"))
+              (should (equal (vulpea-note-file-title heading-note) "Parent File"))))
+        (delete-file path)))))
+
+(ert-deftest vulpea-db-extract-file-title-nested-headings ()
+  "Test file-title is consistent for deeply nested headings."
+  (let ((path (vulpea-test--create-temp-org-file
+               ":PROPERTIES:\n:ID: file-id\n:END:\n#+TITLE: Root File\n\n* Level 1\n:PROPERTIES:\n:ID: level1-id\n:END:\n\n** Level 2\n:PROPERTIES:\n:ID: level2-id\n:END:\n\n*** Level 3\n:PROPERTIES:\n:ID: level3-id\n:END:\n")))
+    (unwind-protect
+        (let* ((vulpea-db-index-heading-level t)
+               (ctx (vulpea-db--parse-file path))
+               (nodes (vulpea-parse-ctx-heading-nodes ctx)))
+          ;; All heading nodes should have the same file-title
+          (should (= (length nodes) 3))
+          (dolist (node nodes)
+            (should (equal (plist-get node :file-title) "Root File"))))
+      (delete-file path))))
+
 ;;; Properties Table Tests
 
 (ert-deftest vulpea-db-extract-properties-table-populated ()
