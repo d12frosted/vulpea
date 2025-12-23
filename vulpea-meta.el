@@ -194,11 +194,12 @@ Example:
     (`"note" (vulpea-select "Note"))))
 
 (defun vulpea-meta-add ()
-  "Interactive version of `vulpea-meta-set' for note at point."
+  "Interactive version of `vulpea-meta-set' for note at point.
+
+When point is in a heading with an ID, operates on that heading.
+When point is before the first heading, operates on the file-level note."
   (interactive)
-  (if-let* ((id (save-excursion
-                  (goto-char (point-min))
-                  (org-id-get)))
+  (if-let* ((id (org-id-get))
             (note (vulpea-db-get-by-id id)))
       (when-let ((prop (read-string "Property: "))
                  (value-type (completing-read
@@ -207,14 +208,15 @@ Example:
                               nil 'require-match))
                  (value (vulpea-meta--read-value value-type)))
         (vulpea-meta-set note prop value 'append))
-    (user-error "Current buffer is not a note")))
+    (user-error "No note at point")))
 
 (defun vulpea-meta-add-list ()
-  "Interactive version of `vulpea-meta-set' for note at point."
+  "Interactive version of `vulpea-meta-set' for note at point.
+
+When point is in a heading with an ID, operates on that heading.
+When point is before the first heading, operates on the file-level note."
   (interactive)
-  (if-let* ((id (save-excursion
-                  (goto-char (point-min))
-                  (org-id-get)))
+  (if-let* ((id (org-id-get))
             (note (vulpea-db-get-by-id id)))
       (when-let ((prop (read-string "Property: "))
                  (value-type (completing-read
@@ -227,22 +229,24 @@ Example:
                    nil
                    value-type)))
         (vulpea-meta-set note prop values 'append))
-    (user-error "Current buffer is not a note")))
+    (user-error "No note at point")))
 
 (defun vulpea-meta-remove (&optional note-or-id prop)
   "Delete values of PROP for NOTE-OR-ID.
 
 For heading-level notes (level > 0), operates within that
-heading's subtree."
+heading's subtree.
+
+When called interactively, operates on the note at point:
+- If point is in a heading with an ID, operates on that heading
+- If point is before the first heading, operates on the file-level note"
   (interactive)
   ;; handle interactive call, e.g. guess the note and read a prop
   (when (called-interactively-p 'any)
-    (let ((id (save-excursion
-                (goto-char (point-min))
-                (org-id-get))))
+    (let ((id (org-id-get)))
       (setq note-or-id (vulpea-db-get-by-id id))
       (unless note-or-id
-        (user-error "Current buffer is not a note"))
+        (user-error "No note at point"))
       (when-let*
           ((meta (vulpea-meta note-or-id))
            (pl (plist-get meta :pl))
@@ -279,16 +283,18 @@ heading's subtree."
   "Delete all meta from NOTE-OR-ID.
 
 For heading-level notes (level > 0), operates within that
-heading's subtree."
+heading's subtree.
+
+When called interactively, operates on the note at point:
+- If point is in a heading with an ID, operates on that heading
+- If point is before the first heading, operates on the file-level note"
   (interactive)
   ;; handle interactive call, e.g. guess the note
   (when (called-interactively-p 'any)
-    (let ((id (save-excursion
-                (goto-char (point-min))
-                (org-id-get))))
+    (let ((id (org-id-get)))
       (setq note-or-id (vulpea-db-get-by-id id))
       (unless note-or-id
-        (user-error "Current buffer is not a note"))))
+        (user-error "No note at point"))))
 
   ;; do the dirty work
   (let* ((note (if (stringp note-or-id)
