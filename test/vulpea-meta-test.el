@@ -679,5 +679,80 @@ Probably you've heard about [[https://github.com][GitHub]]. And of course, you m
 strange symbols like % and ', just like this [[https://en.wikipedia.org/wiki/I,_Olga_Hepnarov%C3%A1][link]] or this [[https://www.darenberg.com.au/assets/files/d'arenberg-the-stump-jump-lightly-wooded-chardonnay-2017.pdf][link]].
 "))))
 
+;;; vulpea-meta-set-batch Tests
+
+(ert-deftest vulpea-meta-set-batch-in-note-without-meta ()
+  "Test batch setting multiple properties in a note without existing meta."
+  (vulpea-meta-test--with-temp-db
+   (vulpea-meta-set-batch "444f94d7-61e0-4b7c-bb7e-100814c6b4bb"
+                          '(("name" . "some name")
+                            ("age" . 42)
+                            ("status" . active)))
+   (vulpea-meta-test--save-all-buffers)
+   (should (string-match-p "- name :: some name" (vulpea-meta-test--file-content "without-meta.org")))
+   (should (string-match-p "- age :: 42" (vulpea-meta-test--file-content "without-meta.org")))
+   (should (string-match-p "- status :: active" (vulpea-meta-test--file-content "without-meta.org")))))
+
+(ert-deftest vulpea-meta-set-batch-replace-existing ()
+  "Test batch setting replaces existing properties."
+  (vulpea-meta-test--with-temp-db
+   (vulpea-meta-set-batch "05907606-f836-45bf-bd36-a8444308eddd"
+                          '(("name" . "new name")
+                            ("numbers" . 999)))
+   (vulpea-meta-test--save-all-buffers)
+   (let ((content (vulpea-meta-test--file-content "with-meta.org")))
+     ;; Should have new values
+     (should (string-match-p "- name :: new name" content))
+     (should (string-match-p "- numbers :: 999" content))
+     ;; Should not have old name (Big brother)
+     (should-not (string-match-p "Big brother" content)))))
+
+(ert-deftest vulpea-meta-set-batch-with-list-values ()
+  "Test batch setting with list values."
+  (vulpea-meta-test--with-temp-db
+   (vulpea-meta-set-batch "444f94d7-61e0-4b7c-bb7e-100814c6b4bb"
+                          '(("tags" . ("a" "b" "c"))
+                            ("count" . 3)))
+   (vulpea-meta-test--save-all-buffers)
+   (let ((content (vulpea-meta-test--file-content "without-meta.org")))
+     (should (string-match-p "- tags :: a" content))
+     (should (string-match-p "- tags :: b" content))
+     (should (string-match-p "- tags :: c" content))
+     (should (string-match-p "- count :: 3" content)))))
+
+(ert-deftest vulpea-meta-set-batch-preserves-other-props ()
+  "Test batch setting preserves properties not being set."
+  (vulpea-meta-test--with-temp-db
+   ;; with-meta.org has: name, numbers, url, link, symbol, etc.
+   (vulpea-meta-set-batch "05907606-f836-45bf-bd36-a8444308eddd"
+                          '(("name" . "new name")))
+   (vulpea-meta-test--save-all-buffers)
+   (let ((content (vulpea-meta-test--file-content "with-meta.org")))
+     ;; New value
+     (should (string-match-p "- name :: new name" content))
+     ;; Preserved values
+     (should (string-match-p "- url ::" content))
+     (should (string-match-p "- symbol ::" content)))))
+
+(ert-deftest vulpea-meta-set-batch-with-note-values ()
+  "Test batch setting with vulpea-note values."
+  (vulpea-meta-test--with-temp-db
+   (let ((ref-note (vulpea-db-get-by-id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7")))
+     (vulpea-meta-set-batch "444f94d7-61e0-4b7c-bb7e-100814c6b4bb"
+                            `(("reference" . ,ref-note)
+                              ("count" . 1)))
+     (vulpea-meta-test--save-all-buffers)
+     (let ((content (vulpea-meta-test--file-content "without-meta.org")))
+       (should (string-match-p "\\[\\[id:5093fc4e-8c63-4e60-a1da-83fc7ecd5db7\\]" content))
+       (should (string-match-p "- count :: 1" content))))))
+
+(ert-deftest vulpea-meta-set-batch-empty-alist ()
+  "Test batch setting with empty alist does nothing."
+  (vulpea-meta-test--with-temp-db
+   (let ((content-before (vulpea-meta-test--file-content "with-meta.org")))
+     (vulpea-meta-set-batch "05907606-f836-45bf-bd36-a8444308eddd" nil)
+     (vulpea-meta-test--save-all-buffers)
+     (should (equal content-before (vulpea-meta-test--file-content "with-meta.org"))))))
+
 (provide 'vulpea-meta-test)
 ;;; vulpea-meta-test.el ends here

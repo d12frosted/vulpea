@@ -124,6 +124,26 @@ which case VALUE is added at the end of the meta."
     (vulpea-utils-with-file file
       (vulpea-buffer-meta-set prop value append))))
 
+(defun vulpea-meta-set-batch (note-or-id props-alist)
+  "Set multiple meta properties for NOTE-OR-ID efficiently.
+
+PROPS-ALIST is an alist where each element is (PROP . VALUE).
+VALUE can be a single value or a list of values.
+
+This function is much more efficient than calling `vulpea-meta-set'
+multiple times, as it only parses the file once.
+
+Example:
+  (vulpea-meta-set-batch note
+    \\='((\"status\" . \"active\")
+      (\"priority\" . 1)
+      (\"tags\" . (\"a\" \"b\" \"c\"))))"
+  (when-let ((file (if (stringp note-or-id)
+                       (vulpea-db-get-file-by-id note-or-id)
+                     (vulpea-note-path note-or-id))))
+    (vulpea-utils-with-file file
+      (vulpea-buffer-meta-set-batch props-alist))))
+
 (defun vulpea-meta--read-value (type)
   "Read value of TYPE."
   (pcase type

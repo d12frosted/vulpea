@@ -537,6 +537,108 @@ which case VALUE is added at the end of the meta."
                    "\n"))
          values))))))
 
+(defun vulpea-buffer-meta-set-batch (props-alist)
+  "Set multiple meta properties in current buffer efficiently.
+
+PROPS-ALIST is an alist where each element is (PROP . VALUE).
+VALUE can be a single value or a list of values.
+
+This function parses the buffer only once, making it much more
+efficient than calling `vulpea-buffer-meta-set' multiple times.
+
+Example:
+  (vulpea-buffer-meta-set-batch
+    \\='((\"status\" . \"active\")
+      (\"priority\" . 1)
+      (\"tags\" . (\"a\" \"b\" \"c\"))))"
+  (when props-alist
+    (let* ((meta (vulpea-buffer-meta))
+           (buffer (plist-get meta :buffer))
+           (pl (plist-get meta :pl))
+           (items-all (when pl (org-element-map pl 'item #'identity)))
+           (template-item (org-element-copy (car items-all)))
+           (props-to-set (mapcar #'car props-alist))
+           ;; Collect all items that need to be deleted
+           (items-to-delete
+            (when items-all
+              (seq-filter
+               (lambda (item)
+                 (member
+                  (substring-no-properties
+                   (org-element-interpret-data
+                    (org-element-contents
+                     (org-element-property :tag item))))
+                  props-to-set))
+               items-all)))
+           ;; Check if we're removing all items (need to delete whole list)
+           (removing-all (and items-to-delete
+                              (= (length items-to-delete)
+                                 (length items-all)))))
+      (cond
+       ;; Case 1: descriptive list exists
+       (pl
+        (let ((insert-point (org-element-property :begin pl)))
+          ;; Delete items in reverse order to preserve positions
+          (if removing-all
+              ;; Delete whole list if removing all items
+              (delete-region (org-element-property :begin pl)
+                             (org-element-property :end pl))
+            ;; Delete individual items
+            (dolist (item (sort (copy-sequence items-to-delete)
+                                (lambda (a b)
+                                  (> (org-element-property :begin a)
+                                     (org-element-property :begin b)))))
+              (delete-region (org-element-property :begin item)
+                             (org-element-property :end item))))
+          ;; Insert new values
+          (goto-char insert-point)
+          (if removing-all
+              ;; Need to create new list from scratch
+              (dolist (pair props-alist)
+                (let ((prop (car pair))
+                      (values (if (listp (cdr pair)) (cdr pair) (list (cdr pair)))))
+                  (dolist (val values)
+                    (insert "- " prop " :: "
+                            (vulpea-buffer-meta-format val)
+                            "\n"))))
+            ;; Use template item for formatting
+            (dolist (pair props-alist)
+              (let ((prop (car pair))
+                    (values (if (listp (cdr pair)) (cdr pair) (list (cdr pair)))))
+                (dolist (val values)
+                  (insert
+                   (org-element-interpret-data
+                    (org-element-set-contents
+                     (org-element-put-property
+                      (org-element-copy template-item)
+                      :tag
+                      prop)
+                     (vulpea-buffer-meta-format val))))))))))
+
+       ;; Case 2: no descriptive list, create one
+       (t
+        (let* ((element
+                (or
+                 (car
+                  (last
+                   (org-element-map buffer 'keyword #'identity)))
+                 (car
+                  (org-element-map buffer 'property-drawer #'identity))))
+               (point
+                (if element
+                    (- (org-element-property :end element)
+                       (org-element-property :post-blank element))
+                  (point-min))))
+          (goto-char point)
+          (insert "\n")
+          (dolist (pair props-alist)
+            (let ((prop (car pair))
+                  (values (if (listp (cdr pair)) (cdr pair) (list (cdr pair)))))
+              (dolist (val values)
+                (insert "- " prop " :: "
+                        (vulpea-buffer-meta-format val)
+                        "\n"))))))))))
+
 (defun vulpea-buffer-meta-remove (prop)
   "Delete values of PROP from current buffer."
   (let* ((meta (vulpea-buffer-meta--get (vulpea-buffer-meta) prop))

@@ -274,7 +274,20 @@ These operate on the current buffer (must be an org file).
 ;; Set metadata (in current buffer)
 (vulpea-buffer-meta-set "key" "value")
 (vulpea-buffer-meta-set "rating" "95")
+
+;; Set multiple properties efficiently (parses buffer once)
+(vulpea-buffer-meta-set-batch
+ '(("status" . "active")
+   ("priority" . 1)
+   ("tags" . ("a" "b" "c"))))
+
+;; File-level version (by note or ID)
+(vulpea-meta-set-batch note
+ '(("status" . "done")
+   ("reviewed" . t)))
 #+end_src
+
+When setting multiple metadata properties, prefer =vulpea-meta-set-batch= over multiple =vulpea-meta-set= calls - it's significantly faster (up to 10x for 20 properties) since it only parses the file once.
 
 * Modifying Notes Programmatically
 
@@ -513,7 +526,8 @@ For advanced use cases, direct database access:
 | =vulpea-buffer-alias-get=    | Get aliases              |
 | =vulpea-buffer-alias-add=    | Add alias                |
 | =vulpea-buffer-alias-remove= | Remove alias             |
-| =vulpea-buffer-meta-set=     | Set metadata value       |
+| =vulpea-buffer-meta-set=       | Set metadata value         |
+| =vulpea-buffer-meta-set-batch= | Set multiple meta values   |
 
 ** Sync Functions
 

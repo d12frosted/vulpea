@@ -22,6 +22,7 @@
 *Performance*
 
 - [[https://github.com/d12frosted/vulpea/issues/129][vulpea#129]] Optimize =vulpea-db-query-by-tags-every=, =vulpea-db-query-by-tags-none=, and =vulpea-db-query-by-links-every= to use single SQL queries with subqueries instead of two separate queries. Provides ~1.3-1.4x speedup for large result sets.
+- [[https://github.com/d12frosted/vulpea/issues/66][vulpea#66]] Add =vulpea-meta-set-batch= and =vulpea-buffer-meta-set-batch= for setting multiple metadata properties efficiently. Parses the buffer only once instead of N times, providing significant speedup (2-10x depending on property count).
 
 ** v2.0.0-rc.1
 :PROPERTIES:
