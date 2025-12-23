@@ -355,6 +355,54 @@ Control how notes are displayed in completion with =vulpea-select-describe-fn=:
 
 The outline variants are useful when using headings as notes (=vulpea-db-index-heading-level=) to disambiguate notes with identical titles.
 
+* Finding and Inserting Notes
+
+** vulpea-find
+
+Interactive command for note selection and navigation:
+
+#+begin_src emacs-lisp
+;; Basic usage (interactive)
+(vulpea-find)
+
+;; With custom candidates source
+(vulpea-find :candidates-fn (lambda (filter-fn)
+                              (vulpea-db-query-by-tags-some '("project"))))
+
+;; With filter
+(vulpea-find :filter-fn (lambda (note)
+                          (member "active" (vulpea-note-tags note))))
+
+;; Open in other window
+(vulpea-find :other-window t)
+
+;; Require exact match (no creating new notes)
+(vulpea-find :require-match t)
+#+end_src
+
+** vulpea-insert
+
+Interactive command for inserting a link to a note:
+
+#+begin_src emacs-lisp
+;; Basic usage (interactive)
+(vulpea-insert)
+
+;; With custom candidates source
+(vulpea-insert :candidates-fn (lambda (filter-fn)
+                                (vulpea-db-query-by-tags-some '("person"))))
+
+;; With filter
+(vulpea-insert :filter-fn (lambda (note)
+                            (= 0 (vulpea-note-level note))))
+
+;; With custom note creation
+(vulpea-insert :create-fn (lambda (title props)
+                            (vulpea-create title nil :tags '("new"))))
+#+end_src
+
+Both functions support =:candidates-fn= to customize the source of candidates, and =:filter-fn= to filter candidates. Global defaults can be configured via =vulpea-find-default-candidates-source= / =vulpea-insert-default-candidates-source= and =vulpea-find-default-filter= / =vulpea-insert-default-filter=.
+
 * Synchronization
 
 ** Immediate Update

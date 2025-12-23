@@ -418,13 +418,18 @@ The current point is the point of the new node. The hooks must
 not move the point.")
 
 ;;;###autoload
-(defun vulpea-insert (&optional filter-fn create-fn)
+(cl-defun vulpea-insert (&key filter-fn candidates-fn create-fn)
   "Select a note and insert a link to it.
 
 Allows capturing new notes. After link is inserted,
 `vulpea-insert-handle-functions' are called with the inserted
 note as the only argument regardless involvement of capture
 process.
+
+CANDIDATES-FN is the function to query candidates for selection,
+which takes as its argument a filtering function (see FILTER-FN).
+Unless specified, `vulpea-insert-default-candidates-source' is
+used.
 
 FILTER-FN is the function to apply on the candidates, which takes
 as its argument a `vulpea-note'. Unless specified,
@@ -449,7 +454,8 @@ used."
                      (org-link-display-format
                       (buffer-substring-no-properties
                        beg end)))))
-               (notes (funcall vulpea-insert-default-candidates-source
+               (notes (funcall (or candidates-fn
+                                   vulpea-insert-default-candidates-source)
                                (or filter-fn vulpea-insert-default-filter)))
                (note (vulpea-select-from "Note" notes
                                          :initial-prompt region-text))

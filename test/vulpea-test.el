@@ -793,5 +793,98 @@ Uses Unicode normalization to preserve base characters from accented letters."
         (when (file-directory-p vulpea-default-notes-directory)
           (delete-directory vulpea-default-notes-directory t))))))
 
+;;; vulpea-insert Tests
+
+(ert-deftest vulpea-insert-uses-candidates-fn ()
+  "Test that vulpea-insert uses :candidates-fn when provided."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((id "test-insert-id")
+           (path (vulpea-test--create-temp-org-file
+                  (format ":PROPERTIES:\n:ID: %s\n:END:\n#+TITLE: Test Note\n" id)))
+           (candidates-fn-called nil)
+           (custom-candidates-fn (lambda (filter-fn)
+                                   (setq candidates-fn-called t)
+                                   (vulpea-db-query filter-fn))))
+      (unwind-protect
+          (progn
+            (vulpea-db-update-file path)
+            (let ((note (vulpea-db-get-by-id id)))
+              ;; Mock vulpea-select-from to return our note
+              (cl-letf (((symbol-function 'vulpea-select-from)
+                         (lambda (_prompt notes &rest _)
+                           (car notes))))
+                (with-temp-buffer
+                  (org-mode)
+                  (vulpea-insert :candidates-fn custom-candidates-fn)
+                  ;; Verify candidates-fn was called
+                  (should candidates-fn-called)
+                  ;; Verify link was inserted
+                  (should (string-match-p (regexp-quote id) (buffer-string)))))))
+        (when (file-exists-p path)
+          (delete-file path))))))
+
+(ert-deftest vulpea-insert-uses-default-candidates-source ()
+  "Test that vulpea-insert uses default source when :candidates-fn is nil."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((id "test-insert-default-id")
+           (path (vulpea-test--create-temp-org-file
+                  (format ":PROPERTIES:\n:ID: %s\n:END:\n#+TITLE: Default Source Note\n" id)))
+           (default-source-called nil)
+           (vulpea-insert-default-candidates-source
+            (lambda (filter-fn)
+              (setq default-source-called t)
+              (vulpea-db-query filter-fn))))
+      (unwind-protect
+          (progn
+            (vulpea-db-update-file path)
+            ;; Mock vulpea-select-from to return our note
+            (cl-letf (((symbol-function 'vulpea-select-from)
+                       (lambda (_prompt notes &rest _)
+                         (car notes))))
+              (with-temp-buffer
+                (org-mode)
+                (vulpea-insert)
+                ;; Verify default source was called
+                (should default-source-called))))
+        (when (file-exists-p path)
+          (delete-file path))))))
+
+(ert-deftest vulpea-insert-candidates-fn-receives-filter ()
+  "Test that :candidates-fn receives the filter function."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((id1 "filter-test-id-1")
+           (id2 "filter-test-id-2")
+           (path1 (vulpea-test--create-temp-org-file
+                   (format ":PROPERTIES:\n:ID: %s\n:END:\n#+TITLE: Note One\n#+filetags: :target:\n" id1)))
+           (path2 (vulpea-test--create-temp-org-file
+                   (format ":PROPERTIES:\n:ID: %s\n:END:\n#+TITLE: Note Two\n" id2)))
+           (received-filter nil)
+           (custom-candidates-fn (lambda (filter-fn)
+                                   (setq received-filter filter-fn)
+                                   (vulpea-db-query filter-fn)))
+           (my-filter (lambda (note)
+                        (member "target" (vulpea-note-tags note)))))
+      (unwind-protect
+          (progn
+            (vulpea-db-update-file path1)
+            (vulpea-db-update-file path2)
+            ;; Mock vulpea-select-from to return first note
+            (cl-letf (((symbol-function 'vulpea-select-from)
+                       (lambda (_prompt notes &rest _)
+                         (car notes))))
+              (with-temp-buffer
+                (org-mode)
+                (vulpea-insert :candidates-fn custom-candidates-fn
+                               :filter-fn my-filter)
+                ;; Verify filter was passed to candidates-fn
+                (should (eq received-filter my-filter)))))
+        (when (file-exists-p path1)
+          (delete-file path1))
+        (when (file-exists-p path2)
+          (delete-file path2))))))
+
 (provide 'vulpea-test)
 ;;; vulpea-test.el ends here
