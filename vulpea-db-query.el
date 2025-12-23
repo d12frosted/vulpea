@@ -204,21 +204,16 @@ Returns list of `vulpea-note' structs."
   (if (null tags)
       (vulpea-db-query nil)  ; Return all notes
     (let* ((tag-count (length tags))
-           (note-ids (mapcar #'car
-                             (emacsql (vulpea-db)
-                                      [:select [note-id]
-                                       :from tags
-                                       :where (in tag $v1)
-                                       :group :by note-id
-                                       :having (= (funcall count (distinct tag)) $s2)]
-                                      (vconcat tags)
-                                      tag-count))))
-      (when note-ids
-        (let ((rows (emacsql (vulpea-db)
-                             [:select * :from notes
-                              :where (in id $v1)]
-                             (vconcat note-ids))))
-          (mapcar #'vulpea-db--row-to-note rows))))))
+           (rows (emacsql (vulpea-db)
+                          [:select * :from notes
+                           :where (in id [:select [note-id]
+                                          :from tags
+                                          :where (in tag $v1)
+                                          :group :by note-id
+                                          :having (= (funcall count (distinct tag)) $s2)])]
+                          (vconcat tags)
+                          tag-count)))
+      (mapcar #'vulpea-db--row-to-note rows))))
 
 (defun vulpea-db-query-by-tags-none (tags)
   "Get notes that have NONE of TAGS.
@@ -231,20 +226,13 @@ TAGS is a list of tag strings.
 Returns list of `vulpea-note' structs."
   (if (null tags)
       (vulpea-db-query nil)  ; Return all notes
-    (let ((note-ids (mapcar #'car
-                            (emacsql (vulpea-db)
-                                     [:select :distinct [note-id]
-                                      :from tags
-                                      :where (in tag $v1)]
-                                     (vconcat tags)))))
-      (let ((rows (if note-ids
-                      (emacsql (vulpea-db)
-                               [:select * :from notes
-                                :where (not (in id $v1))]
-                               (vconcat note-ids))
-                    (emacsql (vulpea-db)
-                             [:select * :from notes]))))
-        (mapcar #'vulpea-db--row-to-note rows)))))
+    (let ((rows (emacsql (vulpea-db)
+                         [:select * :from notes
+                          :where (not (in id [:select :distinct [note-id]
+                                              :from tags
+                                              :where (in tag $v1)]))]
+                         (vconcat tags))))
+      (mapcar #'vulpea-db--row-to-note rows))))
 
 ;;; Link-Based Queries
 
@@ -299,33 +287,28 @@ Returns list of `vulpea-note' structs."
   (if (null dest-ids)
       (vulpea-db-query nil)
     (let* ((id-count (length dest-ids))
-           (note-ids (if link-type
-                         (mapcar #'car
-                                 (emacsql (vulpea-db)
-                                          [:select [source]
-                                           :from links
-                                           :where (and (in dest $v1)
-                                                       (= type $s2))
-                                           :group :by source
-                                           :having (= (funcall count (distinct dest)) $s3)]
-                                          (vconcat dest-ids)
-                                          link-type
-                                          id-count))
-                       (mapcar #'car
-                               (emacsql (vulpea-db)
-                                        [:select [source]
-                                         :from links
-                                         :where (in dest $v1)
-                                         :group :by source
-                                         :having (= (funcall count (distinct dest)) $s2)]
-                                        (vconcat dest-ids)
-                                        id-count)))))
-      (when note-ids
-        (let ((rows (emacsql (vulpea-db)
-                             [:select * :from notes
-                              :where (in id $v1)]
-                             (vconcat note-ids))))
-          (mapcar #'vulpea-db--row-to-note rows))))))
+           (rows (if link-type
+                     (emacsql (vulpea-db)
+                              [:select * :from notes
+                               :where (in id [:select [source]
+                                              :from links
+                                              :where (and (in dest $v1)
+                                                          (= type $s2))
+                                              :group :by source
+                                              :having (= (funcall count (distinct dest)) $s3)])]
+                              (vconcat dest-ids)
+                              link-type
+                              id-count)
+                   (emacsql (vulpea-db)
+                            [:select * :from notes
+                             :where (in id [:select [source]
+                                            :from links
+                                            :where (in dest $v1)
+                                            :group :by source
+                                            :having (= (funcall count (distinct dest)) $s2)])]
+                            (vconcat dest-ids)
+                            id-count))))
+      (mapcar #'vulpea-db--row-to-note rows))))
 
 ;;; Additional Query Functions
 
