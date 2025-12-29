@@ -793,6 +793,31 @@ Uses Unicode normalization to preserve base characters from accented letters."
         (when (file-directory-p vulpea-default-notes-directory)
           (delete-directory vulpea-default-notes-directory t))))))
 
+(ert-deftest vulpea-create-no-overwrite-existing-file ()
+  "Test that vulpea-create refuses to overwrite existing files."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((vulpea-default-notes-directory (make-temp-file "vulpea-test-" t))
+           (target-file (expand-file-name "existing-note.org" vulpea-default-notes-directory))
+           (original-content "* My important notes\nDon't lose this!"))
+      (unwind-protect
+          (progn
+            ;; Create file manually (simulating pre-existing file)
+            (with-temp-file target-file
+              (insert original-content))
+            ;; Attempting to create note at same path should error
+            (should-error (vulpea-create "New Note" target-file))
+            ;; Verify original content is preserved
+            (should (string= (with-temp-buffer
+                               (insert-file-contents target-file)
+                               (buffer-string))
+                             original-content)))
+        ;; Cleanup
+        (when (file-exists-p target-file)
+          (delete-file target-file))
+        (when (file-directory-p vulpea-default-notes-directory)
+          (delete-directory vulpea-default-notes-directory t))))))
+
 ;;; vulpea-insert Tests
 
 (ert-deftest vulpea-insert-uses-candidates-fn ()

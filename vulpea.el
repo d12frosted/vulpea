@@ -603,6 +603,10 @@ Note: Does not support %a or %i from org-capture."
     (unless (file-directory-p dir)
       (make-directory dir t))
 
+    ;; Safety check: refuse to overwrite existing files
+    (when (file-exists-p file-path)
+      (error "vulpea-create: File %s already exists; refusing to overwrite" file-path))
+
     ;; Write file directly (no org-capture, no hooks, no blank lines)
     (with-temp-buffer
       (insert full-content)

@@ -225,7 +225,7 @@ There are multiple ways to read metadata, each with different trade-offs:
                :body "* Tasks\n\n* Notes\n")
 #+end_src
 
-Returns the created =vulpea-note=.
+Returns the created =vulpea-note=. Signals an error if a file already exists at the target path (to prevent accidental overwrites).
 
 * Visiting Notes
 
