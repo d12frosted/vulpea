@@ -9,6 +9,8 @@
 
 ** Unreleased
 
+** v2.0.0
+
 *Fixes*
 
 - =vulpea-create= now refuses to overwrite existing files. Previously, if a file existed at the target path but was not in the vulpea database, =vulpea-create= would silently overwrite it. Now it signals an error, preventing accidental data loss.
