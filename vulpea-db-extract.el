@@ -445,7 +445,7 @@ Respects `vulpea-db-index-heading-level' setting."
                        (deadline (org-element-property :deadline headline))
                        (closed (org-element-property :closed headline))
                        (meta (vulpea-db--extract-meta headline))
-                       (links (vulpea-db--extract-links headline))
+                       (links (vulpea-db--extract-links headline t))
                        (outline-path (let (path
                                            (current headline))
                                        (while (setq current (org-element-property :parent current))
@@ -559,15 +559,29 @@ attachment:, elisp:, and any other `org-mode' link type.
 
 If NO-RECURSION is non-nil, stops recursion at headline boundaries.
 This is useful for file-level extraction to avoid collecting links
-from child headlines."
-  (org-element-map ast-or-node 'link
-    (lambda (link)
-      (let ((type (org-element-property :type link))
-            (path (org-element-property :path link))
-            (pos (org-element-property :begin link)))
-        (when (and type path)
-          (list :dest path :type type :pos pos))))
-    nil nil (when no-recursion 'headline)))
+from child headlines.  For headline elements, this extracts links
+only from the section (direct content) without child headlines."
+  (if (and no-recursion (eq (org-element-type ast-or-node) 'headline))
+      ;; For headlines with no-recursion, only search the section
+      ;; (direct content before any child headlines)
+      (let ((section (org-element-map ast-or-node 'section #'identity nil t)))
+        (when section
+          (org-element-map section 'link
+            (lambda (link)
+              (let ((type (org-element-property :type link))
+                    (path (org-element-property :path link))
+                    (pos (org-element-property :begin link)))
+                (when (and type path)
+                  (list :dest path :type type :pos pos)))))))
+    ;; Normal case: search everything, optionally stopping at headlines
+    (org-element-map ast-or-node 'link
+      (lambda (link)
+        (let ((type (org-element-property :type link))
+              (path (org-element-property :path link))
+              (pos (org-element-property :begin link)))
+          (when (and type path)
+            (list :dest path :type type :pos pos))))
+      nil nil (when no-recursion 'headline))))
 
 (defun vulpea-db--extract-meta (element)
   "Extract metadata from ELEMENT (AST or headline element).

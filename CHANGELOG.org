@@ -9,6 +9,10 @@
 
 ** Unreleased
 
+*Fixes*
+
+- Fix headline link extraction including links from child headlines. Previously, when extracting links for a heading-level note, all links from nested child headlines were also included. This caused issues with attachment resolution in tools like =publicatorg=, where attachments would be incorrectly resolved using parent heading's attachment directory instead of the actual heading containing the link.
+
 ** v2.0.0
 
 *Fixes*

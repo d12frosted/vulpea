@@ -282,6 +282,46 @@ handled correctly when mixed together."
           (should (equal (plist-get (car heading-links) :dest) "//heading-link.com")))
       (delete-file path))))
 
+(ert-deftest vulpea-db-extract-links-nested-headings ()
+  "Test that parent heading links don't include child heading links."
+  (let ((path (vulpea-test--create-temp-org-file
+               (concat
+                ":PROPERTIES:\n:ID: file-id\n:END:\n"
+                "#+TITLE: Test File\n\n"
+                "* Parent Heading\n"
+                ":PROPERTIES:\n"
+                ":ID: parent-id\n"
+                ":END:\n\n"
+                "Parent-level [[https://parent-link.com][link]].\n\n"
+                "** Child Heading\n"
+                ":PROPERTIES:\n"
+                ":ID: child-id\n"
+                ":END:\n\n"
+                "Child-level [[https://child-link.com][link]].\n"
+                "Child attachment [[attachment:child-image.png]].\n"))))
+    (unwind-protect
+        (let* ((vulpea-db-index-heading-level t)
+               (ctx (vulpea-db--parse-file path))
+               (heading-nodes (vulpea-parse-ctx-heading-nodes ctx))
+               (parent-node (seq-find (lambda (n) (equal (plist-get n :id) "parent-id")) heading-nodes))
+               (child-node (seq-find (lambda (n) (equal (plist-get n :id) "child-id")) heading-nodes))
+               (parent-links (plist-get parent-node :links))
+               (child-links (plist-get child-node :links))
+               (parent-dests (mapcar (lambda (l) (plist-get l :dest)) parent-links))
+               (child-dests (mapcar (lambda (l) (plist-get l :dest)) child-links)))
+          ;; Parent node should only have its own link, not child's links
+          (should (= (length parent-links) 1))
+          (should (member "//parent-link.com" parent-dests))
+          (should-not (member "//child-link.com" parent-dests))
+          (should-not (member "child-image.png" parent-dests))
+          ;; Child node should have its own links
+          (should (= (length child-links) 2))
+          (should (member "//child-link.com" child-dests))
+          (should (or (member "child-image.png" child-dests)
+                      ;; attachment: can be parsed as fuzzy in some org versions
+                      (member "attachment:child-image.png" child-dests))))
+      (delete-file path))))
+
 (ert-deftest vulpea-db-extract-meta-with-types ()
   "Test metadata extraction stores values as strings."
   (let ((path (vulpea-test--create-temp-org-file
