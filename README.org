@@ -126,6 +126,7 @@ Companion packages that extend Vulpea:
 
 - [[https://github.com/d12frosted/vulpea-ui][vulpea-ui]] - Sidebar infrastructure and widget framework. Provides a per-frame sidebar with outline, backlinks, forward links, and stats widgets. Easy API for creating custom widgets.
 - [[https://github.com/d12frosted/vulpea-journal][vulpea-journal]] - Daily journaling with calendar integration. Creates one note per day with sidebar widgets for navigation, calendar view, and "on this day" from previous years.
+- [[https://github.com/fabcontigiani/consult-vulpea][consult-vulpea]] - Consult integration for Vulpea. Provides =consult-vulpea-find= and =consult-vulpea-insert= with live preview and consult's narrowing features.
 
 ** Real-World Usage
 
