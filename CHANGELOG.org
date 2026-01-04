@@ -9,6 +9,10 @@
 
 ** Unreleased
 
+*Features*
+
+- Add =vulpea-db-query-attachments-by-path= for efficiently querying all attachment link destinations for notes at a given file path. Uses a single SQL query with JOIN, avoiding N+1 queries when processing multiple notes in a file.
+
 *Fixes*
 
 - Fix headline link extraction including links from child headlines. Previously, when extracting links for a heading-level note, all links from nested child headlines were also included. This caused issues with attachment resolution in tools like =publicatorg=, where attachments would be incorrectly resolved using parent heading's attachment directory instead of the actual heading containing the link.

@@ -79,6 +79,16 @@ All query functions return lists of =vulpea-note= structs.
 (vulpea-db-query-by-links-every '("id-1" "id-2"))
 #+end_src
 
+** By Attachments
+
+#+begin_src emacs-lisp
+;; Get all attachment destinations for notes in a file
+(vulpea-db-query-attachments-by-path "/path/to/file.org")
+;; => ("image.png" "document.pdf" ...)
+#+end_src
+
+This is an optimized query that retrieves all attachment link destinations in a single database query, avoiding N+1 queries when processing multiple notes in a file.
+
 ** By Metadata
 
 #+begin_src emacs-lisp
@@ -555,6 +565,7 @@ For advanced use cases, direct database access:
 | =vulpea-db-query-by-tags-none=   | Notes WITHOUT tags                |
 | =vulpea-db-query-by-links-some=  | Notes linking to ANY IDs          |
 | =vulpea-db-query-by-links-every= | Notes linking to ALL IDs          |
+| =vulpea-db-query-attachments-by-path= | Attachment destinations in file |
 | =vulpea-db-query-by-meta=        | Notes with metadata key=value     |
 | =vulpea-db-query-by-meta-key=    | Notes having metadata key         |
 | =vulpea-db-query-by-level=       | Notes at specific level           |

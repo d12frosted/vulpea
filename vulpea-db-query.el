@@ -310,6 +310,27 @@ Returns list of `vulpea-note' structs."
                             id-count))))
       (mapcar #'vulpea-db--row-to-note rows))))
 
+;;; Attachment Queries
+
+(defun vulpea-db-query-attachments-by-path (path)
+  "Get all attachment link destinations for notes at PATH.
+
+This is an optimized query that retrieves attachment destinations
+in a single database query, avoiding the N+1 query problem when
+processing multiple notes in a file.
+
+PATH is an absolute path to an org file.
+
+Returns a list of attachment destination strings (file names)."
+  (mapcar #'car
+          (emacsql (vulpea-db)
+                   [:select :distinct [l:dest]
+                    :from notes n
+                    :inner :join links l :on (= n:id l:source)
+                    :where (and (= n:path $s1)
+                                (= l:type "attachment"))]
+                   path)))
+
 ;;; Additional Query Functions
 
 (defun vulpea-db-query-by-level (level)
