@@ -317,14 +317,16 @@ from being inserted into the normalized tags table."
     (vulpea-db)
     (vulpea-test--insert-test-note "note1" "Note 1"
                                    :path "/tmp/file1.org"
+                                   :attach-dir "/data/note1/"
                                    :links '((:dest "image.png" :type "attachment" :pos 100)))
     (vulpea-test--insert-test-note "note2" "Note 2"
                                    :path "/tmp/file2.org"
+                                   :attach-dir "/data/note2/"
                                    :links '((:dest "other.png" :type "attachment" :pos 100)))
 
     (let ((attachments (vulpea-db-query-attachments-by-path "/tmp/file1.org")))
       (should (= (length attachments) 1))
-      (should (equal attachments '("image.png"))))))
+      (should (equal attachments '(("image.png" . "/data/note1/")))))))
 
 (ert-deftest vulpea-db-query-attachments-by-path-multiple ()
   "Test querying multiple attachment links from same file."
@@ -332,13 +334,14 @@ from being inserted into the normalized tags table."
     (vulpea-db)
     (vulpea-test--insert-test-note "note1" "Note 1"
                                    :path "/tmp/file1.org"
+                                   :attach-dir "/data/note1/"
                                    :links '((:dest "image1.png" :type "attachment" :pos 100)
                                            (:dest "image2.jpg" :type "attachment" :pos 200)))
 
     (let ((attachments (vulpea-db-query-attachments-by-path "/tmp/file1.org")))
       (should (= (length attachments) 2))
-      (should (member "image1.png" attachments))
-      (should (member "image2.jpg" attachments)))))
+      (should (member '("image1.png" . "/data/note1/") attachments))
+      (should (member '("image2.jpg" . "/data/note1/") attachments)))))
 
 (ert-deftest vulpea-db-query-attachments-by-path-multiple-notes ()
   "Test querying attachments across multiple notes in same file."
@@ -347,33 +350,38 @@ from being inserted into the normalized tags table."
     (vulpea-test--insert-test-note "note1" "Note 1"
                                    :path "/tmp/file1.org"
                                    :level 0
+                                   :attach-dir "/data/note1/"
                                    :links '((:dest "image1.png" :type "attachment" :pos 100)))
     (vulpea-test--insert-test-note "note2" "Note 2"
                                    :path "/tmp/file1.org"
                                    :level 1
+                                   :attach-dir "/data/note2/"
                                    :links '((:dest "image2.png" :type "attachment" :pos 200)))
 
     (let ((attachments (vulpea-db-query-attachments-by-path "/tmp/file1.org")))
       (should (= (length attachments) 2))
-      (should (member "image1.png" attachments))
-      (should (member "image2.png" attachments)))))
+      (should (member '("image1.png" . "/data/note1/") attachments))
+      (should (member '("image2.png" . "/data/note2/") attachments)))))
 
 (ert-deftest vulpea-db-query-attachments-by-path-distinct ()
-  "Test that duplicate attachment destinations are deduplicated."
+  "Test that duplicate (dest . attach-dir) pairs are deduplicated."
   (vulpea-test--with-temp-db
     (vulpea-db)
+    ;; Two notes with same attachment in same attach-dir (deduplicated)
     (vulpea-test--insert-test-note "note1" "Note 1"
                                    :path "/tmp/file1.org"
                                    :level 0
+                                   :attach-dir "/data/shared/"
                                    :links '((:dest "shared.png" :type "attachment" :pos 100)))
     (vulpea-test--insert-test-note "note2" "Note 2"
                                    :path "/tmp/file1.org"
                                    :level 1
+                                   :attach-dir "/data/shared/"
                                    :links '((:dest "shared.png" :type "attachment" :pos 200)))
 
     (let ((attachments (vulpea-db-query-attachments-by-path "/tmp/file1.org")))
       (should (= (length attachments) 1))
-      (should (equal attachments '("shared.png"))))))
+      (should (equal attachments '(("shared.png" . "/data/shared/")))))))
 
 (ert-deftest vulpea-db-query-attachments-by-path-mixed-links ()
   "Test that only attachment links are returned, not id links."
@@ -381,15 +389,16 @@ from being inserted into the normalized tags table."
     (vulpea-db)
     (vulpea-test--insert-test-note "note1" "Note 1"
                                    :path "/tmp/file1.org"
+                                   :attach-dir "/data/note1/"
                                    :links '((:dest "image.png" :type "attachment" :pos 100)
                                            (:dest "other-note-id" :type "id" :pos 200)
                                            (:dest "file.pdf" :type "attachment" :pos 300)))
 
     (let ((attachments (vulpea-db-query-attachments-by-path "/tmp/file1.org")))
       (should (= (length attachments) 2))
-      (should (member "image.png" attachments))
-      (should (member "file.pdf" attachments))
-      (should-not (member "other-note-id" attachments)))))
+      (should (member '("image.png" . "/data/note1/") attachments))
+      (should (member '("file.pdf" . "/data/note1/") attachments))
+      (should-not (assoc "other-note-id" attachments)))))
 
 (ert-deftest vulpea-db-query-attachments-by-path-no-attachments ()
   "Test querying path with no attachment links."
@@ -397,6 +406,7 @@ from being inserted into the normalized tags table."
     (vulpea-db)
     (vulpea-test--insert-test-note "note1" "Note 1"
                                    :path "/tmp/file1.org"
+                                   :attach-dir "/data/note1/"
                                    :links '((:dest "other-note" :type "id" :pos 100)))
 
     (should-not (vulpea-db-query-attachments-by-path "/tmp/file1.org"))))
@@ -407,6 +417,7 @@ from being inserted into the normalized tags table."
     (vulpea-db)
     (vulpea-test--insert-test-note "note1" "Note 1"
                                    :path "/tmp/file1.org"
+                                   :attach-dir "/data/note1/"
                                    :links '((:dest "image.png" :type "attachment" :pos 100)))
 
     (should-not (vulpea-db-query-attachments-by-path "/tmp/nonexistent.org"))))
