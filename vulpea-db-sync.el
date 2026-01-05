@@ -306,7 +306,7 @@ Optionally performs initial scan based on `vulpea-db-sync-scan-on-enable'."
 
 (defun vulpea-db-sync--unwatch-file (path)
   "Stop watching file at PATH."
-  (when-let ((entry (assoc path vulpea-db-sync--watchers)))
+  (when-let* ((entry (assoc path vulpea-db-sync--watchers)))
     (file-notify-rm-watch (cdr entry))
     (setq vulpea-db-sync--watchers
           (delq entry vulpea-db-sync--watchers))))

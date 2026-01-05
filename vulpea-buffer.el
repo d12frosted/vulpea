@@ -141,7 +141,7 @@ When called interactively, prompt for tags to remove from current tags."
 Returns list of alias strings from the property defined by
 `vulpea-buffer-alias-property'. Handles both quoted aliases (with spaces)
 and unquoted aliases properly."
-  (when-let ((aliases-str (org-entry-get nil vulpea-buffer-alias-property)))
+  (when-let* ((aliases-str (org-entry-get nil vulpea-buffer-alias-property)))
     (setq aliases-str (string-trim aliases-str))
     (let ((result nil)
           (pos 0))

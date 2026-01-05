@@ -72,7 +72,7 @@ Supports various date formats:
 - \"2025-12-08\" - ISO date
 
 Returns date string in YYYY-MM-DD format, or nil if not found."
-  (when-let ((created (cdr (assoc "CREATED" properties))))
+  (when-let* ((created (cdr (assoc "CREATED" properties))))
     (when (string-match "\\([0-9]\\{4\\}\\)-\\([0-9]\\{2\\}\\)-\\([0-9]\\{2\\}\\)" created)
       (format "%s-%s-%s"
               (match-string 1 created)
@@ -426,7 +426,7 @@ Respects `vulpea-db-index-heading-level' setting."
                        (split-string filetags-str ":" t))))
       (org-element-map ast 'headline
         (lambda (headline)
-          (when-let ((id (org-element-property :ID headline)))
+          (when-let* ((id (org-element-property :ID headline)))
             (let* ((properties (vulpea-db--extract-properties ast headline))
                    (ignored (cdr (assoc "VULPEA_IGNORE" properties)))
                    (archived (vulpea-db--archived-p headline properties filetags)))
@@ -504,7 +504,7 @@ Respects `vulpea-db-index-heading-level' setting:
 
 Looks for property defined by `vulpea-buffer-alias-property'.
 Handles both quoted aliases (with spaces) and unquoted aliases properly."
-  (when-let ((aliases-str (cdr (assoc vulpea-buffer-alias-property properties))))
+  (when-let* ((aliases-str (cdr (assoc vulpea-buffer-alias-property properties))))
     (setq aliases-str (string-trim aliases-str))
     (let ((result nil)
           (pos 0))
@@ -639,7 +639,7 @@ Schema format matches `vulpea-db--schema':
    ...)
 
 Also registers the schema version in schema-registry table."
-  (when-let ((schema (vulpea-extractor-schema extractor))
+  (when-let* ((schema (vulpea-extractor-schema extractor))
              (name (vulpea-extractor-name extractor))
              (version (vulpea-extractor-version extractor)))
     (let ((db (vulpea-db)))
@@ -771,7 +771,7 @@ Returns number of notes updated (file-level + headings)."
 
       ;; Insert file-level note
       (let ((file-data (vulpea-parse-ctx-file-node ctx)))
-        (when-let ((id (plist-get file-data :id)))
+        (when-let* ((id (plist-get file-data :id)))
           (vulpea-db--insert-note-from-plist ctx path 0 0 file-data)
           (push id ids)
           (setq count (1+ count))))
@@ -784,7 +784,7 @@ Returns number of notes updated (file-level + headings)."
          (plist-get heading-data :level)
          (plist-get heading-data :pos)
          heading-data)
-        (when-let ((id (plist-get heading-data :id)))
+        (when-let* ((id (plist-get heading-data :id)))
           (push id ids))
         (setq count (1+ count)))
 

@@ -142,7 +142,7 @@ Returns complete note from materialized table - single query, no JOINs.
 This is the fastest query operation (<5ms).
 
 Returns `vulpea-note' or nil if not found."
-  (when-let ((row (car (emacsql (vulpea-db)
+  (when-let* ((row (car (emacsql (vulpea-db)
                                 [:select * :from notes
                                  :where (= id $s1)]
                                 id))))
@@ -574,7 +574,7 @@ Returns a sorted list of tag strings."
   "Get file path for note with ID.
 
 Returns absolute path string or nil if note not found."
-  (when-let ((note (vulpea-db-get-by-id id)))
+  (when-let* ((note (vulpea-db-get-by-id id)))
     (vulpea-note-path note)))
 
 (defun vulpea-db-query-by-ids (ids)

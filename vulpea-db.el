@@ -404,7 +404,7 @@ HASH, MTIME and SIZE as inserted as values."
   "Get stored hash for PATH.
 
 Returns plist with :hash, :mtime, :size or nil if not tracked."
-  (when-let ((row (car (emacsql (vulpea-db)
+  (when-let* ((row (car (emacsql (vulpea-db)
                                 [:select [hash mtime size] :from files
                                  :where (= path $s1)]
                                 path))))

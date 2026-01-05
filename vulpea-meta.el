@@ -201,7 +201,7 @@ When point is before the first heading, operates on the file-level note."
   (interactive)
   (if-let* ((id (org-id-get))
             (note (vulpea-db-get-by-id id)))
-      (when-let ((prop (read-string "Property: "))
+      (when-let* ((prop (read-string "Property: "))
                  (value-type (completing-read
                               "Value type: "
                               '(string number link note)
@@ -218,7 +218,7 @@ When point is before the first heading, operates on the file-level note."
   (interactive)
   (if-let* ((id (org-id-get))
             (note (vulpea-db-get-by-id id)))
-      (when-let ((prop (read-string "Property: "))
+      (when-let* ((prop (read-string "Property: "))
                  (value-type (completing-read
                               "Value type: "
                               '(string number link note)
