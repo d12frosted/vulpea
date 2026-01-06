@@ -1,6 +1,6 @@
 ;;; vulpea-db-query-test.el --- Tests for vulpea-db-query -*- lexical-binding: t; -*-
 ;;
-;; Copyright (c) 2015-2025 Boris Buliga <boris@d12frosted.io>
+;; Copyright (c) 2015-2026 Boris Buliga <boris@d12frosted.io>
 ;;
 ;; Author: Boris Buliga <boris@d12frosted.io>
 ;; Maintainer: Boris Buliga <boris@d12frosted.io>
