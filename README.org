@@ -35,6 +35,18 @@ Vulpea solves this by maintaining a database of your notes that stays in sync wi
 
 *Large collections* - Designed to scale. The async architecture and optimized queries handle 100k+ notes without degrading performance.
 
+** Design Philosophy
+
+Vulpea is designed as a *foundation*, not an application. Where tools like [[https://github.com/org-roam/org-roam][org-roam]] aim to replicate Roam Research in Emacs (and do it very well), Vulpea provides a stable API layer for building your own note-based workflows and applications.
+
+Key differences:
+
+- *Schema as implementation detail* - Vulpea's database structure is internal. The public API is functions and data structures, not SQL tables. This allows the backend to evolve without breaking user code.
+- *Library-first* - Vulpea exposes clean abstractions like =vulpea-note= that don't leak internals. Build applications on top without coupling to implementation details.
+- *Coexistence* - Vulpea and org-roam can run side-by-side; they use separate databases and don't interfere.
+
+Vulpea originally started as a layer over org-roam, but v2 is a complete rewrite with its own database and indexing. For the full history and design rationale, see [[https://d12frosted.io/posts/2025-11-28-vulpea-v2-breaking-up-with-org-roam][Vulpea v2: a story of breaking up with org-roam]].
+
 ** Key Features
 
 - 🚀 *Async-first* - File watchers + background processing, no save hooks blocking you
