@@ -45,6 +45,8 @@ Key differences:
 - *Library-first* - Vulpea exposes clean abstractions like =vulpea-note= that don't leak internals. Build applications on top without coupling to implementation details.
 - *Coexistence* - Vulpea and org-roam can run side-by-side; they use separate databases and don't interfere.
 
+For a detailed comparison with org-roam and org-node, see [[file:docs/comparison.org][Comparison with Other Libraries]].
+
 Vulpea originally started as a layer over org-roam, but v2 is a complete rewrite with its own database and indexing. For the full history and design rationale, see [[https://d12frosted.io/posts/2025-11-28-vulpea-v2-breaking-up-with-org-roam][Vulpea v2: a story of breaking up with org-roam]].
 
 ** Key Features
@@ -131,6 +133,7 @@ git clone https://github.com/d12frosted/vulpea
 | [[file:docs/journal.org][Journal Module]] | Daily notes with widgets and calendar integration |
 | [[file:docs/plugin-guide.org][Plugin Guide]] | Writing custom extractors for domain-specific data |
 | [[file:docs/troubleshooting.org][Troubleshooting]] | Common issues and solutions |
+| [[file:docs/comparison.org][Comparison]] | How vulpea compares to org-roam and org-node |
 
 ** Ecosystem
 

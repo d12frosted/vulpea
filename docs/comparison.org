@@ -1,0 +1,356 @@
+#+title: Comparison with Other Libraries
+#+author: Boris Buliga
+
+This document compares Vulpea with other Org-mode note management libraries, specifically [[https://github.com/org-roam/org-roam][org-roam]] and [[https://github.com/meedstrom/org-node][org-node]].
+
+* Disclaimer
+
+The author of this document has not used org-node personally; the analysis is based on reading its README and source code. If you notice any inaccuracies, please open an issue or pull request.
+
+Last updated: 2026-01-15
+
+* Overview
+
+All three libraries help manage collections of Org-mode notes using =org-id= for linking. They share the same fundamental insight: assigning IDs to headings and files lets you build a network of linked notes that you can search, navigate, and explore.
+
+The key differences lie in their design goals, architecture, and what they enable you to build.
+
+| Aspect              | org-roam                     | org-node                    | vulpea                                       |
+|---------------------+------------------------------+-----------------------------+----------------------------------------------|
+| Primary goal        | Roam Research for Emacs      | Fast org-roam replacement   | Foundation (+ replacement with vulpea-ui/journal) |
+| Storage             | SQLite (persisted)           | Hash tables (in-memory)     | SQLite (persisted)                           |
+| Parser              | Org's native parser          | Custom regex parser         | Org's native parser                          |
+| Sync model          | Save hooks                   | Save hooks + periodic reset | File watchers + async                        |
+| Multi-Emacs support | Problematic                  | Untested                    | Designed for it                              |
+| Encrypted files     | Yes (.gpg, .age)             | ?                           | No (see note below)                          |
+| =roam:= links       | Yes                          | No                          | No                                           |
+
+* Design Philosophy
+
+** org-roam
+
+Org-roam aims to replicate [[https://roamresearch.com/][Roam Research]] in Emacs. It provides a complete note-taking system with:
+
+- Dedicated capture templates (=org-roam-capture-templates=)
+- Special link types (=roam:=)
+- Sidebar buffer showing backlinks
+- Daily notes
+- Graph visualization (via Graphviz)
+- Protocol handler for browser integration (=org-roam-protocol=)
+
+It's an *application* - you adopt its workflow.
+
+One of org-roam's biggest strengths is its *community*. It has the largest ecosystem of third-party packages (org-roam-ui, org-roam-bibtex, consult-org-roam, etc.), active forums, and extensive documentation. If you need help, you'll find it.
+
+** org-node
+
+Org-node started as "org-roam but faster". It achieves speed by:
+
+- Using a custom regex-based parser instead of =org-element=
+- Storing data in hash tables instead of SQLite
+- Rebuilding the cache from scratch (fast enough that persistence isn't needed)
+
+It's a *replacement* - same concepts, different implementation.
+
+Beyond speed, org-node adds utilities not found in org-roam:
+
+- Auto-rename files when title changes
+- Fix stale link descriptions
+- List dead links
+- Warn about duplicate titles
+- Node sequences (for dailies and arbitrary series)
+- Backlinks written directly into files (not just displayed)
+
+** vulpea
+
+Vulpea is a *foundation* for building note-based applications. It provides:
+
+- A stable API layer (=vulpea-note= struct, query functions)
+- Rich structured data extraction
+- Plugin system for custom extractors
+- Async-first architecture - works with multiple Emacs sessions in parallel, and detects external file changes (git, Syncthing, Dropbox, manual edits)
+
+You can use it as an org-roam replacement - combined with [[https://github.com/d12frosted/vulpea-ui][vulpea-ui]] and [[https://github.com/d12frosted/vulpea-journal][vulpea-journal]], it forms a complete note-taking ecosystem. But the core goal is being a stable, tested foundation for building workflows and applications. [[https://github.com/d12frosted/vino][vino]] (wine cellar management) is a good example - it's not a complex application, it just uses the foundation well.
+
+* Architecture Deep Dive
+
+** Parsing Approach
+
+*** org-roam and vulpea: org-element
+
+Both use Org's native =org-element= parser. This means:
+
+- *Accurate* - Sees exactly what Org sees
+- *Complete* - Handles all Org syntax correctly
+- *Slower* - Full parse is more expensive
+
+*** org-node: Custom regex parser
+
+org-node's =org-mem= library uses a hand-written regex-based parser:
+
+- *Fast* - Parses files in parallel subprocesses
+- *Minimal* - Loads no libraries, enables fast startup
+- *Incomplete* - Can't handle all Org constructs
+
+The regex approach works well for basic ID-based linking. For structured data extraction, the native parser is necessary.
+
+** Data Storage
+
+*** org-roam: SQLite
+
+- Persisted to disk
+- Complex queries possible
+- Schema is part of the public API
+- Can cause issues with multiple Emacs instances (locking)
+
+*** org-node: Hash tables
+
+- In-memory only, rebuilt each session
+- Fast lookups by ID
+- No persistence overhead
+- Full rebuild is fast (~2 seconds for 3000 nodes)
+
+*** vulpea: SQLite with abstraction
+
+- Persisted to disk
+- Schema is an *implementation detail* - not public API
+- Public API is =vulpea-note= struct and query functions
+- Designed for multiple concurrent Emacs sessions
+- *Extensible* - Plugin system lets you persist custom data (see [[file:plugin-guide.org][Plugin Guide]])
+
+** Directory Configuration
+
+*** org-roam
+
+Requires setting =org-roam-directory= - all notes must be within this single directory tree. Files outside are ignored.
+
+*** org-node
+
+No dedicated directory. Uses =org-id-locations= directly - any file with an ID anywhere on your system can be a node.
+
+*** vulpea
+
+Configurable via =vulpea-db-sync-directories= (defaults to =org-directory=). Supports multiple directories, giving flexibility without requiring all notes in one place.
+
+** Sync Architecture
+
+*** org-roam
+
+Uses =after-save-hook= to update the database. This can:
+
+- Block during saves on large files
+- Miss external changes (git, Syncthing, Dropbox)
+- Cause stale data with multiple Emacs instances
+
+*** org-node
+
+Uses save hooks plus periodic full cache rebuild. The "rebuild is fast enough" philosophy means:
+
+- No blocking on saves (incremental update)
+- External changes detected on next full scan
+- Multiple Emacs instances may have temporarily inconsistent views
+
+*** vulpea
+
+Uses file watchers and async background processing:
+
+- Non-blocking - updates never interrupt your typing
+- Detects external changes immediately (git pull, Syncthing, etc.)
+- Multiple Emacs sessions stay in sync
+- Works across machines with live file syncing
+
+* Feature Comparison
+
+** Basic Note Taking
+
+All three support:
+
+- Finding notes by title (=org-roam-node-find=, =org-node-find=, =vulpea-find=)
+- Inserting links (=org-roam-node-insert=, =org-node-insert-link=, =vulpea-insert=)
+- Backlink discovery
+- Aliases (org-roam/org-node use =ROAM_ALIASES=; vulpea uses =ALIASES= by default, configurable via =vulpea-buffer-alias-property=)
+- Tags (file and heading level)
+
+** Structured Data
+
+*** org-roam
+
+Has an =org-roam-node= struct (introduced in v2) with accessors for properties, tags, aliases, refs, etc. However, populating a full node struct is expensive - =org-roam-populate= runs 5 separate queries (nodes, files, tags, aliases, refs tables). For bulk operations this becomes costly due to multiplicative joins. There's =org-roam-node-list= that uses a complex SQL query to fetch all nodes more efficiently, but custom queries still often require raw SQL.
+
+*** org-node
+
+Same as org-roam - standard Org properties only.
+
+*** vulpea
+
+Vulpea is all about structure. The =vulpea-note= struct (which predates =org-roam-node=) provides a complete representation of a note: id, title, tags, aliases, links, properties, metadata, and more. Unlike org-roam, vulpea is optimized for reads - you get fast access to fully populated =vulpea-note= structs without expensive multi-table joins.
+
+Additionally, vulpea provides a *metadata system* using Org description lists:
+
+#+begin_src org
+- rating :: 95
+- producer :: [[id:xxx][Château Margaux]]
+- date :: [2024-01-15]
+#+end_src
+
+Why metadata? Because =org-element= ignores links inside property drawers - you can't link to other notes from =:PROPERTIES:=. The metadata system solves this, letting you create structured, linked data.
+
+Metadata features:
+
+- *Type parsing on read* - Pass a type to =vulpea-note-meta-get= to parse strings as numbers, dates, links, etc.
+- *Multi-valued* - A key can have multiple values
+- *Queryable* - Filter notes by metadata values
+
+This enables applications where notes have structured, linked data (like vino's wine ratings linked to producers).
+
+** Querying
+
+*** org-roam
+
+Direct SQL via =org-roam-db-query=:
+
+#+begin_src emacs-lisp
+(org-roam-db-query
+ [:select [title] :from nodes :where (= todo "TODO")])
+#+end_src
+
+Requires understanding the schema.
+
+*** org-node
+
+Hash table lookups via =org-mem= functions:
+
+#+begin_src emacs-lisp
+(seq-filter
+ (lambda (entry)
+   (member "project" (org-mem-entry-tags entry)))
+ (org-mem-all-id-nodes))
+#+end_src
+
+Functional filtering over collections.
+
+*** vulpea
+
+High-level query functions:
+
+#+begin_src emacs-lisp
+;; By tags
+(vulpea-db-query-by-tags-every '("wine" "tasted"))
+
+;; By links
+(vulpea-db-query-by-links-some
+ (list (cons "id" producer-id)))
+
+;; By metadata
+(vulpea-db-query
+ (lambda (note)
+   (>= (or (vulpea-note-meta-get note "rating" 'number) 0)
+       90)))
+
+;; Complex predicates
+(vulpea-db-query
+ (lambda (note)
+   (and (member "wine" (vulpea-note-tags note))
+        (vulpea-note-meta-get note "producer"))))
+#+end_src
+
+The abstraction layer means you don't need to know SQL or internal data structures.
+
+** Building Applications
+
+*** org-roam
+
+Possible but couples you to the database schema. Third-party packages exist (org-roam-ui, etc.) but building custom apps requires understanding internals.
+
+*** org-node
+
+Not designed for this use case. Focused on interactive note-taking.
+
+*** vulpea
+
+Designed as a foundation with API stability and expressiveness as core values:
+
+- *vulpea-ui* - Sidebar infrastructure with widgets (backlinks, outline, stats)
+- *vulpea-journal* - Daily notes with calendar integration
+- *vino* - Wine cellar management with ratings, producers, regions
+
+These aren't complex applications - they just use the foundation well. The clean API layer means you can build workflows and apps without coupling to implementation details.
+
+Benefits of the clean API:
+
+- *Byte compiler is your friend* - Type errors caught at compile time, less reliance on tests (vs raw SQL which only fails at runtime)
+- *Safe refactoring* - Internals can change without breaking apps. The complete v2 rewrite (from org-roam backend to custom backend) required no major changes in apps built on vulpea.
+- *LLM-friendly* - An AI can help write queries, transformations, and entire applications because the API expresses intent clearly
+
+* When to Choose What
+
+** Choose org-roam if:
+
+- You want the Roam Research experience in Emacs
+- You need =roam:= links
+- You need encrypted file support (.gpg, .age)
+- You want a large, active community with many third-party packages (org-roam-ui, org-roam-bibtex, consult-org-roam, and many more)
+- Performance is acceptable for your collection size
+
+** Choose org-node if:
+
+- You use org-roam and find it too slow
+- You want minimal migration effort (same on-disk format)
+- You prefer "closer to vanilla Org" (standard =org-capture=, etc.)
+- You want utilities like auto-renaming files, fixing link descriptions, listing dead links
+- You don't need complex programmatic queries
+- You don't run multiple Emacs instances simultaneously
+
+** Choose vulpea if:
+
+- You want a replacement for org-roam (with vulpea-ui and vulpea-journal)
+- You want to use it alongside org-roam - they coexist without problems
+- You run multiple Emacs instances or sync files across machines
+- You like the ecosystem (growing steadily, not chasing hype)
+- You want programmatic usage with confidence (stable API, clean abstractions)
+- You want to build applications on top of your notes
+
+* Coexistence
+
+All three can coexist:
+
+- *vulpea + org-roam*: Use separate databases, don't interfere
+- *org-node + org-roam*: Same on-disk format, can use both
+- *vulpea + org-node*: Both can index the same files independently
+
+This makes gradual migration or evaluation easy.
+
+* Performance Notes
+
+Benchmarks vary by hardware and collection size. Representative numbers:
+
+| Operation                    | org-roam | org-node | vulpea   |
+|------------------------------+----------+----------+----------|
+| Initial index (3000 nodes)   | ~3 min   | ~2 sec   | ~10 sec  |
+| Save file (400 nodes)        | 5-10 sec | instant  | instant  |
+| Open minibuffer              | 1-3 sec  | instant  | instant  |
+
+org-node's speed comes from the regex parser and in-memory storage. vulpea's async architecture means the initial index time doesn't block your workflow - it happens in the background.
+
+vulpea is designed with large collections in mind (100k+ files as the target):
+
+- *Instant queries* - Hybrid database schema with indices for fast filtering by tags, links, metadata
+- *Query subsets* - Functions like =vulpea-db-query-by-tags-every= hit indices directly instead of loading all notes
+- *Efficient full loads* - When you do need all notes in memory, vulpea minimizes overhead
+- *Non-blocking sync* - Large collection updates happen in background, never interrupting your work
+
+* Summary
+
+| Library  | Best described as                                   |
+|----------+-----------------------------------------------------|
+| org-roam | "Roam Research for Emacs"                           |
+| org-node | "org-roam but fast"                                 |
+| vulpea   | "Foundation for building note-based applications"   |
+
+Choose based on what you're building. For simple note-taking, any will work. For building applications or complex workflows, vulpea's structured approach and stable API provide the foundation you need.
+
+* Notes
+
+** Encrypted files
+
+org-roam supports encrypted files (.gpg, .age). vulpea does not yet support them. However, this is debatable - if the file content is secret, so are the titles, tags, and metadata. Persisting them in an unencrypted SQLite database partially defeats the purpose of encryption. This needs more thought before implementation.
