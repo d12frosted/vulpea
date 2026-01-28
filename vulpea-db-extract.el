@@ -444,7 +444,14 @@ Respects `vulpea-db-index-heading-level' setting."
                        (scheduled (org-element-property :scheduled headline))
                        (deadline (org-element-property :deadline headline))
                        (closed (org-element-property :closed headline))
-                       (meta (vulpea-db--extract-meta headline))
+                       ;; Extract meta from the section element (first child of headline)
+                       ;; because org-element-map with NO-RECURSION 'headline won't
+                       ;; descend into a headline element itself
+                       (section (seq-find (lambda (el)
+                                            (eq (org-element-type el) 'section))
+                                          (org-element-contents headline)))
+                       (meta (when section
+                               (vulpea-db--extract-meta section)))
                        (links (vulpea-db--extract-links headline t))
                        (outline-path (let (path
                                            (current headline))

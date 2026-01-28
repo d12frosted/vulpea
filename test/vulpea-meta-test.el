@@ -964,5 +964,41 @@ strange symbols like % and ', just like this [[https://en.wikipedia.org/wiki/I,_
    (should (equal (vulpea-meta-get "11111111-1111-1111-1111-111111111111" "section-one-status" 'string)
                   "active"))))
 
+;;; Database Query Tests for Heading-level Metadata
+
+(ert-deftest vulpea-meta-heading-db-query-by-key ()
+  "Test that heading-level metadata can be queried from database.
+This tests the fix for issue #200."
+  (vulpea-meta-test--with-temp-db
+   ;; Query for heading-level metadata key
+   (let ((notes (vulpea-db-query-by-meta-key "section-one-status")))
+     (should (= (length notes) 1))
+     (should (equal (vulpea-note-id (car notes))
+                    "11111111-1111-1111-1111-111111111111"))
+     (should (equal (vulpea-note-title (car notes))
+                    "Section One"))
+     (should (= (vulpea-note-level (car notes)) 1)))))
+
+(ert-deftest vulpea-meta-heading-db-query-by-value ()
+  "Test querying heading-level metadata by key and value."
+  (vulpea-meta-test--with-temp-db
+   (let ((notes (vulpea-db-query-by-meta "section-one-status" "active")))
+     (should (= (length notes) 1))
+     (should (equal (vulpea-note-id (car notes))
+                    "11111111-1111-1111-1111-111111111111")))))
+
+(ert-deftest vulpea-meta-heading-db-query-multiple-values ()
+  "Test querying heading-level metadata with multiple values for same key."
+  (vulpea-meta-test--with-temp-db
+   ;; section-one-tags has two values: alpha and beta
+   (let ((notes-alpha (vulpea-db-query-by-meta "section-one-tags" "alpha"))
+         (notes-beta (vulpea-db-query-by-meta "section-one-tags" "beta")))
+     (should (= (length notes-alpha) 1))
+     (should (= (length notes-beta) 1))
+     (should (equal (vulpea-note-id (car notes-alpha))
+                    "11111111-1111-1111-1111-111111111111"))
+     (should (equal (vulpea-note-id (car notes-beta))
+                    "11111111-1111-1111-1111-111111111111")))))
+
 (provide 'vulpea-meta-test)
 ;;; vulpea-meta-test.el ends here
