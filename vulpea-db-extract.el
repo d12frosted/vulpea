@@ -564,31 +564,54 @@ Returns list of plists with :dest, :type, and :pos.
 Captures all link types: id:, roam:, file:, http:, https:,
 attachment:, elisp:, and any other `org-mode' link type.
 
-If NO-RECURSION is non-nil, stops recursion at headline boundaries.
-This is useful for file-level extraction to avoid collecting links
-from child headlines.  For headline elements, this extracts links
-only from the section (direct content) without child headlines."
-  (if (and no-recursion (eq (org-element-type ast-or-node) 'headline))
-      ;; For headlines with no-recursion, only search the section
-      ;; (direct content before any child headlines)
-      (let ((section (org-element-map ast-or-node 'section #'identity nil t)))
-        (when section
-          (org-element-map section 'link
-            (lambda (link)
-              (let ((type (org-element-property :type link))
-                    (path (org-element-property :path link))
-                    (pos (org-element-property :begin link)))
-                (when (and type path)
-                  (list :dest path :type type :pos pos)))))))
-    ;; Normal case: search everything, optionally stopping at headlines
+If NO-RECURSION is non-nil, stops recursion at note boundaries
+\(headlines with an ID property).  Links inside non-note subtrees
+are collected as part of the current node.  This prevents links
+from child notes leaking to the parent while still capturing
+links from plain (non-note) subtrees."
+  (if no-recursion
+      (vulpea-db--extract-links-stopping-at-notes ast-or-node)
+    ;; Normal case: search everything without restrictions
     (org-element-map ast-or-node 'link
       (lambda (link)
         (let ((type (org-element-property :type link))
               (path (org-element-property :path link))
               (pos (org-element-property :begin link)))
           (when (and type path)
-            (list :dest path :type type :pos pos))))
-      nil nil (when no-recursion 'headline))))
+            (list :dest path :type type :pos pos)))))))
+
+(defun vulpea-db--extract-links-stopping-at-notes (node)
+  "Extract links from NODE, stopping at note boundaries.
+
+Collects links from NODE but does not descend into child
+headlines that have an ID property (note boundaries).  Links
+inside non-note child headlines are included."
+  (let ((result nil))
+    (vulpea-db--walk-links-skipping-notes node (lambda (link) (push link result)))
+    (nreverse result)))
+
+(defun vulpea-db--walk-links-skipping-notes (node callback)
+  "Walk NODE collecting links via CALLBACK, skipping note headlines.
+
+CALLBACK is called with a plist (:dest :type :pos) for each link.
+Descends into child headlines only if they lack an ID property."
+  (dolist (child (org-element-contents node))
+    (let ((child-type (org-element-type child)))
+      (cond
+       ;; Link element: collect it
+       ((eq child-type 'link)
+        (let ((type (org-element-property :type child))
+              (path (org-element-property :path child))
+              (pos (org-element-property :begin child)))
+          (when (and type path)
+            (funcall callback (list :dest path :type type :pos pos)))))
+       ;; Headline with ID: skip (note boundary)
+       ((and (eq child-type 'headline)
+             (org-element-property :ID child))
+        nil)
+       ;; Anything else (section, paragraph, headline without ID, etc.): recurse
+       ((org-element-contents child)
+        (vulpea-db--walk-links-skipping-notes child callback))))))
 
 (defun vulpea-db--extract-meta (element)
   "Extract metadata from ELEMENT (AST or headline element).

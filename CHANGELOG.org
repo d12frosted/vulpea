@@ -21,6 +21,7 @@
 
 - [[https://github.com/d12frosted/vulpea/issues/200][vulpea#200]] Fix heading-level metadata not being persisted to the database. Previously, =vulpea-db-query-by-meta-key= and =vulpea-db-query-by-meta= returned no results for heading-level metadata because =org-element-map= with NO-RECURSION ='headline= wouldn't descend into the headline element itself during extraction.
 - Fix headline link extraction including links from child headlines. Previously, when extracting links for a heading-level note, all links from nested child headlines were also included. This caused issues with attachment resolution in tools like =publicatorg=, where attachments would be incorrectly resolved using parent heading's attachment directory instead of the actual heading containing the link.
+- [[https://github.com/d12frosted/vulpea/issues/202][vulpea#202]] Fix link extraction to include links from non-note subtrees. Previously, links inside headings without an ID were not attributed to any note. Now links in non-note subtrees are collected as part of the nearest ancestor note, while still respecting note boundaries (headings with IDs).
 
 ** v2.0.0
 
