@@ -77,17 +77,27 @@ Emacs hangs when enabling =vulpea-db-autosync-mode=.
 
 *** Cause
 
-Initial scan is processing all files.
+Initial scan is processing all files synchronously.
 
 *** Solutions
 
-1. *Skip startup scan:*
+1. *Use async scan* (recommended, non-blocking):
+
+   #+begin_src emacs-lisp
+   (setq vulpea-db-sync-scan-on-enable 'async)
+   #+end_src
+
+   With async scan, startup returns in ~240ms.  File listing runs as
+   a subprocess (=fd= or =find=), and changed files are processed
+   incrementally via idle timer.
+
+2. *Skip startup scan entirely:*
 
    #+begin_src emacs-lisp
    (setq vulpea-db-sync-scan-on-enable nil)
    #+end_src
 
-2. *Run sync manually* when convenient:
+3. *Run sync manually* when convenient:
 
    #+begin_src emacs-lisp
    (vulpea-db-sync-full-scan)

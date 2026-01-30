@@ -17,6 +17,10 @@
 
 - Add =vulpea-db-query-attachments-by-path= for efficiently querying all attachment link destinations for notes at a given file path. Uses a single SQL query with JOIN, avoiding N+1 queries when processing multiple notes in a file.
 
+*Performance*
+
+- Async autosync startup is now non-blocking. When =vulpea-db-sync-scan-on-enable= is ='async=, the startup function returns in ~240ms instead of ~1400ms (measured with 13,800 files in GUI Emacs). File listing uses an =fd= (or =find=) subprocess instead of synchronous =directory-files-recursively=, and cleanup of deleted files uses set comparison against the subprocess output instead of per-file =file-exists-p= calls. Added =vulpea-db-sync-debug= variable for timing instrumentation.
+
 *Fixes*
 
 - [[https://github.com/d12frosted/vulpea/issues/200][vulpea#200]] Fix heading-level metadata not being persisted to the database. Previously, =vulpea-db-query-by-meta-key= and =vulpea-db-query-by-meta= returned no results for heading-level metadata because =org-element-map= with NO-RECURSION ='headline= wouldn't descend into the headline element itself during extraction.
