@@ -124,7 +124,38 @@ Timer fires every N seconds
 *Note*: All file watchers ALWAYS use async queue, regardless of autosync mode
 
 
-** 5. Async Queue Processing
+** 5. Autosync Startup (async mode)
+
+#+begin_example
+vulpea-db-autosync-mode +1
+  │
+  └─ vulpea-db-sync--start
+      │
+      ├─ Start idle timer (queue ready to process)
+      ├─ Start external monitoring (fswatch/poll)
+      ├─ Setup directory watchers (filenotify)
+      │
+      ├─ scan-on-enable = 'async?
+      │   └─ Launch fd/find SUBPROCESS        ← returns immediately
+      │       └─ [sentinel callback when done]
+      │           ├─ Guard: check autosync still active
+      │           ├─ Cleanup deleted files (set comparison)
+      │           └─ Enqueue all files for change detection
+      │
+      ├─ scan-on-enable = 'blocking?
+      │   ├─ Cleanup deleted files (sync)
+      │   └─ Update all directories (sync)     ← blocks
+      │
+      └─ scan-on-enable = nil?
+          └─ Cleanup deleted files (sync)
+#+end_example
+
+*Key feature*: With ='async=, startup returns in ~240ms instead of
+~1400ms for large collections.  File listing runs as an =fd= (or
+=find=) subprocess.  Cleanup uses set comparison against the subprocess
+output instead of per-file =file-exists-p= calls.
+
+** 6. Async Queue Processing
 
 #+begin_example
 vulpea-db-sync--enqueue(path)
@@ -217,6 +248,7 @@ vulpea-db-sync--update-file-if-changed(path)
 (setq vulpea-db-sync-external-method 'auto)  ; fswatch or poll
 (vulpea-db-autosync-mode 1)
 ;; Everything automatic, hands-off
+;; Startup returns in ~240ms (file listing runs as subprocess)
 #+end_src
 
 ** Minimal (manual only)

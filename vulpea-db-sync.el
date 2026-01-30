@@ -184,6 +184,9 @@ Reset when async processing completes.")
 (defvar vulpea-db-sync--sync-start-time nil
   "Start time of current sync phase.")
 
+(defvar vulpea-db-sync-debug nil
+  "When non-nil, log timing information for sync operations.")
+
 ;;; Mode
 
 ;;;###autoload
@@ -222,37 +225,99 @@ These are escaped by wrapping in brackets: * -> [*], ? -> [?], [ -> [[]]."
 (defun vulpea-db-sync--start ()
   "Start file watching and async update.
 
-Optionally performs initial scan based on `vulpea-db-sync-scan-on-enable'."
-  ;; Clean up deleted files first
-  (vulpea-db-sync--cleanup-deleted-files)
+Optionally performs initial scan based on `vulpea-db-sync-scan-on-enable'.
 
-  ;; Initial scan based on configuration
-  (when (and vulpea-db-sync-scan-on-enable vulpea-db-sync-directories)
-    (pcase vulpea-db-sync-scan-on-enable
-      ('async
-       ;; Queue all files for async processing
-       (message "Vulpea: Queueing files for async scan...")
-       (dolist (dir vulpea-db-sync-directories)
-         (dolist (file (vulpea-db-sync--list-org-files dir))
-           (vulpea-db-sync--enqueue file))))
-      ('blocking
-       ;; Scan synchronously (blocks Emacs)
-       (dolist (dir vulpea-db-sync-directories)
-         (vulpea-db-sync-update-directory dir)))))
+When `vulpea-db-sync-scan-on-enable' is `async', this function
+returns immediately without blocking.  File listing, cleanup of
+deleted files, and enqueueing are all performed asynchronously via
+a subprocess.  The `blocking' mode still scans synchronously."
+  (let ((t-total (current-time))
+        t-phase)
 
-  ;; Start watching directories if configured
-  (when vulpea-db-sync-directories
-    (dolist (dir vulpea-db-sync-directories)
-      (vulpea-db-sync--watch-directory dir)))
+    ;; Kill stale scan subprocess from previous activation
+    (when-let* ((proc (get-process "vulpea-scan")))
+      (delete-process proc))
 
-  ;; Start external monitoring (fswatch or polling)
-  (vulpea-db-sync--setup-external-monitoring)
+    ;; Start idle timer immediately (so queue is ready to process)
+    (unless vulpea-db-sync--idle-timer
+      (setq vulpea-db-sync--idle-timer
+            (run-with-idle-timer vulpea-db-sync-idle-delay t
+                                 #'vulpea-db-sync--process-queue)))
 
-  ;; Start idle timer for processing
-  (unless vulpea-db-sync--idle-timer
-    (setq vulpea-db-sync--idle-timer
-          (run-with-idle-timer vulpea-db-sync-idle-delay t
-                               #'vulpea-db-sync--process-queue))))
+    ;; Start external monitoring (fswatch is async, no blocking)
+    (setq t-phase (current-time))
+    (vulpea-db-sync--setup-external-monitoring)
+    (when vulpea-db-sync-debug
+      (message "[vulpea-sync] setup-external-monitoring: %.0fms"
+               (* 1000 (float-time (time-subtract (current-time) t-phase)))))
+
+    ;; Start watching directories if configured
+    (setq t-phase (current-time))
+    (let ((watcher-count 0))
+      (when vulpea-db-sync-directories
+        (dolist (dir vulpea-db-sync-directories)
+          (vulpea-db-sync--watch-directory dir))
+        (setq watcher-count (length vulpea-db-sync--watchers)))
+      (when vulpea-db-sync-debug
+        (message "[vulpea-sync] watch-directory: %.0fms (%d watchers)"
+                 (* 1000 (float-time (time-subtract (current-time) t-phase)))
+                 watcher-count)))
+
+    ;; Initial scan and cleanup based on configuration
+    (if (and vulpea-db-sync-scan-on-enable vulpea-db-sync-directories)
+        (pcase vulpea-db-sync-scan-on-enable
+          ('async
+           ;; Use subprocess to list files, then cleanup + enqueue
+           (when vulpea-db-sync-debug
+             (message "[vulpea-sync] launching async scan subprocess..."))
+           (let ((scan-start (current-time)))
+             (vulpea-db-sync--scan-files-async
+              vulpea-db-sync-directories
+              (lambda (files)
+                ;; Guard: skip if autosync was disabled while
+                ;; subprocess was running
+                (when vulpea-db-autosync-mode
+                  (when vulpea-db-sync-debug
+                    (message "[vulpea-sync] async scan found %d files in %.0fms"
+                             (length files)
+                             (* 1000 (float-time (time-subtract (current-time) scan-start)))))
+                  ;; Cleanup: remove DB entries not in the file list
+                  (let ((cleanup-start (current-time)))
+                    (vulpea-db-sync--cleanup-deleted-files-using files)
+                    (when vulpea-db-sync-debug
+                      (message "[vulpea-sync] async cleanup: %.0fms"
+                               (* 1000 (float-time (time-subtract (current-time) cleanup-start))))))
+                  ;; Enqueue all found files for change detection
+                  (let ((enqueue-start (current-time)))
+                    (dolist (file files)
+                      (vulpea-db-sync--enqueue file))
+                    (when vulpea-db-sync-debug
+                      (message "[vulpea-sync] async enqueue: %.0fms (%d files)"
+                               (* 1000 (float-time (time-subtract (current-time) enqueue-start)))
+                               (length files)))))))))
+          ('blocking
+           ;; Scan synchronously (blocks Emacs)
+           (setq t-phase (current-time))
+           (vulpea-db-sync--cleanup-deleted-files)
+           (when vulpea-db-sync-debug
+             (message "[vulpea-sync] cleanup-deleted-files: %.0fms"
+                      (* 1000 (float-time (time-subtract (current-time) t-phase)))))
+           (setq t-phase (current-time))
+           (dolist (dir vulpea-db-sync-directories)
+             (vulpea-db-sync-update-directory dir))
+           (when vulpea-db-sync-debug
+             (message "[vulpea-sync] blocking-scan: %.0fms"
+                      (* 1000 (float-time (time-subtract (current-time) t-phase)))))))
+      ;; No scan requested, but still cleanup deleted files
+      (setq t-phase (current-time))
+      (vulpea-db-sync--cleanup-deleted-files)
+      (when vulpea-db-sync-debug
+        (message "[vulpea-sync] cleanup-deleted-files: %.0fms"
+                 (* 1000 (float-time (time-subtract (current-time) t-phase))))))
+
+    (when vulpea-db-sync-debug
+      (message "[vulpea-sync] start complete: %.0fms total (sync portion)"
+               (* 1000 (float-time (time-subtract (current-time) t-total)))))))
 
 (defun vulpea-db-sync--stop ()
   "Stop file watching and clear queue."
@@ -260,6 +325,10 @@ Optionally performs initial scan based on `vulpea-db-sync-scan-on-enable'."
   (dolist (entry vulpea-db-sync--watchers)
     (file-notify-rm-watch (cdr entry)))
   (setq vulpea-db-sync--watchers nil)
+
+  ;; Stop async scan subprocess if running
+  (when-let* ((proc (get-process "vulpea-scan")))
+    (delete-process proc))
 
   ;; Stop external monitoring
   (vulpea-db-sync--stop-external-monitoring)
@@ -328,6 +397,42 @@ Uses `vulpea-db-sync--org-file-p' to filter files, ensuring
 consistency with file watcher filtering."
   (seq-filter #'vulpea-db-sync--org-file-p
               (directory-files-recursively dir "\\.org\\'")))
+
+(defun vulpea-db-sync--scan-files-async (dirs callback)
+  "List org files in DIRS asynchronously, call CALLBACK with file list.
+
+Uses fd (or find as fallback) subprocess to avoid blocking Emacs.
+CALLBACK receives a list of absolute file paths."
+  (let* ((buffer "")
+         (dir (car dirs))
+         (expanded-dir (expand-file-name dir))
+         (cmd (if (executable-find "fd")
+                  (list "fd" "--type" "f" "--extension" "org"
+                        "--hidden" "--no-ignore"
+                        "--exclude" ".*"
+                        "." expanded-dir)
+                (list "find" expanded-dir
+                      "-type" "f" "-name" "*.org"
+                      "-not" "-path" "*/.*"))))
+    (make-process
+     :name "vulpea-scan"
+     :command cmd
+     :connection-type 'pipe
+     :noquery t
+     :filter (lambda (_proc output)
+               (setq buffer (concat buffer output)))
+     :sentinel (lambda (_proc event)
+                 (when (string-prefix-p "finished" event)
+                   (let ((files (seq-filter
+                                 #'vulpea-db-sync--org-file-p
+                                 (split-string buffer "\n" t))))
+                     (if (cdr dirs)
+                         ;; More directories to scan
+                         (vulpea-db-sync--scan-files-async
+                          (cdr dirs)
+                          (lambda (more-files)
+                            (funcall callback (append files more-files))))
+                       (funcall callback files))))))))
 
 (defun vulpea-db-sync--drop-from-queue (path)
   "Remove PATH from the pending queue."
@@ -423,7 +528,8 @@ all files under that directory are removed."
              (not vulpea-db-sync--processing))
     (setq vulpea-db-sync--processing t)
     (unwind-protect
-        (let* ((batch-size (min (length vulpea-db-sync--queue)
+        (let* ((vulpea-db-sync--batch-start-time (current-time))
+               (batch-size (min (length vulpea-db-sync--queue)
                                 vulpea-db-sync-batch-size))
                (batch (seq-take vulpea-db-sync--queue batch-size))
                (paths (mapcar #'car batch))
@@ -477,6 +583,11 @@ all files under that directory are removed."
           ;; Update totals
           (setq vulpea-db-sync--processed-total (+ vulpea-db-sync--processed-total updated unchanged)
                 vulpea-db-sync--updated-total (+ vulpea-db-sync--updated-total updated))
+
+          (when vulpea-db-sync-debug
+            (message "[vulpea-sync] batch: %.0fms (%d files, %d updated, %d unchanged)"
+                     (* 1000 (float-time (time-subtract (current-time) vulpea-db-sync--batch-start-time)))
+                     batch-size updated unchanged))
 
           ;; Report progress
           (when (and vulpea-db-sync-progress-interval
@@ -568,6 +679,32 @@ Returns count of removed files."
     (emacsql-with-transaction db
       (dolist (path all-paths)
         (unless (file-exists-p path)
+          (vulpea-db--delete-file-notes path)
+          (emacsql db [:delete :from files :where (= path $s1)] path)
+          (setq deleted (1+ deleted)))))
+    (when (> deleted 0)
+      (message "Vulpea: Removed %d deleted file%s from database"
+               deleted (if (= deleted 1) "" "s")))
+    deleted))
+
+(defun vulpea-db-sync--cleanup-deleted-files-using (existing-files)
+  "Remove DB entries for files not in EXISTING-FILES list.
+
+EXISTING-FILES is a list of absolute paths known to exist on disk
+\(typically from an fd/find subprocess).  This avoids per-file
+`file-exists-p' calls by comparing against the known set.
+
+Returns count of removed files."
+  (let* ((db (vulpea-db))
+         (existing-set (make-hash-table :test 'equal :size (length existing-files)))
+         (all-paths (mapcar #'car (emacsql db [:select path :from files])))
+         (deleted 0))
+    ;; Build set of existing files for O(1) lookup
+    (dolist (f existing-files)
+      (puthash f t existing-set))
+    (emacsql-with-transaction db
+      (dolist (path all-paths)
+        (unless (gethash path existing-set)
           (vulpea-db--delete-file-notes path)
           (emacsql db [:delete :from files :where (= path $s1)] path)
           (setq deleted (1+ deleted)))))

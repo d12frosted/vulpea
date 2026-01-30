@@ -213,14 +213,15 @@ Control what happens when =vulpea-db-autosync-mode= is enabled.
 ;; Skip initial scan (fast startup, recommended)
 (setq vulpea-db-sync-scan-on-enable nil)
 
-;; Scan asynchronously (non-blocking but may cause lag)
+;; Scan asynchronously (non-blocking, uses fd/find subprocess)
 (setq vulpea-db-sync-scan-on-enable 'async)
 
 ;; Scan synchronously (blocks until complete)
 (setq vulpea-db-sync-scan-on-enable 'blocking)
 #+end_src
 
-*Recommendation:* Use =nil= and run =vulpea-db-sync-full-scan= manually when needed.
+*Recommendation:* Use ='async= for hands-off operation.  Startup returns
+in ~240ms even with large collections.
 
 * Aliases
 
