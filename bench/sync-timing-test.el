@@ -26,7 +26,8 @@
          (vulpea-db-location db-file)
          (vulpea-db-sync-directories (list notes-dir))
          (vulpea-db-sync-scan-on-enable 'async)
-         (vulpea-db-sync-external-method nil)
+         (vulpea-db-sync-external-method
+          (if (executable-find "fswatch") 'fswatch nil))
          (vulpea-db-parse-method 'single-temp-buffer)
          (vulpea-db-index-heading-level t)
          (vulpea-db-sync-debug t))
