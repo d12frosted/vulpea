@@ -251,17 +251,25 @@ a subprocess.  The `blocking' mode still scans synchronously."
       (message "[vulpea-sync] setup-external-monitoring: %.0fms"
                (* 1000 (float-time (time-subtract (current-time) t-phase)))))
 
-    ;; Start watching directories if configured
+    ;; Start watching directories via filenotify unless fswatch is
+    ;; active.  When fswatch is running it already monitors the
+    ;; filesystem for all changes (including in-Emacs saves), making
+    ;; filenotify redundant.  Programmatic changes (vulpea-create,
+    ;; vulpea-utils-with-note-sync) call vulpea-db-update-file
+    ;; directly and never rely on filenotify.
     (setq t-phase (current-time))
     (let ((watcher-count 0))
-      (when vulpea-db-sync-directories
-        (dolist (dir vulpea-db-sync-directories)
-          (vulpea-db-sync--watch-directory dir))
-        (setq watcher-count (length vulpea-db-sync--watchers)))
-      (when vulpea-db-sync-debug
-        (message "[vulpea-sync] watch-directory: %.0fms (%d watchers)"
-                 (* 1000 (float-time (time-subtract (current-time) t-phase)))
-                 watcher-count)))
+      (if vulpea-db-sync--fswatch-process
+          (when vulpea-db-sync-debug
+            (message "[vulpea-sync] watch-directory: skipped (fswatch active)"))
+        (when vulpea-db-sync-directories
+          (dolist (dir vulpea-db-sync-directories)
+            (vulpea-db-sync--watch-directory dir))
+          (setq watcher-count (length vulpea-db-sync--watchers)))
+        (when vulpea-db-sync-debug
+          (message "[vulpea-sync] watch-directory: %.0fms (%d watchers)"
+                   (* 1000 (float-time (time-subtract (current-time) t-phase)))
+                   watcher-count))))
 
     ;; Initial scan and cleanup based on configuration
     (if (and vulpea-db-sync-scan-on-enable vulpea-db-sync-directories)

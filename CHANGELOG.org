@@ -19,7 +19,7 @@
 
 *Performance*
 
-- Async autosync startup is now non-blocking. When =vulpea-db-sync-scan-on-enable= is ='async=, the startup function returns in ~240ms instead of ~1400ms (measured with 13,800 files in GUI Emacs). File listing uses an =fd= (or =find=) subprocess instead of synchronous =directory-files-recursively=, and cleanup of deleted files uses set comparison against the subprocess output instead of per-file =file-exists-p= calls. Added =vulpea-db-sync-debug= variable for timing instrumentation.
+- Async autosync startup is now non-blocking. When =vulpea-db-sync-scan-on-enable= is ='async=, the startup function returns in ~8ms instead of ~1400ms (measured with 13,800 files in GUI Emacs). File listing uses an =fd= (or =find=) subprocess instead of synchronous =directory-files-recursively=, and cleanup of deleted files uses set comparison against the subprocess output instead of per-file =file-exists-p= calls. When =fswatch= is active, filenotify watchers are skipped entirely as they are redundant. Added =vulpea-db-sync-debug= variable for timing instrumentation.
 
 *Fixes*
 

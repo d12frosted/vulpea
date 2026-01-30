@@ -150,10 +150,14 @@ vulpea-db-autosync-mode +1
           └─ Cleanup deleted files (sync)
 #+end_example
 
-*Key feature*: With ='async=, startup returns in ~240ms instead of
-~1400ms for large collections.  File listing runs as an =fd= (or
-=find=) subprocess.  Cleanup uses set comparison against the subprocess
-output instead of per-file =file-exists-p= calls.
+*Key feature*: With ='async= and =fswatch=, startup returns in ~8ms
+instead of ~1400ms for large collections.  File listing runs as an
+=fd= (or =find=) subprocess.  Cleanup uses set comparison against the
+subprocess output instead of per-file =file-exists-p= calls.  When
+=fswatch= is active, filenotify watchers are skipped entirely since
+=fswatch= already monitors all filesystem changes.  Programmatic
+changes (=vulpea-create=, =vulpea-utils-with-note-sync=) call
+=vulpea-db-update-file= directly and never rely on filenotify.
 
 ** 6. Async Queue Processing
 
