@@ -264,6 +264,45 @@ handled correctly when mixed together."
               (should (< (plist-get link-1 :pos) (plist-get link-2 :pos)))))
         (delete-file path)))))
 
+(ert-deftest vulpea-db-extract-links-non-note-subtree-round-trip ()
+  "Test that non-note subtree links survive database round-trip."
+  (vulpea-test--with-temp-db
+    (let ((path (vulpea-test--create-temp-org-file
+                 (concat
+                  ":PROPERTIES:\n:ID: file-id\n:END:\n"
+                  "#+TITLE: Test\n\n"
+                  "* Parent\n"
+                  ":PROPERTIES:\n"
+                  ":ID: parent-id\n"
+                  ":END:\n\n"
+                  "Parent link [[id:link-1][One]].\n\n"
+                  "** Note Child\n"
+                  ":PROPERTIES:\n"
+                  ":ID: child-id\n"
+                  ":END:\n\n"
+                  "Note child link [[id:link-2][Two]].\n\n"
+                  "** Non-note Child\n\n"
+                  "Non-note link [[id:link-3][Three]].\n"))))
+      (unwind-protect
+          (progn
+            (vulpea-db)
+            (vulpea-db-update-file path)
+            (let* ((parent (vulpea-db-get-by-id "parent-id"))
+                   (child (vulpea-db-get-by-id "child-id"))
+                   (parent-links (vulpea-note-links parent))
+                   (child-links (vulpea-note-links child))
+                   (parent-dests (mapcar (lambda (l) (plist-get l :dest)) parent-links))
+                   (child-dests (mapcar (lambda (l) (plist-get l :dest)) child-links)))
+              ;; Parent should have link-1 and link-3 but NOT link-2
+              (should (= (length parent-links) 2))
+              (should (member "link-1" parent-dests))
+              (should (member "link-3" parent-dests))
+              (should-not (member "link-2" parent-dests))
+              ;; Child should have only link-2
+              (should (= (length child-links) 1))
+              (should (member "link-2" child-dests))))
+        (delete-file path)))))
+
 (ert-deftest vulpea-db-extract-links-file-vs-heading ()
   "Test that file-level links don't include heading links."
   (let ((path (vulpea-test--create-temp-org-file
@@ -320,6 +359,150 @@ handled correctly when mixed together."
           (should (or (member "child-image.png" child-dests)
                       ;; attachment: can be parsed as fuzzy in some org versions
                       (member "attachment:child-image.png" child-dests))))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-links-non-note-subtree-file-level ()
+  "Test that file note collects links from non-note subtrees."
+  (let ((path (vulpea-test--create-temp-org-file
+               (concat
+                ":PROPERTIES:\n:ID: file-id\n:END:\n"
+                "#+TITLE: Test\n\n"
+                "File link [[id:link-1][One]].\n\n"
+                "* Heading\n\n"
+                "Subtree link [[id:link-2][Two]].\n"))))
+    (unwind-protect
+        (let* ((ctx (vulpea-db--parse-file path))
+               (file-node (vulpea-parse-ctx-file-node ctx))
+               (file-links (plist-get file-node :links))
+               (file-dests (mapcar (lambda (l) (plist-get l :dest)) file-links)))
+          (should (= (length file-links) 2))
+          (should (member "link-1" file-dests))
+          (should (member "link-2" file-dests)))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-links-non-note-subtree-heading-level ()
+  "Test that heading note collects links from non-note child headings."
+  (let ((path (vulpea-test--create-temp-org-file
+               (concat
+                ":PROPERTIES:\n:ID: file-id\n:END:\n"
+                "#+TITLE: Test\n\n"
+                "* Parent\n"
+                ":PROPERTIES:\n"
+                ":ID: parent-id\n"
+                ":END:\n\n"
+                "Parent link [[id:link-1][One]].\n\n"
+                "** Child\n\n"
+                "Child link [[id:link-2][Two]].\n"))))
+    (unwind-protect
+        (let* ((vulpea-db-index-heading-level t)
+               (ctx (vulpea-db--parse-file path))
+               (file-node (vulpea-parse-ctx-file-node ctx))
+               (heading-nodes (vulpea-parse-ctx-heading-nodes ctx))
+               (parent-node (seq-find (lambda (n) (equal (plist-get n :id) "parent-id")) heading-nodes))
+               (parent-links (plist-get parent-node :links))
+               (parent-dests (mapcar (lambda (l) (plist-get l :dest)) parent-links))
+               (file-links (plist-get file-node :links)))
+          ;; Parent should have both links
+          (should (= (length parent-links) 2))
+          (should (member "link-1" parent-dests))
+          (should (member "link-2" parent-dests))
+          ;; File node should have no links
+          (should (= (length file-links) 0)))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-links-non-note-subtree-under-note-heading ()
+  "Test that note heading collects links from non-note grandchild."
+  (let ((path (vulpea-test--create-temp-org-file
+               (concat
+                ":PROPERTIES:\n:ID: file-id\n:END:\n"
+                "#+TITLE: Test\n\n"
+                "* Heading\n"
+                ":PROPERTIES:\n"
+                ":ID: heading-id\n"
+                ":END:\n\n"
+                "Heading link [[id:link-1][One]].\n\n"
+                "** Sub\n\n"
+                "Sub link [[id:link-2][Two]].\n"))))
+    (unwind-protect
+        (let* ((vulpea-db-index-heading-level t)
+               (ctx (vulpea-db--parse-file path))
+               (file-node (vulpea-parse-ctx-file-node ctx))
+               (heading-nodes (vulpea-parse-ctx-heading-nodes ctx))
+               (heading-node (seq-find (lambda (n) (equal (plist-get n :id) "heading-id")) heading-nodes))
+               (heading-links (plist-get heading-node :links))
+               (heading-dests (mapcar (lambda (l) (plist-get l :dest)) heading-links))
+               (file-links (plist-get file-node :links)))
+          ;; Heading should have both links
+          (should (= (length heading-links) 2))
+          (should (member "link-1" heading-dests))
+          (should (member "link-2" heading-dests))
+          ;; File node should have no links
+          (should (= (length file-links) 0)))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-links-mixed-note-and-non-note-siblings ()
+  "Test that parent collects non-note child links but not note child links."
+  (let ((path (vulpea-test--create-temp-org-file
+               (concat
+                ":PROPERTIES:\n:ID: file-id\n:END:\n"
+                "#+TITLE: Test\n\n"
+                "* Parent\n"
+                ":PROPERTIES:\n"
+                ":ID: parent-id\n"
+                ":END:\n\n"
+                "Parent link [[id:link-1][One]].\n\n"
+                "** Note Child\n"
+                ":PROPERTIES:\n"
+                ":ID: child-id\n"
+                ":END:\n\n"
+                "Note child link [[id:link-2][Two]].\n\n"
+                "** Non-note Child\n\n"
+                "Non-note link [[id:link-3][Three]].\n"))))
+    (unwind-protect
+        (let* ((vulpea-db-index-heading-level t)
+               (ctx (vulpea-db--parse-file path))
+               (heading-nodes (vulpea-parse-ctx-heading-nodes ctx))
+               (parent-node (seq-find (lambda (n) (equal (plist-get n :id) "parent-id")) heading-nodes))
+               (child-node (seq-find (lambda (n) (equal (plist-get n :id) "child-id")) heading-nodes))
+               (parent-links (plist-get parent-node :links))
+               (parent-dests (mapcar (lambda (l) (plist-get l :dest)) parent-links))
+               (child-links (plist-get child-node :links))
+               (child-dests (mapcar (lambda (l) (plist-get l :dest)) child-links)))
+          ;; Parent should have link-1 and link-3 but NOT link-2
+          (should (= (length parent-links) 2))
+          (should (member "link-1" parent-dests))
+          (should (member "link-3" parent-dests))
+          (should-not (member "link-2" parent-dests))
+          ;; Child should have only link-2
+          (should (= (length child-links) 1))
+          (should (member "link-2" child-dests)))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-links-deeply-nested-non-note-headings ()
+  "Test that parent collects links from deeply nested non-note headings."
+  (let ((path (vulpea-test--create-temp-org-file
+               (concat
+                ":PROPERTIES:\n:ID: file-id\n:END:\n"
+                "#+TITLE: Test\n\n"
+                "* Parent\n"
+                ":PROPERTIES:\n"
+                ":ID: parent-id\n"
+                ":END:\n\n"
+                "** Sub1\n\n"
+                "Link [[id:link-1][One]].\n\n"
+                "*** Sub2\n\n"
+                "Link [[id:link-2][Two]].\n"))))
+    (unwind-protect
+        (let* ((vulpea-db-index-heading-level t)
+               (ctx (vulpea-db--parse-file path))
+               (heading-nodes (vulpea-parse-ctx-heading-nodes ctx))
+               (parent-node (seq-find (lambda (n) (equal (plist-get n :id) "parent-id")) heading-nodes))
+               (parent-links (plist-get parent-node :links))
+               (parent-dests (mapcar (lambda (l) (plist-get l :dest)) parent-links)))
+          ;; Parent should have both links from nested non-note headings
+          (should (= (length parent-links) 2))
+          (should (member "link-1" parent-dests))
+          (should (member "link-2" parent-dests)))
       (delete-file path))))
 
 (ert-deftest vulpea-db-extract-meta-with-types ()
