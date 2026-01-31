@@ -12,6 +12,7 @@
 *Features*
 
 - [[https://github.com/d12frosted/vulpea/issues/206][vulpea#206]] Add =vulpea-db-query-dead-links= for finding broken ID links that point to non-existent notes. Returns a list of cons cells =(SOURCE-NOTE . BROKEN-TARGET-ID)=. Only checks links of type "id"; other link types are ignored.
+- [[https://github.com/d12frosted/vulpea/issues/207][vulpea#207]] Add =vulpea-db-query-orphan-notes= for finding notes with no incoming ID links, and =vulpea-db-query-isolated-notes= for finding notes with no incoming or outgoing ID links.
 
 ** v2.0.1
 

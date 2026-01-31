@@ -618,5 +618,40 @@ etc.) are ignored."
                     (cadr row)))
             rows)))
 
+(defun vulpea-db-query-orphan-notes ()
+  "Find notes with no incoming ID links.
+
+Returns list of `vulpea-note' structs for notes whose ID does not
+appear as a destination in any link of type \"id\".
+
+Notes that have outgoing links but no incoming links are included.
+See `vulpea-db-query-isolated-notes' for notes with no connections
+in either direction."
+  (let ((rows (emacsql (vulpea-db)
+                       [:select * :from notes
+                        :where (not (in id [:select :distinct [dest]
+                                            :from links
+                                            :where (= type "id")]))])))
+    (mapcar #'vulpea-db--row-to-note rows)))
+
+(defun vulpea-db-query-isolated-notes ()
+  "Find notes with no incoming or outgoing ID links.
+
+Returns list of `vulpea-note' structs for notes that have zero
+connections in either direction — neither linked to nor linking to
+any other note via \"id\" links.
+
+This is stricter than `vulpea-db-query-orphan-notes' which only
+checks for missing incoming links."
+  (let ((rows (emacsql (vulpea-db)
+                       [:select * :from notes
+                        :where (and (not (in id [:select :distinct [dest]
+                                                 :from links
+                                                 :where (= type "id")]))
+                                    (not (in id [:select :distinct [source]
+                                                 :from links
+                                                 :where (= type "id")])))])))
+    (mapcar #'vulpea-db--row-to-note rows)))
+
 (provide 'vulpea-db-query)
 ;;; vulpea-db-query.el ends here
