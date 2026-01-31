@@ -920,5 +920,105 @@ from being inserted into the normalized tags table."
         (should (member "ghost-1" targets))
         (should (member "ghost-2" targets))))))
 
+;;; Orphan Note Detection Tests
+
+(ert-deftest vulpea-db-query-orphan-notes-found ()
+  "Test finding notes with no incoming links."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "note-a" "Note A"
+                                   :links '((:dest "note-b" :type "id" :pos 100)))
+    (vulpea-test--insert-test-note "note-b" "Note B")
+
+    ;; A links to B, so B has incoming links (not orphan).
+    ;; Nothing links to A, so A is orphan.
+    (let ((orphans (vulpea-db-query-orphan-notes)))
+      (should (= (length orphans) 1))
+      (should (equal (vulpea-note-id (car orphans)) "note-a")))))
+
+(ert-deftest vulpea-db-query-orphan-notes-none ()
+  "Test no orphans when all notes have incoming links."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "note-a" "Note A"
+                                   :links '((:dest "note-b" :type "id" :pos 100)))
+    (vulpea-test--insert-test-note "note-b" "Note B"
+                                   :links '((:dest "note-a" :type "id" :pos 100)))
+
+    (should-not (vulpea-db-query-orphan-notes))))
+
+(ert-deftest vulpea-db-query-orphan-notes-all ()
+  "Test all notes are orphans when there are no links."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "note-a" "Note A")
+    (vulpea-test--insert-test-note "note-b" "Note B")
+
+    (let ((orphans (vulpea-db-query-orphan-notes)))
+      (should (= (length orphans) 2)))))
+
+(ert-deftest vulpea-db-query-orphan-notes-empty-db ()
+  "Test orphans on empty database."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (should-not (vulpea-db-query-orphan-notes))))
+
+(ert-deftest vulpea-db-query-orphan-notes-ignores-non-id-links ()
+  "Test that non-id incoming links don't count."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "note-a" "Note A"
+                                   :links '((:dest "note-b" :type "file" :pos 100)))
+    (vulpea-test--insert-test-note "note-b" "Note B")
+
+    ;; A has a file link to B, but only id links count.
+    ;; So both A and B are orphans.
+    (let ((orphans (vulpea-db-query-orphan-notes)))
+      (should (= (length orphans) 2)))))
+
+;;; Isolated Note Detection Tests
+
+(ert-deftest vulpea-db-query-isolated-notes-found ()
+  "Test finding notes with no incoming or outgoing links."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "note-a" "Note A"
+                                   :links '((:dest "note-b" :type "id" :pos 100)))
+    (vulpea-test--insert-test-note "note-b" "Note B")
+    (vulpea-test--insert-test-note "note-c" "Note C")
+
+    ;; A has outgoing (not isolated), B has incoming (not isolated),
+    ;; C has nothing (isolated).
+    (let ((isolated (vulpea-db-query-isolated-notes)))
+      (should (= (length isolated) 1))
+      (should (equal (vulpea-note-id (car isolated)) "note-c")))))
+
+(ert-deftest vulpea-db-query-isolated-notes-none ()
+  "Test no isolated notes when all are connected."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "note-a" "Note A"
+                                   :links '((:dest "note-b" :type "id" :pos 100)))
+    (vulpea-test--insert-test-note "note-b" "Note B"
+                                   :links '((:dest "note-a" :type "id" :pos 100)))
+
+    (should-not (vulpea-db-query-isolated-notes))))
+
+(ert-deftest vulpea-db-query-isolated-notes-all ()
+  "Test all notes isolated when no links exist."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "note-a" "Note A")
+    (vulpea-test--insert-test-note "note-b" "Note B")
+
+    (let ((isolated (vulpea-db-query-isolated-notes)))
+      (should (= (length isolated) 2)))))
+
+(ert-deftest vulpea-db-query-isolated-notes-empty-db ()
+  "Test isolated notes on empty database."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (should-not (vulpea-db-query-isolated-notes))))
+
 (provide 'vulpea-db-query-test)
 ;;; vulpea-db-query-test.el ends here

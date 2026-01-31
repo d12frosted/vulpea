@@ -167,6 +167,26 @@ Find broken ID links that point to non-existent notes:
 
 Returns list of cons cells =(SOURCE-NOTE . BROKEN-TARGET-ID)=. Only checks links of type "id".
 
+** Orphan Notes
+
+Find notes with no incoming ID links (nothing links to them):
+
+#+begin_src emacs-lisp
+(vulpea-db-query-orphan-notes)
+;; => (#s(vulpea-note ...) ...)
+#+end_src
+
+** Isolated Notes
+
+Find notes with no incoming or outgoing ID links (completely disconnected):
+
+#+begin_src emacs-lisp
+(vulpea-db-query-isolated-notes)
+;; => (#s(vulpea-note ...) ...)
+#+end_src
+
+This is stricter than =vulpea-db-query-orphan-notes= — a note that links out but has no incoming links is an orphan but not isolated.
+
 * Statistics
 
 #+begin_src emacs-lisp
@@ -628,6 +648,8 @@ For advanced use cases, direct database access:
 | =vulpea-db-query-by-level=            | Notes at specific level              |
 | =vulpea-db-query-tags=                | Get all unique tags                  |
 | =vulpea-db-query-dead-links=          | Find broken ID links                 |
+| =vulpea-db-query-orphan-notes=        | Notes with no incoming ID links       |
+| =vulpea-db-query-isolated-notes=      | Notes with no connections at all      |
 
 ** Buffer Functions
 
