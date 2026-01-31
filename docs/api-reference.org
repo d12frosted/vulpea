@@ -154,6 +154,19 @@ For complex queries:
 ;; => ("project" "task" "meeting" ...)
 #+end_src
 
+* Diagnostics
+
+** Dead Links
+
+Find broken ID links that point to non-existent notes:
+
+#+begin_src emacs-lisp
+(vulpea-db-query-dead-links)
+;; => ((#s(vulpea-note ...) . "nonexistent-id") ...)
+#+end_src
+
+Returns list of cons cells =(SOURCE-NOTE . BROKEN-TARGET-ID)=. Only checks links of type "id".
+
 * Statistics
 
 #+begin_src emacs-lisp
@@ -614,6 +627,7 @@ For advanced use cases, direct database access:
 | =vulpea-db-query-by-file-paths=       | Notes from specific files            |
 | =vulpea-db-query-by-level=            | Notes at specific level              |
 | =vulpea-db-query-tags=                | Get all unique tags                  |
+| =vulpea-db-query-dead-links=          | Find broken ID links                 |
 
 ** Buffer Functions
 

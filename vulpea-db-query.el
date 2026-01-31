@@ -590,5 +590,33 @@ Notes that don't exist are omitted from results."
                          (vconcat ids))))
       (mapcar #'vulpea-db--row-to-note rows))))
 
+;;; Diagnostic Queries
+
+(defun vulpea-db-query-dead-links ()
+  "Find broken ID links pointing to non-existent notes.
+
+Returns list of cons cells (SOURCE-NOTE . BROKEN-TARGET-ID) where
+SOURCE-NOTE is a `vulpea-note' struct and BROKEN-TARGET-ID is the
+ID string that has no matching note in the database.
+
+Only checks links of type \"id\". Other link types (http, file,
+etc.) are ignored."
+  (let* ((rows (emacsql (vulpea-db)
+                        [:select [source dest]
+                         :from links
+                         :where (and (= type "id")
+                                     (not (in dest [:select [id]
+                                                    :from notes])))]))
+         (source-ids (delete-dups (mapcar #'car rows)))
+         (source-notes (when source-ids
+                         (vulpea-db-query-by-ids source-ids)))
+         (notes-by-id (make-hash-table :test #'equal)))
+    (dolist (note source-notes)
+      (puthash (vulpea-note-id note) note notes-by-id))
+    (mapcar (lambda (row)
+              (cons (gethash (car row) notes-by-id)
+                    (cadr row)))
+            rows)))
+
 (provide 'vulpea-db-query)
 ;;; vulpea-db-query.el ends here
