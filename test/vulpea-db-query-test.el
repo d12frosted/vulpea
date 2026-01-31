@@ -862,5 +862,63 @@ from being inserted into the normalized tags table."
       (should (= (length notes) 1))
       (should (equal (vulpea-note-id (car notes)) "note1")))))
 
+;;; Dead Link Detection Tests
+
+(ert-deftest vulpea-db-query-dead-links-found ()
+  "Test finding broken ID links."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "note-a" "Note A"
+                                   :links '((:dest "note-b" :type "id" :pos 100)
+                                            (:dest "nonexistent" :type "id" :pos 200)))
+    (vulpea-test--insert-test-note "note-b" "Note B")
+
+    (let ((dead-links (vulpea-db-query-dead-links)))
+      (should (= (length dead-links) 1))
+      (should (equal (vulpea-note-id (car (car dead-links))) "note-a"))
+      (should (equal (cdr (car dead-links)) "nonexistent")))))
+
+(ert-deftest vulpea-db-query-dead-links-none ()
+  "Test no dead links when all targets exist."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "note-a" "Note A"
+                                   :links '((:dest "note-b" :type "id" :pos 100)))
+    (vulpea-test--insert-test-note "note-b" "Note B"
+                                   :links '((:dest "note-a" :type "id" :pos 100)))
+
+    (should-not (vulpea-db-query-dead-links))))
+
+(ert-deftest vulpea-db-query-dead-links-empty-db ()
+  "Test dead links on empty database."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (should-not (vulpea-db-query-dead-links))))
+
+(ert-deftest vulpea-db-query-dead-links-ignores-non-id ()
+  "Test that non-id links are not reported as dead."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "note-a" "Note A"
+                                   :links '((:dest "https://example.com" :type "https" :pos 100)
+                                            (:dest "file.org" :type "file" :pos 200)))
+
+    (should-not (vulpea-db-query-dead-links))))
+
+(ert-deftest vulpea-db-query-dead-links-multiple-sources ()
+  "Test dead links from multiple source notes."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "note-a" "Note A"
+                                   :links '((:dest "ghost-1" :type "id" :pos 100)))
+    (vulpea-test--insert-test-note "note-b" "Note B"
+                                   :links '((:dest "ghost-2" :type "id" :pos 100)))
+
+    (let ((dead-links (vulpea-db-query-dead-links)))
+      (should (= (length dead-links) 2))
+      (let ((targets (mapcar #'cdr dead-links)))
+        (should (member "ghost-1" targets))
+        (should (member "ghost-2" targets))))))
+
 (provide 'vulpea-db-query-test)
 ;;; vulpea-db-query-test.el ends here
