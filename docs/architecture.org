@@ -325,21 +325,21 @@ CREATE TABLE schema_registry (
 * Performance Targets
 
 ** Read Operations (Primary Optimization)
-| Operation                    | Current v1 | Target v2 | Scale    |
-|------------------------------+------------+-----------+----------|
-| Get note by ID               | ~1ms       | <1ms      | Any      |
-| Query by tags (some)         | ~100ms     | <50ms     | 100k     |
-| Query by tags (every)        | ~200ms     | <100ms    | 100k     |
-| Query backlinks              | ~50ms      | <25ms     | 100k     |
-| Generic query (load all)     | ~1s        | ~500ms    | 100k     |
-| Completion candidates        | ~2s        | <500ms    | 100k     |
+| Operation                | Current v1 | Target v2 | Scale |
+|--------------------------+------------+-----------+-------|
+| Get note by ID           | ~1ms       | <1ms      | Any   |
+| Query by tags (some)     | ~100ms     | <50ms     | 100k  |
+| Query by tags (every)    | ~200ms     | <100ms    | 100k  |
+| Query backlinks          | ~50ms      | <25ms     | 100k  |
+| Generic query (load all) | ~1s        | ~500ms    | 100k  |
+| Completion candidates    | ~2s        | <500ms    | 100k  |
 
 ** Write Operations
-| Operation                    | Current v1 | Target v2 | Notes              |
-|------------------------------+------------+-----------+--------------------|
-| Sync single note             | 5-10ms     | <5ms      | Async, non-blocking|
-| Sync 100 notes (batch)       | ~1s        | <500ms    | Single transaction |
-| Full DB rebuild              | ~30s       | <5min     | 100k notes         |
+| Operation              | Current v1 | Target v2 | Notes               |
+|------------------------+------------+-----------+---------------------|
+| Sync single note       | 5-10ms     | <5ms      | Async, non-blocking |
+| Sync 100 notes (batch) | ~1s        | <500ms    | Single transaction  |
+| Full DB rebuild        | ~30s       | <5min     | 100k notes          |
 
 ** Memory Usage
 | Scenario                     | Current v1 | Target v2 |
@@ -485,7 +485,7 @@ For frequently-called operations that run on hooks:
 Invalidate cache on any DB update.
 
 *** Status
-PARTIALLY IMPLEMENTED - Query optimizations in place, comprehensive caching deferred
+NOT IMPLEMENTED - Query optimizations in place via indexed normalized tables, but query-level caching is deferred
 
 * Implementation Notes
 
@@ -508,7 +508,7 @@ Field-by-field UPDATE could be explored if benchmarks show it provides significa
 
 ** Change Detection
 Implemented smart change detection using file hashes (SHA256), mtime, and size:
-- Files tracked in =file_hashes= table
+- Files tracked in =files= table
 - Only parse and update if hash/mtime/size changed
 - Significantly reduces unnecessary re-indexing
 - Force mode available to bypass detection when needed (e.g., after config changes)
@@ -531,7 +531,7 @@ Implemented smart change detection using file hashes (SHA256), mtime, and size:
 
 * Changelog
 
-| Date       | Change                                                | Author |
-|------------+-------------------------------------------------------+--------|
-| 2025-11-16 | Initial architecture decisions documented             | Boris  |
-| 2025-11-18 | Updated with implementation status and removed plans  | Boris  |
+|       Date | Change                                               | Author |
+|------------+------------------------------------------------------+--------|
+| 2025-11-16 | Initial architecture decisions documented            | Boris  |
+| 2025-11-18 | Updated with implementation status and removed plans | Boris  |

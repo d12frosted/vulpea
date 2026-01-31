@@ -40,6 +40,20 @@ The fastest way to get a single note:
 ;; => nil if not found
 #+end_src
 
+** Multiple by IDs
+
+#+begin_src emacs-lisp
+(vulpea-db-query-by-ids '("id-1" "id-2" "id-3"))
+;; => list of vulpea-note structs (missing IDs are omitted)
+#+end_src
+
+** File Path for ID
+
+#+begin_src emacs-lisp
+(vulpea-db-get-file-by-id "note-id")
+;; => "/path/to/note.org" or nil
+#+end_src
+
 ** By Title Search
 
 Find notes matching a title substring:
@@ -100,6 +114,16 @@ This is an optimized query that retrieves all attachment link destinations along
 
 ;; With type specification
 (vulpea-db-query-by-meta "region" "region-id" "note")
+#+end_src
+
+** By File Paths
+
+#+begin_src emacs-lisp
+;; Notes from specific files
+(vulpea-db-query-by-file-paths '("/path/to/a.org" "/path/to/b.org"))
+
+;; With level filter
+(vulpea-db-query-by-file-paths '("/path/to/a.org") 0)
 #+end_src
 
 ** By Level
@@ -185,11 +209,11 @@ When a key has multiple entries:
 
 There are multiple ways to read metadata, each with different trade-offs:
 
-| Function                  | Source              | Speed   | Always Fresh? |
-|---------------------------+---------------------+---------+---------------|
+| Function                  | Source                | Speed   | Always Fresh?   |
+|---------------------------+-----------------------+---------+-----------------|
 | =vulpea-note-meta-get=    | Note struct (from DB) | Fast    | No (needs sync) |
-| =vulpea-meta-get=         | File on disk        | Slower  | Yes           |
-| =vulpea-buffer-meta-get!= | Pre-parsed metadata | Fastest | Depends       |
+| =vulpea-meta-get=         | File on disk          | Slower  | Yes             |
+| =vulpea-buffer-meta-get!= | Pre-parsed metadata   | Fastest | Depends         |
 
 *Prefer =vulpea-note-meta-get=* for most cases - it reads from the note struct which is populated from the database:
 
@@ -274,6 +298,7 @@ These operate on the current buffer (must be an org file).
 
 #+begin_src emacs-lisp
 (vulpea-buffer-alias-get)              ; Get aliases
+(vulpea-buffer-alias-set "A" "B")      ; Set aliases (replaces all)
 (vulpea-buffer-alias-add "Alias")      ; Add alias
 (vulpea-buffer-alias-remove "Alias")   ; Remove alias
 #+end_src
@@ -290,6 +315,10 @@ These operate on the current buffer (must be an org file).
  '(("status" . "active")
    ("priority" . 1)
    ("tags" . ("a" "b" "c"))))
+
+;; Sort metadata keys in a specific order
+(vulpea-buffer-meta-sort '("status" "priority" "tags"))
+;; Keys not in the list are appended at the end
 
 ;; File-level version (by note or ID)
 (vulpea-meta-set-batch note
@@ -404,6 +433,18 @@ When you need to query updated data right away:
 ;; With alias expansion
 (vulpea-select-from "Choose" notes :expand-aliases t)
 ;; Each note with aliases appears multiple times in completion
+#+end_src
+
+** Select Multiple from List
+
+#+begin_src emacs-lisp
+(vulpea-select-multiple-from "Choose" notes)
+;; => list of selected notes (each note can only be selected once)
+
+;; With options
+(vulpea-select-multiple-from "Choose" notes
+                             :require-match t
+                             :expand-aliases t)
 #+end_src
 
 ** Customizing Selection Display
@@ -545,47 +586,52 @@ For advanced use cases, direct database access:
 
 ** Core Functions
 
-| Function             | Description                               |
-|----------------------+-------------------------------------------|
-| =vulpea-find=        | Interactive note selection and navigation |
-| =vulpea-find-backlink= | Find notes linking to current note      |
-| =vulpea-insert=      | Insert link to a note                     |
-| =vulpea-create=      | Create new note programmatically          |
-| =vulpea-visit=       | Visit note by ID or struct                |
+| Function               | Description                               |
+|------------------------+-------------------------------------------|
+| =vulpea-find=          | Interactive note selection and navigation |
+| =vulpea-find-backlink= | Find notes linking to current note        |
+| =vulpea-insert=        | Insert link to a note                     |
+| =vulpea-create=        | Create new note programmatically          |
+| =vulpea-visit=         | Visit note by ID or struct                |
 
 ** Query Functions
 
-| Function                         | Description                       |
-|----------------------------------+-----------------------------------|
-| =vulpea-db-query=                | Query with predicate              |
-| =vulpea-db-get-by-id=            | Get single note by ID             |
-| =vulpea-db-search-by-title=      | Search by title substring         |
-| =vulpea-db-query-by-tags-some=   | Notes with ANY tags               |
-| =vulpea-db-query-by-tags-every=  | Notes with ALL tags               |
-| =vulpea-db-query-by-tags-none=   | Notes WITHOUT tags                |
-| =vulpea-db-query-by-links-some=  | Notes linking to ANY IDs          |
-| =vulpea-db-query-by-links-every= | Notes linking to ALL IDs          |
+| Function                              | Description                          |
+|---------------------------------------+--------------------------------------|
+| =vulpea-db-query=                     | Query with predicate                 |
+| =vulpea-db-get-by-id=                 | Get single note by ID                |
+| =vulpea-db-query-by-ids=              | Get multiple notes by IDs            |
+| =vulpea-db-get-file-by-id=            | Get file path for note ID            |
+| =vulpea-db-search-by-title=           | Search by title substring            |
+| =vulpea-db-query-by-tags-some=        | Notes with ANY tags                  |
+| =vulpea-db-query-by-tags-every=       | Notes with ALL tags                  |
+| =vulpea-db-query-by-tags-none=        | Notes WITHOUT tags                   |
+| =vulpea-db-query-by-links-some=       | Notes linking to ANY IDs             |
+| =vulpea-db-query-by-links-every=      | Notes linking to ALL IDs             |
 | =vulpea-db-query-attachments-by-path= | Attachment (dest . attach-dir) pairs |
-| =vulpea-db-query-by-meta=        | Notes with metadata key=value     |
-| =vulpea-db-query-by-meta-key=    | Notes having metadata key         |
-| =vulpea-db-query-by-level=       | Notes at specific level           |
-| =vulpea-db-query-tags=           | Get all unique tags               |
+| =vulpea-db-query-by-meta=             | Notes with metadata key=value        |
+| =vulpea-db-query-by-meta-key=         | Notes having metadata key            |
+| =vulpea-db-query-by-file-paths=       | Notes from specific files            |
+| =vulpea-db-query-by-level=            | Notes at specific level              |
+| =vulpea-db-query-tags=                | Get all unique tags                  |
 
 ** Buffer Functions
 
-| Function                     | Description              |
-|------------------------------+--------------------------|
-| =vulpea-buffer-title-get=    | Get buffer title         |
-| =vulpea-buffer-title-set=    | Set buffer title         |
-| =vulpea-buffer-tags-get=     | Get buffer tags          |
-| =vulpea-buffer-tags-set=     | Set buffer tags          |
-| =vulpea-buffer-tags-add=     | Add tag interactively    |
-| =vulpea-buffer-tags-remove=  | Remove tag interactively |
-| =vulpea-buffer-alias-get=    | Get aliases              |
-| =vulpea-buffer-alias-add=    | Add alias                |
-| =vulpea-buffer-alias-remove= | Remove alias             |
-| =vulpea-buffer-meta-set=       | Set metadata value         |
-| =vulpea-buffer-meta-set-batch= | Set multiple meta values   |
+| Function                       | Description               |
+|--------------------------------+---------------------------|
+| =vulpea-buffer-title-get=      | Get buffer title          |
+| =vulpea-buffer-title-set=      | Set buffer title          |
+| =vulpea-buffer-tags-get=       | Get buffer tags           |
+| =vulpea-buffer-tags-set=       | Set buffer tags           |
+| =vulpea-buffer-tags-add=       | Add tag interactively     |
+| =vulpea-buffer-tags-remove=    | Remove tag interactively  |
+| =vulpea-buffer-alias-get=      | Get aliases               |
+| =vulpea-buffer-alias-set=      | Set aliases (replace all) |
+| =vulpea-buffer-alias-add=      | Add alias                 |
+| =vulpea-buffer-alias-remove=   | Remove alias              |
+| =vulpea-buffer-meta-set=       | Set metadata value        |
+| =vulpea-buffer-meta-set-batch= | Set multiple meta values  |
+| =vulpea-buffer-meta-sort=      | Sort metadata keys        |
 
 ** Sync Functions
 

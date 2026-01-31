@@ -197,16 +197,16 @@ Timer fires after 0.01s of quiet
 
 * Decision Table
 
-| Scenario            | autosync-mode | force | Execution          |
-|---------------------+---------------+-------+--------------------|
-| vulpea-create       | ignored       | n/a   | Immediate          |
-| Manual file update  | OFF           | n/a   | Immediate          |
-| Manual file update  | ON            | n/a   | Async (queued)     |
-| Directory sync      | OFF           | n/a   | Immediate + smart  |
-| Directory sync      | ON            | OFF   | Async (queued)     |
-| Directory sync      | ignored       | ON    | Immediate + force  |
-| File watchers       | ignored       | n/a   | Async (always)     |
-| Save buffer         | ignored       | n/a   | Async (always)     |
+| Scenario           | autosync-mode | force | Execution         |
+|--------------------+---------------+-------+-------------------|
+| vulpea-create      | ignored       | n/a   | Immediate         |
+| Manual file update | OFF           | n/a   | Immediate         |
+| Manual file update | ON            | n/a   | Async (queued)    |
+| Directory sync     | OFF           | n/a   | Immediate + smart |
+| Directory sync     | ON            | OFF   | Async (queued)    |
+| Directory sync     | ignored       | ON    | Immediate + force |
+| File watchers      | ignored       | n/a   | Async (always)    |
+| Save buffer        | ignored       | n/a   | Async (always)    |
 
 
 * Smart Change Detection
@@ -252,7 +252,7 @@ vulpea-db-sync--update-file-if-changed(path)
 (setq vulpea-db-sync-external-method 'auto)  ; fswatch or poll
 (vulpea-db-autosync-mode 1)
 ;; Everything automatic, hands-off
-;; Startup returns in ~240ms (file listing runs as subprocess)
+;; Startup returns in ~8ms (file listing runs as subprocess)
 #+end_src
 
 ** Minimal (manual only)

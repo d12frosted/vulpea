@@ -15,15 +15,15 @@ All three libraries help manage collections of Org-mode notes using =org-id= for
 
 The key differences lie in their design goals, architecture, and what they enable you to build.
 
-| Aspect              | org-roam                     | org-node                    | vulpea                                       |
-|---------------------+------------------------------+-----------------------------+----------------------------------------------|
-| Primary goal        | Roam Research for Emacs      | Fast org-roam replacement   | Foundation (+ replacement with vulpea-ui/journal) |
-| Storage             | SQLite (persisted)           | Hash tables (in-memory)     | SQLite (persisted)                           |
-| Parser              | Org's native parser          | Custom regex parser         | Org's native parser                          |
-| Sync model          | Save hooks                   | Save hooks + periodic reset | File watchers + async                        |
-| Multi-Emacs support | Problematic                  | Untested                    | Designed for it                              |
-| Encrypted files     | Yes (.gpg, .age)             | ?                           | No (see note below)                          |
-| =roam:= links       | Yes                          | No                          | No                                           |
+| Aspect              | org-roam                | org-node                    | vulpea                                            |
+|---------------------+-------------------------+-----------------------------+---------------------------------------------------|
+| Primary goal        | Roam Research for Emacs | Fast org-roam replacement   | Foundation (+ replacement with vulpea-ui/journal) |
+| Storage             | SQLite (persisted)      | Hash tables (in-memory)     | SQLite (persisted)                                |
+| Parser              | Org's native parser     | Custom regex parser         | Org's native parser                               |
+| Sync model          | Save hooks              | Save hooks + periodic reset | File watchers + async                             |
+| Multi-Emacs support | Problematic             | Untested                    | Designed for it                                   |
+| Encrypted files     | Yes (.gpg, .age)        | ?                           | No (see note below)                               |
+| =roam:= links       | Yes                     | No                          | No                                                |
 
 * Design Philosophy
 
@@ -324,11 +324,11 @@ This makes gradual migration or evaluation easy.
 
 Benchmarks vary by hardware and collection size. Representative numbers:
 
-| Operation                    | org-roam | org-node | vulpea   |
-|------------------------------+----------+----------+----------|
-| Initial index (3000 nodes)   | ~3 min   | ~2 sec   | ~10 sec  |
-| Save file (400 nodes)        | 5-10 sec | instant  | instant  |
-| Open minibuffer              | 1-3 sec  | instant  | instant  |
+| Operation                  | org-roam | org-node | vulpea  |
+|----------------------------+----------+----------+---------|
+| Initial index (3000 nodes) | ~3 min   | ~2 sec   | ~10 sec |
+| Save file (400 nodes)      | 5-10 sec | instant  | instant |
+| Open minibuffer            | 1-3 sec  | instant  | instant |
 
 org-node's speed comes from the regex parser and in-memory storage. vulpea's async architecture means the initial index time doesn't block your workflow - it happens in the background.
 
@@ -341,11 +341,11 @@ vulpea is designed with large collections in mind (100k+ files as the target):
 
 * Summary
 
-| Library  | Best described as                                   |
-|----------+-----------------------------------------------------|
-| org-roam | "Roam Research for Emacs"                           |
-| org-node | "org-roam but fast"                                 |
-| vulpea   | "Foundation for building note-based applications"   |
+| Library  | Best described as                                 |
+|----------+---------------------------------------------------|
+| org-roam | "Roam Research for Emacs"                         |
+| org-node | "org-roam but fast"                               |
+| vulpea   | "Foundation for building note-based applications" |
 
 Choose based on what you're building. For simple note-taking, any will work. For building applications or complex workflows, vulpea's structured approach and stable API provide the foundation you need.
 

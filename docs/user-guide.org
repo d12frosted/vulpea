@@ -193,12 +193,12 @@ Aliases are alternative titles for a note, useful when the same concept has mult
 
 ** In Your Notes
 
-Aliases are stored in the =ROAM_ALIASES= property (configurable):
+Aliases are stored in the =ALIASES= property (configurable via =vulpea-buffer-alias-property=):
 
 #+begin_src org
 :PROPERTIES:
 :ID: abc123
-:ROAM_ALIASES: "PKM" "Personal Knowledge Management"
+:ALIASES: "PKM" "Personal Knowledge Management"
 :END:
 #+title: Zettelkasten
 #+end_src
@@ -225,10 +225,10 @@ M-x vulpea-buffer-alias-remove
 
 ** Configuring Alias Property
 
-By default, aliases are stored in =ROAM_ALIASES=. To change:
+By default, aliases are stored in =ALIASES=. To use =ROAM_ALIASES= for org-roam compatibility:
 
 #+begin_src emacs-lisp
-(setq vulpea-buffer-alias-property "ALIASES")
+(setq vulpea-buffer-alias-property "ROAM_ALIASES")
 #+end_src
 
 * Synchronization
@@ -247,11 +247,11 @@ You don't need to do anything - it just works.
 
 If you need to force a sync:
 
-| Command                         | What it does                        |
-|---------------------------------+-------------------------------------|
-| =M-x vulpea-db-sync-update-file=  | Update current file                 |
-| =M-x vulpea-db-sync-full-scan=    | Scan all directories                |
-| =C-u M-x vulpea-db-sync-full-scan= | Force re-index everything           |
+| Command                            | What it does              |
+|------------------------------------+---------------------------|
+| =M-x vulpea-db-sync-update-file=   | Update current file       |
+| =M-x vulpea-db-sync-full-scan=     | Scan all directories      |
+| =C-u M-x vulpea-db-sync-full-scan= | Force re-index everything |
 
 ** Checking Sync Status
 
@@ -313,4 +313,3 @@ Integrate with org-capture for quick note creation:
 
 - [[file:configuration.org][Configuration]] - All options and performance tuning
 - [[file:api-reference.org][API Reference]] - Building custom tools
-- [[file:journal.org][Journal Module]] - Daily notes with widgets

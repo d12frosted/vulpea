@@ -7,12 +7,8 @@ This guide walks you through installing Vulpea, setting up your first database, 
 
 ** From Source
 
-Vulpea v2 is currently on the =v2-rewrite= branch:
-
 #+begin_src bash
 git clone https://github.com/d12frosted/vulpea
-cd vulpea
-git checkout v2-rewrite
 #+end_src
 
 Add to your Emacs configuration:
@@ -33,9 +29,9 @@ Add to your Emacs configuration:
 
 *Optional but recommended:*
 
-| Tool      | What it does                                              | How to install                                               |
-|-----------+-----------------------------------------------------------+--------------------------------------------------------------|
-| =fd=      | Fast file finding (15× faster than =find=)                | =brew install fd= / =apt install fd-find= / =pacman -S fd=   |
+| Tool      | What it does                                              | How to install                                                       |
+|-----------+-----------------------------------------------------------+----------------------------------------------------------------------|
+| =fd=      | Fast file finding (15× faster than =find=)                | =brew install fd= / =apt install fd-find= / =pacman -S fd=           |
 | =fswatch= | Detects file changes made outside Emacs (git, sync tools) | =brew install fswatch= / =apt install fswatch= / =pacman -S fswatch= |
 
 Without these tools, Vulpea uses slower but functional alternatives.
@@ -166,15 +162,15 @@ Metadata is queryable and supports type coercion (strings, numbers, links to oth
 
 Vulpea extracts and stores:
 
-| Data        | Source                          | Example Query                           |
-|-------------+---------------------------------+-----------------------------------------|
-| Title       | =#+title:= or heading text      | =vulpea-db-search-by-title=             |
-| Tags        | =#+filetags:= and heading tags  | =vulpea-db-query-by-tags-some=          |
-| Links       | =id:= links in content          | =vulpea-db-query-by-links-some=         |
-| Metadata    | Description lists (=key :: val=)  | =vulpea-db-query-by-meta=               |
-| Aliases     | =ROAM_ALIASES= property         | Included in completion candidates       |
-| TODO state  | =TODO=, =DONE=, etc.            | Available in =vulpea-note= struct       |
-| Timestamps  | =SCHEDULED=, =DEADLINE=, =CLOSED= | Available in =vulpea-note= struct       |
+| Data       | Source                            | Example Query                     |
+|------------+-----------------------------------+-----------------------------------|
+| Title      | =#+title:= or heading text        | =vulpea-db-search-by-title=       |
+| Tags       | =#+filetags:= and heading tags    | =vulpea-db-query-by-tags-some=    |
+| Links      | =id:= links in content            | =vulpea-db-query-by-links-some=   |
+| Metadata   | Description lists (=key :: val=)  | =vulpea-db-query-by-meta=         |
+| Aliases    | =ALIASES= property (configurable) | Included in completion candidates |
+| TODO state | =TODO=, =DONE=, etc.              | Available in =vulpea-note= struct |
+| Timestamps | =SCHEDULED=, =DEADLINE=, =CLOSED= | Available in =vulpea-note= struct |
 
 * Excluding Notes
 

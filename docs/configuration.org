@@ -71,15 +71,15 @@ For context-aware defaults:
 
 ** Template Parameters
 
-| Parameter     | Description                                | Example                         |
-|---------------+--------------------------------------------+---------------------------------|
-| =:file-name=  | File path relative to default directory    | ="notes/${slug}.org"=           |
-| =:tags=       | List of tags                               | ='("project" "work")=           |
-| =:head=       | Content after =#+title:=                   | ="#+created: %<[%Y-%m-%d]>"=    |
-| =:body=       | Note body content                          | ="* Tasks\n\n* Notes\n"=        |
-| =:properties= | Alist for property drawer                  | ='(("STATUS" . "active"))=      |
-| =:meta=       | Alist for metadata                         | ='(("author" . "me"))=          |
-| =:context=    | Custom variables for template expansion    | ='(:project "MyProject")=       |
+| Parameter     | Description                             | Example                      |
+|---------------+-----------------------------------------+------------------------------|
+| =:file-name=  | File path relative to default directory | ="notes/${slug}.org"=        |
+| =:tags=       | List of tags                            | ='("project" "work")=        |
+| =:head=       | Content after =#+title:=                | ="#+created: %<[%Y-%m-%d]>"= |
+| =:body=       | Note body content                       | ="* Tasks\n\n* Notes\n"=     |
+| =:properties= | Alist for property drawer               | ='(("STATUS" . "active"))=   |
+| =:meta=       | Alist for metadata                      | ='(("author" . "me"))=       |
+| =:context=    | Custom variables for template expansion | ='(:project "MyProject")=    |
 
 ** Template Expansion Syntax
 
@@ -103,11 +103,11 @@ How Vulpea reads org files during sync:
 (setq vulpea-db-parse-method 'find-file)           ; Slowest, most compatible
 #+end_src
 
-| Method               | Speed          | Compatibility                              |
-|----------------------+----------------+--------------------------------------------|
-| =single-temp-buffer= | ~1000 files/s  | Skips org-mode hooks, fastest              |
-| =temp-buffer=        | ~460 files/s   | Runs org-mode hooks per file               |
-| =find-file=          | ~34 files/s    | Full compatibility (dir-locals, all hooks) |
+| Method               | Speed         | Compatibility                              |
+|----------------------+---------------+--------------------------------------------|
+| =single-temp-buffer= | ~1000 files/s | Skips org-mode hooks, fastest              |
+| =temp-buffer=        | ~460 files/s  | Runs org-mode hooks per file               |
+| =find-file=          | ~34 files/s   | Full compatibility (dir-locals, all hooks) |
 
 *Recommendation:* Use =single-temp-buffer= unless you need per-file hooks.
 
@@ -221,14 +221,15 @@ Control what happens when =vulpea-db-autosync-mode= is enabled.
 #+end_src
 
 *Recommendation:* Use ='async= for hands-off operation.  Startup returns
-in ~240ms even with large collections.
+in ~8ms even with large collections (when =fswatch= is available).
 
 * Aliases
 
 Configure how note aliases are stored:
 
 #+begin_src emacs-lisp
-;; Property name for aliases (default matches org-roam)
+;; Property name for aliases (default is "ALIASES")
+;; Use "ROAM_ALIASES" for org-roam compatibility
 (setq vulpea-buffer-alias-property "ROAM_ALIASES")
 #+end_src
 
