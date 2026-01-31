@@ -187,6 +187,22 @@ Find notes with no incoming or outgoing ID links (completely disconnected):
 
 This is stricter than =vulpea-db-query-orphan-notes= — a note that links out but has no incoming links is an orphan but not isolated.
 
+** Title Collisions
+
+Find notes that share the same title:
+
+#+begin_src emacs-lisp
+;; All notes
+(vulpea-db-query-title-collisions)
+;; => (("Wine" . (#s(vulpea-note ...) #s(vulpea-note ...)))
+;;     ("Beer" . (#s(vulpea-note ...) #s(vulpea-note ...))))
+
+;; File-level notes only
+(vulpea-db-query-title-collisions 0)
+#+end_src
+
+Returns list of =(TITLE . NOTES)= groups where each group has two or more notes with the same title. Optional LEVEL argument restricts to notes at a specific heading level (0 for file-level).
+
 * Statistics
 
 #+begin_src emacs-lisp
@@ -650,6 +666,7 @@ For advanced use cases, direct database access:
 | =vulpea-db-query-dead-links=          | Find broken ID links                 |
 | =vulpea-db-query-orphan-notes=        | Notes with no incoming ID links       |
 | =vulpea-db-query-isolated-notes=      | Notes with no connections at all      |
+| =vulpea-db-query-title-collisions=    | Notes sharing the same title          |
 
 ** Buffer Functions
 

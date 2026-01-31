@@ -1020,5 +1020,112 @@ from being inserted into the normalized tags table."
     (vulpea-db)
     (should-not (vulpea-db-query-isolated-notes))))
 
+;;; Title Collision Detection Tests
+
+(ert-deftest vulpea-db-query-title-collisions-found ()
+  "Test finding notes with duplicate titles."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "wine-1" "Wine")
+    (vulpea-test--insert-test-note "wine-2" "Wine")
+    (vulpea-test--insert-test-note "beer-1" "Beer")
+
+    (let ((collisions (vulpea-db-query-title-collisions)))
+      (should (= (length collisions) 1))
+      (should (equal (car (car collisions)) "Wine"))
+      (should (= (length (cdr (car collisions))) 2))
+      (let ((ids (mapcar #'vulpea-note-id (cdr (car collisions)))))
+        (should (member "wine-1" ids))
+        (should (member "wine-2" ids))))))
+
+(ert-deftest vulpea-db-query-title-collisions-none ()
+  "Test no collisions when all titles are unique."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "note-a" "Note A")
+    (vulpea-test--insert-test-note "note-b" "Note B")
+    (vulpea-test--insert-test-note "note-c" "Note C")
+
+    (should-not (vulpea-db-query-title-collisions))))
+
+(ert-deftest vulpea-db-query-title-collisions-multiple-groups ()
+  "Test multiple collision groups."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "wine-1" "Wine")
+    (vulpea-test--insert-test-note "wine-2" "Wine")
+    (vulpea-test--insert-test-note "beer-1" "Beer")
+    (vulpea-test--insert-test-note "beer-2" "Beer")
+    (vulpea-test--insert-test-note "unique" "Unique")
+
+    (let ((collisions (vulpea-db-query-title-collisions)))
+      (should (= (length collisions) 2))
+      (let ((titles (mapcar #'car collisions)))
+        (should (member "Wine" titles))
+        (should (member "Beer" titles))))))
+
+(ert-deftest vulpea-db-query-title-collisions-empty-db ()
+  "Test title collisions on empty database."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (should-not (vulpea-db-query-title-collisions))))
+
+(ert-deftest vulpea-db-query-title-collisions-three-duplicates ()
+  "Test collision group with more than two notes."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "a" "Same Title")
+    (vulpea-test--insert-test-note "b" "Same Title")
+    (vulpea-test--insert-test-note "c" "Same Title")
+
+    (let ((collisions (vulpea-db-query-title-collisions)))
+      (should (= (length collisions) 1))
+      (should (= (length (cdr (car collisions))) 3)))))
+
+(ert-deftest vulpea-db-query-title-collisions-file-level-only ()
+  "Test filtering collisions to file-level notes only."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    ;; Two file-level notes with same title
+    (vulpea-test--insert-test-note "file-1" "Wine" :level 0)
+    (vulpea-test--insert-test-note "file-2" "Wine" :level 0)
+    ;; Heading-level note with same title — should be excluded
+    (vulpea-test--insert-test-note "heading-1" "Wine" :level 1)
+
+    (let ((collisions (vulpea-db-query-title-collisions 0)))
+      (should (= (length collisions) 1))
+      (should (= (length (cdr (car collisions))) 2))
+      (let ((ids (mapcar #'vulpea-note-id (cdr (car collisions)))))
+        (should (member "file-1" ids))
+        (should (member "file-2" ids))
+        (should-not (member "heading-1" ids))))))
+
+(ert-deftest vulpea-db-query-title-collisions-heading-level-only ()
+  "Test filtering collisions to heading-level notes."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "file-1" "Wine" :level 0)
+    (vulpea-test--insert-test-note "heading-1" "Wine" :level 1)
+    (vulpea-test--insert-test-note "heading-2" "Wine" :level 1)
+
+    ;; Only heading-level collision
+    (let ((collisions (vulpea-db-query-title-collisions 1)))
+      (should (= (length collisions) 1))
+      (should (= (length (cdr (car collisions))) 2)))
+    ;; No file-level collision (only one file-level "Wine")
+    (should-not (vulpea-db-query-title-collisions 0))))
+
+(ert-deftest vulpea-db-query-title-collisions-no-level-includes-all ()
+  "Test that nil level includes all notes."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "file-1" "Wine" :level 0)
+    (vulpea-test--insert-test-note "heading-1" "Wine" :level 1)
+
+    ;; Without level filter, file + heading collision counts
+    (let ((collisions (vulpea-db-query-title-collisions)))
+      (should (= (length collisions) 1))
+      (should (= (length (cdr (car collisions))) 2)))))
+
 (provide 'vulpea-db-query-test)
 ;;; vulpea-db-query-test.el ends here

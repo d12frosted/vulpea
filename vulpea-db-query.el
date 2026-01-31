@@ -653,5 +653,56 @@ checks for missing incoming links."
                                                  :where (= type "id")])))])))
     (mapcar #'vulpea-db--row-to-note rows)))
 
+(defun vulpea-db-query-title-collisions (&optional level)
+  "Find notes that share the same title.
+
+LEVEL optionally restricts to notes at a specific heading level.
+Use 0 for file-level notes only, or a positive integer for
+heading-level notes at that depth.  When nil, all levels are
+considered.
+
+Returns list of cons cells (TITLE . NOTES) where TITLE is a
+string and NOTES is a list of `vulpea-note' structs that all have
+that title.
+
+Only groups with two or more notes are returned."
+  (let* ((titles (mapcar #'car
+                         (if level
+                             (emacsql (vulpea-db)
+                                      [:select [title]
+                                       :from notes
+                                       :where (= level $s1)
+                                       :group :by title
+                                       :having (> (funcall count *) 1)]
+                                      level)
+                           (emacsql (vulpea-db)
+                                    [:select [title]
+                                     :from notes
+                                     :group :by title
+                                     :having (> (funcall count *) 1)]))))
+         (rows (when titles
+                 (if level
+                     (emacsql (vulpea-db)
+                              [:select * :from notes
+                               :where (and (in title $v1)
+                                           (= level $s2))
+                               :order :by title]
+                              (vconcat titles)
+                              level)
+                   (emacsql (vulpea-db)
+                            [:select * :from notes
+                             :where (in title $v1)
+                             :order :by title]
+                            (vconcat titles)))))
+         (notes (mapcar #'vulpea-db--row-to-note rows))
+         (groups (make-hash-table :test #'equal)))
+    (dolist (note notes)
+      (push note (gethash (vulpea-note-title note) groups)))
+    (let (result)
+      (maphash (lambda (title group)
+                 (push (cons title (nreverse group)) result))
+               groups)
+      result)))
+
 (provide 'vulpea-db-query)
 ;;; vulpea-db-query.el ends here
