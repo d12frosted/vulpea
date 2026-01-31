@@ -9,13 +9,11 @@
 
 ** Unreleased
 
-*Breaking changes*
-
-- =vulpea-db-query-attachments-by-path= now returns a list of cons cells =(DEST . ATTACH-DIR)= instead of just destination strings. This allows callers to correctly resolve attachment paths for heading-level notes that have their own attachment directories.
+** v2.0.1
 
 *Features*
 
-- Add =vulpea-db-query-attachments-by-path= for efficiently querying all attachment link destinations for notes at a given file path. Uses a single SQL query with JOIN, avoiding N+1 queries when processing multiple notes in a file.
+- Add =vulpea-db-query-attachments-by-path= for efficiently querying all attachment link destinations for notes at a given file path. Returns a list of cons cells =(DEST . ATTACH-DIR)= where =DEST= is the attachment file name and =ATTACH-DIR= is the attachment directory of the note containing the link. Uses a single SQL query with JOIN, avoiding N+1 queries when processing multiple notes in a file.
 
 *Performance*
 
