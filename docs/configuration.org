@@ -195,15 +195,24 @@ How Vulpea detects files changed outside Emacs (git, Dropbox, etc.).
 (setq vulpea-db-sync-external-method nil)
 #+end_src
 
+*Recommendation:* Install =fswatch= for instant, zero-overhead change detection. With =fswatch=, Vulpea is notified immediately when files change (git pull, Dropbox sync, etc.) without any directory scanning.
+
 ** Polling Interval
 
-When using polling:
+When =fswatch= is not available, Vulpea falls back to polling — periodically scanning directories for changes. Polling runs file listing as an asynchronous subprocess (=fd= or =find=), so it does not block the editor.
 
 #+begin_src emacs-lisp
 (setq vulpea-db-sync-poll-interval 2)  ; Check every 2 seconds
 #+end_src
 
-*Recommendation:* Install =fswatch= for best results. Polling works but is less efficient.
+If you use polling, install =fd= — it is critical for polling performance. Benchmark on a 14k-file collection:
+
+| Method  | File listing time | Blocking time (editor) |
+|---------+-------------------+------------------------|
+| =fd=    | ~50ms             | 0ms (async)            |
+| =find=  | ~900ms            | 0ms (async)            |
+
+Both run asynchronously and don't block the editor, but =fd= completes the scan 15× faster, meaning changes are detected sooner.
 
 * Startup Behavior
 
@@ -251,6 +260,19 @@ For collections of 10,000+ notes:
 
 ;; Use fswatch for external changes
 (setq vulpea-db-sync-external-method 'fswatch)
+#+end_src
+
+Also install external tools for best results:
+
+#+begin_src bash
+# macOS
+brew install fswatch fd
+
+# Debian/Ubuntu
+apt install fswatch fd-find
+
+# Arch
+pacman -S fswatch fd
 #+end_src
 
 ** Guard Heavy Hooks

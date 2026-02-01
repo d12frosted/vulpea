@@ -27,14 +27,16 @@ Add to your Emacs configuration:
 - =s= 1.12+
 - =dash= 2.19+
 
-*Optional but recommended:*
+*Optional but strongly recommended:*
 
 | Tool      | What it does                                              | How to install                                                       |
 |-----------+-----------------------------------------------------------+----------------------------------------------------------------------|
-| =fd=      | Fast file finding (15× faster than =find=)                | =brew install fd= / =apt install fd-find= / =pacman -S fd=           |
 | =fswatch= | Detects file changes made outside Emacs (git, sync tools) | =brew install fswatch= / =apt install fswatch= / =pacman -S fswatch= |
+| =fd=      | Fast file finding (15× faster than =find=)                | =brew install fd= / =apt install fd-find= / =pacman -S fd=           |
 
-Without these tools, Vulpea uses slower but functional alternatives.
+These tools are important for performance. =fswatch= provides instant detection of external changes (git pull, Dropbox sync, etc.) with near-zero cost. Without it, Vulpea falls back to polling, which periodically scans directories. =fd= makes that scanning (and startup) dramatically faster - on a 14k-file collection, =fd= takes ~50ms vs ~900ms for =find=.
+
+If you sync notes via git or cloud tools, install both. At minimum, install =fd=.
 
 * First-Time Setup
 
