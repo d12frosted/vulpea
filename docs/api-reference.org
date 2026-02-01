@@ -203,6 +203,26 @@ Find notes that share the same title:
 
 Returns list of =(TITLE . NOTES)= groups where each group has two or more notes with the same title. Optional LEVEL argument restricts to notes at a specific heading level (0 for file-level).
 
+* Link Queries
+
+Query links directly from the database. All functions return plists with =:source=, =:dest=, =:type=, and =:pos= keys.
+
+#+begin_src emacs-lisp
+;; All links
+(vulpea-db-query-links)
+;; => ((:source "id1" :dest "id2" :type "id" :pos 100) ...)
+
+;; Links of a specific type
+(vulpea-db-query-links-by-type "id")
+(vulpea-db-query-links-by-type "https")
+
+;; Outgoing links from a note
+(vulpea-db-query-links-from "note-id")
+
+;; Incoming links (backlinks) to a note
+(vulpea-db-query-links-to "note-id")
+#+end_src
+
 * Statistics
 
 #+begin_src emacs-lisp
@@ -667,6 +687,10 @@ For advanced use cases, direct database access:
 | =vulpea-db-query-orphan-notes=        | Notes with no incoming ID links       |
 | =vulpea-db-query-isolated-notes=      | Notes with no connections at all      |
 | =vulpea-db-query-title-collisions=    | Notes sharing the same title          |
+| =vulpea-db-query-links=              | All links as plists                   |
+| =vulpea-db-query-links-by-type=      | Links filtered by type                |
+| =vulpea-db-query-links-from=         | Outgoing links from a note            |
+| =vulpea-db-query-links-to=           | Incoming links (backlinks) to a note  |
 
 ** Buffer Functions
 
