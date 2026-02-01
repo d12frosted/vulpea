@@ -7,6 +7,12 @@
 :ID:                     e3f3602c-426e-451e-bcb5-b59b99e3b10e
 :END:
 
+** Unreleased
+
+*Fixes*
+
+- [[https://github.com/d12frosted/vulpea/issues/227][vulpea#227]] Enable alias expansion by default in =vulpea-find= and =vulpea-insert=. Previously, notes could only be found by their primary title even though the =:expand-aliases= feature existed in =vulpea-select-from=. Now both functions pass =:expand-aliases t= by default, so notes with aliases appear multiple times in the completion list — once for the original title and once for each alias.
+
 ** v2.1.0
 
 *Features*
