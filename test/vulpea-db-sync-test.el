@@ -377,7 +377,8 @@
               (insert ":PROPERTIES:\n:ID: test-id\n:END:\n#+TITLE: Version 2\n"))
 
             ;; Check for changes
-            (vulpea-db-sync--check-external-changes)
+            (vulpea-db-sync--check-external-changes-with-files
+             (vulpea-db-sync--list-org-files test-dir))
 
             ;; Should be queued
             (should (assoc path vulpea-db-sync--queue)))
@@ -400,7 +401,8 @@
           (vulpea-db-sync--update-file-attributes-cache)
 
           ;; Check without modifying
-          (vulpea-db-sync--check-external-changes)
+          (vulpea-db-sync--check-external-changes-with-files
+           (vulpea-db-sync--list-org-files test-dir))
 
           ;; Should not be queued
           (should-not (assoc path vulpea-db-sync--queue)))
@@ -666,7 +668,8 @@
             (should (vulpea-db-get-by-id "poll-delete"))
             (puthash file (file-attributes file) vulpea-db-sync--file-attributes)
             (delete-file file)
-            (vulpea-db-sync--check-external-changes)
+            (vulpea-db-sync--check-external-changes-with-files
+             (vulpea-db-sync--list-org-files dir))
             (should-not (vulpea-db-get-by-id "poll-delete")))
         (when (file-directory-p dir)
           (delete-directory dir t))))))
@@ -691,7 +694,8 @@
                 (insert ":PROPERTIES:\n:ID: new-file\n:END:\n#+TITLE: New File\n"))
 
               ;; Check for external changes
-              (vulpea-db-sync--check-external-changes)
+              (vulpea-db-sync--check-external-changes-with-files
+               (vulpea-db-sync--list-org-files dir))
 
               ;; File should be queued for sync
               (should (assoc file vulpea-db-sync--queue))
@@ -733,7 +737,8 @@
               (delete-directory subdir t)
 
               ;; Check for external changes
-              (vulpea-db-sync--check-external-changes)
+              (vulpea-db-sync--check-external-changes-with-files
+               (vulpea-db-sync--list-org-files dir))
 
               ;; Both files should be removed from database
               (should-not (vulpea-db-get-by-id "dir-del-1"))
@@ -773,7 +778,8 @@
               (let ((new-file (expand-file-name "note.org" newdir)))
 
                 ;; Check for external changes
-                (vulpea-db-sync--check-external-changes)
+                (vulpea-db-sync--check-external-changes-with-files
+                 (vulpea-db-sync--list-org-files dir))
 
                 ;; Old file should be removed from database
                 (should-not (emacsql (vulpea-db)
