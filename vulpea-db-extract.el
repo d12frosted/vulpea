@@ -58,6 +58,27 @@
   (when (and value (stringp value))
     (substring-no-properties value)))
 
+(defun vulpea-db--extract-links-from-string (str)
+  "Extract org links from raw STR.
+
+Returns list of plists with :dest, :type, and :pos.
+This is used for extracting links from keyword values like
+#+TITLE where org-element does not parse links as elements."
+  (let ((result nil)
+        (pos 0))
+    (while (string-match org-link-bracket-re str pos)
+      (setq pos (match-end 0))
+      (let* ((raw-link (match-string 1 str))
+             (type-and-path (if (string-match "\\`\\([^:]+\\):\\(.*\\)" raw-link)
+                                (cons (match-string 1 raw-link)
+                                      (match-string 2 raw-link))
+                              (cons "fuzzy" raw-link))))
+        (push (list :dest (cdr type-and-path)
+                    :type (car type-and-path)
+                    :pos nil)
+              result)))
+    (nreverse result)))
+
 (defsubst vulpea-db--strings-no-properties (values)
   "Return VALUES list with text properties stripped from each element."
   (when values
@@ -345,7 +366,8 @@ Returns the #+TITLE keyword value if present, otherwise the filename base."
                              (org-element-property :key kw))
                             (vulpea-db--string-no-properties
                              (org-element-property :value kw)))))))
-    (or (cdr (assoc "TITLE" keywords))
+    (or (when-let* ((title (cdr (assoc "TITLE" keywords))))
+          (org-link-display-format title))
         (file-name-base path))))
 
 (defun vulpea-db--extract-file-node (ast path buffer file-title)
@@ -377,8 +399,12 @@ Returns nil if:
 
     ;; Only index if ID exists, not explicitly ignored, and not archived
     (when (and id (not ignored) (not archived))
-      (let* ((meta (vulpea-db--extract-meta ast))
-             (links (vulpea-db--extract-links ast t))  ; Don't recurse into headlines
+      (let* ((raw-title (cdr (assoc "TITLE" keywords)))
+             (title-links (when raw-title
+                            (vulpea-db--extract-links-from-string raw-title)))
+             (meta (vulpea-db--extract-meta ast))
+             (links (append title-links
+                            (vulpea-db--extract-links ast t)))  ; Don't recurse into headlines
              (aliases (vulpea-db--extract-aliases properties))
              (attach-dir (with-current-buffer buffer
                            (require 'org-attach)
@@ -432,8 +458,9 @@ Respects `vulpea-db-index-heading-level' setting."
                    (archived (vulpea-db--archived-p headline properties filetags)))
               ;; Only index if not explicitly ignored and not archived
               (unless (or ignored archived)
-                (let* ((title (vulpea-db--string-no-properties
-                               (org-element-property :raw-value headline)))
+                (let* ((title (org-link-display-format
+                              (vulpea-db--string-no-properties
+                               (org-element-property :raw-value headline))))
                        (tags (vulpea-db--strings-no-properties
                               (org-element-property :tags headline)))
                        (level (org-element-property :level headline))
@@ -452,13 +479,18 @@ Respects `vulpea-db-index-heading-level' setting."
                                           (org-element-contents headline)))
                        (meta (when section
                                (vulpea-db--extract-meta section)))
-                       (links (vulpea-db--extract-links headline t))
+                       (raw-title (vulpea-db--string-no-properties
+                                   (org-element-property :raw-value headline)))
+                       (title-links (vulpea-db--extract-links-from-string raw-title))
+                       (links (append title-links
+                                      (vulpea-db--extract-links headline t)))
                        (outline-path (let (path
                                            (current headline))
                                        (while (setq current (org-element-property :parent current))
                                          (when (eq (org-element-type current) 'headline)
-                                           (push (vulpea-db--string-no-properties
-                                                  (org-element-property :raw-value current))
+                                           (push (org-link-display-format
+                                                  (vulpea-db--string-no-properties
+                                                   (org-element-property :raw-value current)))
                                                  path)))
                                        path))
                        (attach-dir (with-current-buffer buffer

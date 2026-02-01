@@ -1172,5 +1172,140 @@ This serves as documentation for plugin authors."
               (should (member '("CUSTOM_PROP" "custom-value") props))))
         (delete-file path)))))
 
+;;; Title Link Stripping Tests
+
+(ert-deftest vulpea-db-extract-file-title-strips-links ()
+  "Test file-level title with org links has markup stripped."
+  (let ((path (vulpea-test--create-temp-org-file
+               ":PROPERTIES:\n:ID: linked-title-id\n:END:\n#+TITLE: The Memory Illusion [[id:book-id][book]] by Dr. [[id:julia-id][Julia Shaw]]\n")))
+    (unwind-protect
+        (let* ((ctx (vulpea-db--parse-file path))
+               (node (vulpea-parse-ctx-file-node ctx)))
+          (should (equal (plist-get node :title)
+                         "The Memory Illusion book by Dr. Julia Shaw")))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-heading-title-strips-links ()
+  "Test heading-level title with org links has markup stripped."
+  (let ((path (vulpea-test--create-temp-org-file
+               (concat
+                ":PROPERTIES:\n:ID: file-id\n:END:\n"
+                "#+TITLE: File\n\n"
+                "* The Memory Illusion [[id:book-id][book]] by Dr. [[id:julia-id][Julia Shaw]]\n"
+                ":PROPERTIES:\n"
+                ":ID: heading-linked-id\n"
+                ":END:\n"))))
+    (unwind-protect
+        (let* ((vulpea-db-index-heading-level t)
+               (ctx (vulpea-db--parse-file path))
+               (nodes (vulpea-parse-ctx-heading-nodes ctx))
+               (node (car nodes)))
+          (should (equal (plist-get node :title)
+                         "The Memory Illusion book by Dr. Julia Shaw")))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-heading-title-links-preserved ()
+  "Test that links in heading titles are still extracted as links."
+  (let ((path (vulpea-test--create-temp-org-file
+               (concat
+                ":PROPERTIES:\n:ID: file-id\n:END:\n"
+                "#+TITLE: File\n\n"
+                "* Review of [[id:book-id][the book]]\n"
+                ":PROPERTIES:\n"
+                ":ID: review-id\n"
+                ":END:\n"))))
+    (unwind-protect
+        (let* ((vulpea-db-index-heading-level t)
+               (ctx (vulpea-db--parse-file path))
+               (nodes (vulpea-parse-ctx-heading-nodes ctx))
+               (node (car nodes))
+               (links (plist-get node :links))
+               (dests (mapcar (lambda (l) (plist-get l :dest)) links)))
+          ;; Title should be clean
+          (should (equal (plist-get node :title) "Review of the book"))
+          ;; Link should still be extracted
+          (should (member "book-id" dests)))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-file-title-links-preserved ()
+  "Test that links in file-level titles are still extracted as links."
+  (let ((path (vulpea-test--create-temp-org-file
+               ":PROPERTIES:\n:ID: file-linked-id\n:END:\n#+TITLE: Review of [[id:book-id][the book]]\n\nSome body text.\n")))
+    (unwind-protect
+        (let* ((ctx (vulpea-db--parse-file path))
+               (node (vulpea-parse-ctx-file-node ctx))
+               (links (plist-get node :links))
+               (dests (mapcar (lambda (l) (plist-get l :dest)) links)))
+          ;; Title should be clean
+          (should (equal (plist-get node :title) "Review of the book"))
+          ;; Link from title should be in links list
+          (should (member "book-id" dests)))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-outline-path-strips-links ()
+  "Test outline path strips link markup from parent headings."
+  (let ((path (vulpea-test--create-temp-org-file
+               (concat
+                ":PROPERTIES:\n:ID: file-id\n:END:\n"
+                "#+TITLE: File\n\n"
+                "* Books about [[id:topic-id][AI]]\n"
+                ":PROPERTIES:\n"
+                ":ID: parent-id\n"
+                ":END:\n\n"
+                "** Child Note\n"
+                ":PROPERTIES:\n"
+                ":ID: child-id\n"
+                ":END:\n"))))
+    (unwind-protect
+        (let* ((vulpea-db-index-heading-level t)
+               (ctx (vulpea-db--parse-file path))
+               (nodes (vulpea-parse-ctx-heading-nodes ctx))
+               (child (seq-find (lambda (n) (equal (plist-get n :id) "child-id")) nodes)))
+          (should (equal (plist-get child :outline-path)
+                         '("Books about AI"))))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-file-title-links-round-trip ()
+  "Test that links in file-level titles survive database round-trip."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((path (vulpea-test--create-temp-org-file
+                 ":PROPERTIES:\n:ID: file-title-link-rt\n:END:\n#+TITLE: Review of [[id:book-rt][the book]]\n\nBody text.\n")))
+      (unwind-protect
+          (progn
+            (vulpea-db-update-file path)
+            (let* ((note (vulpea-db-get-by-id "file-title-link-rt"))
+                   (links (vulpea-note-links note))
+                   (dests (mapcar (lambda (l) (plist-get l :dest)) links)))
+              ;; Title should be clean
+              (should (equal (vulpea-note-title note) "Review of the book"))
+              ;; Link from title should be in DB
+              (should (member "book-rt" dests))))
+        (delete-file path)))))
+
+(ert-deftest vulpea-db-extract-heading-title-links-round-trip ()
+  "Test that links in heading titles survive database round-trip."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((path (vulpea-test--create-temp-org-file
+                 (concat
+                  ":PROPERTIES:\n:ID: file-id\n:END:\n"
+                  "#+TITLE: File\n\n"
+                  "* Review of [[id:book-rt][the book]]\n"
+                  ":PROPERTIES:\n"
+                  ":ID: heading-title-link-rt\n"
+                  ":END:\n"))))
+      (unwind-protect
+          (let ((vulpea-db-index-heading-level t))
+            (vulpea-db-update-file path)
+            (let* ((note (vulpea-db-get-by-id "heading-title-link-rt"))
+                   (links (vulpea-note-links note))
+                   (dests (mapcar (lambda (l) (plist-get l :dest)) links)))
+              ;; Title should be clean
+              (should (equal (vulpea-note-title note) "Review of the book"))
+              ;; Link from title should be in DB
+              (should (member "book-rt" dests))))
+        (delete-file path)))))
+
 (provide 'vulpea-db-extract-test)
 ;;; vulpea-db-extract-test.el ends here
