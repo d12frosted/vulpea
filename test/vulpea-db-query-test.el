@@ -1127,5 +1127,108 @@ from being inserted into the normalized tags table."
       (should (= (length collisions) 1))
       (should (= (length (cdr (car collisions))) 2)))))
 
+;;; Link Query Tests
+
+(ert-deftest vulpea-db-query-links-all ()
+  "Test querying all links."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "note-a" "Note A"
+                                   :links '((:dest "note-b" :type "id" :pos 100)
+                                            (:dest "https://example.com" :type "https" :pos 200)))
+    (vulpea-test--insert-test-note "note-b" "Note B")
+
+    (let ((links (vulpea-db-query-links)))
+      (should (= (length links) 2))
+      (should (cl-every (lambda (l) (and (plist-get l :source)
+                                         (plist-get l :dest)
+                                         (plist-get l :type)
+                                         (plist-get l :pos)))
+                        links)))))
+
+(ert-deftest vulpea-db-query-links-empty-db ()
+  "Test querying links on empty database."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (should-not (vulpea-db-query-links))))
+
+(ert-deftest vulpea-db-query-links-by-type-id ()
+  "Test querying links filtered by type."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "note-a" "Note A"
+                                   :links '((:dest "note-b" :type "id" :pos 100)
+                                            (:dest "https://example.com" :type "https" :pos 200)
+                                            (:dest "file.org" :type "file" :pos 300)))
+    (vulpea-test--insert-test-note "note-b" "Note B")
+
+    (let ((id-links (vulpea-db-query-links-by-type "id")))
+      (should (= (length id-links) 1))
+      (should (equal (plist-get (car id-links) :dest) "note-b"))
+      (should (equal (plist-get (car id-links) :source) "note-a")))
+
+    (let ((https-links (vulpea-db-query-links-by-type "https")))
+      (should (= (length https-links) 1))
+      (should (equal (plist-get (car https-links) :dest) "https://example.com")))))
+
+(ert-deftest vulpea-db-query-links-by-type-none ()
+  "Test querying links by type with no matches."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "note-a" "Note A"
+                                   :links '((:dest "note-b" :type "id" :pos 100)))
+    (vulpea-test--insert-test-note "note-b" "Note B")
+
+    (should-not (vulpea-db-query-links-by-type "https"))))
+
+(ert-deftest vulpea-db-query-links-from-note ()
+  "Test querying links from a specific note."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "note-a" "Note A"
+                                   :links '((:dest "note-b" :type "id" :pos 100)
+                                            (:dest "note-c" :type "id" :pos 200)))
+    (vulpea-test--insert-test-note "note-b" "Note B"
+                                   :links '((:dest "note-a" :type "id" :pos 100)))
+    (vulpea-test--insert-test-note "note-c" "Note C")
+
+    (let ((links-from-a (vulpea-db-query-links-from "note-a")))
+      (should (= (length links-from-a) 2))
+      (let ((dests (mapcar (lambda (l) (plist-get l :dest)) links-from-a)))
+        (should (member "note-b" dests))
+        (should (member "note-c" dests))))
+
+    (let ((links-from-b (vulpea-db-query-links-from "note-b")))
+      (should (= (length links-from-b) 1))
+      (should (equal (plist-get (car links-from-b) :dest) "note-a")))
+
+    ;; C has no outgoing links
+    (should-not (vulpea-db-query-links-from "note-c"))))
+
+(ert-deftest vulpea-db-query-links-from-nonexistent ()
+  "Test querying links from nonexistent note."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (should-not (vulpea-db-query-links-from "nonexistent"))))
+
+(ert-deftest vulpea-db-query-links-to-note ()
+  "Test querying links pointing to a specific note."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "note-a" "Note A"
+                                   :links '((:dest "note-c" :type "id" :pos 100)))
+    (vulpea-test--insert-test-note "note-b" "Note B"
+                                   :links '((:dest "note-c" :type "id" :pos 100)))
+    (vulpea-test--insert-test-note "note-c" "Note C")
+
+    (let ((links-to-c (vulpea-db-query-links-to "note-c")))
+      (should (= (length links-to-c) 2))
+      (let ((sources (mapcar (lambda (l) (plist-get l :source)) links-to-c)))
+        (should (member "note-a" sources))
+        (should (member "note-b" sources))))
+
+    ;; A has no incoming links
+    (should-not (vulpea-db-query-links-to "note-a"))))
+
 (provide 'vulpea-db-query-test)
 ;;; vulpea-db-query-test.el ends here
