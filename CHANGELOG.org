@@ -19,6 +19,7 @@
 *Fixes*
 
 - [[https://github.com/d12frosted/vulpea/issues/221][vulpea#221]] Strip org link markup from note titles during extraction. Previously, titles containing org links (e.g. =The Memory Illusion [[id:...][book]]=) were stored verbatim with raw link syntax. Now =org-link-display-format= is applied at extraction time so titles, file-titles, and outline paths are stored as clean display text. Links from titles are still extracted and persisted in the links table.
+- [[https://github.com/d12frosted/vulpea/issues/222][vulpea#222]] Normalize property keys to uppercase during extraction. Previously, files with lowercase property names (e.g. =:id:= instead of =:ID:=) were silently skipped because =assoc= lookups are case-sensitive. Now property keys are upcased at the extraction boundary, matching org-mode's case-insensitive treatment of properties.
 
 ** v2.0.1
 

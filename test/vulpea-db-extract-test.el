@@ -1307,5 +1307,45 @@ This serves as documentation for plugin authors."
               (should (member "book-rt" dests))))
         (delete-file path)))))
 
+;;; Case-insensitive Property Key Tests
+
+(ert-deftest vulpea-db-extract-file-node-lowercase-id ()
+  "Test file-level node with lowercase :id: property is extracted."
+  (let ((path (vulpea-test--create-temp-org-file
+               ":PROPERTIES:\n:id: lowercase-id\n:END:\n#+TITLE: Lowercase ID Note\n")))
+    (unwind-protect
+        (let* ((ctx (vulpea-db--parse-file path))
+               (node (vulpea-parse-ctx-file-node ctx)))
+          (should node)
+          (should (equal (plist-get node :id) "lowercase-id"))
+          (should (equal (plist-get node :title) "Lowercase ID Note")))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-file-node-lowercase-id-round-trip ()
+  "Test file-level node with lowercase :id: survives database round-trip."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((path (vulpea-test--create-temp-org-file
+                 ":PROPERTIES:\n:id: lowercase-rt\n:END:\n#+TITLE: Lowercase RT\n")))
+      (unwind-protect
+          (progn
+            (vulpea-db-update-file path)
+            (let ((note (vulpea-db-get-by-id "lowercase-rt")))
+              (should note)
+              (should (equal (vulpea-note-title note) "Lowercase RT"))))
+        (delete-file path)))))
+
+(ert-deftest vulpea-db-extract-properties-case-insensitive ()
+  "Test that property keys are normalized to uppercase."
+  (let ((path (vulpea-test--create-temp-org-file
+               ":PROPERTIES:\n:id: test-id\n:Custom_Prop: value\n:END:\n#+TITLE: Test\n")))
+    (unwind-protect
+        (let* ((ctx (vulpea-db--parse-file path))
+               (node (vulpea-parse-ctx-file-node ctx))
+               (properties (plist-get node :properties)))
+          (should (cdr (assoc "ID" properties)))
+          (should (cdr (assoc "CUSTOM_PROP" properties))))
+      (delete-file path))))
+
 (provide 'vulpea-db-extract-test)
 ;;; vulpea-db-extract-test.el ends here

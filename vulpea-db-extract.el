@@ -583,8 +583,8 @@ Returns alist of (key . value) pairs."
       (lambda (drawer)
         (org-element-map drawer 'node-property
           (lambda (prop)
-            (cons (vulpea-db--string-no-properties
-                   (org-element-property :key prop))
+            (cons (upcase (vulpea-db--string-no-properties
+                          (org-element-property :key prop)))
                   (vulpea-db--string-no-properties
                    (org-element-property :value prop))))))
       nil t)))  ; First match only
