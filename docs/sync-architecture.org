@@ -115,11 +115,20 @@ git pull / Dropbox sync / external edit
 #+begin_example
 Timer fires every N seconds
   │
-  └─ vulpea-db-sync--poll-external-changes
-      ├─ Check mtime for all tracked files
-      ├─ Detect new/deleted/modified files
-      └─ vulpea-db-sync--enqueue(path)  ← ALWAYS ASYNC
+  └─ vulpea-db-sync--check-external-changes
+      ├─ Guard: skip if scan already in progress
+      ├─ Launch fd/find SUBPROCESS (async file listing)
+      └─ [callback with file list]
+          └─ vulpea-db-sync--check-external-changes-with-files
+              ├─ Check mtime for all files
+              ├─ Detect new/deleted/modified files
+              └─ vulpea-db-sync--enqueue(path)  ← ALWAYS ASYNC
 #+end_example
+
+*Performance*: File listing runs as an async subprocess, so polling
+never blocks the editor.  With =fd=, the scan completes in ~50ms
+(vs ~900ms with =find=) for a 14k-file collection.  Install =fd= if
+using polling mode.
 
 *Note*: All file watchers ALWAYS use async queue, regardless of autosync mode
 

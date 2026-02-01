@@ -115,12 +115,16 @@ git clone https://github.com/d12frosted/vulpea
 - =s= 1.12+
 - =dash= 2.19+
 
-*** Optional (Recommended)
+*** Optional (Strongly Recommended)
 
-| Tool      | Purpose                            | Install                                                        |
-|-----------+------------------------------------+----------------------------------------------------------------|
-| =fd=      | 15× faster directory scanning      | =brew install fd= / =apt install fd-find= / =pacman -S fd=     |
-| =fswatch= | Reliable external change detection | =brew install fswatch= / =apt install fswatch= / =pacman -S fswatch= |
+For best performance, especially with large collections, install these external tools:
+
+| Tool      | Purpose                            | Impact                                                  | Install                                                              |
+|-----------+------------------------------------+---------------------------------------------------------+----------------------------------------------------------------------|
+| =fd=      | Fast directory scanning            | 15× faster than =find=, critical for polling mode       | =brew install fd= / =apt install fd-find= / =pacman -S fd=           |
+| =fswatch= | Reliable external change detection | Instant detection of git/Dropbox/external changes       | =brew install fswatch= / =apt install fswatch= / =pacman -S fswatch= |
+
+Without =fswatch=, Vulpea falls back to polling (periodic directory scanning). Without =fd=, polling uses =find= which is significantly slower. With both tools installed, external changes are detected instantly with near-zero overhead.
 
 ** Documentation
 
