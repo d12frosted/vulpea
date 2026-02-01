@@ -166,6 +166,9 @@ Each entry is (path . timestamp).")
 (defvar vulpea-db-sync--poll-timer nil
   "Timer for polling-based external monitoring.")
 
+(defvar vulpea-db-sync--poll-scan-in-progress nil
+  "Non-nil when an async poll scan subprocess is running.")
+
 (defvar vulpea-db-sync--file-attributes (make-hash-table :test 'equal)
   "Cache of file attributes for external change detection.")
 
@@ -1063,27 +1066,42 @@ Handles partial lines by buffering incomplete output."
 (defun vulpea-db-sync--check-external-changes ()
   "Check for externally modified files by comparing mtimes.
 
+Uses fd (or find) subprocess to list files asynchronously, then
+compares modification times in the callback.  Skips if a previous
+scan is still in progress.
+
 Detects three types of changes:
 - New files: files not previously in the cache
 - Modified files: files with changed modification time
 - Deleted files: files in cache but no longer on disk"
+  (unless vulpea-db-sync--poll-scan-in-progress
+    (setq vulpea-db-sync--poll-scan-in-progress t)
+    (vulpea-db-sync--scan-files-async
+     vulpea-db-sync-directories
+     (lambda (files)
+       (unwind-protect
+           (vulpea-db-sync--check-external-changes-with-files files)
+         (setq vulpea-db-sync--poll-scan-in-progress nil))))))
+
+(defun vulpea-db-sync--check-external-changes-with-files (files)
+  "Compare FILES against cached attributes and enqueue changes.
+
+FILES is a list of org file paths from async directory scan."
   (let ((seen (make-hash-table :test 'equal)))
-    (dolist (dir vulpea-db-sync-directories)
-      (when (file-directory-p dir)
-        (dolist (file (vulpea-db-sync--list-org-files dir))
-          (when (file-exists-p file)
-            (let ((curr-attr (file-attributes file))
-                  (cached-attr (gethash file vulpea-db-sync--file-attributes)))
-              (puthash file curr-attr vulpea-db-sync--file-attributes)
-              (puthash file t seen)
-              (cond
-               ;; New file - not in cache before
-               ((not cached-attr)
-                (vulpea-db-sync--enqueue file))
-               ;; Modified file - mtime changed
-               ((not (equal (file-attribute-modification-time curr-attr)
-                            (file-attribute-modification-time cached-attr)))
-                (vulpea-db-sync--enqueue file))))))))
+    (dolist (file files)
+      (when (file-exists-p file)
+        (let ((curr-attr (file-attributes file))
+              (cached-attr (gethash file vulpea-db-sync--file-attributes)))
+          (puthash file curr-attr vulpea-db-sync--file-attributes)
+          (puthash file t seen)
+          (cond
+           ;; New file - not in cache before
+           ((not cached-attr)
+            (vulpea-db-sync--enqueue file))
+           ;; Modified file - mtime changed
+           ((not (equal (file-attribute-modification-time curr-attr)
+                        (file-attribute-modification-time cached-attr)))
+            (vulpea-db-sync--enqueue file))))))
     ;; Detect deletions - files in cache but not seen on disk
     (let (removed)
       (maphash (lambda (path _)
