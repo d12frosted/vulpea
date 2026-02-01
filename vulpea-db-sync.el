@@ -1084,7 +1084,7 @@ Detects three types of changes:
          (setq vulpea-db-sync--poll-scan-in-progress nil))))))
 
 (defun vulpea-db-sync--check-external-changes-with-files (files)
-  "Compare FILES against cached attributes and enqueue changes.
+  "Compare FILES against cached attributes and enqueue modified ones.
 
 FILES is a list of org file paths from async directory scan."
   (let ((seen (make-hash-table :test 'equal)))
