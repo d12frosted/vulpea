@@ -321,7 +321,8 @@ PROPERTIES (alist)."
 (cl-defun vulpea-find (&key other-window
                             filter-fn
                             candidates-fn
-                            require-match)
+                            require-match
+                            (expand-aliases t))
   "Select and find a note.
 
 If OTHER-WINDOW, visit the NOTE in another window.
@@ -336,7 +337,11 @@ as its argument a `vulpea-note'. Unless specified,
 `vulpea-find-default-filter' is used.
 
 When REQUIRE-MATCH is nil user may select a non-existent note and
-start the capture process."
+start the capture process.
+
+When EXPAND-ALIASES is non-nil (the default), each note with
+aliases will appear multiple times in the completion list - once
+for the original title and once for each alias."
   (interactive)
   (let* ((region-text
           (when (region-active-p)
@@ -356,7 +361,8 @@ start the capture process."
                   filter-fn
                   vulpea-find-default-filter))
                 :require-match require-match
-                :initial-prompt region-text)))
+                :initial-prompt region-text
+                :expand-aliases expand-aliases)))
     (if (vulpea-note-id note)
         ;; Existing note - visit it
         (vulpea-visit note other-window)
@@ -438,7 +444,8 @@ The current point is the point of the new node. The hooks must
 not move the point.")
 
 ;;;###autoload
-(cl-defun vulpea-insert (&key filter-fn candidates-fn create-fn)
+(cl-defun vulpea-insert (&key filter-fn candidates-fn create-fn
+                              (expand-aliases t))
   "Select a note and insert a link to it.
 
 Allows capturing new notes. After link is inserted,
@@ -458,7 +465,11 @@ as its argument a `vulpea-note'. Unless specified,
 CREATE-FN allows to control how a new note is created when user picks a
 non-existent note. This function is called with two arguments - title
 and capture properties. When CREATE-FN is nil, default implementation is
-used."
+used.
+
+When EXPAND-ALIASES is non-nil (the default), each note with
+aliases will appear multiple times in the completion list - once
+for the original title and once for each alias."
   (interactive)
   (unwind-protect
       (atomic-change-group
@@ -478,7 +489,8 @@ used."
                                    vulpea-insert-default-candidates-source)
                                (or filter-fn vulpea-insert-default-filter)))
                (note (vulpea-select-from "Note" notes
-                                         :initial-prompt region-text))
+                                         :initial-prompt region-text
+                                         :expand-aliases expand-aliases))
                (description (or region-text
                                 (vulpea-note-title note))))
           (if (vulpea-note-id note)
