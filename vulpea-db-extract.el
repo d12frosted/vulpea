@@ -527,7 +527,7 @@ Respects `vulpea-db-index-heading-level' setting."
                         :level level
                         :pos pos
                         :title title
-                        :aliases nil  ; Only file-level has aliases
+                        :aliases (vulpea-db--extract-aliases properties)
                         :tags tags
                         :links links
                         :properties properties
