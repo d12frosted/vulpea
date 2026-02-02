@@ -58,25 +58,31 @@
   (when (and value (stringp value))
     (substring-no-properties value)))
 
-(defun vulpea-db--extract-links-from-string (str)
+(defun vulpea-db--extract-links-from-string (str &optional base-pos)
   "Extract org links from raw STR.
 
 Returns list of plists with :dest, :type, and :pos.
 This is used for extracting links from keyword values like
-#+TITLE where org-element does not parse links as elements."
+#+TITLE or heading raw-values where org-element does not parse
+links as elements.
+
+BASE-POS is the buffer position of the start of STR.  Each
+link's :pos is computed as BASE-POS + match offset within STR.
+When BASE-POS is nil, the match offset within STR is used."
   (let ((result nil)
         (pos 0))
     (while (string-match org-link-bracket-re str pos)
-      (setq pos (match-end 0))
-      (let* ((raw-link (match-string 1 str))
-             (type-and-path (if (string-match "\\`\\([^:]+\\):\\(.*\\)" raw-link)
-                                (cons (match-string 1 raw-link)
-                                      (match-string 2 raw-link))
-                              (cons "fuzzy" raw-link))))
-        (push (list :dest (cdr type-and-path)
-                    :type (car type-and-path)
-                    :pos nil)
-              result)))
+      (let ((match-start (match-beginning 0)))
+        (setq pos (match-end 0))
+        (let* ((raw-link (match-string 1 str))
+               (type-and-path (if (string-match "\\`\\([^:]+\\):\\(.*\\)" raw-link)
+                                  (cons (match-string 1 raw-link)
+                                        (match-string 2 raw-link))
+                                (cons "fuzzy" raw-link))))
+          (push (list :dest (cdr type-and-path)
+                      :type (car type-and-path)
+                      :pos (+ (or base-pos 0) match-start))
+                result))))
     (nreverse result)))
 
 (defsubst vulpea-db--strings-no-properties (values)
@@ -399,9 +405,23 @@ Returns nil if:
 
     ;; Only index if ID exists, not explicitly ignored, and not archived
     (when (and id (not ignored) (not archived))
-      (let* ((raw-title (cdr (assoc "TITLE" keywords)))
+      (let* ((title-kw (org-element-map ast 'keyword
+                         (lambda (kw)
+                           (when (string= "TITLE"
+                                          (org-element-property :key kw))
+                             kw))
+                         nil t))
+             (raw-title (when title-kw
+                          (vulpea-db--string-no-properties
+                           (org-element-property :value title-kw))))
+             (title-value-pos
+              (when title-kw
+                (+ (org-element-property :begin title-kw)
+                   ;; skip "#+TITLE: " prefix to get to value
+                   (length "#+TITLE: "))))
              (title-links (when raw-title
-                            (vulpea-db--extract-links-from-string raw-title)))
+                            (vulpea-db--extract-links-from-string
+                             raw-title title-value-pos)))
              (meta (vulpea-db--extract-meta ast))
              (links (append title-links
                             (vulpea-db--extract-links ast t)))  ; Don't recurse into headlines
@@ -481,7 +501,11 @@ Respects `vulpea-db-index-heading-level' setting."
                                (vulpea-db--extract-meta section)))
                        (raw-title (vulpea-db--string-no-properties
                                    (org-element-property :raw-value headline)))
-                       (title-links (vulpea-db--extract-links-from-string raw-title))
+                       (title-start (+ pos level 1 ; stars + space
+                                     (if todo (+ (length todo) 1) 0)
+                                     (if priority 4 0))) ; "[#X] "
+                       (title-links (vulpea-db--extract-links-from-string
+                                     raw-title title-start))
                        (links (append title-links
                                       (vulpea-db--extract-links headline t)))
                        (outline-path (let (path
@@ -641,7 +665,22 @@ Descends into child headlines only if they lack an ID property."
        ((and (eq child-type 'headline)
              (org-element-property :ID child))
         nil)
-       ;; Anything else (section, paragraph, headline without ID, etc.): recurse
+       ;; Headline without ID: extract title links, then recurse
+       ((eq child-type 'headline)
+        (let* ((raw-value (org-element-property :raw-value child))
+               (h-level (org-element-property :level child))
+               (h-todo (org-element-property :todo-keyword child))
+               (h-priority (org-element-property :priority child))
+               (h-begin (org-element-property :begin child))
+               (title-start (+ h-begin h-level 1
+                               (if h-todo (+ (length h-todo) 1) 0)
+                               (if h-priority 4 0))))
+          (when raw-value
+            (dolist (link (vulpea-db--extract-links-from-string
+                          raw-value title-start))
+              (funcall callback link))))
+        (vulpea-db--walk-links-skipping-notes child callback))
+       ;; Anything else (section, paragraph, etc.): recurse
        ((org-element-contents child)
         (vulpea-db--walk-links-skipping-notes child callback))))))
 

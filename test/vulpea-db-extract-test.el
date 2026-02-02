@@ -1347,5 +1347,197 @@ This serves as documentation for plugin authors."
           (should (cdr (assoc "CUSTOM_PROP" properties))))
       (delete-file path))))
 
+;;; Title Link Backlink Scenarios
+;;
+;; These tests verify that links in heading/file titles are persisted
+;; in both the notes JSON column AND the normalized links table, so
+;; that vulpea-db-query-by-links-some (used by vulpea-find-backlink)
+;; can find them.
+
+(ert-deftest vulpea-db-extract-title-link-backlink-scenario-1 ()
+  "Scenario 1: non-note heading with title link -> file note.
+File abc / * Mention [[id:foo][person]] (no ID) -> abc -> foo."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((foo-path (vulpea-test--create-temp-org-file
+                     ":PROPERTIES:\n:ID: foo\n:END:\n#+TITLE: Person\n"))
+          (src-path (vulpea-test--create-temp-org-file
+                     (concat
+                      ":PROPERTIES:\n:ID: abc\n:END:\n"
+                      "#+TITLE: file-level note\n\n"
+                      "* Mention [[id:foo][person]]\n"))))
+      (unwind-protect
+          (progn
+            (vulpea-db-update-file foo-path)
+            (vulpea-db-update-file src-path)
+            (let* ((note (vulpea-db-get-by-id "abc"))
+                   (links (vulpea-note-links note))
+                   (dests (mapcar (lambda (l) (plist-get l :dest)) links))
+                   (backlinks (vulpea-db-query-by-links-some
+                               (list (cons "id" "foo")))))
+              ;; Link should be in notes JSON
+              (should (member "foo" dests))
+              ;; Link should be in links table (backlink query)
+              (should (seq-find (lambda (n) (equal (vulpea-note-id n) "abc"))
+                                backlinks))))
+        (delete-file foo-path)
+        (delete-file src-path)))))
+
+(ert-deftest vulpea-db-extract-title-link-backlink-scenario-2 ()
+  "Scenario 2: note heading with title link.
+File abc / * Mention [[id:foo][person]] :ID: xyz -> xyz -> foo."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((foo-path (vulpea-test--create-temp-org-file
+                     ":PROPERTIES:\n:ID: foo\n:END:\n#+TITLE: Person\n"))
+          (src-path (vulpea-test--create-temp-org-file
+                     (concat
+                      ":PROPERTIES:\n:ID: abc\n:END:\n"
+                      "#+TITLE: file-level note\n\n"
+                      "* Mention [[id:foo][person]]\n"
+                      ":PROPERTIES:\n"
+                      ":ID: xyz\n"
+                      ":END:\n"))))
+      (unwind-protect
+          (let ((vulpea-db-index-heading-level t))
+            (vulpea-db-update-file foo-path)
+            (vulpea-db-update-file src-path)
+            (let* ((note (vulpea-db-get-by-id "xyz"))
+                   (links (vulpea-note-links note))
+                   (dests (mapcar (lambda (l) (plist-get l :dest)) links))
+                   (backlinks (vulpea-db-query-by-links-some
+                               (list (cons "id" "foo")))))
+              ;; Link should be in notes JSON
+              (should (member "foo" dests))
+              ;; Link should be in links table (backlink query)
+              (should (seq-find (lambda (n) (equal (vulpea-note-id n) "xyz"))
+                                backlinks))))
+        (delete-file foo-path)
+        (delete-file src-path)))))
+
+(ert-deftest vulpea-db-extract-title-link-backlink-scenario-3 ()
+  "Scenario 3: nested note heading with title link under note parent.
+File abc / * Parent :ID: jkl / ** Mention [[id:foo][person]] :ID: xyz -> xyz -> foo."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((foo-path (vulpea-test--create-temp-org-file
+                     ":PROPERTIES:\n:ID: foo\n:END:\n#+TITLE: Person\n"))
+          (src-path (vulpea-test--create-temp-org-file
+                     (concat
+                      ":PROPERTIES:\n:ID: abc\n:END:\n"
+                      "#+TITLE: file-level note\n\n"
+                      "* Parent header\n"
+                      ":PROPERTIES:\n"
+                      ":ID: jkl\n"
+                      ":END:\n\n"
+                      "** Mention [[id:foo][person]]\n"
+                      ":PROPERTIES:\n"
+                      ":ID: xyz\n"
+                      ":END:\n"))))
+      (unwind-protect
+          (let ((vulpea-db-index-heading-level t))
+            (vulpea-db-update-file foo-path)
+            (vulpea-db-update-file src-path)
+            (let* ((note (vulpea-db-get-by-id "xyz"))
+                   (links (vulpea-note-links note))
+                   (dests (mapcar (lambda (l) (plist-get l :dest)) links))
+                   (backlinks (vulpea-db-query-by-links-some
+                               (list (cons "id" "foo")))))
+              (should (member "foo" dests))
+              (should (seq-find (lambda (n) (equal (vulpea-note-id n) "xyz"))
+                                backlinks))))
+        (delete-file foo-path)
+        (delete-file src-path)))))
+
+(ert-deftest vulpea-db-extract-title-link-backlink-scenario-4 ()
+  "Scenario 4: note heading with title link under non-note parent.
+File abc / * Parent (no ID) / ** Mention [[id:foo][person]] :ID: xyz -> xyz -> foo."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((foo-path (vulpea-test--create-temp-org-file
+                     ":PROPERTIES:\n:ID: foo\n:END:\n#+TITLE: Person\n"))
+          (src-path (vulpea-test--create-temp-org-file
+                     (concat
+                      ":PROPERTIES:\n:ID: abc\n:END:\n"
+                      "#+TITLE: file-level note\n\n"
+                      "* Parent header\n\n"
+                      "** Mention [[id:foo][person]]\n"
+                      ":PROPERTIES:\n"
+                      ":ID: xyz\n"
+                      ":END:\n"))))
+      (unwind-protect
+          (let ((vulpea-db-index-heading-level t))
+            (vulpea-db-update-file foo-path)
+            (vulpea-db-update-file src-path)
+            (let* ((note (vulpea-db-get-by-id "xyz"))
+                   (links (vulpea-note-links note))
+                   (dests (mapcar (lambda (l) (plist-get l :dest)) links))
+                   (backlinks (vulpea-db-query-by-links-some
+                               (list (cons "id" "foo")))))
+              (should (member "foo" dests))
+              (should (seq-find (lambda (n) (equal (vulpea-note-id n) "xyz"))
+                                backlinks))))
+        (delete-file foo-path)
+        (delete-file src-path)))))
+
+(ert-deftest vulpea-db-extract-title-link-backlink-scenario-5 ()
+  "Scenario 5: non-note heading with title link under note parent.
+File abc / * Parent :ID: jkl / ** Mention [[id:foo][person]] (no ID) -> jkl -> foo."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((foo-path (vulpea-test--create-temp-org-file
+                     ":PROPERTIES:\n:ID: foo\n:END:\n#+TITLE: Person\n"))
+          (src-path (vulpea-test--create-temp-org-file
+                     (concat
+                      ":PROPERTIES:\n:ID: abc\n:END:\n"
+                      "#+TITLE: file-level note\n\n"
+                      "* Parent header\n"
+                      ":PROPERTIES:\n"
+                      ":ID: jkl\n"
+                      ":END:\n\n"
+                      "** Mention [[id:foo][person]]\n"))))
+      (unwind-protect
+          (let ((vulpea-db-index-heading-level t))
+            (vulpea-db-update-file foo-path)
+            (vulpea-db-update-file src-path)
+            (let* ((note (vulpea-db-get-by-id "jkl"))
+                   (links (vulpea-note-links note))
+                   (dests (mapcar (lambda (l) (plist-get l :dest)) links))
+                   (backlinks (vulpea-db-query-by-links-some
+                               (list (cons "id" "foo")))))
+              (should (member "foo" dests))
+              (should (seq-find (lambda (n) (equal (vulpea-note-id n) "jkl"))
+                                backlinks))))
+        (delete-file foo-path)
+        (delete-file src-path)))))
+
+(ert-deftest vulpea-db-extract-title-link-backlink-scenario-6 ()
+  "Scenario 6: non-note heading with title link under non-note parent.
+File abc / * Parent (no ID) / ** Mention [[id:foo][person]] (no ID) -> abc -> foo."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((foo-path (vulpea-test--create-temp-org-file
+                     ":PROPERTIES:\n:ID: foo\n:END:\n#+TITLE: Person\n"))
+          (src-path (vulpea-test--create-temp-org-file
+                     (concat
+                      ":PROPERTIES:\n:ID: abc\n:END:\n"
+                      "#+TITLE: file-level note\n\n"
+                      "* Parent header\n\n"
+                      "** Mention [[id:foo][person]]\n"))))
+      (unwind-protect
+          (progn
+            (vulpea-db-update-file foo-path)
+            (vulpea-db-update-file src-path)
+            (let* ((note (vulpea-db-get-by-id "abc"))
+                   (links (vulpea-note-links note))
+                   (dests (mapcar (lambda (l) (plist-get l :dest)) links))
+                   (backlinks (vulpea-db-query-by-links-some
+                               (list (cons "id" "foo")))))
+              (should (member "foo" dests))
+              (should (seq-find (lambda (n) (equal (vulpea-note-id n) "abc"))
+                                backlinks))))
+        (delete-file foo-path)
+        (delete-file src-path)))))
+
 (provide 'vulpea-db-extract-test)
 ;;; vulpea-db-extract-test.el ends here
