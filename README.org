@@ -10,6 +10,8 @@
   <a href="https://melpa.org/#/vulpea"><img alt="MELPA" src="https://melpa.org/packages/vulpea-badge.svg"/></a>
   <a href="https://github.com/d12frosted/vulpea/releases"><img alt="Release" src="https://img.shields.io/github/v/release/d12frosted/vulpea?include_prereleases"/></a>
   <a href="https://github.com/d12frosted/vulpea/actions"><img alt="CI" src="https://github.com/d12frosted/vulpea/actions/workflows/main.yml/badge.svg"/></a>
+
+  <a href="https://github.com/sponsors/d12frosted"><img alt="Sponsor" src="https://img.shields.io/badge/Sponsor-d12frosted-pink?logo=githubsponsors&logoColor=white"/></a>
 </p>
 #+end_html
 
@@ -176,3 +178,7 @@ Areas where help is needed:
 ** License
 
 GPLv3
+
+* Support
+
+If you enjoy this project, you can support its development via [[https://github.com/sponsors/d12frosted][GitHub Sponsors]] or [[https://www.patreon.com/d12frosted][Patreon]].
