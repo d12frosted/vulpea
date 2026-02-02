@@ -184,6 +184,49 @@ handled correctly when mixed together."
           (should (member "Blauburgunder" aliases)))
       (delete-file path))))
 
+(ert-deftest vulpea-db-extract-heading-aliases ()
+  "Test alias extraction on heading-level notes."
+  (let ((path (vulpea-test--create-temp-org-file
+               (concat
+                ":PROPERTIES:\n:ID: file-id\n:END:\n"
+                "#+TITLE: File\n\n"
+                "* Main Title\n"
+                ":PROPERTIES:\n"
+                ":ID: heading-id\n"
+                ":ALIASES: Alias1 Alias2\n"
+                ":END:\n"))))
+    (unwind-protect
+        (let* ((vulpea-db-index-heading-level t)
+               (ctx (vulpea-db--parse-file path))
+               (nodes (vulpea-parse-ctx-heading-nodes ctx))
+               (node (car nodes))
+               (aliases (plist-get node :aliases)))
+          (should (member "Alias1" aliases))
+          (should (member "Alias2" aliases)))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-heading-aliases-round-trip ()
+  "Test heading-level aliases survive database round-trip."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((path (vulpea-test--create-temp-org-file
+                 (concat
+                  ":PROPERTIES:\n:ID: file-id\n:END:\n"
+                  "#+TITLE: File\n\n"
+                  "* Main Title\n"
+                  ":PROPERTIES:\n"
+                  ":ID: heading-alias-rt\n"
+                  ":ALIASES: \"Some Alias\" Another\n"
+                  ":END:\n"))))
+      (unwind-protect
+          (let ((vulpea-db-index-heading-level t))
+            (vulpea-db-update-file path)
+            (let* ((note (vulpea-db-get-by-id "heading-alias-rt"))
+                   (aliases (vulpea-note-aliases note)))
+              (should (member "Some Alias" aliases))
+              (should (member "Another" aliases))))
+        (delete-file path)))))
+
 (ert-deftest vulpea-db-extract-links ()
   "Test link extraction."
   (let ((path (vulpea-test--create-temp-org-file
