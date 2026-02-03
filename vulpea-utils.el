@@ -134,8 +134,9 @@ If note level is equal to 0, then the point is placed at the
 beginning of the buffer. Otherwise at the heading with note id."
   (declare (indent 1) (debug t))
   `(with-current-buffer (find-file-noselect (vulpea-note-path ,note))
-    (when (> (vulpea-note-level ,note) 0)
-     (goto-char (org-find-entry-with-id (vulpea-note-id ,note))))
+    (if (> (vulpea-note-level ,note) 0)
+        (goto-char (org-find-entry-with-id (vulpea-note-id ,note)))
+      (goto-char (point-min)))
     ,@body))
 
 (defmacro vulpea-utils-with-note-sync (note &rest body)
@@ -164,8 +165,9 @@ Returns the result of the last form in BODY."
     `(let ((,path (vulpea-note-path ,note))
            ,result)
       (with-current-buffer (find-file-noselect ,path)
-       (when (> (vulpea-note-level ,note) 0)
-        (goto-char (org-find-entry-with-id (vulpea-note-id ,note))))
+       (if (> (vulpea-note-level ,note) 0)
+           (goto-char (org-find-entry-with-id (vulpea-note-id ,note)))
+         (goto-char (point-min)))
        (setq ,result (progn ,@body))
        (save-buffer))
       (vulpea-db-update-file ,path)

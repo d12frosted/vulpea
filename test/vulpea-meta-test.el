@@ -43,16 +43,27 @@
   (declare (indent 0))
   (let ((db-file-var (make-symbol "temp-db-file"))
         (notes-dir-var (make-symbol "temp-notes-dir")))
-    `(let* ((,db-file-var (make-temp-file "vulpea-meta-test-" nil ".db"))
-            (,notes-dir-var (expand-file-name (make-temp-name "vulpea-meta-notes-")
-                             temporary-file-directory))
-            (vulpea-db-location ,db-file-var)
-            (vulpea-db--connection nil)
-            (vulpea-meta-test--notes-dir ,notes-dir-var))
-      ;; Create temp notes directory
-      (make-directory ,notes-dir-var t)
-      (unwind-protect
-          (progn
+    `(progn
+       ;; Clean up orphan org buffers from previous tests
+       ;; This prevents `save-some-buffers' in batch operations from
+       ;; trying to save buffers pointing to deleted temp directories
+       (dolist (buf (buffer-list))
+         (when (and (buffer-file-name buf)
+                    (string-match-p "\\.org$" (buffer-file-name buf))
+                    (not (file-exists-p (buffer-file-name buf))))
+           (with-current-buffer buf
+             (set-buffer-modified-p nil))
+           (kill-buffer buf)))
+       (let* ((,db-file-var (make-temp-file "vulpea-meta-test-" nil ".db"))
+              (,notes-dir-var (expand-file-name (make-temp-name "vulpea-meta-notes-")
+                               temporary-file-directory))
+              (vulpea-db-location ,db-file-var)
+              (vulpea-db--connection nil)
+              (vulpea-meta-test--notes-dir ,notes-dir-var))
+         ;; Create temp notes directory
+         (make-directory ,notes-dir-var t)
+         (unwind-protect
+             (progn
             ;; Copy all fixture files to temp directory
             (dolist (file (directory-files vulpea-meta-test--fixture-dir t "\\.org$"))
              (copy-file file (expand-file-name (file-name-nondirectory file) ,notes-dir-var)))
@@ -62,12 +73,17 @@
             (dolist (file (directory-files ,notes-dir-var t "\\.org$"))
              (vulpea-db-update-file file))
             ,@body)
-        (when vulpea-db--connection
-         (vulpea-db-close))
-        (when (file-exists-p ,db-file-var)
-         (delete-file ,db-file-var))
-        (when (file-exists-p ,notes-dir-var)
-         (delete-directory ,notes-dir-var t))))))
+           ;; Cleanup: kill all org buffers from this test
+           (dolist (buf (buffer-list))
+             (when (and (buffer-file-name buf)
+                        (string-prefix-p ,notes-dir-var (buffer-file-name buf)))
+               (kill-buffer buf)))
+           (when vulpea-db--connection
+            (vulpea-db-close))
+           (when (file-exists-p ,db-file-var)
+            (delete-file ,db-file-var))
+           (when (file-exists-p ,notes-dir-var)
+            (delete-directory ,notes-dir-var t)))))))
 
 (defun vulpea-meta-test--save-all-buffers ()
   "Save all buffers visiting files in the test notes directory."
@@ -999,6 +1015,106 @@ This tests the fix for issue #200."
                     "11111111-1111-1111-1111-111111111111"))
      (should (equal (vulpea-note-id (car notes-beta))
                     "11111111-1111-1111-1111-111111111111")))))
+
+;;; Batch Meta Operations Tests
+
+(ert-deftest vulpea-meta-batch-set-single-note ()
+  "Test batch setting metadata on a single note."
+  (vulpea-meta-test--with-temp-db
+   (let* ((note (vulpea-db-get-by-id "444f94d7-61e0-4b7c-bb7e-100814c6b4bb"))
+          (count (vulpea-meta-batch-set (list note) "status" "done")))
+     (should (= count 1))
+     ;; Re-read note and verify meta was set
+     (let ((content (vulpea-meta-test--file-content "without-meta.org")))
+       (should (string-match-p "- status :: done" content))))))
+
+(ert-deftest vulpea-meta-batch-set-multiple-notes ()
+  "Test batch setting metadata on multiple notes."
+  (vulpea-meta-test--with-temp-db
+   (let* ((note1 (vulpea-db-get-by-id "444f94d7-61e0-4b7c-bb7e-100814c6b4bb"))
+          (note2 (vulpea-db-get-by-id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"))
+          (count (vulpea-meta-batch-set (list note1 note2) "status" "archived")))
+     (should (= count 2))
+     ;; Verify both notes have the metadata
+     (let ((content1 (vulpea-meta-test--file-content "without-meta.org"))
+           (content2 (vulpea-meta-test--file-content "reference.org")))
+       (should (string-match-p "- status :: archived" content1))
+       (should (string-match-p "- status :: archived" content2))))))
+
+(ert-deftest vulpea-meta-batch-set-list-value ()
+  "Test batch setting list values."
+  (vulpea-meta-test--with-temp-db
+   (let* ((note (vulpea-db-get-by-id "444f94d7-61e0-4b7c-bb7e-100814c6b4bb"))
+          (count (vulpea-meta-batch-set (list note) "tags" '("a" "b" "c"))))
+     (should (= count 1))
+     (let ((content (vulpea-meta-test--file-content "without-meta.org")))
+       (should (string-match-p "- tags :: a" content))
+       (should (string-match-p "- tags :: b" content))
+       (should (string-match-p "- tags :: c" content))))))
+
+(ert-deftest vulpea-meta-batch-set-empty-list ()
+  "Test batch setting with empty notes list."
+  (vulpea-meta-test--with-temp-db
+   (let ((count (vulpea-meta-batch-set nil "status" "done")))
+     (should (= count 0)))))
+
+(ert-deftest vulpea-meta-batch-set-replaces-existing ()
+  "Test that batch set replaces existing values."
+  (vulpea-meta-test--with-temp-db
+   ;; with-meta.org already has "name" property
+   (let* ((note (vulpea-db-get-by-id "05907606-f836-45bf-bd36-a8444308eddd"))
+          (count (vulpea-meta-batch-set (list note) "name" "new batch name")))
+     (should (= count 1))
+     (let ((content (vulpea-meta-test--file-content "with-meta.org")))
+       (should (string-match-p "- name :: new batch name" content))
+       ;; Old value should be gone
+       (should-not (string-match-p "some name" content))))))
+
+(ert-deftest vulpea-meta-batch-remove-single-note ()
+  "Test batch removing metadata from a single note."
+  (vulpea-meta-test--with-temp-db
+   ;; with-meta.org has "name" property
+   (let* ((note (vulpea-db-get-by-id "05907606-f836-45bf-bd36-a8444308eddd"))
+          (count (vulpea-meta-batch-remove (list note) "name")))
+     (should (= count 1))
+     (let ((content (vulpea-meta-test--file-content "with-meta.org")))
+       (should-not (string-match-p "- name ::" content))
+       ;; Other properties should still exist
+       (should (string-match-p "- url ::" content))))))
+
+(ert-deftest vulpea-meta-batch-remove-multiple-notes ()
+  "Test batch removing metadata from multiple notes."
+  (vulpea-meta-test--with-temp-db
+   ;; First add status to both notes
+   (vulpea-meta-set "444f94d7-61e0-4b7c-bb7e-100814c6b4bb" "status" "active")
+   (vulpea-meta-set "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7" "status" "active")
+   (vulpea-meta-test--save-all-buffers)
+   ;; Now batch remove
+   (let* ((note1 (vulpea-db-get-by-id "444f94d7-61e0-4b7c-bb7e-100814c6b4bb"))
+          (note2 (vulpea-db-get-by-id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"))
+          (count (vulpea-meta-batch-remove (list note1 note2) "status")))
+     (should (= count 2))
+     (let ((content1 (vulpea-meta-test--file-content "without-meta.org"))
+           (content2 (vulpea-meta-test--file-content "reference.org")))
+       (should-not (string-match-p "- status ::" content1))
+       (should-not (string-match-p "- status ::" content2))))))
+
+(ert-deftest vulpea-meta-batch-remove-nonexistent ()
+  "Test batch removing nonexistent property does nothing harmful."
+  (vulpea-meta-test--with-temp-db
+   (let* ((note (vulpea-db-get-by-id "444f94d7-61e0-4b7c-bb7e-100814c6b4bb"))
+          (content-before (vulpea-meta-test--file-content "without-meta.org"))
+          (count (vulpea-meta-batch-remove (list note) "nonexistent-prop")))
+     (should (= count 1))
+     ;; File should be unchanged (or minimal change)
+     (let ((content-after (vulpea-meta-test--file-content "without-meta.org")))
+       (should (equal content-before content-after))))))
+
+(ert-deftest vulpea-meta-batch-remove-empty-list ()
+  "Test batch removing with empty notes list."
+  (vulpea-meta-test--with-temp-db
+   (let ((count (vulpea-meta-batch-remove nil "status")))
+     (should (= count 0)))))
 
 (provide 'vulpea-meta-test)
 ;;; vulpea-meta-test.el ends here
