@@ -444,6 +444,73 @@ For heading-level notes (=level > 0=), metadata is the first description list wi
 
 This scoping applies to all =vulpea-meta-*= and =vulpea-buffer-meta-*= functions.
 
+* Tags
+
+** Per-Note Tag Operations
+
+Get or modify tags for a specific note (works with both file-level and heading-level notes):
+
+#+begin_src emacs-lisp
+;; Get tags for a note
+(vulpea-tags note-or-id)
+;; => ("project" "active")
+
+;; Add tags
+(vulpea-tags-add note-or-id "new-tag")
+(vulpea-tags-add note-or-id "tag1" "tag2" "tag3")
+
+;; Remove tags
+(vulpea-tags-remove note-or-id "old-tag")
+(vulpea-tags-remove note-or-id "tag1" "tag2")
+
+;; Set tags (replaces all existing tags)
+(vulpea-tags-set note-or-id "only" "these" "tags")
+#+end_src
+
+For file-level notes (=level = 0=), these modify =#+filetags=. For heading-level notes (=level > 0=), they modify org heading tags.
+
+** Batch Tag Operations
+
+Operate on multiple notes efficiently using =vulpea-utils-process-notes=:
+
+#+begin_src emacs-lisp
+;; Add a tag to multiple notes
+(vulpea-tags-batch-add notes "archived")
+;; => count of notes processed
+
+;; Remove a tag from multiple notes
+(vulpea-tags-batch-remove notes "active")
+;; => count of notes processed
+
+;; Rename a tag across all notes (implements #120)
+(vulpea-tags-batch-rename "old-tag" "new-tag")
+;; => count of notes modified
+
+;; Interactive: M-x vulpea-tags-batch-rename
+;; - Prompts for old tag (with completion from existing tags)
+;; - Prompts for new tag name
+;; - Shows count of modified notes
+#+end_src
+
+The rename function queries for all notes with the old tag, removes it, and adds the new tag. When called interactively via =M-x vulpea-tags-batch-rename=, it provides completion for existing tags.
+
+** Batch Metadata Operations
+
+Operate on metadata across multiple notes:
+
+#+begin_src emacs-lisp
+;; Set a metadata property on multiple notes
+(vulpea-meta-batch-set notes "status" "archived")
+;; => count of notes processed
+
+;; Set a list value
+(vulpea-meta-batch-set notes "tags" '("a" "b" "c"))
+
+;; Remove a metadata property from multiple notes
+(vulpea-meta-batch-remove notes "deprecated-key")
+;; => count of notes processed
+#+end_src
+
 * Modifying Notes Programmatically
 
 ** With Async Sync
@@ -684,13 +751,27 @@ For advanced use cases, direct database access:
 | =vulpea-db-query-by-level=            | Notes at specific level              |
 | =vulpea-db-query-tags=                | Get all unique tags                  |
 | =vulpea-db-query-dead-links=          | Find broken ID links                 |
-| =vulpea-db-query-orphan-notes=        | Notes with no incoming ID links       |
-| =vulpea-db-query-isolated-notes=      | Notes with no connections at all      |
-| =vulpea-db-query-title-collisions=    | Notes sharing the same title          |
-| =vulpea-db-query-links=              | All links as plists                   |
-| =vulpea-db-query-links-by-type=      | Links filtered by type                |
-| =vulpea-db-query-links-from=         | Outgoing links from a note            |
-| =vulpea-db-query-links-to=           | Incoming links (backlinks) to a note  |
+| =vulpea-db-query-orphan-notes=        | Notes with no incoming ID links      |
+| =vulpea-db-query-isolated-notes=      | Notes with no connections at all     |
+| =vulpea-db-query-title-collisions=    | Notes sharing the same title         |
+| =vulpea-db-query-links=               | All links as plists                  |
+| =vulpea-db-query-links-by-type=       | Links filtered by type               |
+| =vulpea-db-query-links-from=          | Outgoing links from a note           |
+| =vulpea-db-query-links-to=            | Incoming links (backlinks) to a note |
+
+** Tag Functions
+
+| Function                   | Description                                 |
+|----------------------------+---------------------------------------------|
+| =vulpea-tags=              | Get tags for a note                         |
+| =vulpea-tags-add=          | Add tags to a note                          |
+| =vulpea-tags-remove=       | Remove tags from a note                     |
+| =vulpea-tags-set=          | Set tags for a note (replace all)           |
+| =vulpea-tags-batch-add=    | Add a tag to multiple notes                 |
+| =vulpea-tags-batch-remove= | Remove a tag from multiple notes            |
+| =vulpea-tags-batch-rename= | Rename a tag across all notes (interactive) |
+| =vulpea-meta-batch-set=    | Set metadata property on notes              |
+| =vulpea-meta-batch-remove= | Remove metadata property from notes         |
 
 ** Buffer Functions
 

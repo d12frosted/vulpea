@@ -313,5 +313,29 @@ When called interactively, operates on the note at point:
           ;; File-level note - use buffer scope
           (vulpea-buffer-meta-clean))))))
 
+;;; Batch meta operations
+
+(defun vulpea-meta-batch-set (notes prop value)
+  "Set VALUE of PROP for all NOTES.
+
+Uses `vulpea-utils-process-notes' for efficient batch processing.
+Returns the count of notes processed."
+  (let ((count 0))
+    (vulpea-utils-process-notes notes
+      (vulpea-buffer-meta-set prop value)
+      (setq count (1+ count)))
+    count))
+
+(defun vulpea-meta-batch-remove (notes prop)
+  "Remove PROP from all NOTES.
+
+Uses `vulpea-utils-process-notes' for efficient batch processing.
+Returns the count of notes processed."
+  (let ((count 0))
+    (vulpea-utils-process-notes notes
+      (vulpea-buffer-meta-remove prop)
+      (setq count (1+ count)))
+    count))
+
 (provide 'vulpea-meta)
 ;;; vulpea-meta.el ends here

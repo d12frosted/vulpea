@@ -66,6 +66,7 @@
 (require 'vulpea-meta)
 (require 'vulpea-note)
 (require 'vulpea-select)
+(require 'vulpea-tags)
 (require 'vulpea-utils)
 (require 's)
 

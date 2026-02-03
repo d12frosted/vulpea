@@ -187,6 +187,51 @@ M-x vulpea-buffer-tags-remove
 (vulpea-buffer-tags-set '("project" "active"))
 #+end_src
 
+** Working with Tags by Note
+
+When you have a note (or note ID) and want to modify its tags without visiting the buffer:
+
+#+begin_src emacs-lisp
+;; Get tags for any note
+(vulpea-tags note-or-id)
+
+;; Add/remove tags
+(vulpea-tags-add note-or-id "new-tag")
+(vulpea-tags-remove note-or-id "old-tag")
+
+;; Replace all tags
+(vulpea-tags-set note-or-id "only" "these")
+#+end_src
+
+** Renaming Tags Globally
+
+To rename a tag across all notes:
+
+#+begin_example
+M-x vulpea-tags-batch-rename
+#+end_example
+
+This prompts for the old tag (with completion) and new tag name, then updates all affected notes.
+
+Programmatically:
+
+#+begin_src emacs-lisp
+(vulpea-tags-batch-rename "old-name" "new-name")
+;; => count of modified notes
+#+end_src
+
+** Batch Tag Operations
+
+For operating on multiple notes at once:
+
+#+begin_src emacs-lisp
+;; Add a tag to multiple notes
+(vulpea-tags-batch-add notes "archived")
+
+;; Remove a tag from multiple notes
+(vulpea-tags-batch-remove notes "active")
+#+end_src
+
 * Managing Aliases
 
 Aliases are alternative titles for a note, useful when the same concept has multiple names.

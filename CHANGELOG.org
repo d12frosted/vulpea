@@ -9,6 +9,12 @@
 
 ** Unreleased
 
+*Features*
+
+- [[https://github.com/d12frosted/vulpea/issues/211][vulpea#211]] Add per-note tag operations in new =vulpea-tags.el= module: =vulpea-tags= (get), =vulpea-tags-add=, =vulpea-tags-remove=, =vulpea-tags-set=. These work with both file-level notes (filetags) and heading-level notes (org heading tags).
+- [[https://github.com/d12frosted/vulpea/issues/211][vulpea#211]] Add batch tag operations: =vulpea-tags-batch-add=, =vulpea-tags-batch-remove=, and =vulpea-tags-batch-rename=. The rename function implements [[https://github.com/d12frosted/vulpea/issues/120][vulpea#120]], allowing global tag renaming across all notes. =vulpea-tags-batch-rename= is interactive with completion for existing tags.
+- [[https://github.com/d12frosted/vulpea/issues/211][vulpea#211]] Add batch metadata operations: =vulpea-meta-batch-set= and =vulpea-meta-batch-remove= for efficiently setting or removing metadata properties across multiple notes. Both use =vulpea-utils-process-notes= for optimized batch processing.
+
 *Fixes*
 
 - [[https://github.com/d12frosted/vulpea/issues/227][vulpea#227]] Enable alias expansion by default in =vulpea-find= and =vulpea-insert=. Previously, notes could only be found by their primary title even though the =:expand-aliases= feature existed in =vulpea-select-from=. Now both functions pass =:expand-aliases t= by default, so notes with aliases appear multiple times in the completion list — once for the original title and once for each alias.
