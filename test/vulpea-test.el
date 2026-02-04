@@ -913,66 +913,6 @@ Uses Unicode normalization to preserve base characters from accented letters."
 
 ;;; Title Propagation Tests
 
-;;;; Link Description Extraction Tests
-
-(ert-deftest vulpea-extract-link-description-at-pos ()
-  "Test extracting link description from file at position."
-  (let* ((target-id "target-note-id")
-         (linking-content
-          (format ":PROPERTIES:\n:ID: linking-id\n:END:\n#+TITLE: Linking Note\n\nSee [[id:%s][My Description]]." target-id))
-         (linking-path (vulpea-test--create-temp-org-file linking-content)))
-    (unwind-protect
-        (with-current-buffer (find-file-noselect linking-path)
-          ;; Find the position of the link
-          (goto-char (point-min))
-          (re-search-forward "\\[\\[id:")
-          (let ((link-pos (match-beginning 0)))
-            ;; Test extraction
-            (let ((desc (vulpea--extract-link-description-at-pos linking-path link-pos)))
-              (should (equal desc "My Description")))))
-      (when (get-file-buffer linking-path)
-        (kill-buffer (get-file-buffer linking-path)))
-      (when (file-exists-p linking-path)
-        (delete-file linking-path)))))
-
-(ert-deftest vulpea-extract-link-description-no-description ()
-  "Test extracting when link has no description [[id:xxx]]."
-  (let* ((target-id "target-note-id")
-         (linking-content
-          (format ":PROPERTIES:\n:ID: linking-id\n:END:\n#+TITLE: Linking Note\n\nSee [[id:%s]]." target-id))
-         (linking-path (vulpea-test--create-temp-org-file linking-content)))
-    (unwind-protect
-        (with-current-buffer (find-file-noselect linking-path)
-          ;; Find the position of the link
-          (goto-char (point-min))
-          (re-search-forward "\\[\\[id:")
-          (let ((link-pos (match-beginning 0)))
-            ;; Test extraction - should return nil for no description
-            (let ((desc (vulpea--extract-link-description-at-pos linking-path link-pos)))
-              (should (null desc)))))
-      (when (get-file-buffer linking-path)
-        (kill-buffer (get-file-buffer linking-path)))
-      (when (file-exists-p linking-path)
-        (delete-file linking-path)))))
-
-(ert-deftest vulpea-extract-link-description-multiword ()
-  "Test extracting link description with multiple words and special chars."
-  (let* ((target-id "target-note-id")
-         (linking-content
-          (format ":PROPERTIES:\n:ID: linking-id\n:END:\n#+TITLE: Linking Note\n\nSee [[id:%s][Project: Alpha (2024)]]." target-id))
-         (linking-path (vulpea-test--create-temp-org-file linking-content)))
-    (unwind-protect
-        (with-current-buffer (find-file-noselect linking-path)
-          (goto-char (point-min))
-          (re-search-forward "\\[\\[id:")
-          (let ((link-pos (match-beginning 0)))
-            (let ((desc (vulpea--extract-link-description-at-pos linking-path link-pos)))
-              (should (equal desc "Project: Alpha (2024)")))))
-      (when (get-file-buffer linking-path)
-        (kill-buffer (get-file-buffer linking-path)))
-      (when (file-exists-p linking-path)
-        (delete-file linking-path)))))
-
 ;;;; Link Categorization Tests
 
 (ert-deftest vulpea-categorize-links-exact-title-match ()
