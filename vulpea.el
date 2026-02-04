@@ -194,6 +194,92 @@ See: https://github.com/org-roam/org-roam/pull/1460"
 
 (define-obsolete-function-alias 'vulpea--title-to-slug #'vulpea-title-to-slug "2.0.0")
 
+;;; Link Description Extraction and Categorization
+
+(defun vulpea--extract-link-description-at-pos (file pos)
+  "Extract link description from FILE at POS.
+Returns the description string or nil if link has no description.
+
+The link format is [[id:xxx][description]] or [[id:xxx]].
+POS should point to the opening brackets of the link."
+  (with-current-buffer (find-file-noselect file)
+    (save-excursion
+      (goto-char pos)
+      ;; We're at the start of [[id:...
+      (when (looking-at "\\[\\[id:[^]]+\\]\\[\\([^]]+\\)\\]\\]")
+        (match-string-no-properties 1)))))
+
+(defun vulpea--get-incoming-links-with-descriptions (note-id)
+  "Get all links pointing to NOTE-ID with their descriptions.
+Returns list of plists with :source-id :source-path :pos :description."
+  (let* ((links (vulpea-db-query-links-to note-id))
+         result)
+    (dolist (link links)
+      (let* ((source-id (plist-get link :source))
+             (source-note (vulpea-db-get-by-id source-id))
+             (source-path (when source-note (vulpea-note-path source-note)))
+             (pos (plist-get link :pos))
+             (description (when source-path
+                            (vulpea--extract-link-description-at-pos source-path pos))))
+        (when source-path
+          (push (list :source-id source-id
+                      :source-path source-path
+                      :pos pos
+                      :description description)
+                result))))
+    (nreverse result)))
+
+(defun vulpea--categorize-links (links old-title old-aliases)
+  "Categorize LINKS into exact and partial matches.
+Case-insensitive matching against OLD-TITLE and OLD-ALIASES.
+Returns plist (:exact :partial).
+
+Exact matches: description equals old title or any alias (case-insensitive).
+Partial matches: description contains old title or any alias but isn't exact.
+Links with nil descriptions or custom descriptions are excluded."
+  (let ((exact '())
+        (partial '())
+        (match-strings (cons old-title (or old-aliases '()))))
+    (dolist (link links)
+      (let ((desc (plist-get link :description)))
+        (when desc
+          (let ((desc-down (downcase desc))
+                (is-exact nil)
+                (is-partial nil))
+            ;; Check against title and all aliases
+            (dolist (match-str match-strings)
+              (let ((match-down (downcase match-str)))
+                (cond
+                 ;; Exact match (case-insensitive)
+                 ((string= desc-down match-down)
+                  (setq is-exact t))
+                 ;; Partial match - contains but not exact
+                 ((and (not is-exact)
+                       (string-match-p (regexp-quote match-down) desc-down))
+                  (setq is-partial t)))))
+            ;; Categorize
+            (cond
+             (is-exact (push link exact))
+             (is-partial (push link partial)))))))
+    (list :exact (nreverse exact)
+          :partial (nreverse partial))))
+
+(defun vulpea--update-link-description (file pos new-description)
+  "Update link description at POS in FILE to NEW-DESCRIPTION.
+Works for both bare links [[id:xxx]] and links with descriptions [[id:xxx][old]]."
+  (with-current-buffer (find-file-noselect file)
+    (save-excursion
+      (goto-char pos)
+      (cond
+       ;; Link with existing description: [[id:xxx][old]]
+       ((looking-at "\\(\\[\\[id:[^]]+\\]\\)\\[\\([^]]*\\)\\]\\]")
+        (let ((link-part (match-string 1)))
+          (replace-match (concat link-part "[" new-description "]]"))))
+       ;; Bare link without description: [[id:xxx]]
+       ((looking-at "\\(\\[\\[id:[^]]+\\)\\]\\]")
+        (let ((link-part (match-string 1)))
+          (replace-match (concat link-part "][" new-description "]]"))))))))
+
 (defun vulpea--default-directory ()
   "Return the default directory for creating new notes.
 
@@ -659,6 +745,248 @@ Note: Does not support %a or %i from org-capture."
         (error "vulpea-create: Note with ID %s not found in database after creation" id))))
 
 
+
+;;; Title Change Detection Mode
+
+(defvar-local vulpea--title-before-save nil
+  "Title of note before save, for change detection.")
+
+(defvar-local vulpea--aliases-before-save nil
+  "Aliases of note before save, for change detection.")
+
+(defvar-local vulpea--note-id-before-save nil
+  "ID of note before save, for change detection.")
+
+(defun vulpea--capture-before-save ()
+  "Capture title/aliases/id before save for change detection."
+  (when (derived-mode-p 'org-mode)
+    (save-excursion
+      (goto-char (point-min))
+      ;; Capture ID
+      (setq vulpea--note-id-before-save (org-entry-get nil "ID"))
+      ;; Capture title
+      (setq vulpea--title-before-save
+            (when (re-search-forward "^#\\+title:[ \t]*\\(.+\\)$" nil t)
+              (match-string-no-properties 1)))
+      ;; Capture aliases
+      (goto-char (point-min))
+      (setq vulpea--aliases-before-save
+            (when (re-search-forward "^#\\+roam_aliases:[ \t]*\\(.+\\)$" nil t)
+              (split-string (match-string-no-properties 1) "[ \t]+"))))))
+
+(defun vulpea--notify-title-change ()
+  "After save, check if title changed and notify user."
+  (when (and vulpea--note-id-before-save
+             vulpea--title-before-save
+             (derived-mode-p 'org-mode))
+    (save-excursion
+      (goto-char (point-min))
+      (when (re-search-forward "^#\\+title:[ \t]*\\(.+\\)$" nil t)
+        (let ((new-title (match-string-no-properties 1)))
+          (unless (string= new-title vulpea--title-before-save)
+            (message "Title changed from \"%s\" to \"%s\". Run M-x vulpea-propagate-title-change to update references."
+                     vulpea--title-before-save new-title)))))))
+
+;;;###autoload
+(define-minor-mode vulpea-title-change-detection-mode
+  "Minor mode to detect title changes and notify user.
+
+When enabled, this mode tracks the note's title before each save.
+After saving, if the title has changed, it notifies the user and
+suggests running `vulpea-propagate-title-change' to update incoming
+link descriptions."
+  :lighter " VulpTD"
+  :group 'vulpea
+  (if vulpea-title-change-detection-mode
+      (progn
+        (add-hook 'before-save-hook #'vulpea--capture-before-save nil t)
+        (add-hook 'after-save-hook #'vulpea--notify-title-change nil t))
+    (remove-hook 'before-save-hook #'vulpea--capture-before-save t)
+    (remove-hook 'after-save-hook #'vulpea--notify-title-change t)))
+
+;;; Title Propagation Command
+
+;;;###autoload
+(cl-defun vulpea-propagate-title-change (&optional note-or-id)
+  "Propagate title change for NOTE-OR-ID to filename and incoming links.
+
+With prefix arg (\\[universal-argument]), preview changes without applying (dry-run).
+
+When called interactively:
+- Determines the note from current buffer or prompts user
+- Prompts for old title if not recently detected
+- Offers to rename the file based on new title
+- Updates exact-match link descriptions to new title
+- Shows partial matches for manual review
+
+Interactive flow:
+1. Prompt for file rename (y/n)
+2. For exact matches: [!] Update all, [r] Review, [s] Skip, [q] Quit
+3. Partial matches shown with option to open files"
+  (interactive)
+  (let* ((dry-run current-prefix-arg)
+         ;; Determine the note
+         (note (cond
+                ((vulpea-note-p note-or-id) note-or-id)
+                ((stringp note-or-id) (vulpea-db-get-by-id note-or-id))
+                (t (when-let ((id (org-entry-get nil "ID")))
+                     (vulpea-db-get-by-id id)))))
+         (note (or note
+                   (vulpea-select "Note to propagate")))
+         (note-id (vulpea-note-id note))
+         (new-title (vulpea-note-title note))
+         ;; Get old title - from detection or prompt
+         (old-title (or vulpea--title-before-save
+                        (read-string (format "Old title (new is \"%s\"): " new-title))))
+         (old-aliases (or vulpea--aliases-before-save
+                          (vulpea-note-aliases note)))
+         ;; Get incoming links
+         (links (vulpea--get-incoming-links-with-descriptions note-id))
+         (categorized (vulpea--categorize-links links old-title old-aliases))
+         (exact-links (plist-get categorized :exact))
+         (partial-links (plist-get categorized :partial))
+         (exact-count (length exact-links))
+         (partial-count (length partial-links)))
+
+    ;; Check if title actually changed
+    (when (string= old-title new-title)
+      (user-error "Title has not changed (\"%s\")" new-title))
+
+    ;; Dry-run: just show summary
+    (when dry-run
+      (with-output-to-temp-buffer "*vulpea-propagate-preview*"
+        (princ (format "Title propagation preview for: %s\n" note-id))
+        (princ (format "Old title: %s\n" old-title))
+        (princ (format "New title: %s\n\n" new-title))
+        (princ (format "File rename: %s → %s\n\n"
+                       (file-name-nondirectory (vulpea-note-path note))
+                       (concat (vulpea-title-to-slug new-title) ".org")))
+        (princ (format "Exact matches (%d):\n" exact-count))
+        (dolist (link exact-links)
+          (princ (format "  %s at pos %d: \"%s\"\n"
+                         (file-name-nondirectory (plist-get link :source-path))
+                         (plist-get link :pos)
+                         (plist-get link :description))))
+        (princ (format "\nPartial matches (%d):\n" partial-count))
+        (dolist (link partial-links)
+          (princ (format "  %s at pos %d: \"%s\"\n"
+                         (file-name-nondirectory (plist-get link :source-path))
+                         (plist-get link :pos)
+                         (plist-get link :description)))))
+      (message "Dry-run complete. See *vulpea-propagate-preview* buffer.")
+      (cl-return-from vulpea-propagate-title-change))
+
+    ;; Offer file rename for file-level notes
+    (when (and (= (vulpea-note-level note) 0)
+               (y-or-n-p (format "Rename file \"%s\" → \"%s\"? "
+                                 (file-name-nondirectory (vulpea-note-path note))
+                                 (concat (vulpea-title-to-slug new-title) ".org"))))
+      (condition-case err
+          (vulpea-rename-file note new-title)
+        (error (message "File rename failed: %s" (error-message-string err)))))
+
+    ;; Handle exact matches
+    (when (> exact-count 0)
+      (message "Found %d exact match%s, %d partial match%s"
+               exact-count (if (= exact-count 1) "" "es")
+               partial-count (if (= partial-count 1) "" "es"))
+      (let ((action (read-char-choice
+                     (format "Exact matches (%d): [!] Update all  [r] Review  [s] Skip  [q] Quit: "
+                             exact-count)
+                     '(?! ?r ?s ?q))))
+        (pcase action
+          (?! ;; Update all exact matches
+           (dolist (link exact-links)
+             (vulpea--update-link-description
+              (plist-get link :source-path)
+              (plist-get link :pos)
+              new-title)
+             (when-let ((buf (get-file-buffer (plist-get link :source-path))))
+               (with-current-buffer buf
+                 (save-buffer))))
+           (message "Updated %d link%s" exact-count (if (= exact-count 1) "" "s")))
+          (?r ;; Review individually
+           (let ((updated 0))
+             (dolist (link exact-links)
+               (let ((path (plist-get link :source-path))
+                     (pos (plist-get link :pos))
+                     (desc (plist-get link :description)))
+                 (when (y-or-n-p (format "Update \"%s\" in %s? "
+                                         desc (file-name-nondirectory path)))
+                   (vulpea--update-link-description path pos new-title)
+                   (when-let ((buf (get-file-buffer path)))
+                     (with-current-buffer buf
+                       (save-buffer)))
+                   (cl-incf updated))))
+             (message "Updated %d of %d link%s"
+                      updated exact-count (if (= exact-count 1) "" "s"))))
+          (?s ;; Skip exact matches
+           (message "Skipped exact matches"))
+          (?q ;; Quit
+           (user-error "Aborted")))))
+
+    ;; Handle partial matches
+    (when (> partial-count 0)
+      (when (y-or-n-p (format "Open %d file%s with partial matches for manual editing? "
+                              partial-count (if (= partial-count 1) "" "s")))
+        (let ((files (delete-dups
+                      (mapcar (lambda (l) (plist-get l :source-path))
+                              partial-links))))
+          (dolist (file files)
+            (find-file-other-window file)))))
+
+    ;; Clear detection state
+    (setq vulpea--title-before-save nil
+          vulpea--aliases-before-save nil)
+
+    (message "Title propagation complete.")))
+
+;;;###autoload
+(defun vulpea-rename-file (note-or-id new-title)
+  "Rename NOTE-OR-ID's file based on NEW-TITLE slug.
+Updates the file on disk and database.
+
+The new filename is generated as NEW-TITLE converted to slug with .org extension,
+placed in the same directory as the original file.
+
+Returns the new file path.
+
+Signals an error if:
+- The note cannot be found
+- The target file already exists
+- The note is a heading-level note (level > 0)"
+  (let* ((note (if (vulpea-note-p note-or-id)
+                   note-or-id
+                 (vulpea-db-get-by-id note-or-id)))
+         (old-path (when note (vulpea-note-path note)))
+         (dir (when old-path (file-name-directory old-path)))
+         (new-filename (concat (vulpea-title-to-slug new-title) ".org"))
+         (new-path (when dir (expand-file-name new-filename dir))))
+    (unless note
+      (error "vulpea-rename-file: Cannot find note with ID: %s"
+             (if (vulpea-note-p note-or-id)
+                 (vulpea-note-id note-or-id)
+               note-or-id)))
+    (when (> (vulpea-note-level note) 0)
+      (error "vulpea-rename-file: Cannot rename file for heading-level note"))
+    (when (file-exists-p new-path)
+      (error "vulpea-rename-file: Target file already exists: %s" new-path))
+    ;; Kill buffer if file is open
+    (let ((buf (get-file-buffer old-path)))
+      (when buf
+        (with-current-buffer buf
+          (save-buffer))
+        (kill-buffer buf)))
+    ;; Rename file on disk
+    (rename-file old-path new-path)
+    ;; Update org-id location
+    (org-id-add-location (vulpea-note-id note) new-path)
+    ;; Delete old file from database and add new one
+    (vulpea-db--delete-file-notes old-path)
+    (vulpea-db-update-file new-path)
+    new-path))
+
+
 
 (provide 'vulpea)
 ;;; vulpea.el ends here
