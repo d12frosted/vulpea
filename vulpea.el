@@ -213,11 +213,18 @@ POS should point to the opening brackets of the link."
   "Get all links pointing to NOTE-ID with their descriptions.
 Returns list of plists with :source-id :source-path :pos :description."
   (let* ((links (vulpea-db-query-links-to note-id))
+         ;; Collect unique source IDs and batch fetch
+         (source-ids (delete-dups (mapcar (lambda (l) (plist-get l :source)) links)))
+         (source-notes (vulpea-db-query-by-ids source-ids))
+         ;; Build id->path lookup table
+         (id-to-path (make-hash-table :test 'equal))
          result)
+    (dolist (note source-notes)
+      (puthash (vulpea-note-id note) (vulpea-note-path note) id-to-path))
+    ;; Process links using lookup table
     (dolist (link links)
       (let* ((source-id (plist-get link :source))
-             (source-note (vulpea-db-get-by-id source-id))
-             (source-path (when source-note (vulpea-note-path source-note)))
+             (source-path (gethash source-id id-to-path))
              (pos (plist-get link :pos))
              (description
               (when source-path
@@ -230,38 +237,29 @@ Returns list of plists with :source-id :source-path :pos :description."
                 result))))
     (nreverse result)))
 
-(defun vulpea--categorize-links (links old-title old-aliases)
+(defun vulpea--categorize-links (links old-title)
   "Categorize LINKS into exact and partial matches.
-Case-insensitive matching against OLD-TITLE and OLD-ALIASES.
+Case-insensitive matching against OLD-TITLE.
 Returns plist (:exact :partial).
 
-Exact matches: description equals old title or any alias (case-insensitive).
-Partial matches: description contains old title or any alias but isn't exact.
+Exact matches: description equals old title (case-insensitive).
+Partial matches: description contains old title but isn't exact.
+Links using aliases are left unchanged (alias is still valid).
 Links with nil descriptions or custom descriptions are excluded."
   (let ((exact '())
         (partial '())
-        (match-strings (cons old-title (or old-aliases '()))))
+        (title-down (downcase old-title)))
     (dolist (link links)
       (let ((desc (plist-get link :description)))
         (when desc
-          (let ((desc-down (downcase desc))
-                (is-exact nil)
-                (is-partial nil))
-            ;; Check against title and all aliases
-            (dolist (match-str match-strings)
-              (let ((match-down (downcase match-str)))
-                (cond
-                 ;; Exact match (case-insensitive)
-                 ((string= desc-down match-down)
-                  (setq is-exact t))
-                 ;; Partial match - contains but not exact
-                 ((and (not is-exact)
-                       (string-match-p (regexp-quote match-down) desc-down))
-                  (setq is-partial t)))))
-            ;; Categorize
+          (let ((desc-down (downcase desc)))
             (cond
-             (is-exact (push link exact))
-             (is-partial (push link partial)))))))
+             ;; Exact match (case-insensitive)
+             ((string= desc-down title-down)
+              (push link exact))
+             ;; Partial match - contains but not exact
+             ((string-match-p (regexp-quote title-down) desc-down)
+              (push link partial)))))))
     (list :exact (nreverse exact)
           :partial (nreverse partial))))
 
@@ -753,9 +751,6 @@ Note: Does not support %a or %i from org-capture."
 (defvar-local vulpea--title-before-save nil
   "Title of note before save, for change detection.")
 
-(defvar-local vulpea--aliases-before-save nil
-  "Aliases of note before save, for change detection.")
-
 (defvar-local vulpea--note-id-before-save nil
   "ID of note before save, for change detection.")
 
@@ -836,11 +831,9 @@ Interactive flow:
          (old-title
           (or vulpea--title-before-save
               (read-string (format "Old title (new: \"%s\"): " new-title))))
-         (old-aliases (or vulpea--aliases-before-save
-                          (vulpea-note-aliases note)))
          ;; Get incoming links
          (links (vulpea--get-incoming-links-with-descriptions note-id))
-         (categorized (vulpea--categorize-links links old-title old-aliases))
+         (categorized (vulpea--categorize-links links old-title))
          (exact-links (plist-get categorized :exact))
          (partial-links (plist-get categorized :partial))
          (exact-count (length exact-links))
@@ -938,8 +931,7 @@ Interactive flow:
             (find-file-other-window file)))))
 
     ;; Clear detection state
-    (setq vulpea--title-before-save nil
-          vulpea--aliases-before-save nil)
+    (setq vulpea--title-before-save nil)
 
     (message "Title propagation complete.")))
 
