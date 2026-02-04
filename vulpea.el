@@ -771,15 +771,13 @@ Note: Does not support %a or %i from org-capture."
   (when (and vulpea--note-id-before-save
              vulpea--title-before-save
              (derived-mode-p 'org-mode))
-    (save-excursion
-      (goto-char (point-min))
-      (when (re-search-forward "^#\\+title:[ \t]*\\(.+\\)$" nil t)
-        (let ((new-title (match-string-no-properties 1)))
-          (unless (string= new-title vulpea--title-before-save)
-            (message
-             (concat "Title changed from \"%s\" to \"%s\". "
-                     "Run M-x vulpea-propagate-title-change to update.")
-             vulpea--title-before-save new-title)))))))
+    (let ((new-title (vulpea-buffer-title-get)))
+      (when (and new-title
+                 (not (string= new-title vulpea--title-before-save)))
+        (message
+         (concat "Title changed from \"%s\" to \"%s\". "
+                 "Run M-x vulpea-propagate-title-change to update.")
+         vulpea--title-before-save new-title)))))
 
 ;;;###autoload
 (define-minor-mode vulpea-title-change-detection-mode
