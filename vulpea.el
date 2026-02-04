@@ -219,8 +219,9 @@ Returns list of plists with :source-id :source-path :pos :description."
              (source-note (vulpea-db-get-by-id source-id))
              (source-path (when source-note (vulpea-note-path source-note)))
              (pos (plist-get link :pos))
-             (description (when source-path
-                            (vulpea--extract-link-description-at-pos source-path pos))))
+             (description
+              (when source-path
+                (vulpea--extract-link-description-at-pos source-path pos))))
         (when source-path
           (push (list :source-id source-id
                       :source-path source-path
@@ -266,7 +267,8 @@ Links with nil descriptions or custom descriptions are excluded."
 
 (defun vulpea--update-link-description (file pos new-description)
   "Update link description at POS in FILE to NEW-DESCRIPTION.
-Works for both bare links [[id:xxx]] and links with descriptions [[id:xxx][old]]."
+Works for both bare links [[id:xxx]] and links with
+descriptions [[id:xxx][old]]."
   (with-current-buffer (find-file-noselect file)
     (save-excursion
       (goto-char pos)
@@ -784,8 +786,10 @@ Note: Does not support %a or %i from org-capture."
       (when (re-search-forward "^#\\+title:[ \t]*\\(.+\\)$" nil t)
         (let ((new-title (match-string-no-properties 1)))
           (unless (string= new-title vulpea--title-before-save)
-            (message "Title changed from \"%s\" to \"%s\". Run M-x vulpea-propagate-title-change to update references."
-                     vulpea--title-before-save new-title)))))))
+            (message
+             (concat "Title changed from \"%s\" to \"%s\". "
+                     "Run M-x vulpea-propagate-title-change to update.")
+             vulpea--title-before-save new-title)))))))
 
 ;;;###autoload
 (define-minor-mode vulpea-title-change-detection-mode
@@ -808,9 +812,10 @@ link descriptions."
 
 ;;;###autoload
 (cl-defun vulpea-propagate-title-change (&optional note-or-id)
-  "Propagate title change for NOTE-OR-ID to filename and incoming links.
+  "Propagate title change for NOTE-OR-ID to filename and links.
 
-With prefix arg (\\[universal-argument]), preview changes without applying (dry-run).
+With prefix arg (\\[universal-argument]), preview changes without
+applying (dry-run).
 
 When called interactively:
 - Determines the note from current buffer or prompts user
@@ -836,8 +841,9 @@ Interactive flow:
          (note-id (vulpea-note-id note))
          (new-title (vulpea-note-title note))
          ;; Get old title - from detection or prompt
-         (old-title (or vulpea--title-before-save
-                        (read-string (format "Old title (new is \"%s\"): " new-title))))
+         (old-title
+          (or vulpea--title-before-save
+              (read-string (format "Old title (new: \"%s\"): " new-title))))
          (old-aliases (or vulpea--aliases-before-save
                           (vulpea-note-aliases note)))
          ;; Get incoming links
@@ -878,9 +884,10 @@ Interactive flow:
 
     ;; Offer file rename for file-level notes
     (when (and (= (vulpea-note-level note) 0)
-               (y-or-n-p (format "Rename file \"%s\" → \"%s\"? "
-                                 (file-name-nondirectory (vulpea-note-path note))
-                                 (concat (vulpea-title-to-slug new-title) ".org"))))
+               (y-or-n-p
+                (format "Rename file \"%s\" → \"%s\"? "
+                        (file-name-nondirectory (vulpea-note-path note))
+                        (concat (vulpea-title-to-slug new-title) ".org"))))
       (condition-case err
           (vulpea-rename-file note new-title)
         (error (message "File rename failed: %s" (error-message-string err)))))
@@ -890,10 +897,11 @@ Interactive flow:
       (message "Found %d exact match%s, %d partial match%s"
                exact-count (if (= exact-count 1) "" "es")
                partial-count (if (= partial-count 1) "" "es"))
-      (let ((action (read-char-choice
-                     (format "Exact matches (%d): [!] Update all  [r] Review  [s] Skip  [q] Quit: "
-                             exact-count)
-                     '(?! ?r ?s ?q))))
+      (let ((action
+             (read-char-choice
+              (format "Exact (%d): [!] All  [r] Review  [s] Skip  [q] Quit: "
+                      exact-count)
+              '(?! ?r ?s ?q))))
         (pcase action
           (?! ;; Update all exact matches
            (dolist (link exact-links)
@@ -904,7 +912,8 @@ Interactive flow:
              (when-let ((buf (get-file-buffer (plist-get link :source-path))))
                (with-current-buffer buf
                  (save-buffer))))
-           (message "Updated %d link%s" exact-count (if (= exact-count 1) "" "s")))
+           (message "Updated %d link%s"
+                    exact-count (if (= exact-count 1) "" "s")))
           (?r ;; Review individually
            (let ((updated 0))
              (dolist (link exact-links)
@@ -927,8 +936,9 @@ Interactive flow:
 
     ;; Handle partial matches
     (when (> partial-count 0)
-      (when (y-or-n-p (format "Open %d file%s with partial matches for manual editing? "
-                              partial-count (if (= partial-count 1) "" "s")))
+      (when (y-or-n-p
+             (format "Open %d file%s with partial matches for editing? "
+                     partial-count (if (= partial-count 1) "" "s")))
         (let ((files (delete-dups
                       (mapcar (lambda (l) (plist-get l :source-path))
                               partial-links))))
@@ -946,8 +956,8 @@ Interactive flow:
   "Rename NOTE-OR-ID's file based on NEW-TITLE slug.
 Updates the file on disk and database.
 
-The new filename is generated as NEW-TITLE converted to slug with .org extension,
-placed in the same directory as the original file.
+The new filename is generated as NEW-TITLE converted to slug with
+.org extension, placed in the same directory as the original file.
 
 Returns the new file path.
 
