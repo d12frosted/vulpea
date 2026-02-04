@@ -762,19 +762,9 @@ Note: Does not support %a or %i from org-capture."
 (defun vulpea--capture-before-save ()
   "Capture title/aliases/id before save for change detection."
   (when (derived-mode-p 'org-mode)
-    (save-excursion
-      (goto-char (point-min))
-      ;; Capture ID
-      (setq vulpea--note-id-before-save (org-entry-get nil "ID"))
-      ;; Capture title
-      (setq vulpea--title-before-save
-            (when (re-search-forward "^#\\+title:[ \t]*\\(.+\\)$" nil t)
-              (match-string-no-properties 1)))
-      ;; Capture aliases
-      (goto-char (point-min))
-      (setq vulpea--aliases-before-save
-            (when (re-search-forward "^#\\+roam_aliases:[ \t]*\\(.+\\)$" nil t)
-              (split-string (match-string-no-properties 1) "[ \t]+"))))))
+    (setq vulpea--note-id-before-save (org-entry-get nil "ID"))
+    (setq vulpea--title-before-save (vulpea-buffer-title-get))
+    (setq vulpea--aliases-before-save (vulpea-buffer-alias-get))))
 
 (defun vulpea--notify-title-change ()
   "After save, check if title changed and notify user."
