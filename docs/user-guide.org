@@ -276,6 +276,80 @@ By default, aliases are stored in =ALIASES=. To use =ROAM_ALIASES= for org-roam 
 (setq vulpea-buffer-alias-property "ROAM_ALIASES")
 #+end_src
 
+* Renaming Notes
+
+When you change a note's title, links pointing to it still show the old title. Vulpea provides tools to propagate title changes across your knowledge base.
+
+** Quick Workflow
+
+1. Edit the =#+title:= line in your note, save
+2. If =vulpea-title-change-detection-mode= is enabled, you'll see a notification
+3. Run =M-x vulpea-propagate-title-change=
+4. Optionally rename the file (y/n)
+5. Update link descriptions: [!] all, [r] review, [s] skip, [q] quit
+6. Review partial matches manually
+
+** vulpea-propagate-title-change
+
+The main command for updating references after a title change:
+
+#+begin_example
+M-x vulpea-propagate-title-change
+#+end_example
+
+This command:
+- Asks for the old title (if not detected automatically)
+- Shows how many links need updating
+- Lets you rename the file to match the new title
+- Updates link descriptions in other notes
+
+For a preview without making changes, use the prefix argument:
+
+#+begin_example
+C-u M-x vulpea-propagate-title-change
+#+end_example
+
+** Title Change Detection
+
+Enable automatic detection of title changes:
+
+#+begin_src emacs-lisp
+;; For all org files
+(add-hook 'org-mode-hook #'vulpea-title-change-detection-mode)
+#+end_src
+
+Now when you save a note with a changed title, you'll see:
+
+#+begin_example
+Title changed from "Old Name" to "New Name". Run M-x vulpea-propagate-title-change to update references.
+#+end_example
+
+** How Links Are Categorized
+
+When you run =vulpea-propagate-title-change=, links are split into:
+
+- *Exact matches*: Link description exactly equals the old title or alias (case-insensitive). These can be auto-updated.
+- *Partial matches*: Link description contains the old title but has additional text (e.g., "See Old Title for details"). These are shown for manual review.
+- *Custom descriptions*: Link descriptions that don't match are left alone (you chose them deliberately).
+
+** Renaming the File
+
+If you also want to rename the file to match the new title:
+
+#+begin_example
+Rename file "old_title.org" → "new_title.org"? (y or n)
+#+end_example
+
+The new filename uses the title slug (lowercase with underscores). The database is updated automatically.
+
+You can also rename files programmatically:
+
+#+begin_src emacs-lisp
+(vulpea-rename-file note "New Title")
+#+end_src
+
+→ See [[file:api-reference.org][API Reference]] for detailed function documentation.
+
 * Synchronization
 
 ** Automatic Sync

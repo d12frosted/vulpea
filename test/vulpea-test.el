@@ -911,5 +911,429 @@ Uses Unicode normalization to preserve base characters from accented letters."
         (when (file-exists-p path2)
           (delete-file path2))))))
 
+;;; Title Propagation Tests
+
+;;;; Link Description Extraction Tests
+
+(ert-deftest vulpea-extract-link-description-at-pos ()
+  "Test extracting link description from file at position."
+  (let* ((target-id "target-note-id")
+         (linking-content
+          (format ":PROPERTIES:\n:ID: linking-id\n:END:\n#+TITLE: Linking Note\n\nSee [[id:%s][My Description]]." target-id))
+         (linking-path (vulpea-test--create-temp-org-file linking-content)))
+    (unwind-protect
+        (with-current-buffer (find-file-noselect linking-path)
+          ;; Find the position of the link
+          (goto-char (point-min))
+          (re-search-forward "\\[\\[id:")
+          (let ((link-pos (match-beginning 0)))
+            ;; Test extraction
+            (let ((desc (vulpea--extract-link-description-at-pos linking-path link-pos)))
+              (should (equal desc "My Description")))))
+      (when (get-file-buffer linking-path)
+        (kill-buffer (get-file-buffer linking-path)))
+      (when (file-exists-p linking-path)
+        (delete-file linking-path)))))
+
+(ert-deftest vulpea-extract-link-description-no-description ()
+  "Test extracting when link has no description [[id:xxx]]."
+  (let* ((target-id "target-note-id")
+         (linking-content
+          (format ":PROPERTIES:\n:ID: linking-id\n:END:\n#+TITLE: Linking Note\n\nSee [[id:%s]]." target-id))
+         (linking-path (vulpea-test--create-temp-org-file linking-content)))
+    (unwind-protect
+        (with-current-buffer (find-file-noselect linking-path)
+          ;; Find the position of the link
+          (goto-char (point-min))
+          (re-search-forward "\\[\\[id:")
+          (let ((link-pos (match-beginning 0)))
+            ;; Test extraction - should return nil for no description
+            (let ((desc (vulpea--extract-link-description-at-pos linking-path link-pos)))
+              (should (null desc)))))
+      (when (get-file-buffer linking-path)
+        (kill-buffer (get-file-buffer linking-path)))
+      (when (file-exists-p linking-path)
+        (delete-file linking-path)))))
+
+(ert-deftest vulpea-extract-link-description-multiword ()
+  "Test extracting link description with multiple words and special chars."
+  (let* ((target-id "target-note-id")
+         (linking-content
+          (format ":PROPERTIES:\n:ID: linking-id\n:END:\n#+TITLE: Linking Note\n\nSee [[id:%s][Project: Alpha (2024)]]." target-id))
+         (linking-path (vulpea-test--create-temp-org-file linking-content)))
+    (unwind-protect
+        (with-current-buffer (find-file-noselect linking-path)
+          (goto-char (point-min))
+          (re-search-forward "\\[\\[id:")
+          (let ((link-pos (match-beginning 0)))
+            (let ((desc (vulpea--extract-link-description-at-pos linking-path link-pos)))
+              (should (equal desc "Project: Alpha (2024)")))))
+      (when (get-file-buffer linking-path)
+        (kill-buffer (get-file-buffer linking-path)))
+      (when (file-exists-p linking-path)
+        (delete-file linking-path)))))
+
+;;;; Link Categorization Tests
+
+(ert-deftest vulpea-categorize-links-exact-title-match ()
+  "Test exact title match (case-insensitive)."
+  (let ((links (list (list :source-id "src1" :source-path "/tmp/a.org"
+                           :pos 100 :description "Old Title")
+                     (list :source-id "src2" :source-path "/tmp/b.org"
+                           :pos 200 :description "OLD TITLE")
+                     (list :source-id "src3" :source-path "/tmp/c.org"
+                           :pos 300 :description "old title"))))
+    (let ((result (vulpea--categorize-links links "Old Title" nil)))
+      ;; All three should be exact matches (case-insensitive)
+      (should (= (length (plist-get result :exact)) 3))
+      (should (= (length (plist-get result :partial)) 0)))))
+
+(ert-deftest vulpea-categorize-links-exact-alias-match ()
+  "Test exact alias match (case-insensitive)."
+  (let ((links (list (list :source-id "src1" :source-path "/tmp/a.org"
+                           :pos 100 :description "My Alias")
+                     (list :source-id "src2" :source-path "/tmp/b.org"
+                           :pos 200 :description "MY ALIAS"))))
+    (let ((result (vulpea--categorize-links links "Old Title" '("My Alias" "Another"))))
+      ;; Both should be exact matches via alias
+      (should (= (length (plist-get result :exact)) 2))
+      (should (= (length (plist-get result :partial)) 0)))))
+
+(ert-deftest vulpea-categorize-links-partial-match ()
+  "Test partial match detection."
+  (let ((links (list (list :source-id "src1" :source-path "/tmp/a.org"
+                           :pos 100 :description "See Old Title for details")
+                     (list :source-id "src2" :source-path "/tmp/b.org"
+                           :pos 200 :description "The Old Title Project"))))
+    (let ((result (vulpea--categorize-links links "Old Title" nil)))
+      ;; Both contain the title but aren't exact matches
+      (should (= (length (plist-get result :exact)) 0))
+      (should (= (length (plist-get result :partial)) 2)))))
+
+(ert-deftest vulpea-categorize-links-no-match ()
+  "Test custom description (no match) is excluded."
+  (let ((links (list (list :source-id "src1" :source-path "/tmp/a.org"
+                           :pos 100 :description "Completely Different")
+                     (list :source-id "src2" :source-path "/tmp/b.org"
+                           :pos 200 :description "Something Else"))))
+    (let ((result (vulpea--categorize-links links "Old Title" '("My Alias"))))
+      ;; Neither matches - they have custom descriptions
+      (should (= (length (plist-get result :exact)) 0))
+      (should (= (length (plist-get result :partial)) 0)))))
+
+(ert-deftest vulpea-categorize-links-mixed ()
+  "Test mixed categorization with exact, partial, and no matches."
+  (let ((links (list (list :source-id "src1" :source-path "/tmp/a.org"
+                           :pos 100 :description "Old Title")
+                     (list :source-id "src2" :source-path "/tmp/b.org"
+                           :pos 200 :description "The Old Title Guide")
+                     (list :source-id "src3" :source-path "/tmp/c.org"
+                           :pos 300 :description "Custom Name"))))
+    (let ((result (vulpea--categorize-links links "Old Title" nil)))
+      (should (= (length (plist-get result :exact)) 1))
+      (should (= (length (plist-get result :partial)) 1)))))
+
+(ert-deftest vulpea-categorize-links-nil-description ()
+  "Test handling of links without descriptions."
+  (let ((links (list (list :source-id "src1" :source-path "/tmp/a.org"
+                           :pos 100 :description nil)
+                     (list :source-id "src2" :source-path "/tmp/b.org"
+                           :pos 200 :description "Old Title"))))
+    (let ((result (vulpea--categorize-links links "Old Title" nil)))
+      ;; nil description should not match anything
+      (should (= (length (plist-get result :exact)) 1))
+      (should (= (length (plist-get result :partial)) 0)))))
+
+;;;; Link Description Update Tests
+
+(ert-deftest vulpea-update-link-description ()
+  "Test updating link description in file."
+  (let* ((target-id "target-note-id")
+         (linking-content
+          (format ":PROPERTIES:\n:ID: linking-id\n:END:\n#+TITLE: Linking Note\n\nSee [[id:%s][Old Description]]." target-id))
+         (linking-path (vulpea-test--create-temp-org-file linking-content)))
+    (unwind-protect
+        (progn
+          (with-current-buffer (find-file-noselect linking-path)
+            ;; Find the position of the link
+            (goto-char (point-min))
+            (re-search-forward "\\[\\[id:")
+            (let ((link-pos (match-beginning 0)))
+              ;; Update description
+              (vulpea--update-link-description linking-path link-pos "New Description")
+              (save-buffer)))
+          ;; Read file and verify
+          (with-temp-buffer
+            (insert-file-contents linking-path)
+            (should (string-match-p "\\[\\[id:target-note-id\\]\\[New Description\\]\\]" (buffer-string)))
+            (should-not (string-match-p "Old Description" (buffer-string)))))
+      (when (get-file-buffer linking-path)
+        (kill-buffer (get-file-buffer linking-path)))
+      (when (file-exists-p linking-path)
+        (delete-file linking-path)))))
+
+(ert-deftest vulpea-update-link-description-preserves-id ()
+  "Test that link ID is preserved when updating description."
+  (let* ((target-id "specific-target-id-12345")
+         (linking-content
+          (format ":PROPERTIES:\n:ID: linking-id\n:END:\n#+TITLE: Linking Note\n\nSee [[id:%s][Original]]." target-id))
+         (linking-path (vulpea-test--create-temp-org-file linking-content)))
+    (unwind-protect
+        (progn
+          (with-current-buffer (find-file-noselect linking-path)
+            (goto-char (point-min))
+            (re-search-forward "\\[\\[id:")
+            (let ((link-pos (match-beginning 0)))
+              (vulpea--update-link-description linking-path link-pos "Updated")
+              (save-buffer)))
+          ;; Verify ID is still there
+          (with-temp-buffer
+            (insert-file-contents linking-path)
+            (should (string-match-p (regexp-quote target-id) (buffer-string)))))
+      (when (get-file-buffer linking-path)
+        (kill-buffer (get-file-buffer linking-path)))
+      (when (file-exists-p linking-path)
+        (delete-file linking-path)))))
+
+(ert-deftest vulpea-update-link-description-add-to-bare-link ()
+  "Test adding description to a link without one."
+  (let* ((target-id "target-note-id")
+         (linking-content
+          (format ":PROPERTIES:\n:ID: linking-id\n:END:\n#+TITLE: Linking Note\n\nSee [[id:%s]]." target-id))
+         (linking-path (vulpea-test--create-temp-org-file linking-content)))
+    (unwind-protect
+        (progn
+          (with-current-buffer (find-file-noselect linking-path)
+            (goto-char (point-min))
+            (re-search-forward "\\[\\[id:")
+            (let ((link-pos (match-beginning 0)))
+              (vulpea--update-link-description linking-path link-pos "Added Description")
+              (save-buffer)))
+          (with-temp-buffer
+            (insert-file-contents linking-path)
+            (should (string-match-p "\\[\\[id:target-note-id\\]\\[Added Description\\]\\]" (buffer-string)))))
+      (when (get-file-buffer linking-path)
+        (kill-buffer (get-file-buffer linking-path)))
+      (when (file-exists-p linking-path)
+        (delete-file linking-path)))))
+
+;;;; Integration Tests for Incoming Links
+
+(ert-deftest vulpea-get-incoming-links-with-descriptions ()
+  "Test fetching incoming links with their descriptions."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((target-id "target-note-id")
+           (linking-id1 "linking-note-1")
+           (linking-id2 "linking-note-2")
+           (target-path (vulpea-test--create-temp-org-file
+                         (format ":PROPERTIES:\n:ID: %s\n:END:\n#+TITLE: Target Note\n" target-id)))
+           (linking-path1 (vulpea-test--create-temp-org-file
+                           (format ":PROPERTIES:\n:ID: %s\n:END:\n#+TITLE: Linking One\n\nLink: [[id:%s][Target Note]]."
+                                   linking-id1 target-id)))
+           (linking-path2 (vulpea-test--create-temp-org-file
+                           (format ":PROPERTIES:\n:ID: %s\n:END:\n#+TITLE: Linking Two\n\nReference: [[id:%s][Custom Desc]]."
+                                   linking-id2 target-id))))
+      (unwind-protect
+          (progn
+            (vulpea-db-update-file target-path)
+            (vulpea-db-update-file linking-path1)
+            (vulpea-db-update-file linking-path2)
+            ;; Get incoming links with descriptions
+            (let ((links (vulpea--get-incoming-links-with-descriptions target-id)))
+              (should (= (length links) 2))
+              ;; Find descriptions
+              (let ((descs (mapcar (lambda (l) (plist-get l :description)) links)))
+                (should (member "Target Note" descs))
+                (should (member "Custom Desc" descs)))))
+        (dolist (path (list target-path linking-path1 linking-path2))
+          (when (get-file-buffer path)
+            (kill-buffer (get-file-buffer path)))
+          (when (file-exists-p path)
+            (delete-file path)))))))
+
+(ert-deftest vulpea-get-incoming-links-no-links ()
+  "Test fetching incoming links when note has no incoming links."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((target-id "lonely-note-id")
+           (target-path (vulpea-test--create-temp-org-file
+                         (format ":PROPERTIES:\n:ID: %s\n:END:\n#+TITLE: Lonely Note\n" target-id))))
+      (unwind-protect
+          (progn
+            (vulpea-db-update-file target-path)
+            (let ((links (vulpea--get-incoming-links-with-descriptions target-id)))
+              (should (= (length links) 0))))
+        (when (get-file-buffer target-path)
+          (kill-buffer (get-file-buffer target-path)))
+        (when (file-exists-p target-path)
+          (delete-file target-path))))))
+
+;;;; Title Propagation Dry-Run Test
+
+(ert-deftest vulpea-propagate-title-change-dry-run ()
+  "Test dry-run mode returns correct preview."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((target-id "propagate-target")
+           (linking-id "propagate-linker")
+           (temp-dir (make-temp-file "vulpea-test-" t))
+           (target-path (expand-file-name "old_name.org" temp-dir))
+           (linking-path (expand-file-name "linker.org" temp-dir)))
+      (unwind-protect
+          (progn
+            ;; Create target note
+            (with-temp-file target-path
+              (insert (format ":PROPERTIES:\n:ID: %s\n:END:\n#+TITLE: New Title\n" target-id)))
+            ;; Create linking note
+            (with-temp-file linking-path
+              (insert (format ":PROPERTIES:\n:ID: %s\n:END:\n#+TITLE: Linker\n\nSee [[id:%s][Old Title]]."
+                              linking-id target-id)))
+            (vulpea-db-update-file target-path)
+            (vulpea-db-update-file linking-path)
+            ;; Run dry-run
+            (let ((current-prefix-arg t)
+                  (vulpea--title-before-save "Old Title"))
+              (vulpea-propagate-title-change target-id))
+            ;; Verify preview buffer was created
+            (should (get-buffer "*vulpea-propagate-preview*"))
+            ;; Verify link was NOT updated (dry-run)
+            (with-temp-buffer
+              (insert-file-contents linking-path)
+              (should (string-match-p "\\[Old Title\\]" (buffer-string)))))
+        (when (get-buffer "*vulpea-propagate-preview*")
+          (kill-buffer "*vulpea-propagate-preview*"))
+        (dolist (path (list target-path linking-path))
+          (when (get-file-buffer path)
+            (kill-buffer (get-file-buffer path)))
+          (when (file-exists-p path)
+            (delete-file path)))
+        (when (file-directory-p temp-dir)
+          (delete-directory temp-dir t))))))
+
+;;;; File Rename Tests
+
+(ert-deftest vulpea-rename-file-basic ()
+  "Test renaming note file based on new title."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((id "rename-test-id")
+           (old-title "Old Title")
+           (new-title "New Title")
+           (temp-dir (make-temp-file "vulpea-test-" t))
+           (old-path (expand-file-name "old_title.org" temp-dir))
+           (expected-new-path (expand-file-name "new_title.org" temp-dir)))
+      (unwind-protect
+          (progn
+            ;; Create file manually
+            (with-temp-file old-path
+              (insert (format ":PROPERTIES:\n:ID: %s\n:END:\n#+TITLE: %s\n" id old-title)))
+            (vulpea-db-update-file old-path)
+            ;; Verify note exists
+            (let ((note (vulpea-db-get-by-id id)))
+              (should note)
+              (should (equal (vulpea-note-path note) old-path)))
+            ;; Rename the file
+            (vulpea-rename-file id new-title)
+            ;; Verify new file exists and old doesn't
+            (should (file-exists-p expected-new-path))
+            (should-not (file-exists-p old-path)))
+        (when (file-exists-p old-path)
+          (delete-file old-path))
+        (when (file-exists-p expected-new-path)
+          (when (get-file-buffer expected-new-path)
+            (kill-buffer (get-file-buffer expected-new-path)))
+          (delete-file expected-new-path))
+        (when (file-directory-p temp-dir)
+          (delete-directory temp-dir t))))))
+
+(ert-deftest vulpea-rename-file-updates-db ()
+  "Test that DB is updated after file rename."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((id "rename-db-test-id")
+           (old-title "Database Test")
+           (new-title "Updated Database Test")
+           (temp-dir (make-temp-file "vulpea-test-" t))
+           (old-path (expand-file-name "database_test.org" temp-dir))
+           (expected-new-path (expand-file-name "updated_database_test.org" temp-dir)))
+      (unwind-protect
+          (progn
+            ;; Create file
+            (with-temp-file old-path
+              (insert (format ":PROPERTIES:\n:ID: %s\n:END:\n#+TITLE: %s\n" id old-title)))
+            (vulpea-db-update-file old-path)
+            ;; Rename
+            (vulpea-rename-file id new-title)
+            ;; Verify database has new path
+            (let ((note (vulpea-db-get-by-id id)))
+              (should note)
+              (should (equal (vulpea-note-path note) expected-new-path))))
+        (when (file-exists-p old-path)
+          (delete-file old-path))
+        (when (file-exists-p expected-new-path)
+          (when (get-file-buffer expected-new-path)
+            (kill-buffer (get-file-buffer expected-new-path)))
+          (delete-file expected-new-path))
+        (when (file-directory-p temp-dir)
+          (delete-directory temp-dir t))))))
+
+(ert-deftest vulpea-rename-file-conflict ()
+  "Test error when target file already exists."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((id "conflict-test-id")
+           (old-title "Source File")
+           (new-title "Target File")
+           (temp-dir (make-temp-file "vulpea-test-" t))
+           (old-path (expand-file-name "source_file.org" temp-dir))
+           (target-path (expand-file-name "target_file.org" temp-dir)))
+      (unwind-protect
+          (progn
+            ;; Create both files
+            (with-temp-file old-path
+              (insert (format ":PROPERTIES:\n:ID: %s\n:END:\n#+TITLE: %s\n" id old-title)))
+            (with-temp-file target-path
+              (insert "Existing content"))
+            (vulpea-db-update-file old-path)
+            ;; Rename should error
+            (should-error (vulpea-rename-file id new-title)))
+        (when (file-exists-p old-path)
+          (delete-file old-path))
+        (when (file-exists-p target-path)
+          (delete-file target-path))
+        (when (file-directory-p temp-dir)
+          (delete-directory temp-dir t))))))
+
+(ert-deftest vulpea-rename-file-with-note-object ()
+  "Test renaming with note object instead of ID."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((id "note-obj-rename-id")
+           (old-title "Note Object Test")
+           (new-title "Renamed Note"  )
+           (temp-dir (make-temp-file "vulpea-test-" t))
+           (old-path (expand-file-name "note_object_test.org" temp-dir))
+           (expected-new-path (expand-file-name "renamed_note.org" temp-dir)))
+      (unwind-protect
+          (progn
+            (with-temp-file old-path
+              (insert (format ":PROPERTIES:\n:ID: %s\n:END:\n#+TITLE: %s\n" id old-title)))
+            (vulpea-db-update-file old-path)
+            (let ((note (vulpea-db-get-by-id id)))
+              ;; Rename using note object
+              (vulpea-rename-file note new-title)
+              ;; Verify
+              (should (file-exists-p expected-new-path))
+              (should-not (file-exists-p old-path))))
+        (when (file-exists-p old-path)
+          (delete-file old-path))
+        (when (file-exists-p expected-new-path)
+          (when (get-file-buffer expected-new-path)
+            (kill-buffer (get-file-buffer expected-new-path)))
+          (delete-file expected-new-path))
+        (when (file-directory-p temp-dir)
+          (delete-directory temp-dir t))))))
+
 (provide 'vulpea-test)
 ;;; vulpea-test.el ends here

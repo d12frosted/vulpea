@@ -511,6 +511,71 @@ Operate on metadata across multiple notes:
 ;; => count of notes processed
 #+end_src
 
+* Title Propagation
+
+When you rename a note's title, incoming links still show the old title as their description. Vulpea provides tools to propagate title changes to link descriptions and optionally rename the file.
+
+** vulpea-propagate-title-change
+
+Interactive command to propagate a title change across the knowledge base:
+
+#+begin_src emacs-lisp
+;; Interactive usage
+M-x vulpea-propagate-title-change
+
+;; With prefix argument for dry-run preview
+C-u M-x vulpea-propagate-title-change
+
+;; Programmatic usage
+(vulpea-propagate-title-change note-or-id)
+#+end_src
+
+The command:
+1. Identifies the note (from current buffer or prompts)
+2. Prompts for the old title if not detected by =vulpea-title-change-detection-mode=
+3. Offers to rename the file based on the new title slug
+4. Categorizes incoming links:
+   - *Exact matches*: description equals old title or alias (case-insensitive) → can auto-update
+   - *Partial matches*: description contains old title → manual review needed
+5. For exact matches, offers: [!] Update all, [r] Review individually, [s] Skip, [q] Quit
+6. For partial matches, offers to open files for manual editing
+
+With =C-u= prefix (dry-run), shows a preview buffer without making changes.
+
+** vulpea-rename-file
+
+Rename a note's file based on a new title:
+
+#+begin_src emacs-lisp
+(vulpea-rename-file note-or-id "New Title")
+;; => new file path
+
+;; Renames: old_title.org → new_title.org (using slug)
+;; Updates database
+;; Signals error if target file exists
+#+end_src
+
+Only works for file-level notes (=level = 0=).
+
+** vulpea-title-change-detection-mode
+
+Minor mode that detects title changes on save:
+
+#+begin_src emacs-lisp
+;; Enable for current buffer
+(vulpea-title-change-detection-mode +1)
+
+;; Enable for all org files
+(add-hook 'org-mode-hook #'vulpea-title-change-detection-mode)
+#+end_src
+
+When enabled:
+- Captures the title before each save
+- After save, if title changed, shows a message:
+  "Title changed. Run M-x vulpea-propagate-title-change to update references."
+
+This mode only notifies - it doesn't automatically update anything.
+
 * Modifying Notes Programmatically
 
 ** With Async Sync
