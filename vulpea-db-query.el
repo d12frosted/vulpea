@@ -709,7 +709,7 @@ Only groups with two or more notes are returned."
 (defun vulpea-db-query-links ()
   "Return all links in the database.
 
-Returns list of plists with :source, :dest, :type, and :pos keys."
+Returns list of plists with :source, :dest, :type, :pos, and :description keys."
   (mapcar #'vulpea-db--row-to-link
           (emacsql (vulpea-db)
                    [:select * :from links])))
@@ -719,7 +719,7 @@ Returns list of plists with :source, :dest, :type, and :pos keys."
 
 TYPE is a link type string (e.g., \"id\", \"https\", \"file\").
 
-Returns list of plists with :source, :dest, :type, and :pos keys."
+Returns list of plists with :source, :dest, :type, :pos, and :description keys."
   (mapcar #'vulpea-db--row-to-link
           (emacsql (vulpea-db)
                    [:select * :from links
@@ -729,7 +729,7 @@ Returns list of plists with :source, :dest, :type, and :pos keys."
 (defun vulpea-db-query-links-from (id)
   "Return all links originating from note with ID.
 
-Returns list of plists with :source, :dest, :type, and :pos keys."
+Returns list of plists with :source, :dest, :type, :pos, and :description keys."
   (mapcar #'vulpea-db--row-to-link
           (emacsql (vulpea-db)
                    [:select * :from links
@@ -739,7 +739,7 @@ Returns list of plists with :source, :dest, :type, and :pos keys."
 (defun vulpea-db-query-links-to (id)
   "Return all links pointing to note with ID.
 
-Returns list of plists with :source, :dest, :type, and :pos keys."
+Returns list of plists with :source, :dest, :type, :pos, and :description keys."
   (mapcar #'vulpea-db--row-to-link
           (emacsql (vulpea-db)
                    [:select * :from links
@@ -751,7 +751,8 @@ Returns list of plists with :source, :dest, :type, and :pos keys."
   (list :source (nth 0 row)
         :dest (nth 1 row)
         :type (nth 2 row)
-        :pos (nth 3 row)))
+        :pos (nth 3 row)
+        :description (nth 4 row)))
 
 (provide 'vulpea-db-query)
 ;;; vulpea-db-query.el ends here
