@@ -1651,5 +1651,109 @@ File abc / * Parent (no ID) / ** Mention [[id:foo][person]] (no ID) -> abc -> fo
       (should (= (length links) 1))
       (should (equal (plist-get (car links) :description) "Target Title")))))
 
+;;; Emphasis Stripping Tests
+
+(ert-deftest vulpea-db-extract-strip-emphasis-basic ()
+  "Test basic emphasis marker stripping."
+  ;; Bold
+  (should (equal (vulpea-db--strip-emphasis "*bold*") "bold"))
+  ;; Italic
+  (should (equal (vulpea-db--strip-emphasis "/italic/") "italic"))
+  ;; Underline
+  (should (equal (vulpea-db--strip-emphasis "_underline_") "underline"))
+  ;; Strikethrough
+  (should (equal (vulpea-db--strip-emphasis "+strike+") "strike"))
+  ;; Code/verbatim
+  (should (equal (vulpea-db--strip-emphasis "=code=") "code"))
+  (should (equal (vulpea-db--strip-emphasis "~verbatim~") "verbatim"))
+  ;; No emphasis
+  (should (equal (vulpea-db--strip-emphasis "plain text") "plain text")))
+
+(ert-deftest vulpea-db-extract-strip-emphasis-mixed ()
+  "Test stripping multiple emphasis markers in one string."
+  (should (equal (vulpea-db--strip-emphasis "This has *bold* and /italic/ text")
+                 "This has bold and italic text"))
+  (should (equal (vulpea-db--strip-emphasis "=code= with ~verbatim~")
+                 "code with verbatim")))
+
+(ert-deftest vulpea-db-extract-strip-emphasis-nested ()
+  "Test that nested/adjacent markers are handled correctly."
+  ;; Adjacent markers without space - Org doesn't recognize these
+  ;; because post-marker must be space/punctuation, not another marker
+  (should (equal (vulpea-db--strip-emphasis "*bold*/italic/")
+                 "*bold*/italic/"))
+  ;; Adjacent markers with space - both are recognized
+  (should (equal (vulpea-db--strip-emphasis "*bold* /italic/")
+                 "bold italic"))
+  ;; Word boundaries required - emphasis in middle of word not recognized
+  (should (equal (vulpea-db--strip-emphasis "not*bold*here")
+                 "not*bold*here")))
+
+(ert-deftest vulpea-db-extract-strip-emphasis-multiword ()
+  "Test emphasis spanning multiple words."
+  (should (equal (vulpea-db--strip-emphasis "*bold text here*")
+                 "bold text here"))
+  (should (equal (vulpea-db--strip-emphasis "=code with spaces=")
+                 "code with spaces")))
+
+(ert-deftest vulpea-db-extract-strip-emphasis-nil ()
+  "Test that nil input returns nil."
+  (should (null (vulpea-db--strip-emphasis nil))))
+
+(ert-deftest vulpea-db-extract-file-title-with-emphasis ()
+  "Test that emphasis is stripped from file titles."
+  (let ((path (vulpea-test--create-temp-org-file
+               ":PROPERTIES:\n:ID: test-id\n:END:\n#+TITLE: My =code= Project\n")))
+    (unwind-protect
+        (let* ((ctx (vulpea-db--parse-file path))
+               (node (vulpea-parse-ctx-file-node ctx)))
+          (should (equal (plist-get node :title) "My code Project")))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-file-title-with-multiple-emphasis ()
+  "Test that multiple emphasis markers are stripped from file titles."
+  (let ((path (vulpea-test--create-temp-org-file
+               ":PROPERTIES:\n:ID: test-id\n:END:\n#+TITLE: *Bold* and /italic/ title\n")))
+    (unwind-protect
+        (let* ((ctx (vulpea-db--parse-file path))
+               (node (vulpea-parse-ctx-file-node ctx)))
+          (should (equal (plist-get node :title) "Bold and italic title")))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-heading-title-with-emphasis ()
+  "Test that emphasis is stripped from heading titles."
+  (let ((path (vulpea-test--create-temp-org-file
+               ":PROPERTIES:\n:ID: file-id\n:END:\n#+TITLE: File\n\n* Heading with =code=\n:PROPERTIES:\n:ID: heading-id\n:END:\n")))
+    (unwind-protect
+        (let* ((vulpea-db-index-heading-level t)
+               (ctx (vulpea-db--parse-file path))
+               (nodes (vulpea-parse-ctx-heading-nodes ctx))
+               (heading (car nodes)))
+          (should (equal (plist-get heading :title) "Heading with code")))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-outline-path-with-emphasis ()
+  "Test that emphasis is stripped from outline path."
+  (let ((path (vulpea-test--create-temp-org-file
+               ":PROPERTIES:\n:ID: file-id\n:END:\n#+TITLE: File\n\n* Parent with *bold*\n** Child heading\n:PROPERTIES:\n:ID: child-id\n:END:\n")))
+    (unwind-protect
+        (let* ((vulpea-db-index-heading-level t)
+               (ctx (vulpea-db--parse-file path))
+               (nodes (vulpea-parse-ctx-heading-nodes ctx))
+               (child (car nodes)))
+          (should (equal (plist-get child :outline-path) '("Parent with bold"))))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-alias-with-emphasis ()
+  "Test that emphasis is stripped from aliases."
+  (let ((path (vulpea-test--create-temp-org-file
+               ":PROPERTIES:\n:ID: test-id\n:ALIASES: \"=Code= Alias\" /italic/\n:END:\n#+TITLE: Test\n")))
+    (unwind-protect
+        (let* ((ctx (vulpea-db--parse-file path))
+               (node (vulpea-parse-ctx-file-node ctx)))
+          (should (member "Code Alias" (plist-get node :aliases)))
+          (should (member "italic" (plist-get node :aliases))))
+      (delete-file path))))
+
 (provide 'vulpea-db-extract-test)
 ;;; vulpea-db-extract-test.el ends here
