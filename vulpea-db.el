@@ -89,7 +89,7 @@ to be queried. Excluding them keeps the database cleaner and faster."
 
 ;;; Constants
 
-(defconst vulpea-db-version 2
+(defconst vulpea-db-version 3
   "Current database schema version.")
 
 (defconst vulpea-db--schema
@@ -104,7 +104,7 @@ to be queried. Excluding them keeps the database cleaner and faster."
       (tags)                        ; JSON array ["tag1", "tag2"]
       (aliases)                     ; JSON array
       (meta)                        ; JSON object {key: [value1, value2]}
-      (links)                       ; JSON array [{dest, type, pos}]
+      (links)                       ; JSON array [{dest, type, pos, description}]
       (todo)
       (priority)
       (scheduled)
@@ -128,7 +128,8 @@ to be queried. Excluding them keeps the database cleaner and faster."
      [(source :not-null)
       (dest :not-null)
       (type :not-null)
-      (pos :not-null)]
+      (pos :not-null)
+      description]
      (:primary-key [source dest type pos])
      (:foreign-key [source] :references notes [id] :on-delete :cascade))
 
@@ -320,7 +321,7 @@ Arguments:
   ALIASES - list of aliases
   META - alist of (key . values) where values is list of plists with
     :type and :value
-  LINKS - list of plists with :dest, :type, and :pos
+  LINKS - list of plists with :dest, :type, :pos, and :description
   TODO - TODO state
   PRIORITY - priority level
   SCHEDULED - scheduled timestamp
@@ -359,7 +360,8 @@ Arguments:
                            (vector id
                                    (plist-get link :dest)
                                    (plist-get link :type)
-                                   (plist-get link :pos)))
+                                   (plist-get link :pos)
+                                   (plist-get link :description)))
                          links)))
 
       ;; 4. Insert into normalized meta table

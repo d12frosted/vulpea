@@ -61,7 +61,7 @@
 (defun vulpea-db--extract-links-from-string (str &optional base-pos)
   "Extract org links from raw STR.
 
-Returns list of plists with :dest, :type, and :pos.
+Returns list of plists with :dest, :type, :pos, and :description.
 This is used for extracting links from keyword values like
 #+TITLE or heading raw-values where org-element does not parse
 links as elements.
@@ -72,7 +72,8 @@ When BASE-POS is nil, the match offset within STR is used."
   (let ((result nil)
         (pos 0))
     (while (string-match org-link-bracket-re str pos)
-      (let ((match-start (match-beginning 0)))
+      (let ((match-start (match-beginning 0))
+            (description (match-string 2 str)))
         (setq pos (match-end 0))
         (let* ((raw-link (match-string 1 str))
                (type-and-path (if (string-match "\\`\\([^:]+\\):\\(.*\\)" raw-link)
@@ -81,7 +82,8 @@ When BASE-POS is nil, the match offset within STR is used."
                                 (cons "fuzzy" raw-link))))
           (push (list :dest (cdr type-and-path)
                       :type (car type-and-path)
-                      :pos (+ (or base-pos 0) match-start))
+                      :pos (+ (or base-pos 0) match-start)
+                      :description description)
                 result))))
     (nreverse result)))
 
@@ -632,9 +634,11 @@ links from plain (non-note) subtrees."
       (lambda (link)
         (let ((type (org-element-property :type link))
               (path (org-element-property :path link))
-              (pos (org-element-property :begin link)))
+              (pos (org-element-property :begin link))
+              (desc (when-let ((contents (org-element-contents link)))
+                      (org-element-interpret-data contents))))
           (when (and type path)
-            (list :dest path :type type :pos pos)))))))
+            (list :dest path :type type :pos pos :description desc)))))))
 
 (defun vulpea-db--extract-links-stopping-at-notes (node)
   "Extract links from NODE, stopping at note boundaries.
@@ -649,7 +653,7 @@ inside non-note child headlines are included."
 (defun vulpea-db--walk-links-skipping-notes (node callback)
   "Walk NODE collecting links via CALLBACK, skipping note headlines.
 
-CALLBACK is called with a plist (:dest :type :pos) for each link.
+CALLBACK is called with a plist (:dest :type :pos :description) for each link.
 Descends into child headlines only if they lack an ID property."
   (dolist (child (org-element-contents node))
     (let ((child-type (org-element-type child)))
@@ -658,9 +662,12 @@ Descends into child headlines only if they lack an ID property."
        ((eq child-type 'link)
         (let ((type (org-element-property :type child))
               (path (org-element-property :path child))
-              (pos (org-element-property :begin child)))
+              (pos (org-element-property :begin child))
+              (desc (when-let ((contents (org-element-contents child)))
+                      (org-element-interpret-data contents))))
           (when (and type path)
-            (funcall callback (list :dest path :type type :pos pos)))))
+            (funcall callback (list :dest path :type type :pos pos
+                                    :description desc)))))
        ;; Headline with ID: skip (note boundary)
        ((and (eq child-type 'headline)
              (org-element-property :ID child))

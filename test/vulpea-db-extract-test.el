@@ -1582,5 +1582,74 @@ File abc / * Parent (no ID) / ** Mention [[id:foo][person]] (no ID) -> abc -> fo
         (delete-file foo-path)
         (delete-file src-path)))))
 
+;;; Link Description Extraction Tests
+
+(ert-deftest vulpea-db-extract-link-description-basic ()
+  "Test that link descriptions are extracted from org-element links."
+  (let ((path (vulpea-test--create-temp-org-file
+               ":PROPERTIES:\n:ID: test-id\n:END:\n#+TITLE: Test Note\n\nSee [[id:target][My Description]] for details.\n")))
+    (unwind-protect
+        (let* ((ctx (vulpea-db--parse-file path))
+               (node (vulpea-parse-ctx-file-node ctx))
+               (links (plist-get node :links)))
+          (should (= (length links) 1))
+          (should (equal (plist-get (car links) :dest) "target"))
+          (should (equal (plist-get (car links) :type) "id"))
+          (should (equal (plist-get (car links) :description) "My Description")))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-link-description-nil ()
+  "Test that links without descriptions have nil description."
+  (let ((path (vulpea-test--create-temp-org-file
+               ":PROPERTIES:\n:ID: test-id\n:END:\n#+TITLE: Test Note\n\nSee [[id:target]] for details.\n")))
+    (unwind-protect
+        (let* ((ctx (vulpea-db--parse-file path))
+               (node (vulpea-parse-ctx-file-node ctx))
+               (links (plist-get node :links)))
+          (should (= (length links) 1))
+          (should (equal (plist-get (car links) :dest) "target"))
+          (should (null (plist-get (car links) :description))))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-link-description-with-markup ()
+  "Test that link descriptions preserve org markup."
+  (let ((path (vulpea-test--create-temp-org-file
+               ":PROPERTIES:\n:ID: test-id\n:END:\n#+TITLE: Test Note\n\nSee [[id:target][*bold* text]] for details.\n")))
+    (unwind-protect
+        (let* ((ctx (vulpea-db--parse-file path))
+               (node (vulpea-parse-ctx-file-node ctx))
+               (links (plist-get node :links)))
+          (should (= (length links) 1))
+          (should (equal (plist-get (car links) :description) "*bold* text")))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-link-description-from-string ()
+  "Test description extraction from raw string (e.g., title)."
+  (let ((links (vulpea-db--extract-links-from-string
+                "Hello [[id:foo][Foo Link]] world [[id:bar]] end")))
+    (should (= (length links) 2))
+    (should (equal (plist-get (car links) :dest) "foo"))
+    (should (equal (plist-get (car links) :description) "Foo Link"))
+    (should (equal (plist-get (cadr links) :dest) "bar"))
+    (should (null (plist-get (cadr links) :description)))))
+
+(ert-deftest vulpea-db-extract-link-description-round-trip ()
+  "Test full round-trip: extract → database → query."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    ;; Insert a note with a link that has a description
+    (vulpea-test--insert-test-note
+     "src-note" "Source"
+     :links '((:dest "target-note" :type "id" :pos 100 :description "Target Title")))
+    ;; Check note's links field
+    (let* ((note (vulpea-db-get-by-id "src-note"))
+           (links (vulpea-note-links note)))
+      (should (= (length links) 1))
+      (should (equal (plist-get (car links) :description) "Target Title")))
+    ;; Check normalized links table via query
+    (let ((links (vulpea-db-query-links-from "src-note")))
+      (should (= (length links) 1))
+      (should (equal (plist-get (car links) :description) "Target Title")))))
+
 (provide 'vulpea-db-extract-test)
 ;;; vulpea-db-extract-test.el ends here
