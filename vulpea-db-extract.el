@@ -636,7 +636,8 @@ links from plain (non-note) subtrees."
               (path (org-element-property :path link))
               (pos (org-element-property :begin link))
               (desc (when-let ((contents (org-element-contents link)))
-                      (org-element-interpret-data contents))))
+                      (substring-no-properties
+                       (org-element-interpret-data contents)))))
           (when (and type path)
             (list :dest path :type type :pos pos :description desc)))))))
 
@@ -664,7 +665,8 @@ Descends into child headlines only if they lack an ID property."
               (path (org-element-property :path child))
               (pos (org-element-property :begin child))
               (desc (when-let ((contents (org-element-contents child)))
-                      (org-element-interpret-data contents))))
+                      (substring-no-properties
+                       (org-element-interpret-data contents)))))
           (when (and type path)
             (funcall callback (list :dest path :type type :pos pos
                                     :description desc)))))
