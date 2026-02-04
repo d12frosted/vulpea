@@ -760,11 +760,15 @@ Note: Does not support %a or %i from org-capture."
   "ID of note before save, for change detection.")
 
 (defun vulpea--capture-before-save ()
-  "Capture title/aliases/id before save for change detection."
+  "Capture note ID and title before save for change detection.
+The old title is read from the database, not the buffer."
   (when (derived-mode-p 'org-mode)
     (setq vulpea--note-id-before-save (org-entry-get nil "ID"))
-    (setq vulpea--title-before-save (vulpea-buffer-title-get))
-    (setq vulpea--aliases-before-save (vulpea-buffer-alias-get))))
+    (setq vulpea--title-before-save
+          (when vulpea--note-id-before-save
+            (caar (emacsql (vulpea-db)
+                           [:select title :from notes :where (= id $s1)]
+                           vulpea--note-id-before-save))))))
 
 (defun vulpea--notify-title-change ()
   "After save, check if title changed and notify user."
