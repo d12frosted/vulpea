@@ -194,26 +194,13 @@ See: https://github.com/org-roam/org-roam/pull/1460"
 
 (define-obsolete-function-alias 'vulpea--title-to-slug #'vulpea-title-to-slug "2.0.0")
 
-;;; Link Description Extraction and Categorization
-
-(defun vulpea--extract-link-description-at-pos (file pos)
-  "Extract link description from FILE at POS.
-Returns the description string or nil if link has no description.
-
-The link format is [[id:xxx][description]] or [[id:xxx]].
-POS should point to the opening brackets of the link."
-  (with-current-buffer (find-file-noselect file)
-    (save-excursion
-      (goto-char pos)
-      ;; We're at the start of [[id:...
-      (when (looking-at "\\[\\[id:[^]]+\\]\\[\\([^]]+\\)\\]\\]")
-        (match-string-no-properties 1)))))
+;;; Link Categorization
 
 (defun vulpea--get-incoming-links-with-descriptions (note-id)
   "Get all links pointing to NOTE-ID with their descriptions.
 Returns list of plists with :source-id :source-path :pos :description."
   (let* ((links (vulpea-db-query-links-to note-id))
-         ;; Collect unique source IDs and batch fetch
+         ;; Collect unique source IDs and batch fetch for paths
          (source-ids (delete-dups (mapcar (lambda (l) (plist-get l :source)) links)))
          (source-notes (vulpea-db-query-by-ids source-ids))
          ;; Build id->path lookup table
@@ -221,19 +208,15 @@ Returns list of plists with :source-id :source-path :pos :description."
          result)
     (dolist (note source-notes)
       (puthash (vulpea-note-id note) (vulpea-note-path note) id-to-path))
-    ;; Process links using lookup table
+    ;; Process links - description comes from database now
     (dolist (link links)
       (let* ((source-id (plist-get link :source))
-             (source-path (gethash source-id id-to-path))
-             (pos (plist-get link :pos))
-             (description
-              (when source-path
-                (vulpea--extract-link-description-at-pos source-path pos))))
+             (source-path (gethash source-id id-to-path)))
         (when source-path
           (push (list :source-id source-id
                       :source-path source-path
-                      :pos pos
-                      :description description)
+                      :pos (plist-get link :pos)
+                      :description (plist-get link :description))
                 result))))
     (nreverse result)))
 
