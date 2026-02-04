@@ -58,6 +58,37 @@
   (when (and value (stringp value))
     (substring-no-properties value)))
 
+(defun vulpea-db--strip-emphasis (str)
+  "Strip Org emphasis markers from STR.
+
+Removes emphasis markers for bold (*), italic (/), underline (_),
+strikethrough (+), code (=), and verbatim (~).
+
+Respects Org's emphasis rules: markers must be at word boundaries
+and content must not start or end with whitespace.
+
+Returns STR with emphasis markers removed, or nil if STR is nil."
+  (when str
+    (let ((result str))
+      ;; Process each emphasis marker type
+      ;; Pattern based on org-emph-re and org-verbatim-re structure:
+      ;; - Pre: beginning of string OR space/punctuation
+      ;; - Marker + non-whitespace content + same marker
+      ;; - Post: end of string OR space/punctuation
+      (dolist (marker '("\\*" "/" "_" "\\+" "=" "~"))
+        (let ((re (concat
+                   ;; Pre-marker context (group 1)
+                   "\\(^\\|[-[:space:]('\"{]\\)"
+                   ;; The emphasis: marker + content + marker (group 2 = full, group 3 = content)
+                   marker
+                   "\\([^[:space:]]\\|[^[:space:]][^" marker "]*[^[:space:]]\\)"
+                   marker
+                   ;; Post-marker context (group 4)
+                   "\\([-[:space:].,:!?;'\")}\\[]\\|$\\)")))
+          (while (string-match re result)
+            (setq result (replace-match "\\1\\2\\3" nil nil result)))))
+      result)))
+
 (defun vulpea-db--extract-links-from-string (str &optional base-pos)
   "Extract org links from raw STR.
 
@@ -375,7 +406,8 @@ Returns the #+TITLE keyword value if present, otherwise the filename base."
                             (vulpea-db--string-no-properties
                              (org-element-property :value kw)))))))
     (or (when-let* ((title (cdr (assoc "TITLE" keywords))))
-          (org-link-display-format title))
+          (vulpea-db--strip-emphasis
+           (org-link-display-format title)))
         (file-name-base path))))
 
 (defun vulpea-db--extract-file-node (ast path buffer file-title)
@@ -480,9 +512,10 @@ Respects `vulpea-db-index-heading-level' setting."
                    (archived (vulpea-db--archived-p headline properties filetags)))
               ;; Only index if not explicitly ignored and not archived
               (unless (or ignored archived)
-                (let* ((title (org-link-display-format
-                              (vulpea-db--string-no-properties
-                               (org-element-property :raw-value headline))))
+                (let* ((title (vulpea-db--strip-emphasis
+                               (org-link-display-format
+                                (vulpea-db--string-no-properties
+                                 (org-element-property :raw-value headline)))))
                        (tags (vulpea-db--strings-no-properties
                               (org-element-property :tags headline)))
                        (level (org-element-property :level headline))
@@ -514,9 +547,10 @@ Respects `vulpea-db-index-heading-level' setting."
                                            (current headline))
                                        (while (setq current (org-element-property :parent current))
                                          (when (eq (org-element-type current) 'headline)
-                                           (push (org-link-display-format
-                                                  (vulpea-db--string-no-properties
-                                                   (org-element-property :raw-value current)))
+                                           (push (vulpea-db--strip-emphasis
+                                                  (org-link-display-format
+                                                   (vulpea-db--string-no-properties
+                                                    (org-element-property :raw-value current))))
                                                  path)))
                                        path))
                        (attach-dir (with-current-buffer buffer
@@ -568,7 +602,8 @@ Respects `vulpea-db-index-heading-level' setting:
   "Extract aliases from PROPERTIES alist.
 
 Looks for property defined by `vulpea-buffer-alias-property'.
-Handles both quoted aliases (with spaces) and unquoted aliases properly."
+Handles both quoted aliases (with spaces) and unquoted aliases properly.
+Strips org links and emphasis markers from each alias."
   (when-let* ((aliases-str (cdr (assoc vulpea-buffer-alias-property properties))))
     (setq aliases-str (string-trim aliases-str))
     (let ((result nil)
@@ -586,14 +621,20 @@ Handles both quoted aliases (with spaces) and unquoted aliases properly."
               (let ((end (string-match "\"" aliases-str (1+ pos))))
                 (if end
                     (progn
-                      (push (substring aliases-str (1+ pos) end) result)
+                      (push (vulpea-db--strip-emphasis
+                             (org-link-display-format
+                              (substring aliases-str (1+ pos) end)))
+                            result)
                       (setq pos (1+ end)))
                   (error "Unmatched quote in %s" vulpea-buffer-alias-property))))
              ;; Unquoted alias - find next space or end of string
              (t
               (let ((end (or (string-match " " aliases-str pos)
                              (length aliases-str))))
-                (push (substring aliases-str pos end) result)
+                (push (vulpea-db--strip-emphasis
+                       (org-link-display-format
+                        (substring aliases-str pos end)))
+                      result)
                 (setq pos end)))))))
       (nreverse result))))
 
