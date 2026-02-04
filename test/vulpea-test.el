@@ -983,20 +983,20 @@ Uses Unicode normalization to preserve base characters from accented letters."
                            :pos 200 :description "OLD TITLE")
                      (list :source-id "src3" :source-path "/tmp/c.org"
                            :pos 300 :description "old title"))))
-    (let ((result (vulpea--categorize-links links "Old Title" nil)))
+    (let ((result (vulpea--categorize-links links "Old Title")))
       ;; All three should be exact matches (case-insensitive)
       (should (= (length (plist-get result :exact)) 3))
       (should (= (length (plist-get result :partial)) 0)))))
 
-(ert-deftest vulpea-categorize-links-exact-alias-match ()
-  "Test exact alias match (case-insensitive)."
+(ert-deftest vulpea-categorize-links-alias-not-matched ()
+  "Test that alias-based links are not matched (aliases stay unchanged)."
   (let ((links (list (list :source-id "src1" :source-path "/tmp/a.org"
                            :pos 100 :description "My Alias")
                      (list :source-id "src2" :source-path "/tmp/b.org"
                            :pos 200 :description "MY ALIAS"))))
-    (let ((result (vulpea--categorize-links links "Old Title" '("My Alias" "Another"))))
-      ;; Both should be exact matches via alias
-      (should (= (length (plist-get result :exact)) 2))
+    (let ((result (vulpea--categorize-links links "Old Title")))
+      ;; Alias-based links should not match - they're left alone
+      (should (= (length (plist-get result :exact)) 0))
       (should (= (length (plist-get result :partial)) 0)))))
 
 (ert-deftest vulpea-categorize-links-partial-match ()
@@ -1005,7 +1005,7 @@ Uses Unicode normalization to preserve base characters from accented letters."
                            :pos 100 :description "See Old Title for details")
                      (list :source-id "src2" :source-path "/tmp/b.org"
                            :pos 200 :description "The Old Title Project"))))
-    (let ((result (vulpea--categorize-links links "Old Title" nil)))
+    (let ((result (vulpea--categorize-links links "Old Title")))
       ;; Both contain the title but aren't exact matches
       (should (= (length (plist-get result :exact)) 0))
       (should (= (length (plist-get result :partial)) 2)))))
@@ -1016,7 +1016,7 @@ Uses Unicode normalization to preserve base characters from accented letters."
                            :pos 100 :description "Completely Different")
                      (list :source-id "src2" :source-path "/tmp/b.org"
                            :pos 200 :description "Something Else"))))
-    (let ((result (vulpea--categorize-links links "Old Title" '("My Alias"))))
+    (let ((result (vulpea--categorize-links links "Old Title")))
       ;; Neither matches - they have custom descriptions
       (should (= (length (plist-get result :exact)) 0))
       (should (= (length (plist-get result :partial)) 0)))))
@@ -1029,7 +1029,7 @@ Uses Unicode normalization to preserve base characters from accented letters."
                            :pos 200 :description "The Old Title Guide")
                      (list :source-id "src3" :source-path "/tmp/c.org"
                            :pos 300 :description "Custom Name"))))
-    (let ((result (vulpea--categorize-links links "Old Title" nil)))
+    (let ((result (vulpea--categorize-links links "Old Title")))
       (should (= (length (plist-get result :exact)) 1))
       (should (= (length (plist-get result :partial)) 1)))))
 
@@ -1039,7 +1039,7 @@ Uses Unicode normalization to preserve base characters from accented letters."
                            :pos 100 :description nil)
                      (list :source-id "src2" :source-path "/tmp/b.org"
                            :pos 200 :description "Old Title"))))
-    (let ((result (vulpea--categorize-links links "Old Title" nil)))
+    (let ((result (vulpea--categorize-links links "Old Title")))
       ;; nil description should not match anything
       (should (= (length (plist-get result :exact)) 1))
       (should (= (length (plist-get result :partial)) 0)))))
