@@ -298,7 +298,7 @@ after loading PATH so file-local keywords and hooks are respected."
   (let ((vulpea-db--parse-buffer-run-hooks rerun-org-mode))
     (vulpea-db--with-parse-buffer
       (let* ((t0 (current-time))
-             (_ (progn
+             (_ (let ((inhibit-read-only t))
                   (erase-buffer)
                   (insert-file-contents path)))
              (t1 (current-time))

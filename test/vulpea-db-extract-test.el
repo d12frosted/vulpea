@@ -86,6 +86,33 @@
           (should (equal title (file-name-base path))))
       (delete-file path))))
 
+(ert-deftest vulpea-db-extract-parse-with-readonly-buffer ()
+  "Test that parsing succeeds when parse buffer has read-only text properties.
+This simulates the scenario where org-transclusion (or similar packages)
+mark regions as read-only during org-mode hooks."
+  (let* ((path1 (vulpea-test--create-temp-org-file
+                 ":PROPERTIES:\n:ID: readonly-test-1\n:END:\n#+TITLE: First\n"))
+         (path2 (vulpea-test--create-temp-org-file
+                 ":PROPERTIES:\n:ID: readonly-test-2\n:END:\n#+TITLE: Second\n")))
+    (unwind-protect
+        (progn
+          ;; Parse first file to initialize the shared buffer
+          (vulpea-db--parse-file path1)
+          ;; Simulate org-transclusion: add read-only text properties
+          ;; to the shared parse buffer
+          (when (and vulpea-db--parse-buffer
+                     (buffer-live-p vulpea-db--parse-buffer))
+            (with-current-buffer vulpea-db--parse-buffer
+              (add-text-properties (point-min) (point-max)
+                                   '(read-only t))))
+          ;; Parsing second file should still succeed
+          (let ((ctx (vulpea-db--parse-file path2)))
+            (should (vulpea-parse-ctx-p ctx))
+            (should (equal (plist-get (vulpea-parse-ctx-file-node ctx) :title)
+                           "Second"))))
+      (delete-file path1)
+      (delete-file path2))))
+
 ;;; Heading Node Tests
 
 (ert-deftest vulpea-db-extract-heading-nodes ()
