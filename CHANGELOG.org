@@ -21,6 +21,7 @@
 - [[https://github.com/d12frosted/vulpea/issues/211][vulpea#211]] Add per-note tag operations in new =vulpea-tags.el= module: =vulpea-tags= (get), =vulpea-tags-add=, =vulpea-tags-remove=, =vulpea-tags-set=. These work with both file-level notes (filetags) and heading-level notes (org heading tags).
 - [[https://github.com/d12frosted/vulpea/issues/211][vulpea#211]] Add batch tag operations: =vulpea-tags-batch-add=, =vulpea-tags-batch-remove=, and =vulpea-tags-batch-rename=. The rename function implements [[https://github.com/d12frosted/vulpea/issues/120][vulpea#120]], allowing global tag renaming across all notes. =vulpea-tags-batch-rename= is interactive with completion for existing tags.
 - [[https://github.com/d12frosted/vulpea/issues/211][vulpea#211]] Add batch metadata operations: =vulpea-meta-batch-set= and =vulpea-meta-batch-remove= for efficiently setting or removing metadata properties across multiple notes. Both use =vulpea-utils-process-notes= for optimized batch processing.
+- [[https://github.com/d12frosted/vulpea-journal/issues/2][vulpea-journal#2]] Extend =vulpea-create= with =:parent= and =:after= parameters for creating heading-level notes under existing notes. When =:parent= is a =vulpea-note=, a heading is inserted in the parent's file at =parent-level + 1=. =:after= controls insertion order: ='last= (default, append as last child), =nil= (insert as first child), or a note ID string (insert after that sibling).
 
 *Fixes*
 

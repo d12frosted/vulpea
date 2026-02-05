@@ -818,6 +818,391 @@ Uses Unicode normalization to preserve base characters from accented letters."
         (when (file-directory-p vulpea-default-notes-directory)
           (delete-directory vulpea-default-notes-directory t))))))
 
+;;; vulpea-create with :parent Tests
+
+(ert-deftest vulpea-create-heading-under-file-level-parent ()
+  "Test creating a heading note under a file-level parent."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((vulpea-default-notes-directory (make-temp-file "vulpea-test-" t))
+           (vulpea-create-default-template '(:file-name "${slug}.org"))
+           (parent-title "Parent Note")
+           parent-note child-note parent-file)
+      (unwind-protect
+          (progn
+            ;; Create file-level parent
+            (setq parent-note (vulpea-create parent-title nil))
+            (should parent-note)
+            (setq parent-file (vulpea-note-path parent-note))
+            (should (= (vulpea-note-level parent-note) 0))
+
+            ;; Create heading under parent
+            (setq child-note (vulpea-create "Child Heading" nil
+                                            :parent parent-note))
+            (should child-note)
+            (should (vulpea-note-id child-note))
+            (should (equal (vulpea-note-title child-note) "Child Heading"))
+            ;; Should be level 1 (parent level 0 + 1)
+            (should (= (vulpea-note-level child-note) 1))
+            ;; Should be in same file as parent
+            (should (equal (vulpea-note-path child-note) parent-file))
+
+            ;; Verify file content has the heading
+            (with-temp-buffer
+              (insert-file-contents parent-file)
+              (let ((content (buffer-string)))
+                (should (string-match-p "^\\* Child Heading" content))
+                (should (string-match-p ":ID:" content)))))
+        (when (and parent-file (file-exists-p parent-file))
+          (when (get-file-buffer parent-file)
+            (kill-buffer (get-file-buffer parent-file)))
+          (delete-file parent-file))
+        (when (file-directory-p vulpea-default-notes-directory)
+          (delete-directory vulpea-default-notes-directory t))))))
+
+(ert-deftest vulpea-create-heading-with-properties ()
+  "Test creating heading note with custom properties."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((vulpea-default-notes-directory (make-temp-file "vulpea-test-" t))
+           (vulpea-create-default-template '(:file-name "${slug}.org"))
+           parent-note child-note parent-file)
+      (unwind-protect
+          (progn
+            (setq parent-note (vulpea-create "Container" nil))
+            (setq parent-file (vulpea-note-path parent-note))
+
+            ;; Create heading with CREATED property
+            (setq child-note (vulpea-create "Entry" nil
+                                            :parent parent-note
+                                            :properties '(("CREATED" . "[2024-11-25]"))))
+            (should child-note)
+            (should (= (vulpea-note-level child-note) 1))
+
+            ;; Verify properties in file
+            (with-temp-buffer
+              (insert-file-contents parent-file)
+              (let ((content (buffer-string)))
+                (should (string-match-p ":CREATED:.*\\[2024-11-25\\]" content)))))
+        (when (and parent-file (file-exists-p parent-file))
+          (when (get-file-buffer parent-file)
+            (kill-buffer (get-file-buffer parent-file)))
+          (delete-file parent-file))
+        (when (file-directory-p vulpea-default-notes-directory)
+          (delete-directory vulpea-default-notes-directory t))))))
+
+(ert-deftest vulpea-create-heading-with-tags ()
+  "Test creating heading note with headline tags."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((vulpea-default-notes-directory (make-temp-file "vulpea-test-" t))
+           (vulpea-create-default-template '(:file-name "${slug}.org"))
+           parent-note child-note parent-file)
+      (unwind-protect
+          (progn
+            (setq parent-note (vulpea-create "Container" nil))
+            (setq parent-file (vulpea-note-path parent-note))
+
+            ;; Create heading with tags
+            (setq child-note (vulpea-create "Daily Entry" nil
+                                            :parent parent-note
+                                            :tags '("journal")))
+            (should child-note)
+
+            ;; Verify heading has inline tags in file
+            (with-temp-buffer
+              (insert-file-contents parent-file)
+              (let ((content (buffer-string)))
+                (should (string-match-p "^\\* Daily Entry.*:journal:" content))))
+
+            ;; Verify tags are in database
+            (let ((db-note (vulpea-db-get-by-id (vulpea-note-id child-note))))
+              (should db-note)
+              (should (member "journal" (vulpea-note-tags db-note)))))
+        (when (and parent-file (file-exists-p parent-file))
+          (when (get-file-buffer parent-file)
+            (kill-buffer (get-file-buffer parent-file)))
+          (delete-file parent-file))
+        (when (file-directory-p vulpea-default-notes-directory)
+          (delete-directory vulpea-default-notes-directory t))))))
+
+(ert-deftest vulpea-create-sub-heading-under-heading-parent ()
+  "Test creating sub-heading under a heading-level parent (level 2+)."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((vulpea-default-notes-directory (make-temp-file "vulpea-test-" t))
+           (vulpea-create-default-template '(:file-name "${slug}.org"))
+           parent-note child-note grandchild-note parent-file)
+      (unwind-protect
+          (progn
+            ;; Create file-level note
+            (setq parent-note (vulpea-create "Document" nil))
+            (setq parent-file (vulpea-note-path parent-note))
+
+            ;; Create level-1 heading
+            (setq child-note (vulpea-create "Section" nil
+                                            :parent parent-note))
+            (should (= (vulpea-note-level child-note) 1))
+
+            ;; Create level-2 heading under level-1
+            (setq grandchild-note (vulpea-create "Subsection" nil
+                                                 :parent child-note))
+            (should grandchild-note)
+            (should (= (vulpea-note-level grandchild-note) 2))
+            (should (equal (vulpea-note-path grandchild-note) parent-file))
+
+            ;; Verify file structure
+            (with-temp-buffer
+              (insert-file-contents parent-file)
+              (let ((content (buffer-string)))
+                (should (string-match-p "^\\* Section" content))
+                (should (string-match-p "^\\*\\* Subsection" content)))))
+        (when (and parent-file (file-exists-p parent-file))
+          (when (get-file-buffer parent-file)
+            (kill-buffer (get-file-buffer parent-file)))
+          (delete-file parent-file))
+        (when (file-directory-p vulpea-default-notes-directory)
+          (delete-directory vulpea-default-notes-directory t))))))
+
+(ert-deftest vulpea-create-heading-after-last ()
+  "Test creating multiple headings with :after 'last (default)."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((vulpea-default-notes-directory (make-temp-file "vulpea-test-" t))
+           (vulpea-create-default-template '(:file-name "${slug}.org"))
+           parent-note child1 child2 child3 parent-file)
+      (unwind-protect
+          (progn
+            (setq parent-note (vulpea-create "Container" nil))
+            (setq parent-file (vulpea-note-path parent-note))
+
+            ;; Create multiple headings (default :after is 'last)
+            (setq child1 (vulpea-create "First" nil :parent parent-note))
+            (setq child2 (vulpea-create "Second" nil :parent parent-note))
+            (setq child3 (vulpea-create "Third" nil :parent parent-note))
+
+            ;; All should have different IDs
+            (should-not (equal (vulpea-note-id child1) (vulpea-note-id child2)))
+            (should-not (equal (vulpea-note-id child2) (vulpea-note-id child3)))
+
+            ;; All at level 1
+            (should (= (vulpea-note-level child1) 1))
+            (should (= (vulpea-note-level child2) 1))
+            (should (= (vulpea-note-level child3) 1))
+
+            ;; Verify ordering in file
+            (with-temp-buffer
+              (insert-file-contents parent-file)
+              (goto-char (point-min))
+              (let ((pos1 (search-forward "First" nil t))
+                    (pos2 (search-forward "Second" nil t))
+                    (pos3 (search-forward "Third" nil t)))
+                (should pos1)
+                (should pos2)
+                (should pos3)
+                (should (< pos1 pos2))
+                (should (< pos2 pos3)))))
+        (when (and parent-file (file-exists-p parent-file))
+          (when (get-file-buffer parent-file)
+            (kill-buffer (get-file-buffer parent-file)))
+          (delete-file parent-file))
+        (when (file-directory-p vulpea-default-notes-directory)
+          (delete-directory vulpea-default-notes-directory t))))))
+
+(ert-deftest vulpea-create-heading-after-nil ()
+  "Test creating heading as first child with :after nil."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((vulpea-default-notes-directory (make-temp-file "vulpea-test-" t))
+           (vulpea-create-default-template '(:file-name "${slug}.org"))
+           parent-note existing-child new-first parent-file)
+      (unwind-protect
+          (progn
+            (setq parent-note (vulpea-create "Container" nil))
+            (setq parent-file (vulpea-note-path parent-note))
+
+            ;; Create existing child
+            (setq existing-child (vulpea-create "Existing" nil
+                                                :parent parent-note))
+
+            ;; Insert as first child
+            (setq new-first (vulpea-create "New First" nil
+                                           :parent parent-note
+                                           :after nil))
+            (should new-first)
+            (should (= (vulpea-note-level new-first) 1))
+
+            ;; Verify new child comes before existing in file
+            (with-temp-buffer
+              (insert-file-contents parent-file)
+              (goto-char (point-min))
+              (let ((pos-new (search-forward "New First" nil t))
+                    (pos-existing (search-forward "Existing" nil t)))
+                (should pos-new)
+                (should pos-existing)
+                (should (< pos-new pos-existing)))))
+        (when (and parent-file (file-exists-p parent-file))
+          (when (get-file-buffer parent-file)
+            (kill-buffer (get-file-buffer parent-file)))
+          (delete-file parent-file))
+        (when (file-directory-p vulpea-default-notes-directory)
+          (delete-directory vulpea-default-notes-directory t))))))
+
+(ert-deftest vulpea-create-heading-after-specific-sibling ()
+  "Test inserting heading after a specific sibling by ID."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((vulpea-default-notes-directory (make-temp-file "vulpea-test-" t))
+           (vulpea-create-default-template '(:file-name "${slug}.org"))
+           parent-note child1 child2 inserted parent-file)
+      (unwind-protect
+          (progn
+            (setq parent-note (vulpea-create "Container" nil))
+            (setq parent-file (vulpea-note-path parent-note))
+
+            ;; Create two children
+            (setq child1 (vulpea-create "Alpha" nil :parent parent-note))
+            (setq child2 (vulpea-create "Gamma" nil :parent parent-note))
+
+            ;; Insert between them (after child1)
+            (setq inserted (vulpea-create "Beta" nil
+                                          :parent parent-note
+                                          :after (vulpea-note-id child1)))
+            (should inserted)
+            (should (= (vulpea-note-level inserted) 1))
+
+            ;; Verify ordering: Alpha, Beta, Gamma
+            (with-temp-buffer
+              (insert-file-contents parent-file)
+              (goto-char (point-min))
+              (let ((pos-alpha (search-forward "Alpha" nil t))
+                    (pos-beta (search-forward "Beta" nil t))
+                    (pos-gamma (search-forward "Gamma" nil t)))
+                (should pos-alpha)
+                (should pos-beta)
+                (should pos-gamma)
+                (should (< pos-alpha pos-beta))
+                (should (< pos-beta pos-gamma)))))
+        (when (and parent-file (file-exists-p parent-file))
+          (when (get-file-buffer parent-file)
+            (kill-buffer (get-file-buffer parent-file)))
+          (delete-file parent-file))
+        (when (file-directory-p vulpea-default-notes-directory)
+          (delete-directory vulpea-default-notes-directory t))))))
+
+(ert-deftest vulpea-create-heading-parent-not-found ()
+  "Test error when parent note does not exist."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((vulpea-default-notes-directory (make-temp-file "vulpea-test-" t))
+           (vulpea-create-default-template '(:file-name "${slug}.org"))
+           (fake-parent (make-vulpea-note
+                         :id "nonexistent-id"
+                         :path "/tmp/nonexistent.org"
+                         :level 0
+                         :title "Ghost")))
+      (unwind-protect
+          (should-error (vulpea-create "Orphan" nil :parent fake-parent))
+        (when (file-directory-p vulpea-default-notes-directory)
+          (delete-directory vulpea-default-notes-directory t))))))
+
+(ert-deftest vulpea-create-heading-survives-db-rebuild ()
+  "Test that heading note survives database clear and re-index."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((vulpea-default-notes-directory (make-temp-file "vulpea-test-" t))
+           (vulpea-db-sync-directories (list vulpea-default-notes-directory))
+           (vulpea-create-default-template '(:file-name "${slug}.org"))
+           parent-note child-note parent-file child-id)
+      (unwind-protect
+          (progn
+            (setq parent-note (vulpea-create "Container" nil))
+            (setq parent-file (vulpea-note-path parent-note))
+
+            (setq child-note (vulpea-create "Heading Entry" nil
+                                            :parent parent-note
+                                            :properties '(("CREATED" . "[2024-11-25]"))
+                                            :tags '("journal")))
+            (setq child-id (vulpea-note-id child-note))
+            (should child-note)
+            (should (= (vulpea-note-level child-note) 1))
+
+            ;; Clear database and rebuild
+            (vulpea-db-clear)
+            (vulpea-db-sync-full-scan)
+
+            ;; Should still find the note
+            (let ((found (vulpea-db-get-by-id child-id)))
+              (should found)
+              (should (equal (vulpea-note-title found) "Heading Entry"))
+              (should (= (vulpea-note-level found) 1))
+              (should (member "journal" (vulpea-note-tags found)))))
+        (when (and parent-file (file-exists-p parent-file))
+          (when (get-file-buffer parent-file)
+            (kill-buffer (get-file-buffer parent-file)))
+          (delete-file parent-file))
+        (when (file-directory-p vulpea-default-notes-directory)
+          (delete-directory vulpea-default-notes-directory t))))))
+
+(ert-deftest vulpea-create-heading-registers-with-org-id ()
+  "Test that heading note ID is registered with org-id."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((vulpea-default-notes-directory (make-temp-file "vulpea-test-" t))
+           (vulpea-create-default-template '(:file-name "${slug}.org"))
+           (org-id-locations (make-hash-table :test #'equal))
+           (org-id-files nil)
+           parent-note child-note parent-file)
+      (unwind-protect
+          (progn
+            (setq parent-note (vulpea-create "Container" nil))
+            (setq parent-file (vulpea-note-path parent-note))
+
+            (setq child-note (vulpea-create "Heading" nil
+                                            :parent parent-note))
+            (should child-note)
+
+            ;; Verify org-id can find this note
+            (let ((location (org-id-find (vulpea-note-id child-note))))
+              (should location)
+              (should (equal (expand-file-name (car location))
+                             parent-file))))
+        (when (and parent-file (file-exists-p parent-file))
+          (when (get-file-buffer parent-file)
+            (kill-buffer (get-file-buffer parent-file)))
+          (delete-file parent-file))
+        (when (file-directory-p vulpea-default-notes-directory)
+          (delete-directory vulpea-default-notes-directory t))))))
+
+(ert-deftest vulpea-create-heading-with-body ()
+  "Test creating heading note with body content."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((vulpea-default-notes-directory (make-temp-file "vulpea-test-" t))
+           (vulpea-create-default-template '(:file-name "${slug}.org"))
+           parent-note child-note parent-file)
+      (unwind-protect
+          (progn
+            (setq parent-note (vulpea-create "Container" nil))
+            (setq parent-file (vulpea-note-path parent-note))
+
+            (setq child-note (vulpea-create "Entry" nil
+                                            :parent parent-note
+                                            :body "Some body content here."))
+            (should child-note)
+
+            ;; Verify body appears in file after the heading
+            (with-temp-buffer
+              (insert-file-contents parent-file)
+              (let ((content (buffer-string)))
+                (should (string-match-p "Some body content here\\." content)))))
+        (when (and parent-file (file-exists-p parent-file))
+          (when (get-file-buffer parent-file)
+            (kill-buffer (get-file-buffer parent-file)))
+          (delete-file parent-file))
+        (when (file-directory-p vulpea-default-notes-directory)
+          (delete-directory vulpea-default-notes-directory t))))))
+
 ;;; vulpea-insert Tests
 
 (ert-deftest vulpea-insert-uses-candidates-fn ()
