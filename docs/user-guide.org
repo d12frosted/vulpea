@@ -382,6 +382,20 @@ If you need to force a sync:
 vulpea-db-autosync-mode
 #+end_src
 
+** Encrypted Files
+
+Vulpea can track age-encrypted (=.org.age=) and GPG-encrypted (=.org.gpg=)
+org files. See [[file:configuration.org][Configuration → Extra File Extensions]] for setup.
+
+Once configured, encrypted files work like regular org files:
+- =vulpea-find= includes them in search results
+- Links, tags, and metadata are queryable
+- Changes are detected automatically by the sync system
+
+*Note:* Encrypted files are parsed more slowly (via =find-file=) than
+regular =.org= files. For large collections, keep the number of
+encrypted files manageable.
+
 * Tips and Workflows
 
 ** Zettelkasten-Style Notes

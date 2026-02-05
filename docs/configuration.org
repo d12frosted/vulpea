@@ -19,6 +19,36 @@ Vulpea watches these directories recursively for =.org= files.
 
 Default: =(list org-directory)=
 
+** Extra File Extensions
+
+By default, Vulpea only tracks =.org= files. To index files with other
+extensions (e.g., age-encrypted or GPG-encrypted org files), configure:
+
+#+begin_src emacs-lisp
+(setq vulpea-db-extra-extensions '(".org.age" ".org.gpg"))
+#+end_src
+
+Default: =nil= (only =.org= files)
+
+*Requirements:*
+- Install the appropriate Emacs package for your encryption tool:
+  - =age.el= for =.org.age= files
+  - =epa-file= (built-in) for =.org.gpg= files
+- After changing this setting, run =M-x vulpea-db-sync-full-scan= to
+  index existing files
+
+*How it works:*
+- Files with extra extensions are always parsed using the =find-file=
+  method (regardless of =vulpea-db-parse-method=) so that decryption
+  hooks can run
+- Change detection uses raw (encrypted) file bytes — decrypted content
+  is never persisted outside of the temporary parse buffer
+- The parse buffer is killed immediately after extraction
+
+*Security note:* Metadata extracted from encrypted files (titles, tags,
+links, properties) is stored in the *plaintext* database. Only opt in
+if you accept this trade-off.
+
 ** Default Notes Directory
 
 Where new notes are created:
@@ -320,6 +350,9 @@ With optimized settings on modern hardware (M1 Mac):
 ;; Directories (only needed if different from org-directory)
 (setq vulpea-db-sync-directories '("~/org/" "~/work-notes/"))
 (setq vulpea-default-notes-directory "~/org/notes/")
+
+;; Extra file extensions (opt-in for encrypted files)
+;; (setq vulpea-db-extra-extensions '(".org.age" ".org.gpg"))
 
 ;; Performance (for large collections)
 (setq vulpea-db-parse-method 'single-temp-buffer)
