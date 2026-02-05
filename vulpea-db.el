@@ -202,6 +202,10 @@ Uses hybrid approach:
 (defvar vulpea-db--connection nil
   "Database connection.")
 
+(defvar vulpea-db--schema-rebuilt nil
+  "Non-nil if schema was rebuilt during last init.
+Checked by `vulpea-db-sync--start' to trigger automatic re-index.")
+
 ;;; Core API
 
 (defun vulpea-db ()
@@ -236,11 +240,30 @@ Use with caution!"
 
 ;;; Initialization
 
+(defun vulpea-db--needs-rebuild-p (db)
+  "Return non-nil if DB schema version doesn't match `vulpea-db-version'."
+  (condition-case nil
+      (let ((stored (caar (emacsql db
+                                   [:select [version] :from schema-registry
+                                    :where (= name "core")]))))
+        (and stored (not (= stored vulpea-db-version))))
+    ;; schema-registry doesn't exist → brand new DB, no rebuild needed
+    (error nil)))
+
 (defun vulpea-db--init ()
   "Initialize database connection and schema."
   (let ((db (emacsql-sqlite-builtin vulpea-db-location)))
     ;; Enable foreign keys
     (emacsql db [:pragma (= foreign-keys on)])
+
+    ;; Check if schema version mismatches
+    (when (vulpea-db--needs-rebuild-p db)
+      (emacsql-close db)
+      (delete-file vulpea-db-location)
+      (setq db (emacsql-sqlite-builtin vulpea-db-location))
+      (emacsql db [:pragma (= foreign-keys on)])
+      (setq vulpea-db--schema-rebuilt t)
+      (message "Vulpea: Schema version changed, rebuilding database..."))
 
     ;; Create tables
     (vulpea-db--create-tables db)

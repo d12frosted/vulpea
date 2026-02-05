@@ -326,6 +326,13 @@ a subprocess.  The `blocking' mode still scans synchronously."
         (message "[vulpea-sync] cleanup-deleted-files: %.0fms"
                  (* 1000 (float-time (time-subtract (current-time) t-phase))))))
 
+    ;; If schema was rebuilt, trigger forced re-index
+    (when vulpea-db--schema-rebuilt
+      (setq vulpea-db--schema-rebuilt nil)
+      (message "Vulpea: Schema upgraded, re-indexing all files...")
+      (dolist (dir vulpea-db-sync-directories)
+        (vulpea-db-sync-update-directory dir 'force)))
+
     (when vulpea-db-sync-debug
       (message "[vulpea-sync] start complete: %.0fms total (sync portion)"
                (* 1000 (float-time (time-subtract (current-time) t-total)))))))

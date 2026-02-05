@@ -297,5 +297,87 @@
                          [:select * :from notes :where (= id $s1)]
                          "test-id"))))
 
+;;; Schema Upgrade Tests
+
+(ert-deftest vulpea-db-schema-upgrade-rebuilds ()
+  "Test that version mismatch triggers DB rebuild."
+  (vulpea-test--with-temp-db
+    ;; Initialize DB and insert a note
+    (vulpea-db)
+    (vulpea-db--insert-note
+     :id "test-id"
+     :path "/tmp/test.org"
+     :level 0
+     :pos 0
+     :title "Test Note"
+     :properties nil
+     :modified-at "2025-11-16 10:00:00")
+
+    ;; Verify note exists
+    (should (emacsql (vulpea-db)
+                     [:select * :from notes :where (= id $s1)]
+                     "test-id"))
+
+    ;; Simulate old DB: downgrade stored version
+    (emacsql (vulpea-db)
+             [:update schema-registry :set (= version 0)
+              :where (= name "core")])
+
+    ;; Close connection to simulate restart
+    (vulpea-db-close)
+    (setq vulpea-db--connection nil)
+
+    ;; Re-initialize — should detect mismatch and rebuild
+    (vulpea-db)
+
+    ;; Old note should be gone (DB was deleted and recreated)
+    (should-not (emacsql (vulpea-db)
+                         [:select * :from notes :where (= id $s1)]
+                         "test-id"))
+
+    ;; Version should be current
+    (let ((version (caar (emacsql (vulpea-db)
+                                  [:select [version] :from schema-registry
+                                   :where (= name "core")]))))
+      (should (equal version vulpea-db-version)))
+
+    ;; Schema rebuilt flag should be set
+    (should vulpea-db--schema-rebuilt)
+
+    ;; Tables should still exist (freshly created)
+    (should (vulpea-db--table-exists-p 'notes))
+    (should (vulpea-db--table-exists-p 'tags))
+    (should (vulpea-db--table-exists-p 'schema_registry))))
+
+(ert-deftest vulpea-db-same-version-no-rebuild ()
+  "Test that same version does not trigger rebuild."
+  (vulpea-test--with-temp-db
+    ;; Initialize DB and insert a note
+    (vulpea-db)
+    (vulpea-db--insert-note
+     :id "test-id"
+     :path "/tmp/test.org"
+     :level 0
+     :pos 0
+     :title "Test Note"
+     :properties nil
+     :modified-at "2025-11-16 10:00:00")
+
+    ;; Close connection to simulate restart
+    (vulpea-db-close)
+    (setq vulpea-db--connection nil)
+    (setq vulpea-db--schema-rebuilt nil)
+
+    ;; Re-initialize — same version, no rebuild
+    (vulpea-db)
+
+    ;; Note should still be there
+    (should (emacsql (vulpea-db)
+                     [:select * :from notes :where (= id $s1)]
+                     "test-id"))
+
+    ;; Flag should not be set
+    (should-not vulpea-db--schema-rebuilt)))
+
 (provide 'vulpea-db-test)
 ;;; vulpea-db-test.el ends here
