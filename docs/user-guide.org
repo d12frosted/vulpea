@@ -74,6 +74,21 @@ For scripts or custom commands:
                        ("rating" . "4")))
 #+end_src
 
+** Under Existing Notes
+
+Create heading-level notes inside an existing file using =:parent=:
+
+#+begin_src emacs-lisp
+;; Add a heading under an existing note
+(let ((parent (vulpea-db-get-by-id "parent-id")))
+  (vulpea-create "New Section" nil :parent parent))
+
+;; Control insertion order with :after
+(vulpea-create "First" nil :parent parent :after nil)      ; first child
+(vulpea-create "Last" nil :parent parent :after 'last)     ; last child (default)
+(vulpea-create "After X" nil :parent parent :after "x-id") ; after specific sibling
+#+end_src
+
 ** Default Templates
 
 Configure defaults that apply to all new notes:

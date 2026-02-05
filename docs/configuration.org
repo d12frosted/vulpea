@@ -110,6 +110,8 @@ For context-aware defaults:
 | =:properties= | Alist for property drawer               | ='(("STATUS" . "active"))=   |
 | =:meta=       | Alist for metadata                      | ='(("author" . "me"))=       |
 | =:context=    | Custom variables for template expansion | ='(:project "MyProject")=    |
+| =:parent=     | =vulpea-note= to create heading under   | =parent-note=                |
+| =:after=      | Insertion position (='last=, =nil=, id) | ='last=                      |
 
 ** Template Expansion Syntax
 
@@ -237,10 +239,10 @@ When =fswatch= is not available, Vulpea falls back to polling — periodically s
 
 If you use polling, install =fd= — it is critical for polling performance. Benchmark on a 14k-file collection:
 
-| Method  | File listing time | Blocking time (editor) |
-|---------+-------------------+------------------------|
-| =fd=    | ~50ms             | 0ms (async)            |
-| =find=  | ~900ms            | 0ms (async)            |
+| Method | File listing time | Blocking time (editor) |
+|--------+-------------------+------------------------|
+| =fd=   | ~50ms             | 0ms (async)            |
+| =find= | ~900ms            | 0ms (async)            |
 
 Both run asynchronously and don't block the editor, but =fd= completes the scan 15× faster, meaning changes are detected sooner.
 

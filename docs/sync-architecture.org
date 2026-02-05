@@ -32,7 +32,9 @@ vulpea-db-update-file(path)
 #+begin_example
 vulpea-create(title, ...)
   │
-  ├─ Write file to disk
+  ├─ :parent nil?
+  │   ├─ YES: Write new file to disk (file-level note)
+  │   └─ NO:  Insert heading in parent's file (heading-level note)
   ├─ org-id-add-location(id, path)
   └─ vulpea-db-update-file(path)  ← ALWAYS IMMEDIATE
       └─ Returns note object

@@ -596,6 +596,87 @@ for the original title and once for each alias."
 
 
 
+(defun vulpea--format-heading-content (level id title &optional tags properties body)
+  "Format a heading-level note content.
+
+LEVEL is the heading depth (number of stars).
+ID and TITLE are required.
+TAGS is a list of tag strings (inserted as headline tags).
+PROPERTIES is an alist of (key . value) for the property drawer.
+BODY is optional body text after the property drawer."
+  (string-join
+   (append
+    ;; Heading line with optional tags
+    (list (concat (make-string level ?*)
+                  " "
+                  title
+                  (when tags
+                    (concat " :" (string-join tags ":") ":"))))
+    ;; Property drawer
+    (list ":PROPERTIES:"
+          (format org-property-format ":ID:" id))
+    (mapcar
+     (lambda (prop)
+       (format org-property-format
+               (concat ":" (car prop) ":")
+               (cdr prop)))
+     properties)
+    (list ":END:")
+    ;; Body
+    (when body (list body)))
+   "\n"))
+
+(defun vulpea--find-heading-insertion-point (parent-note level after)
+  "Find buffer position to insert a new heading.
+
+PARENT-NOTE is the parent vulpea-note.
+LEVEL is the heading level to insert.
+AFTER controls position:
+  \\='last (default) - append as last child
+  nil - insert as first child
+  string - insert after the child heading with that ID."
+  (let ((parent-level (vulpea-note-level parent-note)))
+    (cond
+     ;; Insert as first child
+     ((null after)
+      (if (= parent-level 0)
+          ;; File-level parent: insert before first heading
+          (progn
+            (goto-char (point-min))
+            (if (re-search-forward "^\\*+ " nil t)
+                (goto-char (match-beginning 0))
+              (goto-char (point-max))
+              (unless (bolp) (insert "\n"))))
+        ;; Heading parent: insert after parent's property drawer
+        (goto-char (vulpea-note-pos parent-note))
+        (forward-line 1)
+        ;; Skip past property drawer if present
+        (when (looking-at-p "[ \t]*:PROPERTIES:")
+          (re-search-forward "^[ \t]*:END:" nil t)
+          (forward-line 1))))
+
+     ;; Insert after specific sibling
+     ((stringp after)
+      (let ((sibling-pos (org-id-find after 'marker)))
+        (unless sibling-pos
+          (error "vulpea-create: Sibling note with ID %s not found" after))
+        (goto-char sibling-pos)
+        ;; Move past the sibling's entire subtree
+        (org-end-of-subtree t)
+        (unless (bolp) (insert "\n"))))
+
+     ;; Insert as last child (default)
+     (t
+      (if (= parent-level 0)
+          ;; File-level parent: append at end of file
+          (progn
+            (goto-char (point-max))
+            (unless (bolp) (insert "\n")))
+        ;; Heading parent: go to end of parent's subtree
+        (goto-char (vulpea-note-pos parent-note))
+        (org-end-of-subtree t)
+        (unless (bolp) (insert "\n")))))))
+
 ;;;###autoload
 (cl-defun vulpea-create (title
                          &optional file-name
@@ -606,8 +687,10 @@ for the original title and once for each alias."
                          body
                          context
                          properties
-                         tags)
-  "Create a new note file with TITLE programmatically.
+                         tags
+                         parent
+                         (after 'last))
+  "Create a new note with TITLE programmatically.
 
 This function is designed for programmatic note creation with
 immediate finalization. For interactive note capture with user
@@ -615,12 +698,13 @@ editing, use `org-capture' with vulpea-compatible templates.
 
 FILE-NAME is optional. When nil, uses `:file-name' from
 `vulpea-create-default-template' to generate the file name.
+Ignored when PARENT is provided (file is determined by parent).
 
 Returns the created `vulpea-note' object.
 
 ID is automatically generated unless explicitly passed.
 
-Structure of the generated file:
+When PARENT is nil, creates a file-level note:
 
   :PROPERTIES:
   :ID: ID
@@ -633,6 +717,22 @@ Structure of the generated file:
   META if present
 
   BODY if present
+
+When PARENT is a `vulpea-note', creates a heading-level note
+inside the parent's file at level (parent-level + 1):
+
+  * TITLE :tags:
+  :PROPERTIES:
+  :ID: ID
+  PROPERTIES if present
+  :END:
+  BODY if present
+
+AFTER controls insertion position among siblings (only when
+PARENT is provided):
+  \\='last (default) - append as last child
+  nil - insert as first child
+  string (note ID) - insert after the child with that ID
 
 Optional parameters:
 
@@ -650,6 +750,21 @@ PROPERTIES values, and META values:
   %<format>  - Timestamp formatting (e.g., %<[%Y-%m-%d]>)
 
 Note: Does not support %a or %i from org-capture."
+  (let* ((id (or id (org-id-new)))
+         (context (or context nil)))
+    (if parent
+        ;; Heading-level note creation
+        (vulpea--create-heading title id parent after
+                               body tags properties context)
+      ;; File-level note creation (original behavior)
+      (vulpea--create-file title file-name id head meta body
+                           tags properties context))))
+
+(defun vulpea--create-file (title file-name id head meta body tags properties context)
+  "Create a file-level note with TITLE.
+
+FILE-NAME, ID, HEAD, META, BODY, TAGS, PROPERTIES, and CONTEXT
+are as documented in `vulpea-create'."
   ;; Get defaults from function or template
   (let* ((defaults (cond
                     (vulpea-create-default-function
@@ -658,7 +773,6 @@ Note: Does not support %a or %i from org-capture."
                      vulpea-create-default-template)
                     (t nil)))
          ;; Merge explicit parameters with defaults (explicit takes precedence)
-         (id (or id (org-id-new)))
          (file-name (or file-name (plist-get defaults :file-name)))
          (head (or head (plist-get defaults :head)))
          (body (or body (plist-get defaults :body)))
@@ -727,6 +841,56 @@ Note: Does not support %a or %i from org-capture."
     ;; Return the note
     (or (vulpea-db-get-by-id id)
         (error "vulpea-create: Note with ID %s not found in database after creation" id))))
+
+(defun vulpea--create-heading (title id parent after body tags properties context)
+  "Create a heading-level note with TITLE under PARENT.
+
+ID is the note identifier.
+PARENT is the parent `vulpea-note'.
+AFTER controls insertion position (see `vulpea-create').
+BODY, TAGS, PROPERTIES, and CONTEXT are as in `vulpea-create'."
+  (let* ((file-path (vulpea-note-path parent))
+         (level (1+ (vulpea-note-level parent)))
+         ;; Expand templates
+         (expanded-body (when body
+                          (vulpea--expand-template body title id context)))
+         (expanded-tags (when tags
+                          (mapcar (lambda (tag)
+                                    (vulpea--expand-template tag title id context))
+                                  tags)))
+         (expanded-properties (when properties
+                                (mapcar (lambda (prop)
+                                          (cons (car prop)
+                                                (vulpea--expand-template (cdr prop) title id context)))
+                                        properties)))
+         (heading-content (vulpea--format-heading-content
+                           level id title expanded-tags
+                           expanded-properties expanded-body)))
+
+    ;; Validate parent file exists
+    (unless (file-exists-p file-path)
+      (error "vulpea-create: Parent file %s does not exist" file-path))
+
+    ;; Insert heading into parent's file
+    (with-current-buffer (find-file-noselect file-path)
+      (org-with-wide-buffer
+       (vulpea--find-heading-insertion-point parent level after)
+       ;; Ensure we're at beginning of line
+       (when (not (bolp))
+         (insert "\n"))
+       (insert heading-content)
+       (unless (eobp) (insert "\n")))
+      (save-buffer))
+
+    ;; Register ID with org-id
+    (org-id-add-location id file-path)
+
+    ;; Update database
+    (vulpea-db-update-file file-path)
+
+    ;; Return the note
+    (or (vulpea-db-get-by-id id)
+        (error "vulpea-create: Heading note with ID %s not found in database after creation" id))))
 
 
 

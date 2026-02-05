@@ -313,6 +313,8 @@ There are multiple ways to read metadata, each with different trade-offs:
 
 * Creating Notes
 
+** File-level notes
+
 #+begin_src emacs-lisp
 ;; Simple
 (vulpea-create "My Note")
@@ -329,6 +331,53 @@ There are multiple ways to read metadata, each with different trade-offs:
 #+end_src
 
 Returns the created =vulpea-note=. Signals an error if a file already exists at the target path (to prevent accidental overwrites).
+
+** Heading-level notes
+
+Use =:parent= to create a heading inside an existing note's file:
+
+#+begin_src emacs-lisp
+;; Create a heading under an existing note
+(let ((parent (vulpea-db-get-by-id "parent-id")))
+  (vulpea-create "Sub-heading"
+                 nil
+                 :parent parent
+                 :tags '("journal")
+                 :properties '(("CREATED" . "[2025-01-15]"))))
+
+;; Insert as first child
+(vulpea-create "First Item" nil
+               :parent parent-note
+               :after nil)
+
+;; Insert after a specific sibling
+(vulpea-create "After Sibling" nil
+               :parent parent-note
+               :after "sibling-note-id")
+#+end_src
+
+The heading level is computed automatically as =parent-level + 1=. The parent's file must exist. Returns the created =vulpea-note=.
+
+** Parameters
+
+| Parameter     | Description                             | Default            |
+|---------------+-----------------------------------------+--------------------|
+| =title=       | Note title (required)                   |                    |
+| =file-name=   | File path relative to default directory | from template      |
+| =:id=         | UUID for the note                       | auto-generated     |
+| =:tags=       | List of tags                            |                    |
+| =:head=       | Content after =#+title:=                |                    |
+| =:body=       | Note body content                       |                    |
+| =:properties= | Alist for property drawer               |                    |
+| =:meta=       | Alist for metadata                      |                    |
+| =:context=    | Custom variables for template expansion |                    |
+| =:parent=     | =vulpea-note= to create heading under   | =nil= (file-level) |
+| =:after=      | Insertion position among siblings       | ='last=            |
+
+=:after= accepts:
+- ='last= — append as last child (default)
+- =nil= — insert as first child
+- string — insert after the sibling with that note ID
 
 * Visiting Notes
 
@@ -792,7 +841,7 @@ For advanced use cases, direct database access:
 | =vulpea-find=          | Interactive note selection and navigation |
 | =vulpea-find-backlink= | Find notes linking to current note        |
 | =vulpea-insert=        | Insert link to a note                     |
-| =vulpea-create=        | Create new note programmatically          |
+| =vulpea-create=        | Create file-level or heading-level note   |
 | =vulpea-visit=         | Visit note by ID or struct                |
 
 ** Query Functions
