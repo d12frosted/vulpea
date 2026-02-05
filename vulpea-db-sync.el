@@ -406,8 +406,14 @@ Excludes:
   "List all tracked org files in DIR recursively.
 
 Uses `vulpea-db-sync--org-file-p' to filter files, ensuring
-consistency with file watcher filtering."
-  (let ((regex (mapconcat (lambda (ext)
+consistency with file watcher filtering.
+
+DIR is expanded via `expand-file-name' to ensure returned paths
+are absolute (e.g., ~/notes becomes /home/user/notes).  This
+keeps paths consistent with `vulpea-db-sync--scan-files-async'
+and prevents tilde-vs-absolute mismatches in database queries."
+  (let ((dir (expand-file-name dir))
+        (regex (mapconcat (lambda (ext)
                             (concat (regexp-quote ext) "\\'"))
                           (vulpea-db--all-extensions)
                           "\\|")))

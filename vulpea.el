@@ -76,16 +76,17 @@
   "Vulpea note-taking system."
   :group 'org)
 
-(defcustom vulpea-default-notes-directory
-  (car vulpea-db-sync-directories)
+(defcustom vulpea-default-notes-directory nil
   "Default directory for creating new notes.
 
-Defaults to the first entry in `vulpea-db-sync-directories', which
-itself defaults to `org-directory'.
+When nil (the default), dynamically resolves to the first entry in
+`vulpea-db-sync-directories', which itself defaults to
+`org-directory'.
 
-This allows you to control where `vulpea-create' places new notes
-without specifying an explicit file path."
-  :type 'directory
+Set this explicitly only if you want notes created in a different
+directory than the first sync directory."
+  :type '(choice (const :tag "Use first sync directory" nil)
+                 (directory :tag "Explicit directory"))
   :group 'vulpea)
 
 (defcustom vulpea-create-default-function nil
