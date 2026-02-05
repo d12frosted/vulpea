@@ -395,10 +395,11 @@ a subprocess.  The `blocking' mode still scans synchronously."
   "Return non-nil when PATH points to a tracked org file.
 
 Excludes:
-- Non-.org files
+- Files not matching tracked extensions
 - Files in hidden directories (paths containing /.)"
   (and path
-       (string-suffix-p ".org" path)
+       (seq-some (lambda (ext) (string-suffix-p ext path))
+                 (vulpea-db--all-extensions))
        (not (string-match-p "/\\." path))))
 
 (defun vulpea-db-sync--list-org-files (dir)
@@ -406,8 +407,12 @@ Excludes:
 
 Uses `vulpea-db-sync--org-file-p' to filter files, ensuring
 consistency with file watcher filtering."
-  (seq-filter #'vulpea-db-sync--org-file-p
-              (directory-files-recursively dir "\\.org\\'")))
+  (let ((regex (mapconcat (lambda (ext)
+                            (concat (regexp-quote ext) "\\'"))
+                          (vulpea-db--all-extensions)
+                          "\\|")))
+    (seq-filter #'vulpea-db-sync--org-file-p
+                (directory-files-recursively dir regex))))
 
 (defun vulpea-db-sync--scan-files-async (dirs callback)
   "List org files in DIRS asynchronously, call CALLBACK with file list.
@@ -417,14 +422,28 @@ CALLBACK receives a list of absolute file paths."
   (let* ((buffer "")
          (dir (car dirs))
          (expanded-dir (expand-file-name dir))
+         (extensions (vulpea-db--all-extensions))
          (cmd (if (executable-find "fd")
-                  (list "fd" "--type" "f" "--extension" "org"
-                        "--hidden" "--no-ignore"
-                        "--exclude" ".*"
-                        "." expanded-dir)
-                (list "find" expanded-dir
-                      "-type" "f" "-name" "*.org"
-                      "-not" "-path" "*/.*"))))
+                  (append (list "fd" "--type" "f")
+                          (mapcan (lambda (ext)
+                                    (list "--extension" (substring ext 1)))
+                                  extensions)
+                          (list "--hidden" "--no-ignore"
+                                "--exclude" ".*"
+                                "." expanded-dir))
+                (let* ((name-args
+                        (mapcar (lambda (ext)
+                                  (list "-name" (concat "*" ext)))
+                                extensions))
+                       (name-clause
+                        (cl-loop for args in name-args
+                                 for first = t then nil
+                                 append (if first args (cons "-o" args)))))
+                  (append (list "find" expanded-dir "-type" "f")
+                          (if (> (length name-args) 1)
+                              (append '("(") name-clause '(")"))
+                            name-clause)
+                          (list "-not" "-path" "*/.*"))))))
     (make-process
      :name "vulpea-scan"
      :command cmd

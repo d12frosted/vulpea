@@ -1097,5 +1097,38 @@
                        [:select path :from files :where (= path $s1)]
                        file-similar)))))
 
+;;; Extra Extensions Tests
+
+(ert-deftest vulpea-db-sync-org-file-p-extra-extensions ()
+  "Test org-file-p recognizes extra extensions."
+  (let ((vulpea-db-extra-extensions '(".org.age" ".org.gpg")))
+    (should (vulpea-db-sync--org-file-p "/tmp/note.org"))
+    (should (vulpea-db-sync--org-file-p "/tmp/note.org.age"))
+    (should (vulpea-db-sync--org-file-p "/tmp/note.org.gpg"))
+    (should-not (vulpea-db-sync--org-file-p "/tmp/note.txt"))
+    (should-not (vulpea-db-sync--org-file-p "/tmp/.hidden/note.org.age"))))
+
+(ert-deftest vulpea-db-sync-org-file-p-default-rejects-extra ()
+  "Test org-file-p rejects extra extensions when not configured."
+  (let ((vulpea-db-extra-extensions nil))
+    (should (vulpea-db-sync--org-file-p "/tmp/note.org"))
+    (should-not (vulpea-db-sync--org-file-p "/tmp/note.org.age"))
+    (should-not (vulpea-db-sync--org-file-p "/tmp/note.org.gpg"))))
+
+(ert-deftest vulpea-db-sync-list-org-files-extra-extensions ()
+  "Test list-org-files finds files with extra extensions."
+  (let* ((dir (make-temp-file "vulpea-test-ext-" t))
+         (vulpea-db-extra-extensions '(".org.age")))
+    (unwind-protect
+        (progn
+          (write-region "" nil (expand-file-name "a.org" dir))
+          (write-region "" nil (expand-file-name "b.org.age" dir))
+          (write-region "" nil (expand-file-name "c.txt" dir))
+          (let ((files (vulpea-db-sync--list-org-files dir)))
+            (should (= 2 (length files)))
+            (should (seq-some (lambda (f) (string-suffix-p "a.org" f)) files))
+            (should (seq-some (lambda (f) (string-suffix-p "b.org.age" f)) files))))
+      (delete-directory dir t))))
+
 (provide 'vulpea-db-sync-test)
 ;;; vulpea-db-sync-test.el ends here

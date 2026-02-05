@@ -358,9 +358,16 @@ Returns `vulpea-parse-ctx' structure with:
 - Heading-level node data (if enabled)
 - File metadata (hash, mtime, size)
 
-Respects `vulpea-db-parse-method' setting for parsing approach."
-  (let ((vulpea-db--active-parse-method vulpea-db-parse-method))
-    (pcase vulpea-db-parse-method
+Respects `vulpea-db-parse-method' setting for parsing approach.
+
+For non-.org files (e.g., .org.age, .org.gpg), always uses the
+`find-file' method regardless of `vulpea-db-parse-method' to
+ensure decryption hooks run properly."
+  (let* ((vulpea-db--active-parse-method vulpea-db-parse-method)
+         (method (if (string-suffix-p ".org" path)
+                     vulpea-db-parse-method
+                   'find-file)))
+    (pcase method
       ('single-temp-buffer
        (vulpea-db--parse-with-temp-buffer path nil))
 

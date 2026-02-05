@@ -1782,5 +1782,23 @@ File abc / * Parent (no ID) / ** Mention [[id:foo][person]] (no ID) -> abc -> fo
           (should (member "italic" (plist-get node :aliases))))
       (delete-file path))))
 
+;;; Parse Method Override Tests
+
+(ert-deftest vulpea-db-extract-non-org-uses-find-file ()
+  "Non-.org files are parsed via find-file even when parse-method is temp-buffer."
+  (let* ((vulpea-db-parse-method 'temp-buffer)
+         (base (make-temp-file "vulpea-test-" nil ".org"))
+         (path (concat base ".age")))
+    (rename-file base path)
+    (with-temp-file path
+      (insert ":PROPERTIES:\n:ID: enc-id\n:END:\n#+TITLE: Encrypted\n"))
+    (unwind-protect
+        (let ((ctx (vulpea-db--parse-file path)))
+          (should (vulpea-parse-ctx-p ctx))
+          (should (equal (vulpea-parse-ctx-path ctx) path))
+          (should (vulpea-parse-ctx-file-node ctx))
+          (should (equal (plist-get (vulpea-parse-ctx-file-node ctx) :id) "enc-id")))
+      (delete-file path))))
+
 (provide 'vulpea-db-extract-test)
 ;;; vulpea-db-extract-test.el ends here

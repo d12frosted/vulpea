@@ -87,6 +87,24 @@ to be queried. Excluding them keeps the database cleaner and faster."
   :type 'boolean
   :group 'vulpea-db)
 
+(defcustom vulpea-db-extra-extensions nil
+  "List of extra file extensions to track besides .org files.
+
+Each entry is a suffix string with leading dot, e.g. \".org.age\".
+
+Files with these extensions are always parsed using the `find-file'
+method (regardless of `vulpea-db-parse-method') so that decryption
+hooks (age.el, epa-file) can run.
+
+WARNING: metadata (titles, tags, links) from encrypted files will
+be stored in the plaintext database.  Only opt in if you accept
+this trade-off.
+
+Example:
+  (setq vulpea-db-extra-extensions \\='(\".org.age\" \".org.gpg\"))"
+  :type '(repeat string)
+  :group 'vulpea-db)
+
 ;;; Constants
 
 (defconst vulpea-db-version 3
@@ -272,6 +290,10 @@ Use with caution!"
     (not (null (emacsql (vulpea-db)
                         (format "SELECT name FROM sqlite_master WHERE type = 'index' AND name = '%s'"
                                 index-name))))))
+
+(defun vulpea-db--all-extensions ()
+  "Return all tracked file extensions (`.org' + extras)."
+  (cons ".org" vulpea-db-extra-extensions))
 
 ;;; CRUD Operations
 

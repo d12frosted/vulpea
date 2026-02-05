@@ -11,6 +11,7 @@
 
 *Features*
 
+- [[https://github.com/d12frosted/vulpea-journal/issues/3][vulpea-journal#3]] Add =vulpea-db-extra-extensions= for tracking non-.org files (e.g., =.org.age=, =.org.gpg=). Files with extra extensions are always parsed via =find-file= to support decryption hooks. Default is =nil= (opt-in only).
 - Store link descriptions in the database. Links now include a =:description= field extracted during parsing, eliminating the need for file I/O when querying link descriptions. The =vulpea-db-query-links-*= functions now return plists with =:source=, =:dest=, =:type=, =:pos=, and =:description= keys. Database schema version bumped to 3 (existing databases will rebuild automatically).
 - [[https://github.com/d12frosted/vulpea/issues/212][vulpea#212]] Add title propagation system for renaming notes:
   - =vulpea-propagate-title-change= - interactive command to rename a note's title and update incoming link descriptions. Supports dry-run with =C-u= prefix, categorizes links into exact matches (auto-update) and partial matches (manual review), and optionally renames the file.
