@@ -1070,5 +1070,117 @@ Some content.
    (should (equal (vulpea-buffer-meta-get-list "tags" 'string 'heading)
                   '("alpha" "beta" "gamma")))))
 
+;;; Tag Inheritance Tests
+
+(ert-deftest vulpea-buffer-tags-heading-get-with-filetags ()
+  "Test that heading-level tags-get includes inherited filetags."
+  (vulpea-buffer-test--with-temp-buffer
+   ":PROPERTIES:
+:ID: file-id
+:END:
+#+title: Test
+#+filetags: :ftag1:ftag2:
+
+* Heading :htag:
+:PROPERTIES:
+:ID: heading-id
+:END:
+"
+   (goto-char (point-min))
+   (re-search-forward "^\\* Heading")
+   (beginning-of-line)
+   (let ((tags (vulpea-buffer-tags-get)))
+     (should (member "ftag1" tags))
+     (should (member "ftag2" tags))
+     (should (member "htag" tags)))))
+
+(ert-deftest vulpea-buffer-tags-heading-get-local-only ()
+  "Test that heading-level tags-get with LOCAL returns only own tags."
+  (vulpea-buffer-test--with-temp-buffer
+   ":PROPERTIES:
+:ID: file-id
+:END:
+#+title: Test
+#+filetags: :ftag1:ftag2:
+
+* Heading :htag:
+:PROPERTIES:
+:ID: heading-id
+:END:
+"
+   (goto-char (point-min))
+   (re-search-forward "^\\* Heading")
+   (beginning-of-line)
+   (let ((tags (vulpea-buffer-tags-get t)))
+     (should-not (member "ftag1" tags))
+     (should-not (member "ftag2" tags))
+     (should (member "htag" tags)))))
+
+(ert-deftest vulpea-buffer-tags-heading-add-no-inherit-duplication ()
+  "Test that adding tags to heading doesn't duplicate inherited tags."
+  (vulpea-buffer-test--with-temp-buffer
+   ":PROPERTIES:
+:ID: file-id
+:END:
+#+title: Test
+#+filetags: :ftag:
+
+* Heading :existing:
+:PROPERTIES:
+:ID: heading-id
+:END:
+"
+   (goto-char (point-min))
+   (re-search-forward "^\\* Heading")
+   (beginning-of-line)
+   (vulpea-buffer-tags-add "newtag")
+   ;; Local tags should be existing + newtag, NOT ftag
+   (let ((local-tags (vulpea-buffer-tags-get t)))
+     (should (member "existing" local-tags))
+     (should (member "newtag" local-tags))
+     (should-not (member "ftag" local-tags)))))
+
+(ert-deftest vulpea-buffer-tags-heading-remove-does-not-add-inherited ()
+  "Test that removing a local tag doesn't add inherited tags as local."
+  (vulpea-buffer-test--with-temp-buffer
+   ":PROPERTIES:
+:ID: file-id
+:END:
+#+title: Test
+#+filetags: :ftag:
+
+* Heading :tag1:tag2:
+:PROPERTIES:
+:ID: heading-id
+:END:
+"
+   (goto-char (point-min))
+   (re-search-forward "^\\* Heading")
+   (beginning-of-line)
+   (vulpea-buffer-tags-remove "tag1")
+   ;; Local tags should only have tag2, not ftag
+   (let ((local-tags (vulpea-buffer-tags-get t)))
+     (should (equal local-tags '("tag2"))))))
+
+(ert-deftest vulpea-buffer-tags-heading-no-inheritance-when-disabled ()
+  "Test that heading tags-get respects org-use-tag-inheritance = nil."
+  (vulpea-buffer-test--with-temp-buffer
+   ":PROPERTIES:
+:ID: file-id
+:END:
+#+title: Test
+#+filetags: :ftag1:ftag2:
+
+* Heading :htag:
+:PROPERTIES:
+:ID: heading-id
+:END:
+"
+   (let ((org-use-tag-inheritance nil))
+     (goto-char (point-min))
+     (re-search-forward "^\\* Heading")
+     (beginning-of-line)
+     (should (equal (vulpea-buffer-tags-get) '("htag"))))))
+
 (provide 'vulpea-buffer-test)
 ;;; vulpea-buffer-test.el ends here
