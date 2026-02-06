@@ -1,0 +1,19 @@
+:PROPERTIES:
+:ID:                     aabbccdd-1122-3344-5566-778899001122
+:END:
+#+title: File with heading tags
+#+filetags: :ftag1:ftag2:
+
+* Section A :stag:
+:PROPERTIES:
+:ID:                     aabbccdd-1122-3344-5566-778899002233
+:END:
+
+Section A content.
+
+** Nested Section
+:PROPERTIES:
+:ID:                     aabbccdd-1122-3344-5566-778899003344
+:END:
+
+Nested section content.

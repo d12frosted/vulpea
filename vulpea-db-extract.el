@@ -523,8 +523,26 @@ Respects `vulpea-db-index-heading-level' setting."
                                (org-link-display-format
                                 (vulpea-db--string-no-properties
                                  (org-element-property :raw-value headline)))))
-                       (tags (vulpea-db--strings-no-properties
-                              (org-element-property :tags headline)))
+                       (inherited-tags
+                        (when org-use-tag-inheritance
+                          (let (result
+                                (current headline))
+                            ;; Collect inheritable tags from parent headings
+                            (while (setq current (org-element-property :parent current))
+                              (when (eq (org-element-type current) 'headline)
+                                (dolist (tag (vulpea-db--strings-no-properties
+                                             (org-element-property :tags current)))
+                                  (when (org-tag-inherit-p tag)
+                                    (push tag result)))))
+                            ;; Collect inheritable filetags
+                            (dolist (tag filetags)
+                              (when (org-tag-inherit-p tag)
+                                (push tag result)))
+                            (nreverse result))))
+                       (tags (seq-uniq
+                              (append inherited-tags
+                                      (vulpea-db--strings-no-properties
+                                       (org-element-property :tags headline)))))
                        (level (org-element-property :level headline))
                        (pos (org-element-property :begin headline))
                        (todo (vulpea-db--string-no-properties

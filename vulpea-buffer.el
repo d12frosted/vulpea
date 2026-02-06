@@ -77,14 +77,18 @@ You can change this to any property name you prefer, such as
 If the title is already set, replace its value."
   (vulpea-buffer-prop-set "title" title))
 
-(defun vulpea-buffer-tags-get ()
+(defun vulpea-buffer-tags-get (&optional local)
   "Return tags for the note at point.
 
 At file level (outline-level 0), returns filetags.
-At heading level, returns heading tags."
+At heading level, returns all applicable tags including those
+inherited from the file and parent headings, respecting
+`org-use-tag-inheritance'.  When LOCAL is non-nil, returns only
+the heading's own tags without inheritance."
   (if (= (org-outline-level) 0)
       (vulpea-buffer-prop-get-list "filetags" "[ :]")
-    (org-get-tags nil t)))
+    (mapcar #'substring-no-properties
+            (org-get-tags nil local))))
 
 (defun vulpea-buffer-tags-set (&rest tags)
   "Set TAGS for the note at point.
@@ -115,7 +119,7 @@ from existing tags in the database."
           "Tag: "
           (ignore-errors (vulpea-db-query-tags)))))
   (let* ((tags (if (listp tags) tags (list tags)))
-         (current-tags (vulpea-buffer-tags-get))
+         (current-tags (vulpea-buffer-tags-get t))
          (new-tags (append current-tags tags)))
     (apply #'vulpea-buffer-tags-set new-tags)))
 
@@ -127,7 +131,7 @@ At heading level, modifies heading tags.
 
 When called interactively, prompt for tags to remove from current tags."
   (interactive)
-  (let* ((current-tags (vulpea-buffer-tags-get)))
+  (let* ((current-tags (vulpea-buffer-tags-get t)))
     (unless current-tags
       (user-error "No tags to remove"))
     (let* ((tags (or (if (listp tags) tags (list tags))

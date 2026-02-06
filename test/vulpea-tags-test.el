@@ -334,5 +334,37 @@
    (let ((count (vulpea-tags-batch-rename "nonexistent" "something")))
      (should (= count 0)))))
 
+;;; Tag Inheritance Tests
+
+(ert-deftest vulpea-tags-heading-inherits-filetags ()
+  "Test that vulpea-tags on heading note includes inherited filetags."
+  (vulpea-tags-test--with-temp-db
+   ;; with-heading-tags.org: file has :ftag1:ftag2:, Section A has :stag:
+   (let ((tags (vulpea-tags "aabbccdd-1122-3344-5566-778899002233")))
+     (should (member "ftag1" tags))
+     (should (member "ftag2" tags))
+     (should (member "stag" tags)))))
+
+(ert-deftest vulpea-tags-nested-heading-inherits-parent-tags ()
+  "Test that nested heading inherits both filetags and parent heading tags."
+  (vulpea-tags-test--with-temp-db
+   ;; Nested Section has no own tags, parent has :stag:, file has :ftag1:ftag2:
+   (let ((tags (vulpea-tags "aabbccdd-1122-3344-5566-778899003344")))
+     (should (member "ftag1" tags))
+     (should (member "ftag2" tags))
+     (should (member "stag" tags)))))
+
+(ert-deftest vulpea-tags-heading-add-does-not-duplicate-inherited ()
+  "Test that adding tags to heading doesn't make inherited tags local."
+  (vulpea-tags-test--with-temp-db
+   ;; Section A has :stag: locally + inherited :ftag1:ftag2:
+   (vulpea-tags-add "aabbccdd-1122-3344-5566-778899002233" "newtag")
+   (vulpea-tags-test--save-all-buffers)
+   ;; Check the file content - heading should only have :stag:newtag:, not :ftag1:ftag2:
+   (let ((content (vulpea-tags-test--file-content "with-heading-tags.org")))
+     (should (string-match-p "Section A.*:stag:newtag:" content))
+     ;; filetags line should remain unchanged
+     (should (string-match-p "#\\+filetags: :ftag1:ftag2:" content)))))
+
 (provide 'vulpea-tags-test)
 ;;; vulpea-tags-test.el ends here
