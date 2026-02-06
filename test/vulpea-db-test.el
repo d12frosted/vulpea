@@ -457,5 +457,26 @@ parent headings top-down, then own tags."
       (should note)
       (should (equal (vulpea-note-tags note) '("ftag1" "ftag2"))))))
 
+;;; Multiple #+filetags Tests
+
+(ert-deftest vulpea-db-multiple-filetags-file-level ()
+  "Test that multiple #+filetags lines are accumulated for file notes."
+  (vulpea-test--with-temp-db-and-file "file-id"
+    "#+title: Test\n#+filetags: :tag1:tag2:\n#+filetags: :tag3:tag4:\n"
+    (let ((note (vulpea-db-get-by-id "file-id")))
+      (should note)
+      (should (equal (vulpea-note-tags note)
+                     '("tag1" "tag2" "tag3" "tag4"))))))
+
+(ert-deftest vulpea-db-multiple-filetags-inherited-by-heading ()
+  "Test that heading notes inherit tags from all #+filetags lines."
+  (vulpea-test--with-temp-db-and-file "file-id"
+    "#+title: Test\n#+filetags: :tag1:tag2:\n#+filetags: :tag3:\n\n* Heading\n:PROPERTIES:\n:ID: heading-id\n:END:\n"
+    (let ((note (vulpea-db-get-by-id "heading-id")))
+      (should note)
+      (should (member "tag1" (vulpea-note-tags note)))
+      (should (member "tag2" (vulpea-note-tags note)))
+      (should (member "tag3" (vulpea-note-tags note))))))
+
 (provide 'vulpea-db-test)
 ;;; vulpea-db-test.el ends here
