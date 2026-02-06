@@ -133,7 +133,10 @@ When called interactively, prompt for tags to remove from current tags."
   (interactive)
   (let* ((current-tags (vulpea-buffer-tags-get t)))
     (unless current-tags
-      (user-error "No tags to remove"))
+      (user-error
+       (if (and (> (org-outline-level) 0) (vulpea-buffer-tags-get))
+           "No local tags to remove (note has inherited tags only)"
+         "No tags to remove")))
     (let* ((tags (or (if (listp tags) tags (list tags))
                      (completing-read-multiple "Remove tag: " current-tags)))
            (new-tags (seq-difference current-tags tags #'string-equal)))

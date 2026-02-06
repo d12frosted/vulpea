@@ -1182,5 +1182,26 @@ Some content.
      (beginning-of-line)
      (should (equal (vulpea-buffer-tags-get) '("htag"))))))
 
+(ert-deftest vulpea-buffer-tags-heading-remove-inherited-only-error ()
+  "Test that removing tags from heading with only inherited tags
+gives a descriptive error."
+  (vulpea-buffer-test--with-temp-buffer
+   ":PROPERTIES:
+:ID: file-id
+:END:
+#+title: Test
+#+filetags: :ftag:
+
+* Heading
+:PROPERTIES:
+:ID: heading-id
+:END:
+"
+   (goto-char (point-min))
+   (re-search-forward "^\\* Heading")
+   (beginning-of-line)
+   (should-error (vulpea-buffer-tags-remove "ftag")
+                 :type 'user-error)))
+
 (provide 'vulpea-buffer-test)
 ;;; vulpea-buffer-test.el ends here
