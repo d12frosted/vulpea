@@ -525,20 +525,28 @@ Respects `vulpea-db-index-heading-level' setting."
                                  (org-element-property :raw-value headline)))))
                        (inherited-tags
                         (when org-use-tag-inheritance
-                          (let (result
+                          (let (parent-tags
                                 (current headline))
-                            ;; Collect inheritable tags from parent headings
+                            ;; Walk bottom-up, but build top-down order
+                            ;; by prepending each level's tags to the
+                            ;; accumulator (outermost ends up first).
                             (while (setq current (org-element-property :parent current))
                               (when (eq (org-element-type current) 'headline)
-                                (dolist (tag (vulpea-db--strings-no-properties
-                                             (org-element-property :tags current)))
-                                  (when (org-tag-inherit-p tag)
-                                    (push tag result)))))
-                            ;; Collect inheritable filetags
-                            (dolist (tag filetags)
-                              (when (org-tag-inherit-p tag)
-                                (push tag result)))
-                            (nreverse result))))
+                                (let (level-tags)
+                                  (dolist (tag (vulpea-db--strings-no-properties
+                                               (org-element-property :tags current)))
+                                    (when (org-tag-inherit-p tag)
+                                      (push tag level-tags)))
+                                  (setq parent-tags
+                                        (append (nreverse level-tags)
+                                                parent-tags)))))
+                            ;; Prepend inheritable filetags
+                            (let (filtered-filetags)
+                              (dolist (tag filetags)
+                                (when (org-tag-inherit-p tag)
+                                  (push tag filtered-filetags)))
+                              (append (nreverse filtered-filetags)
+                                      parent-tags)))))
                        (tags (seq-uniq
                               (append inherited-tags
                                       (vulpea-db--strings-no-properties

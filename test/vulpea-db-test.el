@@ -439,6 +439,16 @@
         (should (member "inherit_me" (vulpea-note-tags note)))
         (should-not (member "skip_me" (vulpea-note-tags note)))))))
 
+(ert-deftest vulpea-db-heading-tag-order-matches-org-mode ()
+  "Test that inherited tag order matches org-mode: filetags, then
+parent headings top-down, then own tags."
+  (vulpea-test--with-temp-db-and-file "file-id"
+    "#+title: File\n#+filetags: :f1:f2:\n\n* GP :g1:g2:\n:PROPERTIES:\n:ID: gp-id\n:END:\n\n** Parent :p1:p2:\n:PROPERTIES:\n:ID: parent-id\n:END:\n\n*** Child :c1:c2:\n:PROPERTIES:\n:ID: child-id\n:END:\n\nContent.\n"
+    (let ((note (vulpea-db-get-by-id "child-id")))
+      (should note)
+      (should (equal (vulpea-note-tags note)
+                     '("f1" "f2" "g1" "g2" "p1" "p2" "c1" "c2"))))))
+
 (ert-deftest vulpea-db-file-note-tags-unchanged ()
   "Test that file-level note tags are not affected by inheritance change."
   (vulpea-test--with-temp-db-and-file "file-id"
