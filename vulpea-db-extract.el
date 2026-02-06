@@ -439,9 +439,10 @@ Returns nil if:
          (properties (vulpea-db--extract-properties ast nil))
          (id (cdr (assoc "ID" properties)))
          (ignored (cdr (assoc "VULPEA_IGNORE" properties)))
-         (filetags-str (cdr (assoc "FILETAGS" keywords)))
-         (filetags (when filetags-str
-                     (split-string filetags-str ":" t)))
+         (filetags (cl-mapcan (lambda (kw)
+                                (when (string= "FILETAGS" (car kw))
+                                  (split-string (cdr kw) ":" t)))
+                              keywords))
          (archived (vulpea-db--archived-p nil properties filetags)))
 
     ;; Only index if ID exists, not explicitly ignored, and not archived
@@ -502,15 +503,15 @@ Skips headings that:
 
 Respects `vulpea-db-index-heading-level' setting."
   (when (vulpea-db--should-index-headings-p path)
-    ;; Extract filetags once for archive checking
-    (let* ((filetags-str (org-element-map ast 'keyword
-                           (lambda (kw)
-                             (when (string= "FILETAGS"
-                                            (org-element-property :key kw))
-                               (org-element-property :value kw)))
-                           nil t))
-           (filetags (when filetags-str
-                       (split-string filetags-str ":" t))))
+    ;; Extract filetags once for archive checking and tag inheritance
+    (let* ((filetags (apply #'append
+                            (org-element-map ast 'keyword
+                              (lambda (kw)
+                                (when (string= "FILETAGS"
+                                               (org-element-property :key kw))
+                                  (split-string
+                                   (org-element-property :value kw)
+                                   ":" t)))))))
       (org-element-map ast 'headline
         (lambda (headline)
           (when-let* ((id (org-element-property :ID headline)))
