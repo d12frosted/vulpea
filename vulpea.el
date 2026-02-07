@@ -447,7 +447,7 @@ for the original title and once for each alias."
 (defun vulpea-find-backlink ()
   "Select and find a note linked to current note."
   (interactive)
-  (let* ((id (or (org-entry-get nil "ID")
+  (let* ((id (or (org-entry-get nil "ID" t)
                  (user-error "Current location has no ID property")))
          (backlinks (vulpea-db-query-by-links-some
                      (list (cons "id" id)))))
