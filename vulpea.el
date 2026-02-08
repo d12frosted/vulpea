@@ -449,6 +449,9 @@ for the original title and once for each alias."
   (interactive)
   (let* ((id (or (org-entry-get nil "ID" t)
                  (user-error "Current location has no ID property")))
+         (_ (unless (vulpea-db-get-by-id id)
+              (user-error
+               "%s is not a known note" id)))
          (backlinks (vulpea-db-query-by-links-some
                      (list (cons "id" id)))))
     (unless backlinks
