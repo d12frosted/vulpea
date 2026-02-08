@@ -226,6 +226,34 @@
         (kill-buffer (get-file-buffer path))
         (delete-file path)))))
 
+(ert-deftest vulpea-find-backlink-inherited-id-not-a-note ()
+  "Test error when inherited ID does not correspond to a known note."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((file-id "not-indexed-file-id")
+           (path (vulpea-test--create-temp-org-file
+                  (format ":PROPERTIES:\n:ID: %s\n:END:\n#+TITLE: Unindexed\n\n* Heading\nSome content\n"
+                          file-id))))
+      (unwind-protect
+          (progn
+            ;; Do NOT index the file - so the ID is not a known note
+            (find-file path)
+            (re-search-forward "^\\* Heading")
+
+            ;; The heading has no ID, but inherits file-level ID
+            (should (equal (org-entry-get nil "ID" t) file-id))
+            ;; That ID is not in the DB
+            (should-not (vulpea-db-get-by-id file-id))
+            ;; vulpea-find-backlink should error about not being a note
+            (let ((err (should-error (vulpea-find-backlink)
+                                     :type 'user-error)))
+              (should (string-match-p "not a known note"
+                                      (cadr err)))))
+        (when (get-file-buffer path)
+          (kill-buffer (get-file-buffer path)))
+        (when (file-exists-p path)
+          (delete-file path))))))
+
 ;;; Capture System Helper Function Tests
 
 (ert-deftest vulpea-title-to-slug-basic ()
