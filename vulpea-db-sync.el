@@ -1005,7 +1005,7 @@ is enabled."
   (and path
        (file-name-absolute-p path)
        (seq-some (lambda (dir)
-                   (string-prefix-p (file-name-as-directory dir) path))
+                   (string-prefix-p (file-name-as-directory (expand-file-name dir)) path))
                  vulpea-db-sync-directories)))
 
 (defun vulpea-db-sync--fswatch-filter (_proc output)

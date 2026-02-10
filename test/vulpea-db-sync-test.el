@@ -1099,6 +1099,26 @@
 
 ;;; Extra Extensions Tests
 
+;;; FSWatch Path Validation Tests
+
+(ert-deftest vulpea-db-sync-fswatch-path-valid-p-absolute ()
+  "Test fswatch path validation with absolute directories."
+  (let ((vulpea-db-sync-directories (list "/tmp/notes")))
+    (should (vulpea-db-sync--fswatch-path-valid-p "/tmp/notes/file.org"))
+    (should (vulpea-db-sync--fswatch-path-valid-p "/tmp/notes/sub/file.org"))
+    (should-not (vulpea-db-sync--fswatch-path-valid-p "/tmp/other/file.org"))
+    (should-not (vulpea-db-sync--fswatch-path-valid-p nil))))
+
+(ert-deftest vulpea-db-sync-fswatch-path-valid-p-tilde ()
+  "Test fswatch path validation with tilde (relative) directories."
+  (let ((vulpea-db-sync-directories (list "~/notes")))
+    ;; fswatch reports absolute paths - must match expanded tilde
+    (should (vulpea-db-sync--fswatch-path-valid-p
+             (expand-file-name "notes/file.org" "~")))
+    (should-not (vulpea-db-sync--fswatch-path-valid-p "/other/file.org"))))
+
+;;; Extra Extensions Tests
+
 (ert-deftest vulpea-db-sync-org-file-p-extra-extensions ()
   "Test org-file-p recognizes extra extensions."
   (let ((vulpea-db-extra-extensions '(".org.age" ".org.gpg")))
