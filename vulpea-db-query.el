@@ -116,7 +116,9 @@ ROW is a vector from the notes table with all fields in schema order."
      :pos pos
      :title title
      :properties (when (and properties (not (string= properties "null")))
-                   (json-parse-string properties :object-type 'alist))
+                   (mapcar (lambda (pair)
+                             (cons (symbol-name (car pair)) (cdr pair)))
+                           (json-parse-string properties :object-type 'alist)))
      :tags (when (and tags (not (string= tags "null")))
              (append (json-parse-string tags :array-type 'list) nil))
      :aliases (when (and aliases (not (string= aliases "null")))

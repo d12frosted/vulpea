@@ -605,7 +605,7 @@ from being inserted into the normalized tags table."
       (should (= (vulpea-note-pos note) 0))
       (should (equal (vulpea-note-tags note) '("tag1" "tag2")))
       (should (equal (vulpea-note-aliases note) '("alias1")))
-      (should (equal (vulpea-note-properties note) '((key . "value"))))
+      (should (equal (vulpea-note-properties note) '(("key" . "value"))))
       (should (equal (vulpea-note-meta note)
                      '(("country" . ("France")))))
       (should (equal (vulpea-note-links note) '((:dest "target" :type "id" :pos 100))))
@@ -801,6 +801,24 @@ from being inserted into the normalized tags table."
 
     (should-not (vulpea-db-query-by-property "CATEGORY" "project"))
     (should-not (vulpea-db-query-by-property-key "NONEXISTENT"))))
+
+(ert-deftest vulpea-db-query-properties-have-string-keys ()
+  "Test that note properties from DB have string keys, not symbols.
+
+Properties are stored with string keys during extraction and should
+be returned with string keys after JSON round-trip through the DB."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "note1" "Note 1"
+                                   :properties '(("CREATED" . "[2025-12-08 Mon 10:00]")
+                                                 ("CATEGORY" . "journal")))
+    (let* ((note (vulpea-db-get-by-id "note1"))
+           (props (vulpea-note-properties note)))
+      ;; Keys must be strings
+      (should (stringp (caar props)))
+      ;; String key lookup must work
+      (should (assoc "CREATED" props))
+      (should (equal (cdr (assoc "CATEGORY" props)) "journal")))))
 
 ;;; Created-At Query Tests
 
