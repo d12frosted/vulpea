@@ -35,6 +35,8 @@
 - [[https://github.com/d12frosted/vulpea/issues/252][vulpea#252]] Fix =vulpea-find-backlink= failing when cursor is inside a heading without its own ID. The function now inherits the ID from the nearest ancestor (parent heading or file-level note). Additionally, the resolved ID is validated against the database — if it does not correspond to a known note, a clear error is shown.
 - [[https://github.com/d12frosted/vulpea-journal/issues/5][vulpea-journal#5]] Change =vulpea-default-notes-directory= default from =(car vulpea-db-sync-directories)= to =nil=. The old default was evaluated once at load time, before =use-package :custom= could take effect, causing stale values. When =nil=, it dynamically resolves via =vulpea--default-directory=.
 - [[https://github.com/d12frosted/vulpea/issues/255][vulpea#255]] Fix fswatch sync ignoring file changes when =vulpea-db-sync-directories= contains relative paths (e.g. =~/notes=). The fswatch path validator now expands directory paths before comparison, consistent with all other sync functions.
+- [[https://github.com/d12frosted/vulpea/issues/257][vulpea#257]] Extract =#+CATEGORY= keyword at file level as a property. Previously only =:CATEGORY:= in the =:PROPERTIES:= drawer was captured.
+- [[https://github.com/d12frosted/vulpea-journal/issues/9][vulpea-journal#9]] Fix =vulpea-note-properties= returning symbol keys after database round-trip. =json-parse-string= with =:object-type 'alist= produces symbol keys, but the rest of the API uses string keys consistently. Property keys are now converted back to strings in =vulpea-db--row-to-note=.
 
 ** v2.1.0
 
