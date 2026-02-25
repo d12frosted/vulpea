@@ -437,6 +437,12 @@ Returns nil if:
                              (vulpea-db--string-no-properties
                               (org-element-property :value kw))))))
          (properties (vulpea-db--extract-properties ast nil))
+         (category-kw (cdr (assoc "CATEGORY" keywords)))
+         (properties (if (and category-kw
+                              (not (assoc "CATEGORY" properties)))
+                         (append properties
+                                 (list (cons "CATEGORY" category-kw)))
+                       properties))
          (id (cdr (assoc "ID" properties)))
          (ignored (cdr (assoc "VULPEA_IGNORE" properties)))
          (filetags (cl-mapcan (lambda (kw)
