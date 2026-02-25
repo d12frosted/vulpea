@@ -1242,6 +1242,45 @@ This serves as documentation for plugin authors."
               (should (member '("CUSTOM_PROP" "custom-value") props))))
         (delete-file path)))))
 
+(ert-deftest vulpea-db-extract-category-keyword-as-property ()
+  "Test that #+CATEGORY keyword at file level is extracted as a property.
+
+See https://github.com/d12frosted/vulpea/issues/257."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((path (vulpea-test--create-temp-org-file
+                 ":PROPERTIES:\n:ID: category-kw-note\n:END:\n#+TITLE: Note With Category Keyword\n#+CATEGORY: journal\n")))
+      (unwind-protect
+          (progn
+            (vulpea-db-update-file path)
+            (let ((props (emacsql (vulpea-db)
+                                  [:select [key value] :from properties
+                                   :where (= note-id $s1)
+                                   :order-by [(asc key)]]
+                                  "category-kw-note")))
+              (should (member '("CATEGORY" "journal") props))))
+        (delete-file path)))))
+
+(ert-deftest vulpea-db-extract-category-drawer-overrides-keyword ()
+  "Test that :CATEGORY: in property drawer takes precedence over #+CATEGORY.
+
+See https://github.com/d12frosted/vulpea/issues/257."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((path (vulpea-test--create-temp-org-file
+                 ":PROPERTIES:\n:ID: category-both-note\n:CATEGORY: from-drawer\n:END:\n#+TITLE: Note With Both\n#+CATEGORY: from-keyword\n")))
+      (unwind-protect
+          (progn
+            (vulpea-db-update-file path)
+            (let ((props (emacsql (vulpea-db)
+                                  [:select [key value] :from properties
+                                   :where (and (= note-id $s1)
+                                               (= key "CATEGORY"))]
+                                  "category-both-note")))
+              (should (equal 1 (length props)))
+              (should (equal '("CATEGORY" "from-drawer") (car props)))))
+        (delete-file path)))))
+
 ;;; Title Link Stripping Tests
 
 (ert-deftest vulpea-db-extract-file-title-strips-links ()
