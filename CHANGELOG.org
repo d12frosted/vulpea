@@ -37,6 +37,7 @@
 - [[https://github.com/d12frosted/vulpea/issues/255][vulpea#255]] Fix fswatch sync ignoring file changes when =vulpea-db-sync-directories= contains relative paths (e.g. =~/notes=). The fswatch path validator now expands directory paths before comparison, consistent with all other sync functions.
 - [[https://github.com/d12frosted/vulpea/issues/257][vulpea#257]] Extract =#+CATEGORY= keyword at file level as a property. Previously only =:CATEGORY:= in the =:PROPERTIES:= drawer was captured.
 - [[https://github.com/d12frosted/vulpea-journal/issues/9][vulpea-journal#9]] Fix =vulpea-note-properties= returning symbol keys after database round-trip. =json-parse-string= with =:object-type 'alist= produces symbol keys, but the rest of the API uses string keys consistently. Property keys are now converted back to strings in =vulpea-db--row-to-note=.
+- [[https://github.com/d12frosted/vulpea/issues/260][vulpea#260]] Fix first heading with =:ID:= not being indexed when the file has no file-level ID. The file-level property extraction was searching the entire AST for a property drawer, accidentally finding the first heading's drawer and stealing its ID for a bogus file-level note.
 
 ** v2.1.0
 
