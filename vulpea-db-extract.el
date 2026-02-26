@@ -694,7 +694,11 @@ Returns alist of (key . value) pairs."
                           (org-element-property :key prop)))
                   (vulpea-db--string-no-properties
                    (org-element-property :value prop))))))
-      nil t)))  ; First match only
+      nil t
+      ;; When extracting file-level properties, don't recurse into
+      ;; headlines — otherwise the first heading's property drawer
+      ;; is mistakenly returned as the file-level one.
+      (unless headline 'headline))))
 
 (defun vulpea-db--extract-links (ast-or-node &optional no-recursion)
   "Extract all links from AST-OR-NODE.

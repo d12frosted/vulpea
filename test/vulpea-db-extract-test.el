@@ -128,6 +128,20 @@ mark regions as read-only during org-mode hooks."
           (should (member "heading-2-id" (mapcar (lambda (n) (plist-get n :id)) nodes))))
       (delete-file path))))
 
+(ert-deftest vulpea-db-extract-heading-nodes-no-file-id ()
+  "Test that all headings are extracted when file has no ID.
+Regression test for https://github.com/d12frosted/vulpea/issues/260."
+  (let ((path (vulpea-test--create-temp-org-file
+               "#+TITLE: Testing File\n\n* First Heading\n:PROPERTIES:\n:ID: first-heading-id\n:END:\n\n* Second Heading\n:PROPERTIES:\n:ID: second-heading-id\n:END:\n")))
+    (unwind-protect
+        (let* ((vulpea-db-index-heading-level t)
+               (ctx (vulpea-db--parse-file path))
+               (nodes (vulpea-parse-ctx-heading-nodes ctx)))
+          (should (= (length nodes) 2))
+          (should (member "first-heading-id" (mapcar (lambda (n) (plist-get n :id)) nodes)))
+          (should (member "second-heading-id" (mapcar (lambda (n) (plist-get n :id)) nodes))))
+      (delete-file path))))
+
 (ert-deftest vulpea-db-extract-heading-nodes-disabled ()
   "Test heading extraction respects index setting."
   (let ((path (vulpea-test--create-temp-org-file
@@ -883,6 +897,33 @@ This serves as documentation for plugin authors."
               (should (emacsql (vulpea-db)
                                [:select * :from notes :where (= id $s1)]
                                "heading-id"))))
+        (delete-file path)))))
+
+(ert-deftest vulpea-db-extract-update-file-no-file-id ()
+  "Test updating file without file-level ID indexes all headings.
+Regression test for https://github.com/d12frosted/vulpea/issues/260."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((path (vulpea-test--create-temp-org-file
+                 "#+TITLE: Testing File\n\n* First Heading\n:PROPERTIES:\n:ID: B691D184-1003-47E7-A3E3-FDE51AF99A07\n:END:\n\n* Second Heading\n:PROPERTIES:\n:ID: B7FB938B-02DA-489D-8AB9-4F3D23B1C5D1\n:END:\n")))
+      (unwind-protect
+          (let ((vulpea-db-index-heading-level t))
+            (vulpea-db-update-file path)
+
+            ;; Verify both heading notes exist
+            (let ((note1 (vulpea-db-get-by-id "B691D184-1003-47E7-A3E3-FDE51AF99A07"))
+                  (note2 (vulpea-db-get-by-id "B7FB938B-02DA-489D-8AB9-4F3D23B1C5D1")))
+              (should note1)
+              (should note2)
+
+              ;; Verify titles - first heading should be "First Heading",
+              ;; not the file title "Testing File"
+              (should (equal (vulpea-note-title note1) "First Heading"))
+              (should (equal (vulpea-note-title note2) "Second Heading"))
+
+              ;; Verify both are heading-level notes (level > 0)
+              (should (= (vulpea-note-level note1) 1))
+              (should (= (vulpea-note-level note2) 1))))
         (delete-file path)))))
 
 (ert-deftest vulpea-db-extract-update-file-replaces-existing ()
