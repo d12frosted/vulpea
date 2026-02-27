@@ -298,13 +298,16 @@ after loading PATH so file-local keywords and hooks are respected."
   (let ((vulpea-db--parse-buffer-run-hooks rerun-org-mode))
     (vulpea-db--with-parse-buffer
       (let* ((t0 (current-time))
-             (_ (let ((inhibit-read-only t))
+
+             ;; Required in case of relative `org-attach-dir'
+             (_ (setq buffer-file-name path
+                      default-directory (file-name-directory path)))
+
+             (_ (let ((inhibit-read-only t)
+                      (inhibit-modification-hooks t))
                   (erase-buffer)
                   (insert-file-contents path)))
              (t1 (current-time))
-             (_ (progn
-                  (setq buffer-file-name path)  ; Required for org-attach-dir
-                  (setq default-directory (file-name-directory path))))  ; Fix attach-dir paths
              (_ (when rerun-org-mode
                   (let ((delay-mode-hooks nil))
                     (org-mode))))
