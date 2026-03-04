@@ -39,6 +39,7 @@
 - [[https://github.com/d12frosted/vulpea-journal/issues/9][vulpea-journal#9]] Fix =vulpea-note-properties= returning symbol keys after database round-trip. =json-parse-string= with =:object-type 'alist= produces symbol keys, but the rest of the API uses string keys consistently. Property keys are now converted back to strings in =vulpea-db--row-to-note=.
 - [[https://github.com/d12frosted/vulpea/issues/260][vulpea#260]] Fix first heading with =:ID:= not being indexed when the file has no file-level ID. The file-level property extraction was searching the entire AST for a property drawer, accidentally finding the first heading's drawer and stealing its ID for a bogus file-level note.
 - [[https://github.com/d12frosted/vulpea/issues/250][vulpea#250]] Fix =vulpea-buffer-tags-get= only reading the first =#+filetags= line. When a file has multiple =#+filetags= lines, all lines are now collected and merged. =vulpea-buffer-tags-set= also consolidates multiple lines into a single =#+filetags= line.
+- [[https://github.com/d12frosted/vulpea/pull/262][vulpea#262]] Fix =org-attach= error during parsing when =org-latex-preview-mode= is active and =org-attach-id-dir= is relative. The shared parse buffer now sets =buffer-file-name= before loading file contents and inhibits modification hooks during buffer population.
 - [[https://github.com/d12frosted/vulpea/issues/263][vulpea#263]] Add =:noquery t= to the fswatch process so Emacs does not prompt about it when exiting.
 
 ** v2.1.0
