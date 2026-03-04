@@ -996,6 +996,7 @@ is enabled."
                           "--exclude" "\\.git/"      ; exclude .git directory
                           "--format" "%p|||%f"      ; include event flag with ||| separator
                           ,@(nreverse valid-dirs))
+               :noquery t
                :filter #'vulpea-db-sync--fswatch-filter
                :sentinel #'vulpea-db-sync--fswatch-sentinel))
         (message "Vulpea: Started fswatch monitoring")))))
