@@ -86,7 +86,9 @@ inherited from the file and parent headings, respecting
 `org-use-tag-inheritance'.  When LOCAL is non-nil, returns only
 the heading's own tags without inheritance."
   (if (= (org-outline-level) 0)
-      (vulpea-buffer-prop-get-list "filetags" "[ :]")
+      (seq-uniq
+       (cl-mapcan (lambda (v) (split-string v "[ :]" t))
+                  (vulpea-buffer-prop-get-all "filetags")))
     (mapcar #'substring-no-properties
             (org-get-tags nil local))))
 
@@ -98,10 +100,12 @@ At heading level, sets heading tags.
 Duplicate tags are automatically removed."
   (let ((tags (seq-uniq tags)))
     (if (= (org-outline-level) 0)
-        (if tags
+        (progn
+          ;; Remove all #+filetags: lines first to consolidate
+          (vulpea-buffer-prop-remove-all "filetags")
+          (when tags
             (vulpea-buffer-prop-set
-             "filetags" (concat ":" (string-join tags ":") ":"))
-          (vulpea-buffer-prop-remove "filetags"))
+             "filetags" (concat ":" (string-join tags ":") ":"))))
       (save-excursion
         (org-back-to-heading t)
         (org-set-tags tags)))))
@@ -277,6 +281,24 @@ If the property is already set, replace its value."
         (unless (string-empty-p value)
           value)))))
 
+(defun vulpea-buffer-prop-get-all (name)
+  "Get all values of buffer property called NAME as a list of strings.
+
+Unlike `vulpea-buffer-prop-get' which returns only the first
+match, this collects values from all lines matching #+NAME:."
+  (let (values)
+    (org-with-point-at 1
+      (let ((case-fold-search t))
+        (while (re-search-forward (concat "^#\\+" name ": \\(.*\\)")
+                                  (point-max) t)
+          (let ((value (string-trim
+                        (buffer-substring-no-properties
+                         (match-beginning 1)
+                         (match-end 1)))))
+            (unless (string-empty-p value)
+              (push value values))))))
+    (nreverse values)))
+
 (defun vulpea-buffer-prop-get-list (name &optional separators)
   "Get a buffer property NAME as a list using SEPARATORS.
 
@@ -294,6 +316,14 @@ If nil it defaults to `split-string-default-separators', normally
     (when (re-search-forward (concat "\\(^#\\+" name ":.*\n?\\)")
                              (point-max) t)
       (replace-match ""))))
+
+(defun vulpea-buffer-prop-remove-all (name)
+  "Remove all buffer properties called NAME."
+  (org-with-point-at 1
+    (let ((case-fold-search t))
+      (while (re-search-forward (concat "\\(^#\\+" name ":.*\n?\\)")
+                                (point-max) t)
+        (replace-match "")))))
 
 
 
