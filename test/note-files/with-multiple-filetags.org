@@ -1,0 +1,15 @@
+:PROPERTIES:
+:ID:                     bbccddee-1122-3344-5566-778899aabb01
+:END:
+#+title: Multiple filetags
+#+filetags: :mtag1:mtag2:
+#+filetags: :mtag3:
+
+Some content here.
+
+* Heading One
+:PROPERTIES:
+:ID:                     bbccddee-1122-3344-5566-778899aabb02
+:END:
+
+Content under heading one.

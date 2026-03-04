@@ -123,6 +123,20 @@
      (should (equal (vulpea-tags note)
                     '("tag1" "tag2" "tag3"))))))
 
+(ert-deftest vulpea-tags-get-multiple-filetags ()
+  "Test getting tags from a file with multiple #+filetags lines."
+  (vulpea-tags-test--with-temp-db
+   ;; with-multiple-filetags.org has :mtag1:mtag2: and :mtag3:
+   (should (equal (vulpea-tags "bbccddee-1122-3344-5566-778899aabb01")
+                  '("mtag1" "mtag2" "mtag3")))))
+
+(ert-deftest vulpea-tags-get-heading-inherits-multiple-filetags ()
+  "Test that heading notes inherit tags from all #+filetags lines."
+  (vulpea-tags-test--with-temp-db
+   ;; Heading One in with-multiple-filetags.org should inherit all filetags
+   (should (equal (vulpea-tags "bbccddee-1122-3344-5566-778899aabb02")
+                  '("mtag1" "mtag2" "mtag3")))))
+
 ;;; vulpea-tags-add Tests
 
 (ert-deftest vulpea-tags-add-single-tag ()

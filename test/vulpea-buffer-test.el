@@ -1203,5 +1203,67 @@ gives a descriptive error."
    (should-error (vulpea-buffer-tags-remove "ftag")
                  :type 'user-error)))
 
+;;; Multiple filetags tests
+
+(ert-deftest vulpea-buffer-tags-get-multiple-filetags ()
+  "Test that tags-get collects tags from ALL #+filetags lines."
+  (vulpea-buffer-test--with-temp-buffer
+   ":PROPERTIES:
+:ID: file-id
+:END:
+#+title: Test
+#+filetags: :tag1:tag2:
+#+filetags: :tag3:
+"
+   (goto-char (point-min))
+   (should (equal (vulpea-buffer-tags-get)
+                  '("tag1" "tag2" "tag3")))))
+
+(ert-deftest vulpea-buffer-tags-set-consolidates-multiple-filetags ()
+  "Test that tags-set consolidates multiple #+filetags into one line."
+  (vulpea-buffer-test--with-temp-buffer
+   ":PROPERTIES:
+:ID: file-id
+:END:
+#+title: Test
+#+filetags: :tag1:tag2:
+#+filetags: :tag3:
+"
+   (goto-char (point-min))
+   (vulpea-buffer-tags-set "x" "y" "z")
+   ;; Should have exactly one filetags line
+   (goto-char (point-min))
+   (let ((count 0))
+     (while (re-search-forward "^#\\+filetags:" nil t)
+       (setq count (1+ count)))
+     (should (= count 1)))
+   ;; Should contain correct tags
+   (goto-char (point-min))
+   (should (equal (vulpea-buffer-tags-get)
+                  '("x" "y" "z")))))
+
+(ert-deftest vulpea-buffer-tags-add-with-multiple-filetags ()
+  "Test that tags-add reads all filetags and consolidates into one line."
+  (vulpea-buffer-test--with-temp-buffer
+   ":PROPERTIES:
+:ID: file-id
+:END:
+#+title: Test
+#+filetags: :tag1:tag2:
+#+filetags: :tag3:
+"
+   (goto-char (point-min))
+   (vulpea-buffer-tags-add '("tag4"))
+   ;; Should have exactly one filetags line
+   (goto-char (point-min))
+   (let ((count 0))
+     (while (re-search-forward "^#\\+filetags:" nil t)
+       (setq count (1+ count)))
+     (should (= count 1)))
+   ;; Should have all tags
+   (goto-char (point-min))
+   (should (equal (vulpea-buffer-tags-get)
+                  '("tag1" "tag2" "tag3" "tag4")))))
+
 (provide 'vulpea-buffer-test)
 ;;; vulpea-buffer-test.el ends here
