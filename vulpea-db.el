@@ -206,6 +206,10 @@ Uses hybrid approach:
   "Non-nil if schema was rebuilt during last init.
 Checked by `vulpea-db-sync--start' to trigger automatic re-index.")
 
+(defvar vulpea-db--settings-changed nil
+  "Non-nil if tag inheritance settings changed since last init.
+Checked by `vulpea-db-sync--start' to trigger automatic re-index.")
+
 ;;; Core API
 
 (defun vulpea-db ()
@@ -250,6 +254,25 @@ Use with caution!"
     ;; schema-registry doesn't exist → brand new DB, no rebuild needed
     (error nil)))
 
+(defun vulpea-db--tag-settings-fingerprint ()
+  "Compute a fingerprint of the current tag inheritance settings.
+
+Returns the `sxhash' of `org-use-tag-inheritance' and
+`org-tags-exclude-from-inheritance'.  Used to detect when these
+settings change between sessions so the DB can be re-indexed."
+  (sxhash (list org-use-tag-inheritance
+                org-tags-exclude-from-inheritance)))
+
+(defun vulpea-db--tag-settings-changed-p (db)
+  "Return non-nil if tag inheritance settings differ from those stored in DB."
+  (condition-case nil
+      (let ((stored (caar (emacsql db
+                                   [:select [version] :from schema-registry
+                                    :where (= name "tag-inheritance")]))))
+        (and stored
+             (not (equal stored (vulpea-db--tag-settings-fingerprint)))))
+    (error nil)))
+
 (defun vulpea-db--init ()
   "Initialize database connection and schema."
   (let ((db (emacsql-sqlite-builtin vulpea-db-location)))
@@ -271,8 +294,16 @@ Use with caution!"
     ;; Create indices
     (vulpea-db--create-indices db)
 
-    ;; Register schema version
+    ;; Check if tag inheritance settings changed
+    (when (vulpea-db--tag-settings-changed-p db)
+      (emacsql db [:delete :from files])
+      (setq vulpea-db--settings-changed t)
+      (message "Vulpea: Tag inheritance settings changed, re-index needed..."))
+
+    ;; Register schema version and tag settings fingerprint
     (vulpea-db--register-schema db 'core vulpea-db-version)
+    (vulpea-db--register-schema db 'tag-inheritance
+                                (vulpea-db--tag-settings-fingerprint))
 
     db))
 
