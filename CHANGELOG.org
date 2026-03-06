@@ -9,6 +9,8 @@
 
 ** Unreleased
 
+** v2.2.0
+
 *Features*
 
 - [[https://github.com/d12frosted/vulpea/issues/243][vulpea#243]] Automatic database rebuild on schema version change. When =vulpea-db-version= changes, the database file is deleted and recreated from scratch on next access. When =vulpea-db-autosync-mode= is active, a forced re-index of all files is triggered automatically.
