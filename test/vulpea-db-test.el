@@ -478,5 +478,112 @@ parent headings top-down, then own tags."
       (should (member "tag2" (vulpea-note-tags note)))
       (should (member "tag3" (vulpea-note-tags note))))))
 
+;;; Tag Inheritance Settings Invalidation Tests
+
+(ert-deftest vulpea-db-tag-settings-fingerprint ()
+  "Test that fingerprint captures tag inheritance settings."
+  ;; Default settings should produce a stable fingerprint
+  (let ((org-use-tag-inheritance t)
+        (org-tags-exclude-from-inheritance nil))
+    (let ((fp1 (vulpea-db--tag-settings-fingerprint))
+          (fp2 (vulpea-db--tag-settings-fingerprint)))
+      (should (equal fp1 fp2))))
+
+  ;; Different settings should produce different fingerprints
+  (let ((fp-default (let ((org-use-tag-inheritance t)
+                          (org-tags-exclude-from-inheritance nil))
+                      (vulpea-db--tag-settings-fingerprint)))
+        (fp-disabled (let ((org-use-tag-inheritance nil)
+                           (org-tags-exclude-from-inheritance nil))
+                       (vulpea-db--tag-settings-fingerprint)))
+        (fp-selective (let ((org-use-tag-inheritance '("foo")))
+                        (vulpea-db--tag-settings-fingerprint)))
+        (fp-excluded (let ((org-use-tag-inheritance t)
+                           (org-tags-exclude-from-inheritance '("bar")))
+                       (vulpea-db--tag-settings-fingerprint))))
+    (should-not (equal fp-default fp-disabled))
+    (should-not (equal fp-default fp-selective))
+    (should-not (equal fp-default fp-excluded))))
+
+(ert-deftest vulpea-db-tag-settings-stored-on-init ()
+  "Test that tag settings fingerprint is stored in schema-registry on init."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((stored (caar (emacsql (vulpea-db)
+                                 [:select [version] :from schema-registry
+                                  :where (= name "tag-inheritance")]))))
+      (should stored)
+      (should (equal stored (vulpea-db--tag-settings-fingerprint))))))
+
+(ert-deftest vulpea-db-tag-settings-change-triggers-reindex ()
+  "Test that changing tag inheritance settings triggers re-index flag."
+  (let ((org-use-tag-inheritance t)
+        (org-tags-exclude-from-inheritance nil))
+    (vulpea-test--with-temp-db
+      ;; Initialize DB with current settings
+      (vulpea-db)
+      (vulpea-db--insert-note
+       :id "test-id"
+       :path "/tmp/test.org"
+       :level 0
+       :pos 0
+       :title "Test Note"
+       :properties nil
+       :modified-at "2025-11-16 10:00:00")
+
+      ;; Close connection
+      (vulpea-db-close)
+      (setq vulpea-db--connection nil)
+      (setq vulpea-db--settings-changed nil)
+
+      ;; Change settings and re-initialize
+      (let ((org-use-tag-inheritance nil))
+        (vulpea-db)
+
+        ;; Flag should be set
+        (should vulpea-db--settings-changed)
+
+        ;; Data should still be there (no full rebuild)
+        (should (emacsql (vulpea-db)
+                         [:select * :from notes :where (= id $s1)]
+                         "test-id"))
+
+        ;; files table should be cleared (to force re-extraction)
+        (should-not (emacsql (vulpea-db)
+                             [:select * :from files]))
+
+        ;; Stored fingerprint should be updated to new settings
+        (let ((stored (caar (emacsql (vulpea-db)
+                                     [:select [version] :from schema-registry
+                                      :where (= name "tag-inheritance")]))))
+          (should (equal stored (vulpea-db--tag-settings-fingerprint))))))))
+
+(ert-deftest vulpea-db-tag-settings-unchanged-no-reindex ()
+  "Test that same tag settings don't trigger re-index."
+  (let ((org-use-tag-inheritance t)
+        (org-tags-exclude-from-inheritance nil))
+    (vulpea-test--with-temp-db
+      ;; Initialize DB
+      (vulpea-db)
+
+      ;; Add a file record
+      (emacsql (vulpea-db)
+               [:insert :into files :values $v1]
+               (list (vector "/tmp/test.org" "abc123" "2025-01-01" 100)))
+
+      ;; Close and re-init with same settings
+      (vulpea-db-close)
+      (setq vulpea-db--connection nil)
+      (setq vulpea-db--settings-changed nil)
+
+      (vulpea-db)
+
+      ;; Flag should not be set
+      (should-not vulpea-db--settings-changed)
+
+      ;; files table should still have data
+      (should (emacsql (vulpea-db)
+                       [:select * :from files])))))
+
 (provide 'vulpea-db-test)
 ;;; vulpea-db-test.el ends here

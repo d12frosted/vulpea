@@ -9,6 +9,10 @@
 
 ** Unreleased
 
+*Features*
+
+- [[https://github.com/d12frosted/vulpea/issues/251][vulpea#251]] Automatically detect when global tag inheritance settings (=org-use-tag-inheritance=, =org-tags-exclude-from-inheritance=) change between sessions and trigger a forced re-index. A fingerprint of these settings is stored in the database; on startup, if the fingerprint differs, the file change cache is cleared so all files are re-extracted with the new settings. Per-buffer overrides (e.g. via =.dir-locals.el=) are not tracked — use =vulpea-db-sync-update-directory= with a force argument after changing those.
+
 *Fixes*
 
 - [[https://github.com/d12frosted/vulpea/pull/267][vulpea#267]] Fix =Wrong type argument: hash-table-p= error during async sync. When =org-id-update-id-locations= is running, =org-id-locations= is temporarily an alist. If a vulpea timer fires in that window, =org-id-add-location= fails. Now =org-id-locations= is defensively converted to a hash table before registering IDs.
