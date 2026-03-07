@@ -993,7 +993,13 @@ Returns number of notes updated (file-level + headings)."
                                    (vulpea-parse-ctx-size ctx)))
     (setq db-time (* 1000 (float-time (time-subtract (current-time) t2))))
 
-    ;; Register all IDs with org-id so links can be followed
+    ;; Register all IDs with org-id so links can be followed.
+    ;; Ensure org-id-locations is a hash table first — during
+    ;; org-id-update-id-locations it is temporarily an alist, and a
+    ;; vulpea timer firing in that window would hit puthash on the
+    ;; alist, causing "Wrong type argument: hash-table-p".
+    (when (and org-id-locations (not (hash-table-p org-id-locations)))
+      (setq org-id-locations (org-id-alist-to-hash org-id-locations)))
     (dolist (id ids)
       (org-id-add-location id path))
 
