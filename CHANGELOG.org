@@ -9,6 +9,10 @@
 
 ** Unreleased
 
+*Fixes*
+
+- [[https://github.com/d12frosted/vulpea/pull/267][vulpea#267]] Fix =Wrong type argument: hash-table-p= error during async sync. When =org-id-update-id-locations= is running, =org-id-locations= is temporarily an alist. If a vulpea timer fires in that window, =org-id-add-location= fails. Now =org-id-locations= is defensively converted to a hash table before registering IDs.
+
 ** v2.2.0
 
 *Features*
