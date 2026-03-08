@@ -16,6 +16,7 @@
 *Fixes*
 
 - [[https://github.com/d12frosted/vulpea/pull/267][vulpea#267]] Fix =Wrong type argument: hash-table-p= error during async sync. When =org-id-update-id-locations= is running, =org-id-locations= is temporarily an alist. If a vulpea timer fires in that window, =org-id-add-location= fails. Now =org-id-locations= is defensively converted to a hash table before registering IDs.
+- Fix =org-element= parser errors (="Invalid search bound"=, =wrong-type-argument integer-or-marker-p=) when building the database from scratch. The reusable parse buffer replaces its contents with =inhibit-modification-hooks= set, leaving the =org-element= cache stale from the previous file. Now =org-element-cache-reset= is called after each buffer replacement.
 
 ** v2.2.0
 
