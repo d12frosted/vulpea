@@ -307,6 +307,15 @@ after loading PATH so file-local keywords and hooks are respected."
                       (inhibit-modification-hooks t))
                   (erase-buffer)
                   (insert-file-contents path)))
+
+             ;; Reset org-element cache after replacing buffer
+             ;; contents with inhibit-modification-hooks.  Without
+             ;; this, the cache retains stale positions from the
+             ;; previous file and org-element-parse-buffer hits
+             ;; "Invalid search bound" or marker errors.
+             (_ (when (fboundp 'org-element-cache-reset)
+                  (org-element-cache-reset)))
+
              (t1 (current-time))
              (_ (when rerun-org-mode
                   (let ((delay-mode-hooks nil))
