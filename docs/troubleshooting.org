@@ -67,6 +67,20 @@ Notes with =VULPEA_IGNORE= property are excluded.
 
 *Fix:* Remove the property if you want the note indexed.
 
+*** Note not found by alias
+
+By default, vulpea uses the property =ALIASES=. When migrating from org-roam, you
+might have them in =ROAM_ALIASES=. You can fix it by either:
+
+*Fix A:* Override default
+#+begin_src emacs-lisp
+(setq vulpea-buffer-alias-property "ROAM_ALIASES")
+#+end_src
+
+or
+
+*Fix B:* rename =ROAM_ALIASES= in all files to =ALIASES= if you don't need backwards compatibilty any more.
+
 * Slow Performance
 
 ** Slow Startup
