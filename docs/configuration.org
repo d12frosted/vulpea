@@ -207,6 +207,20 @@ Larger batch sizes = fewer transactions = faster overall, but longer individual 
 (setq vulpea-db-sync-progress-interval nil)
 #+end_src
 
+** Status Messages
+
+By default, Vulpea reports routine sync activity in the echo area (e.g.
+=Vulpea: Syncing N files...=, =Vulpea: Sync complete=). With autosync
+enabled, this happens on every save, which some find distracting.
+
+#+begin_src emacs-lisp
+;; Silence routine sync status messages (errors and warnings still shown)
+(setq vulpea-db-sync-verbose nil)
+#+end_src
+
+This only affects user-facing status reporting. Low-level timing
+diagnostics are controlled separately by =vulpea-db-sync-debug=.
+
 * External Change Detection
 
 How Vulpea detects files changed outside Emacs (git, Dropbox, etc.).

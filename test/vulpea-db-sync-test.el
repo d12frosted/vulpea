@@ -1150,5 +1150,27 @@
             (should (seq-some (lambda (f) (string-suffix-p "b.org.age" f)) files))))
       (delete-directory dir t))))
 
+;;; Verbosity Tests
+
+(ert-deftest vulpea-db-sync-message-verbose-emits ()
+  "Test that `vulpea-db-sync--message' emits when verbose is non-nil."
+  (let ((vulpea-db-sync-verbose t)
+        (calls nil))
+    (cl-letf (((symbol-function 'message)
+               (lambda (fmt &rest args)
+                 (push (apply #'format fmt args) calls))))
+      (vulpea-db-sync--message "Vulpea: hello %d" 1))
+    (should (equal calls '("Vulpea: hello 1")))))
+
+(ert-deftest vulpea-db-sync-message-silent-suppresses ()
+  "Test that `vulpea-db-sync--message' is silent when verbose is nil."
+  (let ((vulpea-db-sync-verbose nil)
+        (calls nil))
+    (cl-letf (((symbol-function 'message)
+               (lambda (fmt &rest args)
+                 (push (apply #'format fmt args) calls))))
+      (vulpea-db-sync--message "Vulpea: hello %d" 1))
+    (should-not calls)))
+
 (provide 'vulpea-db-sync-test)
 ;;; vulpea-db-sync-test.el ends here
