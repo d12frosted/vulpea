@@ -115,6 +115,19 @@ or a larger value (e.g., 1000) for less frequent updates."
           (integer :tag "Report every N files"))
   :group 'vulpea-db-sync)
 
+(defcustom vulpea-db-sync-verbose t
+  "Whether to report sync progress and completion in the echo area.
+
+When non-nil, routine status messages such as \"Vulpea: Syncing N
+files...\" and \"Vulpea: Sync complete\" are shown.  Set to nil to
+silence these messages, for example to avoid distraction on every
+save when autosync is enabled.
+
+Errors and warnings are always shown regardless of this setting.
+For low-level timing diagnostics see `vulpea-db-sync-debug'."
+  :type 'boolean
+  :group 'vulpea-db-sync)
+
 (defcustom vulpea-db-sync-scan-on-enable nil
   "Whether to scan all files when enabling autosync mode.
 
@@ -213,6 +226,14 @@ When disabled:
     (vulpea-db-sync--stop)))
 
 ;;; Utilities
+
+(defun vulpea-db-sync--message (format-string &rest args)
+  "Display a status message when `vulpea-db-sync-verbose' is non-nil.
+FORMAT-STRING and ARGS are passed to `message'.  Use this for routine
+progress and completion reports; use `message' directly for errors and
+warnings that should always be shown."
+  (when vulpea-db-sync-verbose
+    (apply #'message format-string args)))
 
 (defun vulpea-db-sync--escape-glob-pattern (str)
   "Escape special SQLite GLOB characters in STR.
@@ -333,7 +354,7 @@ a subprocess.  The `blocking' mode still scans synchronously."
                      (vulpea-db--settings-changed "Tag inheritance settings changed"))))
         (setq vulpea-db--schema-rebuilt nil)
         (setq vulpea-db--settings-changed nil)
-        (message "Vulpea: %s, re-indexing all files..." reason)
+        (vulpea-db-sync--message "Vulpea: %s, re-indexing all files..." reason)
         (dolist (dir vulpea-db-sync-directories)
           (vulpea-db-sync-update-directory dir 'force))))
 
@@ -590,9 +611,9 @@ all files under that directory are removed."
                   vulpea-db-sync--updated-total 0
                   vulpea-db-sync--sync-start-time (current-time))
             (when (> vulpea-db-sync--queue-total 1)
-              (message "Vulpea: Syncing %d file%s..."
-                       vulpea-db-sync--queue-total
-                       (if (= vulpea-db-sync--queue-total 1) "" "s"))))
+              (vulpea-db-sync--message "Vulpea: Syncing %d file%s..."
+                                       vulpea-db-sync--queue-total
+                                       (if (= vulpea-db-sync--queue-total 1) "" "s"))))
 
           ;; Remove processed items from queue
           (setq vulpea-db-sync--queue
@@ -642,11 +663,11 @@ all files under that directory are removed."
                      (or (zerop (mod vulpea-db-sync--processed-total
                                      vulpea-db-sync-progress-interval))
                          (null vulpea-db-sync--queue)))
-            (message "Vulpea: Progress: %d/%d files (%d updated, %d unchanged)"
-                     vulpea-db-sync--processed-total
-                     vulpea-db-sync--queue-total
-                     vulpea-db-sync--updated-total
-                     (- vulpea-db-sync--processed-total vulpea-db-sync--updated-total)))
+            (vulpea-db-sync--message "Vulpea: Progress: %d/%d files (%d updated, %d unchanged)"
+                                     vulpea-db-sync--processed-total
+                                     vulpea-db-sync--queue-total
+                                     vulpea-db-sync--updated-total
+                                     (- vulpea-db-sync--processed-total vulpea-db-sync--updated-total)))
 
           ;; Final summary when done
           (when (null vulpea-db-sync--queue)
@@ -654,14 +675,14 @@ all files under that directory are removed."
               (let ((duration (when vulpea-db-sync--sync-start-time
                                 (float-time (time-subtract (current-time)
                                                            vulpea-db-sync--sync-start-time)))))
-                (message "Vulpea: Sync complete - %d file%s (%d updated, %d unchanged%s)"
-                         vulpea-db-sync--processed-total
-                         (if (= vulpea-db-sync--processed-total 1) "" "s")
-                         vulpea-db-sync--updated-total
-                         (- vulpea-db-sync--processed-total vulpea-db-sync--updated-total)
-                         (if duration
-                             (format ", %.2fs" duration)
-                           ""))))
+                (vulpea-db-sync--message "Vulpea: Sync complete - %d file%s (%d updated, %d unchanged%s)"
+                                         vulpea-db-sync--processed-total
+                                         (if (= vulpea-db-sync--processed-total 1) "" "s")
+                                         vulpea-db-sync--updated-total
+                                         (- vulpea-db-sync--processed-total vulpea-db-sync--updated-total)
+                                         (if duration
+                                             (format ", %.2fs" duration)
+                                           ""))))
             ;; Reset counters
             (setq vulpea-db-sync--queue-total 0
                   vulpea-db-sync--processed-total 0
@@ -730,8 +751,8 @@ Returns count of removed files."
           (emacsql db [:delete :from files :where (= path $s1)] path)
           (setq deleted (1+ deleted)))))
     (when (> deleted 0)
-      (message "Vulpea: Removed %d deleted file%s from database"
-               deleted (if (= deleted 1) "" "s")))
+      (vulpea-db-sync--message "Vulpea: Removed %d deleted file%s from database"
+                               deleted (if (= deleted 1) "" "s")))
     deleted))
 
 (defun vulpea-db-sync--cleanup-deleted-files-using (existing-files)
@@ -756,8 +777,8 @@ Returns count of removed files."
           (emacsql db [:delete :from files :where (= path $s1)] path)
           (setq deleted (1+ deleted)))))
     (when (> deleted 0)
-      (message "Vulpea: Removed %d deleted file%s from database"
-               deleted (if (= deleted 1) "" "s")))
+      (vulpea-db-sync--message "Vulpea: Removed %d deleted file%s from database"
+                               deleted (if (= deleted 1) "" "s")))
     deleted))
 
 (defun vulpea-db-sync--cleanup-untracked-files ()
@@ -787,8 +808,8 @@ Returns count of removed files."
               (emacsql db [:delete :from files :where (= path $s1)] path)
               (setq removed (1+ removed))))))
       (when (> removed 0)
-        (message "Vulpea: Removed %d untracked file%s from database"
-                 removed (if (= removed 1) "" "s")))
+        (vulpea-db-sync--message "Vulpea: Removed %d untracked file%s from database"
+                                 removed (if (= removed 1) "" "s")))
       removed)))
 
 ;;; Manual Update
@@ -834,7 +855,7 @@ Also performs cleanup of:
     ;; Scan directories
     (if force
         (progn
-          (message "Vulpea: Starting FORCE scan (re-indexing all files)...")
+          (vulpea-db-sync--message "Vulpea: Starting FORCE scan (re-indexing all files)...")
           (dolist (dir vulpea-db-sync-directories)
             (vulpea-db-sync-update-directory dir 'force)))
       ;; Smart detection
@@ -880,9 +901,9 @@ is enabled."
             (total (length files))
             (processed 0))
         (if force
-            (message "Vulpea: FORCE syncing %d file%s (re-indexing all)..."
-                     total (if (= total 1) "" "s"))
-          (message "Vulpea: Syncing %d file%s..." total (if (= total 1) "" "s")))
+            (vulpea-db-sync--message "Vulpea: FORCE syncing %d file%s (re-indexing all)..."
+                                     total (if (= total 1) "" "s"))
+          (vulpea-db-sync--message "Vulpea: Syncing %d file%s..." total (if (= total 1) "" "s")))
 
         ;; Fetch all file hashes in one query for smart detection (huge speedup)
         (let* ((hash-rows (unless force
@@ -918,13 +939,13 @@ is enabled."
               (when (and vulpea-db-sync-progress-interval
                          (> total vulpea-db-sync-progress-interval)
                          (zerop (mod processed vulpea-db-sync-progress-interval)))
-                (message "Vulpea: Progress: %d/%d files (%d updated, %d unchanged)"
-                         processed total updated unchanged))))
-          (message "Vulpea: Checked %d file%s (%d updated, %d unchanged)"
-                   (+ updated unchanged)
-                   (if (= (+ updated unchanged) 1) "" "s")
-                   updated
-                   unchanged))))))
+                (vulpea-db-sync--message "Vulpea: Progress: %d/%d files (%d updated, %d unchanged)"
+                                         processed total updated unchanged))))
+          (vulpea-db-sync--message "Vulpea: Checked %d file%s (%d updated, %d unchanged)"
+                                   (+ updated unchanged)
+                                   (if (= (+ updated unchanged) 1) "" "s")
+                                   updated
+                                   unchanged))))))
 
 ;;; External Monitoring
 
@@ -1003,7 +1024,7 @@ is enabled."
                :noquery t
                :filter #'vulpea-db-sync--fswatch-filter
                :sentinel #'vulpea-db-sync--fswatch-sentinel))
-        (message "Vulpea: Started fswatch monitoring")))))
+        (vulpea-db-sync--message "Vulpea: Started fswatch monitoring")))))
 
 (defun vulpea-db-sync--fswatch-path-valid-p (path)
   "Return non-nil if PATH is within a watched directory."
@@ -1089,8 +1110,8 @@ Handles partial lines by buffering incomplete output."
               (run-with-timer vulpea-db-sync-poll-interval
                               vulpea-db-sync-poll-interval
                               #'vulpea-db-sync--check-external-changes))
-        (message "Vulpea: Started polling for external changes every %s seconds"
-                 vulpea-db-sync-poll-interval)))))
+        (vulpea-db-sync--message "Vulpea: Started polling for external changes every %s seconds"
+                                 vulpea-db-sync-poll-interval)))))
 
 (defun vulpea-db-sync--update-file-attributes-cache ()
   "Update cache of file attributes for all org files."
