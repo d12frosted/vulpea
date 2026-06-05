@@ -275,6 +275,9 @@ settings change between sessions so the DB can be re-indexed."
 
 (defun vulpea-db--init ()
   "Initialize database connection and schema."
+  ;; Ensure the parent directory exists, otherwise emacsql fails with an
+  ;; opaque `(sqlitep nil)' error. See vulpea#271.
+  (make-directory (file-name-directory vulpea-db-location) t)
   (let ((db (emacsql-sqlite-builtin vulpea-db-location)))
     ;; Enable foreign keys
     (emacsql db [:pragma (= foreign-keys on)])
