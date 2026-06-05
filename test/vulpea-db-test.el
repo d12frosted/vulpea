@@ -34,6 +34,27 @@
       (should (equal (caar (emacsql db [:pragma foreign-keys]))
                      1)))))
 
+(ert-deftest vulpea-db-init-creates-parent-directory ()
+  "Test that initialization creates a missing parent directory.
+
+See https://github.com/d12frosted/vulpea/issues/271."
+  (let* ((temp-dir (make-temp-file "vulpea-test-" t))
+         (nested-dir (expand-file-name "nested/data" temp-dir))
+         (vulpea-db-location (expand-file-name "vulpea.db" nested-dir))
+         (vulpea-db--connection nil))
+    (unwind-protect
+        (progn
+          ;; Parent directory does not exist yet.
+          (should-not (file-exists-p nested-dir))
+          ;; Initialization should create it and succeed.
+          (let ((db (vulpea-db)))
+            (should (emacsql-live-p db))
+            (should (file-directory-p nested-dir))
+            (should (file-exists-p vulpea-db-location))))
+      (when vulpea-db--connection
+        (vulpea-db-close))
+      (delete-directory temp-dir t))))
+
 (ert-deftest vulpea-db-schema-creation ()
   "Test all tables and indices are created."
   (vulpea-test--with-temp-db
