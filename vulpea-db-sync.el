@@ -985,8 +985,14 @@ is enabled."
   (clrhash vulpea-db-sync--file-attributes))
 
 (defun vulpea-db-sync--setup-fswatch ()
-  "Setup file monitoring using fswatch process."
-  (when vulpea-db-sync-directories
+  "Setup file monitoring using fswatch process.
+
+No-op when a process is already running, so repeated calls do not
+spawn orphaned `fswatch' processes.  The sentinel clears
+`vulpea-db-sync--fswatch-process' before restarting, so legitimate
+restarts are unaffected."
+  (when (and vulpea-db-sync-directories
+             (not vulpea-db-sync--fswatch-process))
     (let* ((expanded-dirs (mapcar #'expand-file-name vulpea-db-sync-directories))
            (valid-dirs nil)
            (invalid-dirs nil))
@@ -1089,8 +1095,12 @@ Handles partial lines by buffering incomplete output."
     (run-at-time 2 nil #'vulpea-db-sync--setup-fswatch)))
 
 (defun vulpea-db-sync--setup-polling ()
-  "Setup polling-based external monitoring."
-  (when vulpea-db-sync-directories
+  "Setup polling-based external monitoring.
+
+No-op when a timer is already running, so repeated calls do not
+leak orphaned polling timers."
+  (when (and vulpea-db-sync-directories
+             (not vulpea-db-sync--poll-timer))
     (let* ((expanded-dirs (mapcar #'expand-file-name vulpea-db-sync-directories))
            (valid-dirs (seq-filter #'file-directory-p expanded-dirs))
            (invalid-dirs (seq-remove #'file-directory-p expanded-dirs)))

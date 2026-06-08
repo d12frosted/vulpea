@@ -353,6 +353,42 @@
       (when (file-directory-p test-dir)
         (delete-directory test-dir t)))))
 
+(ert-deftest vulpea-db-sync-setup-fswatch-idempotent ()
+  "Test repeated fswatch setup does not spawn a second process."
+  (skip-unless (executable-find "fswatch"))
+  (let ((vulpea-db-sync--fswatch-process nil)
+        (vulpea-db-sync-directories (list temporary-file-directory)))
+    (unwind-protect
+        (progn
+          (vulpea-db-sync--setup-fswatch)
+          (should vulpea-db-sync--fswatch-process)
+          (let ((proc vulpea-db-sync--fswatch-process))
+            ;; Second call must be a no-op: same live process, no orphan
+            (vulpea-db-sync--setup-fswatch)
+            (should (eq vulpea-db-sync--fswatch-process proc))
+            (should (process-live-p proc))))
+      (vulpea-db-sync--stop-external-monitoring))))
+
+(ert-deftest vulpea-db-sync-setup-polling-idempotent ()
+  "Test repeated polling setup does not leak a second timer."
+  (let* ((test-dir (make-temp-file "vulpea-test-poll-idem-" t))
+         (vulpea-db-sync--poll-timer nil)
+         (vulpea-db-sync-directories (list test-dir)))
+    (unwind-protect
+        (progn
+          (with-temp-file (expand-file-name "test.org" test-dir)
+            (insert ":PROPERTIES:\n:ID: test-id\n:END:\n#+TITLE: Test\n"))
+          (vulpea-db-sync--setup-polling)
+          (should vulpea-db-sync--poll-timer)
+          (let ((timer vulpea-db-sync--poll-timer))
+            ;; Second call must be a no-op: same timer, still scheduled
+            (vulpea-db-sync--setup-polling)
+            (should (eq vulpea-db-sync--poll-timer timer))
+            (should (memq timer timer-list))))
+      (vulpea-db-sync--stop-external-monitoring)
+      (when (file-directory-p test-dir)
+        (delete-directory test-dir t)))))
+
 (ert-deftest vulpea-db-sync-polling-detects-changes ()
   "Test polling detects file modifications."
   (vulpea-test--with-temp-db
