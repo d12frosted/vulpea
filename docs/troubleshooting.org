@@ -315,14 +315,15 @@ If none of these solutions work:
 1. *Check existing issues:* [[https://github.com/d12frosted/vulpea/issues][GitHub Issues]]
 
 2. *Open new issue* with:
-   - Vulpea version (branch/commit)
-   - Emacs version
+   - Vulpea version (=M-x vulpea-version=)
+   - Emacs and Org versions (=M-x emacs-version=, =M-x org-version=)
    - Steps to reproduce
    - Error messages (from =*Messages*= buffer)
 
 3. *Debug info:*
 
    #+begin_src emacs-lisp
+   (message "Vulpea version: %s" (vulpea-version))
    (message "Vulpea dirs: %S" vulpea-db-sync-directories)
    (message "DB location: %s" vulpea-db-location)
    (message "Note count: %d" (vulpea-db-count-notes))

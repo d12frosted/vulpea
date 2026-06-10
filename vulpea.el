@@ -57,6 +57,7 @@
 ;;
 ;;; Code:
 
+(require 'package)
 (require 'org-capture)
 (require 'org-id)
 (require 'vulpea-buffer)
@@ -69,6 +70,67 @@
 (require 'vulpea-tags)
 (require 'vulpea-utils)
 (require 's)
+
+;;; Version
+
+(defconst vulpea-version "2.2.0"
+  "Version of the vulpea package.
+
+Keep in sync with the Version header in vulpea.el; releases bump
+both. For precise version information including commits past a
+release, use the function `vulpea-version' instead.")
+
+(defun vulpea-version--git ()
+  "Return version from \"git describe\", or nil if unavailable.
+
+Works when vulpea is loaded from a git checkout and git is
+available. The result looks like \"v2.2.0\" exactly on a release
+tag, \"v2.2.0-15-g2938416\" when 15 commits past it, with a
+\"-dirty\" suffix when there are uncommitted changes."
+  (when-let* ((file (locate-library "vulpea"))
+              (dir (locate-dominating-file file ".git"))
+              ((executable-find "git")))
+    (with-temp-buffer
+      (let ((default-directory dir))
+        (when (eql 0 (ignore-errors
+                       (call-process "git" nil t nil "describe"
+                                     "--tags" "--dirty" "--always")))
+          (string-trim (buffer-string)))))))
+
+(defun vulpea-version--package ()
+  "Return version of the installed vulpea package, or nil.
+
+For MELPA snapshot installs the result looks like
+\"20260610.1234 (commit 2938416)\"."
+  (when-let* ((desc (cadr (assq 'vulpea package-alist)))
+              (version (package-version-join
+                        (package-desc-version desc))))
+    (if-let* ((commit (cdr (assq :commit (package-desc-extras desc)))))
+        (format "%s (commit %s)"
+                version (substring commit 0 (min 7 (length commit))))
+      version)))
+
+(defun vulpea-version (&optional show)
+  "Return the vulpea version with as much precision as available.
+
+The version is resolved in the following order:
+
+1. \"git describe\" output when running from a git checkout,
+   e.g. \"v2.2.0\" or \"v2.2.0-15-g2938416\".
+2. Installed package version, including the commit for MELPA
+   snapshot installs, e.g. \"20260610.1234 (commit 2938416)\".
+3. The `vulpea-version' constant as a fallback.
+
+When SHOW is non-nil (always when called interactively), also
+display the version in the echo area. Please include this
+version in bug reports."
+  (interactive (list t))
+  (let ((version (or (vulpea-version--git)
+                     (vulpea-version--package)
+                     vulpea-version)))
+    (when show
+      (message "vulpea %s" version))
+    version))
 
 ;;; Customization
 

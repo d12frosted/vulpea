@@ -792,6 +792,13 @@ Both functions support =:candidates-fn= to customize the source of candidates, a
 * Utility Functions
 
 #+begin_src emacs-lisp
+;; Report vulpea version (M-x vulpea-version interactively).
+;; Returns "git describe" output from a checkout, package version
+;; (with commit for MELPA snapshots) when installed, or the
+;; `vulpea-version' constant as a fallback.
+(vulpea-version)
+;; => "v2.2.0" or "v2.2.0-15-g2938416" or "20260610.1234 (commit 2938416)"
+
 ;; Convert title to URL-friendly slug
 (vulpea-title-to-slug "My Note Title")
 ;; => "my-note-title"
