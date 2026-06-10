@@ -113,6 +113,90 @@ mark regions as read-only during org-mode hooks."
       (delete-file path1)
       (delete-file path2))))
 
+;;; Drawer Case Sensitivity Tests
+;; https://github.com/d12frosted/vulpea/issues/277
+
+(ert-deftest vulpea-db-extract-file-node-lowercase-drawer ()
+  "Test file node extraction with lowercase :properties: drawer.
+Org treats drawer names case-insensitively, so vulpea must too.
+Regression test for https://github.com/d12frosted/vulpea/issues/277."
+  (let ((path (vulpea-test--create-temp-org-file
+               ":properties:\n:ID: lowercase-drawer-id\n:end:\n#+TITLE: Lowercase Drawer\n")))
+    (unwind-protect
+        (let* ((ctx (vulpea-db--parse-file path))
+               (node (vulpea-parse-ctx-file-node ctx)))
+          (should node)
+          (should (equal (plist-get node :id) "lowercase-drawer-id"))
+          (should (equal (plist-get node :title) "Lowercase Drawer")))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-file-node-lowercase-drawer-all-methods ()
+  "Test lowercase :properties: drawer across all parse methods.
+Regression test for https://github.com/d12frosted/vulpea/issues/277."
+  (let ((path (vulpea-test--create-temp-org-file
+               ":properties:\n:ID: lowercase-methods-id\n:end:\n#+TITLE: Lowercase Methods\n")))
+    (unwind-protect
+        (dolist (method '(single-temp-buffer temp-buffer find-file))
+          (let* ((vulpea-db-parse-method method)
+                 (ctx (vulpea-db--parse-file path))
+                 (node (vulpea-parse-ctx-file-node ctx)))
+            (should node)
+            (should (equal (plist-get node :id) "lowercase-methods-id"))))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-file-node-lowercase-id-key ()
+  "Test file node extraction with lowercase :id: property key.
+Org treats property names case-insensitively, so vulpea must too.
+Regression test for https://github.com/d12frosted/vulpea/issues/277."
+  (let ((path (vulpea-test--create-temp-org-file
+               ":PROPERTIES:\n:id: lowercase-key-id\n:END:\n#+TITLE: Lowercase Key\n")))
+    (unwind-protect
+        (let* ((ctx (vulpea-db--parse-file path))
+               (node (vulpea-parse-ctx-file-node ctx)))
+          (should node)
+          (should (equal (plist-get node :id) "lowercase-key-id")))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-file-node-mixed-case-drawer ()
+  "Test file node extraction with mixed-case :Properties: drawer.
+Regression test for https://github.com/d12frosted/vulpea/issues/277."
+  (let ((path (vulpea-test--create-temp-org-file
+               ":Properties:\n:ID: mixed-case-drawer-id\n:End:\n#+TITLE: Mixed Case Drawer\n")))
+    (unwind-protect
+        (let* ((ctx (vulpea-db--parse-file path))
+               (node (vulpea-parse-ctx-file-node ctx)))
+          (should node)
+          (should (equal (plist-get node :id) "mixed-case-drawer-id")))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-heading-nodes-lowercase-drawer ()
+  "Test heading node extraction with lowercase :properties: drawer.
+Regression test for https://github.com/d12frosted/vulpea/issues/277."
+  (let ((path (vulpea-test--create-temp-org-file
+               "#+TITLE: File\n\n* Heading\n:properties:\n:ID: lowercase-heading-id\n:end:\n\nBody.\n")))
+    (unwind-protect
+        (let* ((vulpea-db-index-heading-level t)
+               (ctx (vulpea-db--parse-file path))
+               (nodes (vulpea-parse-ctx-heading-nodes ctx)))
+          (should (= (length nodes) 1))
+          (should (equal (plist-get (car nodes) :id) "lowercase-heading-id")))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-lowercase-drawer-indexed-in-db ()
+  "Test end-to-end indexing of a file with lowercase :properties: drawer.
+Regression test for https://github.com/d12frosted/vulpea/issues/277."
+  (vulpea-test--with-temp-db
+    (let ((path (vulpea-test--create-temp-org-file
+                 ":properties:\n:ID: lowercase-db-id\n:end:\n#+TITLE: Lowercase In DB\n")))
+      (unwind-protect
+          (progn
+            (vulpea-db)
+            (vulpea-db-update-file path)
+            (let ((note (vulpea-db-get-by-id "lowercase-db-id")))
+              (should note)
+              (should (equal (vulpea-note-title note) "Lowercase In DB"))))
+        (delete-file path)))))
+
 ;;; Heading Node Tests
 
 (ert-deftest vulpea-db-extract-heading-nodes ()
