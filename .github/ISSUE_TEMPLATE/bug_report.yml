@@ -1,0 +1,77 @@
+name: Bug report
+description: Report something that does not work as expected
+labels: [bug]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Also tell us what you expected to happen instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: >-
+        Steps to reproduce, ideally with a complete org file that
+        exhibits the problem. The closer this is to copy-paste-run,
+        the faster the fix.
+      placeholder: |
+        1. Create a file with the following content:
+
+           :PROPERTIES:
+           :ID: some-id
+           :END:
+           #+title: Example
+
+        2. Run M-x vulpea-db-sync-full-scan
+        3. ...
+    validations:
+      required: true
+  - type: input
+    id: vulpea-version
+    attributes:
+      label: Vulpea version
+      description: >-
+        Output of `M-x vulpea-version`. On older versions where this
+        command does not exist, your package version or commit hash.
+      placeholder: v2.2.0-15-g2938416
+    validations:
+      required: true
+  - type: input
+    id: emacs-org-versions
+    attributes:
+      label: Emacs and Org versions
+      description: "`M-x emacs-version` and `M-x org-version`"
+      placeholder: GNU Emacs 30.1, Org mode 9.7.11
+    validations:
+      required: true
+  - type: dropdown
+    id: install-method
+    attributes:
+      label: How is vulpea installed?
+      options:
+        - MELPA
+        - MELPA stable
+        - straight.el
+        - elpaca
+        - Doom Emacs
+        - Git checkout
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: config
+    attributes:
+      label: Relevant configuration
+      description: Your vulpea-related configuration, if relevant.
+      render: emacs-lisp
+  - type: textarea
+    id: errors
+    attributes:
+      label: Error messages
+      description: >-
+        Relevant output from the *Messages* buffer, or a backtrace if
+        available (enable with `M-x toggle-debug-on-error`).
+      render: text
