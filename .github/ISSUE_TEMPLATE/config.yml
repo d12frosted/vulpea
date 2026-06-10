@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Documentation
+    url: https://github.com/d12frosted/vulpea/tree/master/docs
+    about: Guides, configuration reference, and troubleshooting
