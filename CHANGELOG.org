@@ -11,6 +11,7 @@
 
 *Features*
 
+- [[https://github.com/d12frosted/vulpea/issues/277][vulpea#277]] Add =vulpea-version= - a constant with the release version and an interactive function reporting the most precise version available: =git describe= output when running from a git checkout (e.g. =v2.2.0-15-g2938416=), the installed package version including the commit for MELPA snapshot installs (e.g. =20260610.1234 (commit 2938416)=), with the constant as a fallback. Please include its output in bug reports.
 - [[https://github.com/d12frosted/vulpea/issues/270][vulpea#270]] Add =vulpea-db-sync-verbose= (default =t=) to control routine sync status reporting in the echo area. When set to =nil=, messages such as =Vulpea: Syncing N files...= and =Vulpea: Sync complete= are suppressed — useful to avoid distraction on every save when autosync is enabled. Errors and warnings are always shown; low-level timing diagnostics remain controlled by =vulpea-db-sync-debug=.
 - [[https://github.com/d12frosted/vulpea/issues/251][vulpea#251]] Automatically detect when global tag inheritance settings (=org-use-tag-inheritance=, =org-tags-exclude-from-inheritance=) change between sessions and trigger a forced re-index. A fingerprint of these settings is stored in the database; on startup, if the fingerprint differs, the file change cache is cleared so all files are re-extracted with the new settings. Per-buffer overrides (e.g. via =.dir-locals.el=) are not tracked — use =vulpea-db-sync-update-directory= with a force argument after changing those.
 
