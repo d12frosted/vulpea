@@ -230,6 +230,80 @@
       ;; Note should be removed from database
       (should-not (vulpea-db-get-by-id "deleted-id")))))
 
+;;; Scan-on-Enable Tests
+;; https://github.com/d12frosted/vulpea/issues/277
+
+(ert-deftest vulpea-db-sync-scan-on-enable-default-async ()
+  "Default must be `async' so external changes are picked up on startup."
+  (should (eq (eval (car (get 'vulpea-db-sync-scan-on-enable
+                              'standard-value)))
+              'async)))
+
+(ert-deftest vulpea-db-sync-effective-scan-mode-respects-setting ()
+  "Explicit scan mode is used as-is."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (dolist (mode '(async blocking))
+      (let ((vulpea-db-sync-scan-on-enable mode))
+        (should (eq (vulpea-db-sync--effective-scan-mode) mode))))))
+
+(ert-deftest vulpea-db-sync-effective-scan-mode-empty-db-fallback ()
+  "Empty database forces an async scan even when scanning is disabled."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((vulpea-db-sync-scan-on-enable nil))
+      (should (eq (vulpea-db-sync--effective-scan-mode) 'async)))))
+
+(ert-deftest vulpea-db-sync-effective-scan-mode-nil-with-notes ()
+  "Explicit nil is honored once the database has content."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "scan-mode-id" "Note")
+    (let ((vulpea-db-sync-scan-on-enable nil))
+      (should (null (vulpea-db-sync--effective-scan-mode))))))
+
+(ert-deftest vulpea-db-sync-start-scans-when-db-empty ()
+  "Activation triggers a scan when the database is empty,
+even with `vulpea-db-sync-scan-on-enable' set to nil."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((dir (make-temp-file "vulpea-scan-test-" t))
+           (scanned nil)
+           (vulpea-db-sync-scan-on-enable nil)
+           (vulpea-db-sync-external-method nil)
+           (vulpea-db-sync-directories (list dir))
+           (vulpea-db-sync--idle-timer nil)
+           (vulpea-db-sync--watchers nil))
+      (cl-letf (((symbol-function 'vulpea-db-sync--scan-files-async)
+                 (lambda (dirs _callback) (setq scanned dirs))))
+        (unwind-protect
+            (progn
+              (vulpea-db-sync--start)
+              (should (equal scanned (list dir))))
+          (vulpea-db-sync--stop)
+          (delete-directory dir t))))))
+
+(ert-deftest vulpea-db-sync-start-no-scan-when-db-has-notes ()
+  "Activation honors nil scan mode when the database has content."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "existing-note-id" "Existing")
+    (let* ((dir (make-temp-file "vulpea-scan-test-" t))
+           (scanned nil)
+           (vulpea-db-sync-scan-on-enable nil)
+           (vulpea-db-sync-external-method nil)
+           (vulpea-db-sync-directories (list dir))
+           (vulpea-db-sync--idle-timer nil)
+           (vulpea-db-sync--watchers nil))
+      (cl-letf (((symbol-function 'vulpea-db-sync--scan-files-async)
+                 (lambda (dirs _callback) (setq scanned dirs))))
+        (unwind-protect
+            (progn
+              (vulpea-db-sync--start)
+              (should (null scanned)))
+          (vulpea-db-sync--stop)
+          (delete-directory dir t))))))
+
 ;;; Manual Update Tests
 
 (ert-deftest vulpea-db-sync-update-file-sync ()

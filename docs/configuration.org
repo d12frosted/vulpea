@@ -265,18 +265,24 @@ Both run asynchronously and don't block the editor, but =fd= completes the scan 
 Control what happens when =vulpea-db-autosync-mode= is enabled.
 
 #+begin_src emacs-lisp
-;; Skip initial scan (fast startup, recommended)
-(setq vulpea-db-sync-scan-on-enable nil)
-
-;; Scan asynchronously (non-blocking, uses fd/find subprocess)
+;; Scan asynchronously (default; non-blocking, uses fd/find subprocess)
 (setq vulpea-db-sync-scan-on-enable 'async)
 
 ;; Scan synchronously (blocks until complete)
 (setq vulpea-db-sync-scan-on-enable 'blocking)
+
+;; Skip initial scan (fast startup, manual sync when needed)
+(setq vulpea-db-sync-scan-on-enable nil)
 #+end_src
 
-*Recommendation:* Use ='async= for hands-off operation.  Startup returns
-in ~8ms even with large collections (when =fswatch= is available).
+The default ='async= detects changes made while Emacs was closed (git
+pulls, Dropbox sync, external edits) without blocking startup.  With
+=nil=, such changes stay invisible until the files are touched again
+or =M-x vulpea-db-sync-full-scan= is run manually.
+
+Exception: when the database is empty (e.g. the very first
+activation), an async scan runs even with =nil= - otherwise the
+database would stay empty with no indication why.
 
 * Aliases
 
@@ -301,7 +307,8 @@ For collections of 10,000+ notes:
 ;; Don't index headings
 (setq vulpea-db-index-heading-level nil)
 
-;; Skip scan on startup
+;; Skip scan on startup (external changes then require a manual
+;; M-x vulpea-db-sync-full-scan)
 (setq vulpea-db-sync-scan-on-enable nil)
 
 ;; Use fswatch for external changes
