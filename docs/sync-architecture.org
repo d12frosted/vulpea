@@ -146,18 +146,21 @@ vulpea-db-autosync-mode +1
       ├─ Start external monitoring (fswatch/poll)
       ├─ Setup directory watchers (filenotify)
       │
-      ├─ scan-on-enable = 'async?
+      ├─ Resolve effective scan mode
+      │   └─ scan-on-enable, except: empty database forces 'async
+      │
+      ├─ scan mode = 'async? (default)
       │   └─ Launch fd/find SUBPROCESS        ← returns immediately
       │       └─ [sentinel callback when done]
       │           ├─ Guard: check autosync still active
       │           ├─ Cleanup deleted files (set comparison)
       │           └─ Enqueue all files for change detection
       │
-      ├─ scan-on-enable = 'blocking?
+      ├─ scan mode = 'blocking?
       │   ├─ Cleanup deleted files (sync)
       │   └─ Update all directories (sync)     ← blocks
       │
-      └─ scan-on-enable = nil?
+      └─ scan mode = nil?
           └─ Cleanup deleted files (sync)
 #+end_example
 
@@ -259,6 +262,7 @@ vulpea-db-sync--update-file-if-changed(path)
 ** Auto-detect all changes
 
 #+begin_src elisp
+;; Both settings below are the defaults, shown for clarity
 (setq vulpea-db-sync-scan-on-enable 'async)
 (setq vulpea-db-sync-external-method 'auto)  ; fswatch or poll
 (vulpea-db-autosync-mode 1)

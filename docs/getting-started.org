@@ -108,7 +108,12 @@ Vulpea defaults to using =org-directory=, so if that's already set correctly, yo
 
 ** Step 2: Build the Database
 
-The first time you use Vulpea, it needs to scan all your notes:
+The first time you use Vulpea, it needs to scan all your notes.
+Enabling autosync (next step) does this automatically: on activation
+it scans your directories in the background and picks up anything
+the database does not know about yet.
+
+You can also trigger the scan manually at any point:
 
 #+begin_src emacs-lisp
 (vulpea-db-sync-full-scan)

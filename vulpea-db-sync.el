@@ -50,6 +50,7 @@
 (require 'seq)
 (require 'vulpea-db)
 (require 'vulpea-db-extract)
+(require 'vulpea-db-query)
 
 ;;; Customization
 
@@ -128,22 +129,29 @@ For low-level timing diagnostics see `vulpea-db-sync-debug'."
   :type 'boolean
   :group 'vulpea-db-sync)
 
-(defcustom vulpea-db-sync-scan-on-enable nil
+(defcustom vulpea-db-sync-scan-on-enable 'async
   "Whether to scan all files when enabling autosync mode.
 
 This initial scan detects changes made while Emacs was closed (e.g.,
-from git pulls, Dropbox sync, or external edits).
+from git pulls, Dropbox sync, or external edits).  Without it, such
+changes remain invisible until the files are touched again or
+`vulpea-db-sync-full-scan' is run manually.
 
 Options:
-- nil: Skip initial scan (fast startup, manual sync when needed)
 - `async': Scan asynchronously (may cause lag during processing)
 - `blocking': Scan synchronously (blocks Emacs until complete)
+- nil: Skip initial scan (fast startup, manual sync when needed)
 
-Recommended: nil for large repositories (10000+ notes), then use
-`vulpea-db-sync-full-scan' manually after external changes."
-  :type '(choice (const :tag "Skip scan (fast startup)" nil)
-          (const :tag "Async scan (may lag)" async)
-          (const :tag "Blocking scan (wait for completion)" blocking))
+Set to nil for very large repositories (10000+ notes) if startup
+processing causes lag, then run `vulpea-db-sync-full-scan' manually
+after external changes.
+
+Exception: when the database is empty (e.g. the very first
+activation), an async scan is performed even when this is nil -
+otherwise the database would stay empty with no indication why."
+  :type '(choice (const :tag "Async scan (may lag)" async)
+          (const :tag "Blocking scan (wait for completion)" blocking)
+          (const :tag "Skip scan (fast startup)" nil))
   :group 'vulpea-db-sync)
 
 ;;; Variables
@@ -246,16 +254,33 @@ These are escaped by wrapping in brackets: * -> [*], ? -> [?], [ -> [[]]."
 
 ;;; Core Functions
 
+(defun vulpea-db-sync--effective-scan-mode ()
+  "Return scan mode to use during autosync activation.
+
+Returns `vulpea-db-sync-scan-on-enable', except when the database
+is empty: then `async' is returned regardless of the setting, so
+the very first activation populates the database without requiring
+a manual `vulpea-db-sync-full-scan'."
+  (cond
+   (vulpea-db-sync-scan-on-enable)
+   ((= (vulpea-db-count-notes) 0)
+    (vulpea-db-sync--message
+     "Vulpea: database is empty, scanning all files...")
+    'async)))
+
 (defun vulpea-db-sync--start ()
   "Start file watching and async update.
 
-Optionally performs initial scan based on `vulpea-db-sync-scan-on-enable'.
+Optionally performs initial scan based on
+`vulpea-db-sync-scan-on-enable' (an async scan is forced when the
+database is empty, see `vulpea-db-sync--effective-scan-mode').
 
 When `vulpea-db-sync-scan-on-enable' is `async', this function
 returns immediately without blocking.  File listing, cleanup of
 deleted files, and enqueueing are all performed asynchronously via
 a subprocess.  The `blocking' mode still scans synchronously."
   (let ((t-total (current-time))
+        (scan-mode (vulpea-db-sync--effective-scan-mode))
         t-phase)
 
     ;; Kill stale scan subprocess from previous activation
@@ -296,8 +321,8 @@ a subprocess.  The `blocking' mode still scans synchronously."
                    watcher-count))))
 
     ;; Initial scan and cleanup based on configuration
-    (if (and vulpea-db-sync-scan-on-enable vulpea-db-sync-directories)
-        (pcase vulpea-db-sync-scan-on-enable
+    (if (and scan-mode vulpea-db-sync-directories)
+        (pcase scan-mode
           ('async
            ;; Use subprocess to list files, then cleanup + enqueue
            (when vulpea-db-sync-debug
