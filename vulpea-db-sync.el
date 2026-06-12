@@ -243,15 +243,6 @@ warnings that should always be shown."
   (when vulpea-db-sync-verbose
     (apply #'message format-string args)))
 
-(defun vulpea-db-sync--escape-glob-pattern (str)
-  "Escape special SQLite GLOB characters in STR.
-Escapes *, ?, and [ so they match literally when used with GLOB.
-These are escaped by wrapping in brackets: * -> [*], ? -> [?], [ -> [[]]."
-  (replace-regexp-in-string
-   "[][*?]"
-   (lambda (m) (format "[%s]" m))
-   str))
-
 ;;; Core Functions
 
 (defun vulpea-db-sync--effective-scan-mode ()
@@ -558,7 +549,7 @@ all files under that directory are removed."
                              path
                            (concat path "/")))
              ;; Escape GLOB special characters: *, ?, [
-             (escaped-prefix (vulpea-db-sync--escape-glob-pattern dir-prefix))
+             (escaped-prefix (vulpea-db--escape-glob-pattern dir-prefix))
              (glob-pattern (concat escaped-prefix "*")))
         (dolist (file-path (mapcar #'car
                                    (emacsql db [:select path :from files

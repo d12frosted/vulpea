@@ -362,6 +362,15 @@ settings change between sessions so the DB can be re-indexed."
   "Return all tracked file extensions (`.org' + extras)."
   (cons ".org" vulpea-db-extra-extensions))
 
+(defun vulpea-db--escape-glob-pattern (str)
+  "Escape special SQLite GLOB characters in STR.
+Escapes *, ?, and [ so they match literally when used with GLOB.
+These are escaped by wrapping in brackets: * -> [*], ? -> [?], [ -> [[]]."
+  (replace-regexp-in-string
+   "[][*?]"
+   (lambda (m) (format "[%s]" m))
+   str))
+
 ;;; CRUD Operations
 
 (defun vulpea-db--plist-to-alist (plist)
