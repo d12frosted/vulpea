@@ -21,6 +21,7 @@
 
 - Add a ready-made Doom Emacs module in the =doom/= directory (install as =:tools vulpea= by symlinking it to =$DOOMDIR/modules/tools/vulpea=). It installs vulpea via =package!=, enables =vulpea-db-autosync-mode= on first input after startup, binds the main commands under =SPC n v=, and adds =doom doctor= checks that warn when =fswatch= / =fd= are not visible to Emacs (the stale =doom env= pitfall). See =doom/README.org=.
 - Add Doom Emacs guidance: installation via =package!= with a recommended =config.el= example (getting started, README), Doom-specific pitfalls in troubleshooting (=doom env= must be re-run after installing =fswatch= / =fd=, updating requires =doom sync -u=, =org-directory= is set by Doom's org module), and a note on how to verify external tools are visible to Emacs via =executable-find=.
+- Expand the README ecosystem section with third-party packages (=embark-vulpea=, =vulpea-field=, =publicatorg=) and grow the real-world usage section with applications built on Vulpea (=claude-orgmode=, =emacs-org-serve=) and notable user configurations.
 
 *Fixes*
 
