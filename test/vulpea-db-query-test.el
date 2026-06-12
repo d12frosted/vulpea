@@ -931,6 +931,43 @@ be returned with string keys after JSON round-trip through the DB."
       (should (= (length notes) 1))
       (should (equal (vulpea-note-id (car notes)) "note1")))))
 
+;;; Stale Note Queries
+
+(ert-deftest vulpea-db-query-stale-notes-basic ()
+  "Returns notes whose file was last modified more than DAYS days ago."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((now (float-time)))
+      (vulpea-test--insert-test-note "fresh" "Fresh" :path "/tmp/fresh.org")
+      (vulpea-test--insert-test-note "stale" "Stale" :path "/tmp/stale.org")
+      ;; fresh: modified 1 day ago; stale: modified 100 days ago
+      (vulpea-db--update-file-hash "/tmp/fresh.org" "h1" (- now (* 1 86400)) 10)
+      (vulpea-db--update-file-hash "/tmp/stale.org" "h2" (- now (* 100 86400)) 10)
+      (let ((notes (vulpea-db-query-stale-notes 30)))
+        (should (= (length notes) 1))
+        (should (equal (vulpea-note-id (car notes)) "stale"))))))
+
+(ert-deftest vulpea-db-query-stale-notes-all-in-file-oldest-first ()
+  "Returns every note in a stale file, with the oldest file's notes first."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((now (float-time)))
+      ;; older file with two notes (file-level + heading)
+      (vulpea-test--insert-test-note "old-file" "Old File" :path "/tmp/old.org")
+      (vulpea-test--insert-test-note "old-head" "Old Heading"
+                                     :path "/tmp/old.org" :level 1 :pos 50)
+      ;; newer (but still stale) file with one note
+      (vulpea-test--insert-test-note "mid-file" "Mid File" :path "/tmp/mid.org")
+      (vulpea-db--update-file-hash "/tmp/old.org" "h1" (- now (* 200 86400)) 10)
+      (vulpea-db--update-file-hash "/tmp/mid.org" "h2" (- now (* 50 86400)) 10)
+      (let* ((notes (vulpea-db-query-stale-notes 30))
+             (ids (mapcar #'vulpea-note-id notes)))
+        (should (= (length notes) 3))
+        ;; newest stale file sorts last; both notes of the oldest file precede it
+        (should (equal (car (last ids)) "mid-file"))
+        (should (member "old-file" (butlast ids)))
+        (should (member "old-head" (butlast ids)))))))
+
 ;;; Dead Link Detection Tests
 
 (ert-deftest vulpea-db-query-dead-links-found ()

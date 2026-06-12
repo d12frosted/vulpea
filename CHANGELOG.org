@@ -9,6 +9,10 @@
 
 ** Unreleased
 
+*Features*
+
+- [[https://github.com/d12frosted/vulpea/issues/215][vulpea#215]] Add =vulpea-db-query-stale-notes=: return notes whose file has not been modified within the last N days, using the modification time recorded in the =files= table during sync. All notes in a stale file are returned (heading-level notes share their file's mtime), ordered oldest file first - useful for surfacing notes that may need review or archiving.
+
 ** v2.3.0
 
 *Features*
