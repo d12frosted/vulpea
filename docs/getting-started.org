@@ -149,7 +149,7 @@ M-x vulpea-find
 
 You should see a completion interface with your notes. Select one to open it.
 
-If no notes appear, see [[*Troubleshooting][Troubleshooting]] below.
+If no notes appear, run =M-x vulpea-doctor= - it checks your setup (directories, database, sync state, external tools) and points at the most common problems. See also [[*Troubleshooting][Troubleshooting]] below.
 
 * Core Concepts
 

@@ -132,6 +132,174 @@ version in bug reports."
       (message "vulpea %s" version))
     version))
 
+;;; Doctor
+
+(defun vulpea-doctor--db-file-info ()
+  "Return a human-readable description of the database file."
+  (if (file-exists-p vulpea-db-location)
+      (format "exists (%s)"
+              (file-size-human-readable
+               (file-attribute-size
+                (file-attributes vulpea-db-location))))
+    "missing"))
+
+(defun vulpea-doctor--note-count ()
+  "Return the number of indexed notes, or nil when unavailable.
+
+Returns nil instead of creating the database file when it does
+not exist - the doctor must not modify state."
+  (when (file-exists-p vulpea-db-location)
+    (ignore-errors (vulpea-db-count-notes))))
+
+(defun vulpea-doctor--monitoring-status ()
+  "Return a string describing the active external file monitoring."
+  (cond
+   ((and vulpea-db-sync--fswatch-process
+         (process-live-p vulpea-db-sync--fswatch-process))
+    "fswatch (process running)")
+   (vulpea-db-sync--poll-timer
+    (format "polling (every %ss)" vulpea-db-sync-poll-interval))
+   (t "none")))
+
+(defun vulpea-doctor--issues ()
+  "Return a list of detected setup issues as human-readable strings."
+  (let ((issues nil)
+        (fswatch (executable-find "fswatch"))
+        (fd (executable-find "fd"))
+        (notes (vulpea-doctor--note-count)))
+    ;; Sync directories
+    (if (null vulpea-db-sync-directories)
+        (push (concat "`vulpea-db-sync-directories' is empty - nothing will"
+                      " be indexed. Set it (or `org-directory') to where"
+                      " your notes live.")
+              issues)
+      (dolist (dir vulpea-db-sync-directories)
+        (unless (file-directory-p dir)
+          (push (format "Sync directory %s does not exist." dir) issues))))
+    ;; External tools. A missing executable on a GUI Emacs is often a
+    ;; PATH problem rather than a missing install (Doom env file,
+    ;; minimal GUI PATH), hence the exec-path hint.
+    (when (and (not fswatch)
+               (memq vulpea-db-sync-external-method '(auto fswatch)))
+      (push (concat "fswatch not found on `exec-path'"
+                    (if (eq vulpea-db-sync-external-method 'fswatch)
+                        (concat " but `vulpea-db-sync-external-method' is"
+                                " 'fswatch - external monitoring will fail"
+                                " to start.")
+                      " - external changes are detected via slower polling.")
+                    " Install fswatch, or fix Emacs's PATH if it is already"
+                    " installed (Doom users: re-run 'doom env').")
+            issues))
+    (unless fd
+      (push (concat "fd not found on `exec-path' - directory scans fall"
+                    " back to find, which is much slower on large"
+                    " collections. Install fd, or fix Emacs's PATH if it"
+                    " is already installed (Doom users: re-run 'doom env').")
+            issues))
+    ;; Sync state
+    (unless vulpea-db-autosync-mode
+      (push (concat "`vulpea-db-autosync-mode' is disabled - the database"
+                    " will not stay up to date as notes change. Enable it"
+                    " with (vulpea-db-autosync-mode +1).")
+            issues))
+    (when (and vulpea-db-autosync-mode
+               (memq vulpea-db-sync-external-method '(auto fswatch poll))
+               (string= "none" (vulpea-doctor--monitoring-status)))
+      (push (concat "External monitoring is configured but not active -"
+                    " changes made outside Emacs will not be picked up."
+                    " Try toggling `vulpea-db-autosync-mode'.")
+            issues))
+    ;; Database
+    (cond
+     ((not (file-exists-p vulpea-db-location))
+      (push (concat "Database file does not exist yet. Run"
+                    " M-x vulpea-db-sync-full-scan to build it.")
+            issues))
+     ((and notes (zerop notes))
+      (push (concat "Database exists but contains no notes. Run"
+                    " M-x vulpea-db-sync-full-scan; if it stays empty,"
+                    " check that your notes have ID properties and live"
+                    " under `vulpea-db-sync-directories'.")
+            issues)))
+    (nreverse issues)))
+
+(defun vulpea-doctor--report ()
+  "Build the doctor report as a string."
+  (let* ((issues (vulpea-doctor--issues))
+         (notes (vulpea-doctor--note-count))
+         (line (lambda (label value) (format "  %-32s %s" label value))))
+    (string-join
+     (append
+      (list
+       "Vulpea Doctor"
+       "============="
+       ""
+       "Versions"
+       (funcall line "vulpea" (vulpea-version))
+       (funcall line "emacs" emacs-version)
+       (funcall line "org" (org-version))
+       (funcall line "system" (format "%s" system-type))
+       ""
+       "Configuration"
+       (funcall line "vulpea-db-sync-directories"
+                (format "%S" vulpea-db-sync-directories))
+       (funcall line "vulpea-db-location" vulpea-db-location)
+       (funcall line "vulpea-db-parse-method"
+                (format "%s" vulpea-db-parse-method))
+       (funcall line "vulpea-db-index-heading-level"
+                (format "%s" vulpea-db-index-heading-level))
+       (funcall line "vulpea-db-sync-external-method"
+                (format "%s" vulpea-db-sync-external-method))
+       (funcall line "vulpea-db-sync-scan-on-enable"
+                (format "%s" vulpea-db-sync-scan-on-enable))
+       ""
+       "Database"
+       (funcall line "file" (vulpea-doctor--db-file-info))
+       (funcall line "schema version" (format "%s" vulpea-db-version))
+       (funcall line "notes" (if notes (format "%d" notes) "n/a"))
+       ""
+       "Sync"
+       (funcall line "autosync"
+                (if vulpea-db-autosync-mode "enabled" "disabled"))
+       (funcall line "external monitoring" (vulpea-doctor--monitoring-status))
+       (funcall line "pending queue"
+                (format "%d" (length vulpea-db-sync--queue)))
+       ""
+       "External Tools"
+       (funcall line "fd" (or (executable-find "fd") "not found"))
+       (funcall line "fswatch" (or (executable-find "fswatch") "not found"))
+       (funcall line "git" (or (executable-find "git") "not found"))
+       ""
+       "Issues")
+      (if issues
+          (mapcar (lambda (issue) (concat "  - " issue)) issues)
+        (list "  No issues detected.")))
+     "\n")))
+
+;;;###autoload
+(defun vulpea-doctor (&optional show)
+  "Diagnose the Vulpea setup and return a report string.
+
+The report covers versions, configuration, database state, sync
+state, external tool availability, and a list of detected issues.
+It is read-only: nothing is created or modified, even when the
+database does not exist yet. Please include the report in bug
+reports.
+
+When SHOW is non-nil (always when called interactively), also
+display the report in the *vulpea-doctor* buffer."
+  (interactive (list t))
+  (let ((report (vulpea-doctor--report)))
+    (when show
+      (with-current-buffer (get-buffer-create "*vulpea-doctor*")
+        (let ((inhibit-read-only t))
+          (erase-buffer)
+          (insert report)
+          (goto-char (point-min)))
+        (special-mode)
+        (display-buffer (current-buffer))))
+    report))
+
 ;;; Customization
 
 (defgroup vulpea nil
