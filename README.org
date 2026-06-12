@@ -96,7 +96,12 @@ Available on [[https://melpa.org/#/vulpea][MELPA]]:
 
 ;; Using elpaca
 (elpaca vulpea)
+
+;; Using Doom Emacs - add to packages.el, then run 'doom sync'
+(package! vulpea)
 #+end_src
+
+Doom users: see the [[file:docs/getting-started.org][Getting Started guide]] for a complete =config.el= example and a note about =doom env= (required for =fswatch= / =fd= detection).
 
 Or clone manually:
 

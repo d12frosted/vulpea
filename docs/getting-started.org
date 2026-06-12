@@ -5,6 +5,58 @@ This guide walks you through installing Vulpea, setting up your first database, 
 
 * Installation
 
+** From MELPA
+
+Vulpea is available on [[https://melpa.org/#/vulpea][MELPA]]:
+
+#+begin_src emacs-lisp
+;; Using package.el (after adding MELPA to package-archives)
+(package-install 'vulpea)
+
+;; Using use-package
+(use-package vulpea)
+
+;; Using straight.el
+(straight-use-package 'vulpea)
+
+;; Using elpaca
+(elpaca vulpea)
+#+end_src
+
+** Doom Emacs
+
+Add to =packages.el=:
+
+#+begin_src emacs-lisp
+(package! vulpea)
+#+end_src
+
+Configure in =config.el=:
+
+#+begin_src emacs-lisp
+(use-package! vulpea
+  ;; load on first input after startup instead of blocking startup
+  :defer t :after-call doom-first-input-hook
+  :init
+  ;; Vulpea derives its defaults from `org-directory'. Doom's :lang org
+  ;; module sets it to ~/org/ - override here if your notes live elsewhere,
+  ;; or set `vulpea-db-sync-directories' explicitly.
+  ;; (setq vulpea-db-sync-directories (list "~/notes/"))
+  :config
+  (vulpea-db-autosync-mode +1))
+#+end_src
+
+Then run =doom sync= and restart Emacs. To update Vulpea later, use =doom sync -u= (you can check what you are running with =M-x vulpea-version=).
+
+*Important:* Doom captures your shell environment (including =PATH=) into an env file. If you install =fswatch= or =fd= (see below) /after/ generating it, GUI Emacs won't see them and Vulpea silently falls back to slower methods. Re-run =doom env= and restart Emacs, then verify with:
+
+#+begin_src emacs-lisp
+(executable-find "fswatch") ; should return a path, not nil
+(executable-find "fd")
+#+end_src
+
+If you use Doom's =:lang org +roam2= module: Vulpea 2.x is fully independent of org-roam - they can run side by side, each with its own database. Vulpea reads =ROAM_ALIASES= by default, so aliases keep working (see [[file:migration.org][Migration]]).
+
 ** From Source
 
 #+begin_src bash
