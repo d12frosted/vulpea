@@ -610,6 +610,23 @@ corrupts the stored value."
     (vulpea-buffer-prop-set "title" "a\\1b")
     (should (equal (vulpea-buffer-prop-get "title") "a\\1b"))))
 
+(ert-deftest vulpea-buffer-prop-get-case-insensitive-when-fold-disabled ()
+  "prop-get must find a property regardless of ambient `case-fold-search'.
+Its sibling readers bind `case-fold-search' to t; prop-get must too."
+  (with-temp-buffer
+    (org-mode)
+    (insert "#+TITLE: Hello\n")
+    (let ((case-fold-search nil))
+      (should (equal (vulpea-buffer-prop-get "title") "Hello")))))
+
+(ert-deftest vulpea-buffer-prop-get-quotes-regexp-special-name ()
+  "A property NAME with regexp specials must be matched literally.
+An unquoted name would let \".\" match a different property line."
+  (with-temp-buffer
+    (org-mode)
+    (insert "#+myXprop: wrong\n#+my.prop: value-a\n")
+    (should (equal (vulpea-buffer-prop-get "my.prop") "value-a"))))
+
 (ert-deftest vulpea-buffer-prop-remove ()
   "Test removing existing property."
   (let ((id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"))

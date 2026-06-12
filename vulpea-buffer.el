@@ -274,14 +274,19 @@ If the property is already set, replace its value."
 (defun vulpea-buffer-prop-get (name)
   "Get a buffer property called NAME as a string."
   (org-with-point-at 1
-    (when (re-search-forward (concat "^#\\+" name ": \\(.*\\)")
-                             (point-max) t)
-      (let ((value (string-trim
-                    (buffer-substring-no-properties
-                     (match-beginning 1)
-                     (match-end 1)))))
-        (unless (string-empty-p value)
-          value)))))
+    ;; Bind `case-fold-search' (like the sibling readers) so the property
+    ;; is found regardless of the caller's setting, and quote NAME so a
+    ;; regexp-special character in it is matched literally.
+    (let ((case-fold-search t))
+      (when (re-search-forward
+             (concat "^#\\+" (regexp-quote name) ": \\(.*\\)")
+             (point-max) t)
+        (let ((value (string-trim
+                      (buffer-substring-no-properties
+                       (match-beginning 1)
+                       (match-end 1)))))
+          (unless (string-empty-p value)
+            value))))))
 
 (defun vulpea-buffer-prop-get-all (name)
   "Get all values of buffer property called NAME as a list of strings.
