@@ -75,7 +75,10 @@
 ;;; Code:
 
 (require 'cl-lib)
+(require 'ol)
 (require 'vulpea-note)
+(require 'vulpea-utils)
+(require 'vulpea-db-query)
 
 ;;; Schema structure
 
@@ -170,6 +173,159 @@ spec is :multiple, returns a list of values."
 SCHEMA-OR-NAME is a `vulpea-schema' object or a registered schema name."
   (let ((schema (vulpea-schema--resolve schema-or-name)))
     (funcall (vulpea-schema-predicate schema) note)))
+
+;;; Validation
+
+(cl-defstruct (vulpea-violation (:copier nil))
+  "A single schema violation found on a note.
+
+Slots:
+  note-id    - id of the offending note
+  note-title - title of the offending note
+  schema     - name of the schema that was violated
+  field      - metadata key of the offending field
+  type       - violation type symbol (see `vulpea-schema-validate')
+  message    - human-readable description
+  value      - the offending value, when applicable"
+  note-id note-title schema field type message value)
+
+(defun vulpea-schema--call-or-value (spec note)
+  "Resolve SPEC for NOTE: call it when a function, otherwise return it.
+Used for field keys like :required and :one-of that accept either a
+literal or a function of the note."
+  (if (functionp spec) (funcall spec note) spec))
+
+(defun vulpea-schema--coerce (raw type)
+  "Coerce the RAW string value to TYPE for comparison."
+  (pcase type
+    ('number (string-to-number raw))
+    ('symbol (intern raw))
+    (_ raw)))
+
+(defun vulpea-schema--link-id (raw)
+  "Return the note id referenced by RAW, or nil when RAW is not an id link.
+Accepts a bracket link \"[[id:UUID][desc]]\" or a bare UUID."
+  (cond
+   ((string-match org-link-bracket-re raw)
+    (let ((link (match-string 1 raw)))
+      (when (string-prefix-p "id:" link)
+        (string-remove-prefix "id:" link))))
+   ((string-match-p (concat "\\`" vulpea-utils--uuid-regexp "\\'") raw)
+    raw)))
+
+(defun vulpea-schema--violation (note schema field type message value)
+  "Build a `vulpea-violation' for NOTE on SCHEMA's FIELD of TYPE.
+MESSAGE describes the problem and VALUE is the offending value."
+  (make-vulpea-violation
+   :note-id (vulpea-note-id note)
+   :note-title (vulpea-note-title note)
+   :schema (vulpea-schema-name schema)
+   :field (plist-get field :key)
+   :type type
+   :message message
+   :value value))
+
+(defun vulpea-schema--value-violation (raw field note schema)
+  "Return a violation for the RAW value of FIELD on NOTE, or nil when valid.
+SCHEMA is the owning schema.  Checks, in order: type, reference
+resolution (for `note' fields), allowed values, then a custom
+:validate function.  Returns the first problem found."
+  (let* ((key (plist-get field :key))
+         (type (or (plist-get field :type) 'string))
+         (one-of (vulpea-schema--call-or-value (plist-get field :one-of) note))
+         (validate (plist-get field :validate)))
+    (or
+     ;; type / reference checks
+     (pcase type
+       ('number
+        (unless (string-match-p "\\`[ \t]*-?[0-9][0-9.]*[ \t]*\\'" raw)
+          (vulpea-schema--violation
+           note schema field 'wrong-type
+           (format "Field %S expected a number, got %S" key raw) raw)))
+       ((or 'note 'link)
+        (let ((id (vulpea-schema--link-id raw)))
+          (cond
+           ((null id)
+            (vulpea-schema--violation
+             note schema field 'wrong-type
+             (format "Field %S expected an id link, got %S" key raw) raw))
+           ((and (eq type 'note) (not (vulpea-db-get-by-id id)))
+            (vulpea-schema--violation
+             note schema field 'invalid-reference
+             (format "Field %S references missing note %s" key id) id))))))
+     ;; allowed values (not meaningful for note/link references)
+     (when (and one-of (not (memq type '(note link))))
+       (let ((typed (vulpea-schema--coerce raw type)))
+         (unless (member typed one-of)
+           (vulpea-schema--violation
+            note schema field 'disallowed-value
+            (format "Field %S value %S is not one of %S" key typed one-of)
+            typed))))
+     ;; custom validator
+     (when validate
+       (let* ((typed (vulpea-schema--coerce raw type))
+              (result (funcall validate typed note)))
+         (unless (eq result t)
+           (vulpea-schema--violation
+            note schema field 'invalid-value
+            (if (stringp result) result
+              (format "Field %S failed validation" key))
+            typed)))))))
+
+(defun vulpea-schema--field-violations (note field schema)
+  "Return the list of violations for FIELD on NOTE against SCHEMA."
+  (let* ((key (plist-get field :key))
+         (required (vulpea-schema--call-or-value (plist-get field :required) note))
+         (raws (vulpea-note-meta-get-list note key 'string)))
+    (cond
+     ((and required (null raws))
+      (list (vulpea-schema--violation
+             note schema field 'missing-required
+             (format "Required field %S is missing" key) nil)))
+     ((null raws) nil)
+     (t (delq nil
+              (mapcar (lambda (raw)
+                        (vulpea-schema--value-violation raw field note schema))
+                      raws))))))
+
+(defun vulpea-schema-validate (note schema-or-name)
+  "Return the list of `vulpea-violation' for NOTE against SCHEMA-OR-NAME.
+
+SCHEMA-OR-NAME is a `vulpea-schema' object or a registered schema name.
+Each field is checked for the following problem types:
+
+- `missing-required'   a required field has no value
+- `wrong-type'         a value does not match the field's declared type
+- `invalid-reference'  a `note' field links to a non-existent note
+- `disallowed-value'   a value is not in the field's :one-of set
+- `invalid-value'      a value is rejected by the field's :validate function
+
+The note is validated as given; the schema's predicate is not consulted
+here (see `vulpea-schema-validate-all')."
+  (let ((schema (vulpea-schema--resolve schema-or-name)))
+    (cl-loop for field in (vulpea-schema-fields schema)
+             append (vulpea-schema--field-violations note field schema))))
+
+(defun vulpea-schema-validate-notes (notes schema-or-name)
+  "Return all violations for NOTES against SCHEMA-OR-NAME.
+
+NOTES is any list of `vulpea-note' objects; every note is validated
+regardless of the schema's predicate.  To validate only the notes a
+schema applies to, filter with `vulpea-schema-applies-p' first, or use
+`vulpea-schema-validate-all'."
+  (let ((schema (vulpea-schema--resolve schema-or-name)))
+    (cl-loop for note in notes
+             append (vulpea-schema-validate note schema))))
+
+(defun vulpea-schema-validate-all (schema-or-name)
+  "Return all violations for every note matched by SCHEMA-OR-NAME.
+
+Notes are selected with the schema's predicate, then validated.  This
+is sugar for `vulpea-schema-validate-notes' over the matching notes."
+  (let ((schema (vulpea-schema--resolve schema-or-name)))
+    (vulpea-schema-validate-notes
+     (vulpea-db-query (lambda (note) (vulpea-schema-applies-p note schema)))
+     schema)))
 
 (provide 'vulpea-schema)
 ;;; vulpea-schema.el ends here

@@ -16,8 +16,11 @@
 ;;; Code:
 
 (require 'ert)
+(require 'cl-lib)
 (require 'vulpea-schema)
 (require 'vulpea-note)
+(require 'vulpea-db)
+(require 'vulpea-test-helpers)
 
 (defmacro vulpea-schema-test--with-registry (&rest body)
   "Run BODY with a fresh, isolated schema registry."
@@ -108,6 +111,193 @@
                :meta '(("grapes" "Chardonnay" "Pinot Noir")))))
     (should (equal (vulpea-schema-field-value note '(:key "grapes" :multiple t))
                    '("Chardonnay" "Pinot Noir")))))
+
+;;; Validation
+
+(defun vulpea-schema-test--wine-schema ()
+  "Define and return a self-contained wine schema for validation tests."
+  (vulpea-schema-define 'wine
+    :predicate (lambda (n) (member "wine" (vulpea-note-tags n)))
+    :fields
+    (list
+     '(:key "name" :type string :required t)
+     '(:key "producer" :type note :required t)
+     '(:key "colour" :type symbol :required t :one-of (red white rose))
+     '(:key "vintage" :type number)
+     '(:key "carbonation" :type symbol :one-of (still sparkling))
+     (list :key "carbonation method" :type 'symbol
+           :required (lambda (n)
+                       (eq (vulpea-note-meta-get n "carbonation" 'symbol)
+                           'sparkling)))
+     (list :key "sweetness" :type 'symbol
+           :one-of (lambda (n)
+                     (if (eq (vulpea-note-meta-get n "carbonation" 'symbol)
+                             'sparkling)
+                         '(brut extra-brut doux)
+                       '(dry semi-dry sweet)))))))
+
+(defmacro vulpea-schema-test--with-wine (var &rest body)
+  "Run BODY with a temp db (with producer prod-1) and VAR bound to the wine schema."
+  (declare (indent 1))
+  `(vulpea-test--with-temp-db
+     (vulpea-db)
+     (vulpea-test--insert-test-note "prod-1" "Producer One")
+     (let* ((vulpea-schema--registry (make-hash-table :test 'eq))
+            (,var (vulpea-schema-test--wine-schema)))
+       ,@body)))
+
+(ert-deftest vulpea-schema-validate-valid-note ()
+  "A fully conformant note produces no violations."
+  (vulpea-schema-test--with-wine schema
+    (let ((note (make-vulpea-note
+                 :id "w1" :title "Wine 1" :tags '("wine")
+                 :meta '(("name" "Chablis")
+                         ("producer" "[[id:prod-1][Producer One]]")
+                         ("colour" "white")
+                         ("vintage" "2019")))))
+      (should-not (vulpea-schema-validate note schema)))))
+
+(ert-deftest vulpea-schema-validate-missing-required ()
+  "A required field with no value yields a missing-required violation."
+  (vulpea-schema-test--with-wine schema
+    (let* ((note (make-vulpea-note
+                  :id "w" :title "W" :tags '("wine")
+                  :meta '(("producer" "[[id:prod-1][P]]") ("colour" "red"))))
+           (vs (vulpea-schema-validate note schema)))
+      (should (= (length vs) 1))
+      (should (eq (vulpea-violation-type (car vs)) 'missing-required))
+      (should (equal (vulpea-violation-field (car vs)) "name")))))
+
+(ert-deftest vulpea-schema-validate-disallowed-value ()
+  "A value outside :one-of yields a disallowed-value violation."
+  (vulpea-schema-test--with-wine schema
+    (let* ((note (make-vulpea-note
+                  :id "w" :title "W" :tags '("wine")
+                  :meta '(("name" "X") ("producer" "[[id:prod-1][P]]")
+                          ("colour" "blue"))))
+           (vs (vulpea-schema-validate note schema)))
+      (should (= (length vs) 1))
+      (should (eq (vulpea-violation-type (car vs)) 'disallowed-value))
+      (should (equal (vulpea-violation-field (car vs)) "colour")))))
+
+(ert-deftest vulpea-schema-validate-wrong-type ()
+  "A non-numeric value in a number field yields a wrong-type violation."
+  (vulpea-schema-test--with-wine schema
+    (let* ((note (make-vulpea-note
+                  :id "w" :title "W" :tags '("wine")
+                  :meta '(("name" "X") ("producer" "[[id:prod-1][P]]")
+                          ("colour" "red") ("vintage" "ancient"))))
+           (vs (vulpea-schema-validate note schema)))
+      (should (= (length vs) 1))
+      (should (eq (vulpea-violation-type (car vs)) 'wrong-type))
+      (should (equal (vulpea-violation-field (car vs)) "vintage")))))
+
+(ert-deftest vulpea-schema-validate-invalid-reference ()
+  "A note field pointing to a missing note yields invalid-reference."
+  (vulpea-schema-test--with-wine schema
+    (let* ((note (make-vulpea-note
+                  :id "w" :title "W" :tags '("wine")
+                  :meta '(("name" "X") ("producer" "[[id:ghost][Ghost]]")
+                          ("colour" "red"))))
+           (vs (vulpea-schema-validate note schema)))
+      (should (= (length vs) 1))
+      (should (eq (vulpea-violation-type (car vs)) 'invalid-reference))
+      (should (equal (vulpea-violation-field (car vs)) "producer")))))
+
+(ert-deftest vulpea-schema-validate-conditional-required ()
+  "A function :required is honored (carbonation method only for sparkling)."
+  (vulpea-schema-test--with-wine schema
+    (let ((sparkling (make-vulpea-note
+                      :id "s" :title "S" :tags '("wine")
+                      :meta '(("name" "X") ("producer" "[[id:prod-1][P]]")
+                              ("colour" "white") ("carbonation" "sparkling")))))
+      (should (cl-some
+               (lambda (v) (and (eq (vulpea-violation-type v) 'missing-required)
+                                (equal (vulpea-violation-field v) "carbonation method")))
+               (vulpea-schema-validate sparkling schema))))
+    (let ((still (make-vulpea-note
+                  :id "t" :title "T" :tags '("wine")
+                  :meta '(("name" "X") ("producer" "[[id:prod-1][P]]")
+                          ("colour" "red") ("carbonation" "still")))))
+      (should-not (cl-some
+                   (lambda (v) (equal (vulpea-violation-field v) "carbonation method"))
+                   (vulpea-schema-validate still schema))))))
+
+(ert-deftest vulpea-schema-validate-dependent-one-of ()
+  "A function :one-of is honored (allowed sweetness depends on carbonation)."
+  (vulpea-schema-test--with-wine schema
+    ;; "dry" is valid for still wine
+    (let ((still (make-vulpea-note
+                  :id "t" :title "T" :tags '("wine")
+                  :meta '(("name" "X") ("producer" "[[id:prod-1][P]]")
+                          ("colour" "red") ("carbonation" "still")
+                          ("sweetness" "dry")))))
+      (should-not (cl-some
+                   (lambda (v) (equal (vulpea-violation-field v) "sweetness"))
+                   (vulpea-schema-validate still schema))))
+    ;; "dry" is not valid for sparkling wine
+    (let ((sparkling (make-vulpea-note
+                      :id "s" :title "S" :tags '("wine")
+                      :meta '(("name" "X") ("producer" "[[id:prod-1][P]]")
+                              ("colour" "white") ("carbonation" "sparkling")
+                              ("carbonation method" "traditional")
+                              ("sweetness" "dry")))))
+      (should (cl-some
+               (lambda (v) (and (eq (vulpea-violation-type v) 'disallowed-value)
+                                (equal (vulpea-violation-field v) "sweetness")))
+               (vulpea-schema-validate sparkling schema))))))
+
+(ert-deftest vulpea-schema-validate-custom-validator ()
+  "A :validate function yields an invalid-value violation with its message."
+  (let* ((vulpea-schema--registry (make-hash-table :test 'eq))
+         (schema (vulpea-schema-define 'rated
+                   :predicate (lambda (_n) t)
+                   :fields
+                   (list (list :key "score" :type 'number
+                               :validate (lambda (v _n)
+                                           (if (<= 0 v 100) t
+                                             "score must be between 0 and 100")))))))
+    (should-not (vulpea-schema-validate
+                 (make-vulpea-note :meta '(("score" "87"))) schema))
+    (let ((vs (vulpea-schema-validate
+               (make-vulpea-note :meta '(("score" "150"))) schema)))
+      (should (= (length vs) 1))
+      (should (eq (vulpea-violation-type (car vs)) 'invalid-value))
+      (should (equal (vulpea-violation-message (car vs))
+                     "score must be between 0 and 100")))))
+
+(ert-deftest vulpea-schema-validate-notes-aggregates ()
+  "`vulpea-schema-validate-notes' validates an arbitrary list of notes."
+  (vulpea-schema-test--with-wine schema
+    (let ((good (make-vulpea-note
+                 :id "g" :title "G" :tags '("wine")
+                 :meta '(("name" "G") ("producer" "[[id:prod-1][P]]")
+                         ("colour" "red"))))
+          (bad (make-vulpea-note
+                :id "b" :title "B" :tags '("wine")
+                :meta '(("producer" "[[id:prod-1][P]]") ("colour" "red")))))
+      (let ((vs (vulpea-schema-validate-notes (list good bad) schema)))
+        (should (= (length vs) 1))
+        (should (equal (vulpea-violation-note-id (car vs)) "b"))))))
+
+(ert-deftest vulpea-schema-validate-all-uses-predicate ()
+  "`vulpea-schema-validate-all' validates only notes matching the predicate."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "prod-1" "Producer One")
+    (vulpea-test--insert-test-note
+     "good" "Good" :tags '("wine")
+     :meta '(("name" "G") ("producer" "[[id:prod-1][P]]") ("colour" "red")))
+    (vulpea-test--insert-test-note
+     "bad" "Bad" :tags '("wine")
+     :meta '(("producer" "[[id:prod-1][P]]") ("colour" "red")))
+    (vulpea-test--insert-test-note "beer" "Beer" :tags '("beer"))
+    (let* ((vulpea-schema--registry (make-hash-table :test 'eq)))
+      (vulpea-schema-test--wine-schema)
+      (let ((vs (vulpea-schema-validate-all 'wine)))
+        (should (= (length vs) 1))
+        (should (equal (vulpea-violation-note-id (car vs)) "bad"))
+        (should (eq (vulpea-violation-type (car vs)) 'missing-required))))))
 
 (provide 'vulpea-schema-test)
 ;;; vulpea-schema-test.el ends here

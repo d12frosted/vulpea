@@ -908,8 +908,44 @@ Registry and helpers:
 | =vulpea-schema-applies-p=                 | Does a schema's predicate match a note |
 | =vulpea-schema-field-value=               | Read a field's value with its type     |
 
-Validating notes against a schema (reporting missing or invalid fields)
-is a separate layer, added on top of these definitions.
+** Validation
+
+Validate notes against a schema, getting back a list of =vulpea-violation=
+structs:
+
+#+begin_src emacs-lisp
+;; one note
+(vulpea-schema-validate note 'wine)
+
+;; an arbitrary list of notes (your own subset)
+(vulpea-schema-validate-notes my-notes 'wine)
+
+;; every note the schema's predicate matches
+(vulpea-schema-validate-all 'wine)
+#+end_src
+
+=vulpea-schema-validate= and =vulpea-schema-validate-notes= check exactly
+the notes given - the predicate is a selector, not a guard. Only
+=vulpea-schema-validate-all= consults the predicate (to choose which
+notes to pull in). To validate just the matching notes in a list of your
+own, filter with =vulpea-schema-applies-p= first.
+
+Each violation carries =note-id=, =note-title=, =schema=, =field=,
+=type=, =message=, and the offending =value=. The =type= is one of:
+
+| Type                | Meaning                                            |
+|---------------------+----------------------------------------------------|
+| =missing-required=  | a required field has no value                      |
+| =wrong-type=        | a value does not match the field's declared type   |
+| =invalid-reference= | a =note= field links to a non-existent note        |
+| =disallowed-value=  | a value is not in the field's =:one-of= set        |
+| =invalid-value=     | a value is rejected by the field's =:validate= fn  |
+
+| Function                       | Description                              |
+|--------------------------------+------------------------------------------|
+| =vulpea-schema-validate=       | Violations for one note                  |
+| =vulpea-schema-validate-notes= | Violations for a list of notes           |
+| =vulpea-schema-validate-all=   | Violations for all notes a schema matches |
 
 * Quick Reference Tables
 
