@@ -858,6 +858,59 @@ For advanced use cases, direct database access:
 
 → See [[file:plugin-guide.org][Plugin Guide]] for custom tables and extractors.
 
+* Schemas
+
+A schema describes the structured expectations for a class of notes: a
+predicate selecting which notes it applies to, and a list of field specs
+declaring the metadata those notes should carry.
+
+#+begin_src emacs-lisp
+(vulpea-schema-define 'wine
+  :predicate (lambda (note) (member "wine" (vulpea-note-tags note)))
+  :fields
+  '((:key "producer" :type note   :required t)
+    (:key "name"     :type string :required t)
+    (:key "colour"   :type symbol :required t :one-of (red white rose))
+    (:key "grapes"   :type note   :multiple t)
+    (:key "vintage"  :type number)
+    ;; required only for sparkling wines
+    (:key "carbonation method" :type symbol
+          :required (lambda (note)
+                      (eq (vulpea-note-meta-get note "carbonation" 'symbol)
+                          'sparkling)))))
+#+end_src
+
+Field spec keys:
+
+| Key         | Meaning                                                          |
+|-------------+-----------------------------------------------------------------|
+| =:key=      | metadata key string (required)                                  |
+| =:type=     | =string= (default), =number=, =symbol=, =note=, or =link=       |
+| =:required= | =t=/=nil=, or a function =(note)= → boolean                     |
+| =:one-of=   | a list of allowed values, or a function =(note)= → list         |
+| =:multiple= | non-nil when the field holds a list of values                   |
+| =:validate= | optional function =(value note)= → =t= or an error string       |
+
+The =:type= vocabulary matches =vulpea-note-meta-get=, so values are read
+the same way everywhere. Use a function for =:required= or =:one-of= when
+the rule depends on another field (e.g. allowed sweetness levels that
+vary by carbonation). To read a sibling field inside such a function,
+call =vulpea-note-meta-get= directly so you control the value type.
+
+Registry and helpers:
+
+| Function                                  | Description                            |
+|-------------------------------------------+----------------------------------------|
+| =vulpea-schema-define=                    | Define and register a schema           |
+| =vulpea-schema-get=                       | Retrieve a schema by name              |
+| =vulpea-schema-list=                      | List registered schema names           |
+| =vulpea-schema-unregister=                | Remove a schema from the registry      |
+| =vulpea-schema-applies-p=                 | Does a schema's predicate match a note |
+| =vulpea-schema-field-value=               | Read a field's value with its type     |
+
+Validating notes against a schema (reporting missing or invalid fields)
+is a separate layer, added on top of these definitions.
+
 * Quick Reference Tables
 
 ** Core Functions

@@ -66,6 +66,7 @@
 (require 'vulpea-db-sync)
 (require 'vulpea-meta)
 (require 'vulpea-note)
+(require 'vulpea-schema)
 (require 'vulpea-select)
 (require 'vulpea-tags)
 (require 'vulpea-utils)
