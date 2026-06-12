@@ -297,69 +297,71 @@ If RERUN-ORG-MODE is non-nil, `org-mode' (and its hooks) are executed
 after loading PATH so file-local keywords and hooks are respected."
   (let ((vulpea-db--parse-buffer-run-hooks rerun-org-mode))
     (vulpea-db--with-parse-buffer
-      (let* ((t0 (current-time))
+      (unwind-protect
+          (let* ((t0 (current-time))
 
-             ;; Required in case of relative `org-attach-dir'
-             (_ (setq buffer-file-name path
-                      default-directory (file-name-directory path)))
+                 ;; Required in case of relative `org-attach-dir'
+                 (_ (setq buffer-file-name path
+                          default-directory (file-name-directory path)))
 
-             (_ (let ((inhibit-read-only t)
-                      (inhibit-modification-hooks t))
-                  (erase-buffer)
-                  (insert-file-contents path)))
+                 (_ (let ((inhibit-read-only t)
+                          (inhibit-modification-hooks t))
+                      (erase-buffer)
+                      (insert-file-contents path)))
 
-             ;; Reset org-element cache after replacing buffer
-             ;; contents with inhibit-modification-hooks.  Without
-             ;; this, the cache retains stale positions from the
-             ;; previous file and org-element-parse-buffer hits
-             ;; "Invalid search bound" or marker errors.
-             (_ (when (fboundp 'org-element-cache-reset)
-                  (org-element-cache-reset)))
+                 ;; Reset org-element cache after replacing buffer
+                 ;; contents with inhibit-modification-hooks.  Without
+                 ;; this, the cache retains stale positions from the
+                 ;; previous file and org-element-parse-buffer hits
+                 ;; "Invalid search bound" or marker errors.
+                 (_ (when (fboundp 'org-element-cache-reset)
+                      (org-element-cache-reset)))
 
-             (t1 (current-time))
-             (_ (when rerun-org-mode
-                  (let ((delay-mode-hooks nil))
-                    (org-mode))))
-             (t2 (current-time))
-             (content (buffer-string))
-             (ast (org-element-parse-buffer))
-             (t3 (current-time))
-             (attrs (file-attributes path))
-             (mtime (float-time (file-attribute-modification-time attrs)))
-             (size (file-attribute-size attrs))
-             (hash (secure-hash 'sha256 content))
-             (file-title (vulpea-db--extract-file-title ast path))
-             (file-node (vulpea-db--extract-file-node ast path (current-buffer) file-title))
-             (heading-nodes (vulpea-db--extract-heading-nodes ast path (current-buffer) file-title))
-             (t4 (current-time)))
+                 (t1 (current-time))
+                 (_ (when rerun-org-mode
+                      (let ((delay-mode-hooks nil))
+                        (org-mode))))
+                 (t2 (current-time))
+                 (content (buffer-string))
+                 (ast (org-element-parse-buffer))
+                 (t3 (current-time))
+                 (attrs (file-attributes path))
+                 (mtime (float-time (file-attribute-modification-time attrs)))
+                 (size (file-attribute-size attrs))
+                 (hash (secure-hash 'sha256 content))
+                 (file-title (vulpea-db--extract-file-title ast path))
+                 (file-node (vulpea-db--extract-file-node ast path (current-buffer) file-title))
+                 (heading-nodes (vulpea-db--extract-heading-nodes ast path (current-buffer) file-title))
+                 (t4 (current-time)))
 
-        ;; Accumulate detailed timing if enabled
-        (when vulpea-db--timing-data
-          (let ((io-time (* 1000 (float-time (time-subtract t1 t0))))
-                (org-mode-time (* 1000 (float-time (time-subtract t2 t1))))
-                (parse-ast-time (* 1000 (float-time (time-subtract t3 t2))))
-                (extract-time (* 1000 (float-time (time-subtract t4 t3)))))
-            (dolist (entry `((parse-io . ,io-time)
-                             (parse-org-mode . ,org-mode-time)
-                             (parse-ast . ,parse-ast-time)
-                             (parse-extract . ,extract-time)))
-              (let ((existing (assoc (car entry) vulpea-db--timing-data)))
-                (if existing
-                    (setcdr existing (+ (cdr existing) (cdr entry)))
-                  (push entry vulpea-db--timing-data))))))
+            ;; Accumulate detailed timing if enabled
+            (when vulpea-db--timing-data
+              (let ((io-time (* 1000 (float-time (time-subtract t1 t0))))
+                    (org-mode-time (* 1000 (float-time (time-subtract t2 t1))))
+                    (parse-ast-time (* 1000 (float-time (time-subtract t3 t2))))
+                    (extract-time (* 1000 (float-time (time-subtract t4 t3)))))
+                (dolist (entry `((parse-io . ,io-time)
+                                 (parse-org-mode . ,org-mode-time)
+                                 (parse-ast . ,parse-ast-time)
+                                 (parse-extract . ,extract-time)))
+                  (let ((existing (assoc (car entry) vulpea-db--timing-data)))
+                    (if existing
+                        (setcdr existing (+ (cdr existing) (cdr entry)))
+                      (push entry vulpea-db--timing-data))))))
 
-        ;; Clear buffer state to avoid file change tracking
+            (make-vulpea-parse-ctx
+             :path path
+             :ast ast
+             :file-node file-node
+             :heading-nodes heading-nodes
+             :hash hash
+             :mtime mtime
+             :size size))
+        ;; Always clear buffer state - even when parsing above errors -
+        ;; so the reused parse buffer is not left associated with PATH
+        ;; (which would mark it modified and risk file-change tracking).
         (setq buffer-file-name nil)
-        (set-buffer-modified-p nil)
-
-        (make-vulpea-parse-ctx
-         :path path
-         :ast ast
-         :file-node file-node
-         :heading-nodes heading-nodes
-         :hash hash
-         :mtime mtime
-         :size size)))))
+        (set-buffer-modified-p nil)))))
 
 (defun vulpea-db--parse-file (path)
   "Parse org file at PATH and return parse context.

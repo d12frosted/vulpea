@@ -1964,5 +1964,21 @@ File abc / * Parent (no ID) / ** Mention [[id:foo][person]] (no ID) -> abc -> fo
           (should (equal (plist-get (vulpea-parse-ctx-file-node ctx) :id) "enc-id")))
       (delete-file path))))
 
+(ert-deftest vulpea-db--parse-with-temp-buffer-clears-state-on-error ()
+  "A parse error must not leave the reused buffer associated with the file.
+Otherwise the shared parse buffer keeps a stale `buffer-file-name' that
+could be picked up by file-change tracking on a later save."
+  (let ((path (vulpea-test--create-temp-org-file
+               ":PROPERTIES:\n:ID: parse-err\n:END:\n#+title: T\n")))
+    (unwind-protect
+        (progn
+          (cl-letf (((symbol-function 'vulpea-db--extract-file-node)
+                     (lambda (&rest _) (error "boom"))))
+            (should-error (vulpea-db--parse-with-temp-buffer path t)))
+          (when (buffer-live-p vulpea-db--parse-buffer)
+            (should (null (buffer-local-value 'buffer-file-name
+                                              vulpea-db--parse-buffer)))))
+      (delete-file path))))
+
 (provide 'vulpea-db-extract-test)
 ;;; vulpea-db-extract-test.el ends here
