@@ -205,7 +205,11 @@ TAGS is a list of tag strings.
 Returns list of `vulpea-note' structs."
   (if (null tags)
       (vulpea-db-query nil)  ; Return all notes
-    (let* ((tag-count (length tags))
+    ;; De-duplicate: the HAVING clause compares COUNT(DISTINCT tag)
+    ;; against the requested count, so a repeated tag would inflate the
+    ;; target past what any note can match and return nothing.
+    (let* ((tags (seq-uniq tags))
+           (tag-count (length tags))
            (rows (emacsql (vulpea-db)
                           [:select * :from notes
                            :where (in id [:select [note-id]
@@ -288,7 +292,11 @@ LINK-TYPE is optional link type filter.
 Returns list of `vulpea-note' structs."
   (if (null dest-ids)
       (vulpea-db-query nil)
-    (let* ((id-count (length dest-ids))
+    ;; De-duplicate: the HAVING clause compares COUNT(DISTINCT dest)
+    ;; against the requested count, so a repeated id would inflate the
+    ;; target past what any note can match and return nothing.
+    (let* ((dest-ids (seq-uniq dest-ids))
+           (id-count (length dest-ids))
            (rows (if link-type
                      (emacsql (vulpea-db)
                               [:select * :from notes

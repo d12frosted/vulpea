@@ -154,6 +154,20 @@
     (let ((notes (vulpea-db-query-by-tags-every nil)))
       (should (= (length notes) 2)))))
 
+(ert-deftest vulpea-db-query-by-tags-every-duplicate-input ()
+  "Duplicate tags in the input must not suppress results.
+A repeated tag previously inflated the required match count past the
+number of distinct tags any note could have, returning nothing."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "note1" "Note 1" :tags '("wine" "red"))
+    (vulpea-test--insert-test-note "note2" "Note 2" :tags '("wine"))
+
+    (let ((notes (vulpea-db-query-by-tags-every '("wine" "wine"))))
+      (should (= (length notes) 2))
+      (should (member "note1" (mapcar #'vulpea-note-id notes)))
+      (should (member "note2" (mapcar #'vulpea-note-id notes))))))
+
 (ert-deftest vulpea-db-query-by-tags-none-single ()
   "Test querying by single excluded tag."
   (vulpea-test--with-temp-db
@@ -306,6 +320,19 @@ from being inserted into the normalized tags table."
                                    :links '((:dest "target1" :type "id" :pos 100)))
 
     (let ((notes (vulpea-db-query-by-links-every '("target1" "target2"))))
+      (should (= (length notes) 1))
+      (should (equal (vulpea-note-id (car notes)) "note1")))))
+
+(ert-deftest vulpea-db-query-by-links-every-duplicate-input ()
+  "Duplicate destination ids in the input must not suppress results."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "note1" "Note 1"
+                                   :links '((:dest "target1" :type "id" :pos 100)))
+    (vulpea-test--insert-test-note "note2" "Note 2"
+                                   :links '((:dest "target2" :type "id" :pos 100)))
+
+    (let ((notes (vulpea-db-query-by-links-every '("target1" "target1"))))
       (should (= (length notes) 1))
       (should (equal (vulpea-note-id (car notes)) "note1")))))
 
