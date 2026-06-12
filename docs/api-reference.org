@@ -799,6 +799,13 @@ Both functions support =:candidates-fn= to customize the source of candidates, a
 (vulpea-version)
 ;; => "v2.2.0" or "v2.2.0-15-g2938416" or "20260610.1234 (commit 2938416)"
 
+;; Diagnose the setup (M-x vulpea-doctor interactively).
+;; Returns a report string covering versions, configuration,
+;; database and sync state, external tool availability, and
+;; detected issues. Read-only - modifies nothing. Include the
+;; report in bug reports.
+(vulpea-doctor)
+
 ;; Convert title to URL-friendly slug
 (vulpea-title-to-slug "My Note Title")
 ;; => "my-note-title"

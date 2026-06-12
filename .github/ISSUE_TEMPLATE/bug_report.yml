@@ -47,6 +47,16 @@ body:
       placeholder: GNU Emacs 30.1, Org mode 9.7.11
     validations:
       required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: vulpea-doctor report
+      description: >-
+        Output of `M-x vulpea-doctor`, if available - it covers
+        configuration, database and sync state, external tools, and
+        detected issues in one paste, and answers most follow-up
+        questions upfront.
+      render: text
   - type: dropdown
     id: install-method
     attributes:
