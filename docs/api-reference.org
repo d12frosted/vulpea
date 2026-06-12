@@ -572,6 +572,34 @@ Operate on metadata across multiple notes:
 ;; => count of notes processed
 #+end_src
 
+** Tag Hierarchy
+
+If you use Org's tag groups (=org-tag-alist= with
+=:startgrouptag= / =:grouptags= / =:endgrouptag=, see Info node
+=(org)Tag Hierarchy=), =vulpea-tags-expand= turns a list of tags into
+that list plus the transitive members of any groups among them:
+
+#+begin_src emacs-lisp
+;; with group GTD = {Control, Persp}, and Control = {TODO, WAITING}
+(vulpea-tags-expand '("GTD"))
+;; => ("GTD" "Control" "Persp" "TODO" "WAITING")
+#+end_src
+
+Combine it with the tag query functions to match a parent tag and all
+its descendants:
+
+#+begin_src emacs-lisp
+;; notes tagged GTD or any tag under it
+(vulpea-db-query-by-tags-some (vulpea-tags-expand '("GTD")))
+
+;; notes tagged with none of GTD's hierarchy
+(vulpea-db-query-by-tags-none (vulpea-tags-expand '("GTD")))
+#+end_src
+
+Expansion is meaningful for =-some= and =-none= (any member matches). It
+is intentionally not applied to =vulpea-db-query-by-tags-every=, where
+"has all of" a group's members is a different question.
+
 * Title Propagation
 
 When you rename a note's title, incoming links still show the old title as their description. Vulpea provides tools to propagate title changes to link descriptions and optionally rename the file.

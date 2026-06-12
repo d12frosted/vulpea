@@ -157,5 +157,39 @@ and NEW-TAG as a string."
                old-tag new-tag count (if (= count 1) "" "s")))
     count))
 
+;;; Tag hierarchy
+
+(defun vulpea-tags-expand (tags)
+  "Expand TAGS to include the transitive members of any tag groups.
+
+Tag groups come from `org-tag-groups-alist', which Org populates from
+`org-tag-alist' and `org-tag-persistent-alist' (see Info node
+`(org)Tag Hierarchy').  Each tag that names a group is replaced by
+itself plus its member tags, recursively, so a query for a parent tag
+can also match notes tagged with any descendant.
+
+Returns a de-duplicated list.  Cyclic group definitions terminate
+safely.  When no tag groups are configured, TAGS is returned unchanged
+\(de-duplicated).
+
+This is the building block for hierarchical tag queries; combine it
+with the tag query functions, e.g.
+
+  (vulpea-db-query-by-tags-some (vulpea-tags-expand \\='(\"GTD\")))"
+  (let ((groups (bound-and-true-p org-tag-groups-alist))
+        (seen (make-hash-table :test 'equal))
+        (result nil)
+        (queue (append tags nil)))
+    (while queue
+      (let ((tag (pop queue)))
+        (unless (gethash tag seen)
+          (puthash tag t seen)
+          (push tag result)
+          ;; When TAG names a group, queue its members for expansion.
+          (dolist (member (cdr (assoc tag groups)))
+            (unless (gethash member seen)
+              (setq queue (append queue (list member))))))))
+    (nreverse result)))
+
 (provide 'vulpea-tags)
 ;;; vulpea-tags.el ends here

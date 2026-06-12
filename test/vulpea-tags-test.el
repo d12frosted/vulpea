@@ -380,5 +380,35 @@
      ;; filetags line should remain unchanged
      (should (string-match-p "#\\+filetags: :ftag1:ftag2:" content)))))
 
+;;; Tag hierarchy
+
+(ert-deftest vulpea-tags-expand-transitive ()
+  "A group tag expands to its transitive members."
+  (let ((org-tag-groups-alist '(("GTD" "Control" "Persp")
+                                ("Control" "TODO" "WAITING"))))
+    (should (equal (sort (vulpea-tags-expand '("GTD")) #'string<)
+                   '("Control" "GTD" "Persp" "TODO" "WAITING")))))
+
+(ert-deftest vulpea-tags-expand-non-group-unchanged ()
+  "A tag that does not name a group is returned as-is."
+  (let ((org-tag-groups-alist '(("GTD" "Control" "Persp"))))
+    (should (equal (vulpea-tags-expand '("Persp")) '("Persp")))))
+
+(ert-deftest vulpea-tags-expand-no-groups ()
+  "With no tag groups configured, tags are returned unchanged."
+  (let ((org-tag-groups-alist nil))
+    (should (equal (vulpea-tags-expand '("a" "b")) '("a" "b")))))
+
+(ert-deftest vulpea-tags-expand-dedups ()
+  "Overlapping inputs and group members are de-duplicated."
+  (let ((org-tag-groups-alist '(("GTD" "Control" "Persp"))))
+    (should (equal (sort (vulpea-tags-expand '("GTD" "Control")) #'string<)
+                   '("Control" "GTD" "Persp")))))
+
+(ert-deftest vulpea-tags-expand-handles-cycles ()
+  "Cyclic group definitions terminate instead of looping forever."
+  (let ((org-tag-groups-alist '(("a" "b") ("b" "a"))))
+    (should (equal (sort (vulpea-tags-expand '("a")) #'string<) '("a" "b")))))
+
 (provide 'vulpea-tags-test)
 ;;; vulpea-tags-test.el ends here
