@@ -48,6 +48,8 @@ Configure in =config.el=:
 
 Then run =doom sync= and restart Emacs. To update Vulpea later, use =doom sync -u= (you can check what you are running with =M-x vulpea-version=).
 
+*Prefer a ready-made module?* The repository ships a Doom module ([[file:../doom/README.org][doom/]]) that does all of the above and adds =SPC n v= keybindings plus =doom doctor= checks for =fswatch= / =fd=. Symlink it to =$DOOMDIR/modules/tools/vulpea= and add =:tools vulpea= to your =doom!= block - see [[file:../doom/README.org][its README]].
+
 *Important:* Doom captures your shell environment (including =PATH=) into an env file. If you install =fswatch= or =fd= (see below) /after/ generating it, GUI Emacs won't see them and Vulpea silently falls back to slower methods. Re-run =doom env= and restart Emacs, then verify with:
 
 #+begin_src emacs-lisp

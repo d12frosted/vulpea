@@ -1,0 +1,77 @@
+#+title:    :tools vulpea
+#+subtitle: Note management on top of org-mode
+
+* Description
+This module integrates [[https://github.com/d12frosted/vulpea][Vulpea]] into Doom Emacs:
+
+- Installs Vulpea and enables =vulpea-db-autosync-mode= shortly after startup
+  (on first input, so it never blocks startup). With the default
+  =vulpea-db-sync-scan-on-enable=, the first activation also builds the
+  database in the background - no manual scan needed.
+- Binds the main commands under =SPC n v= (next to org-roam's =SPC n r=).
+- Hooks into =doom doctor= to warn when =fswatch= or =fd= are not visible to
+  Emacs - the most common Doom-specific pitfall (a stale =doom env= file).
+
+** Module flags
+/This module has no flags./
+
+** Packages
+- [[https://github.com/d12frosted/vulpea][vulpea]]
+
+* Installation
+This is a third-party module living in the Vulpea repository. Place it in your
+=$DOOMDIR/modules= tree under =tools/vulpea=, either by symlinking a clone:
+
+#+begin_src sh
+git clone https://github.com/d12frosted/vulpea ~/path/to/vulpea
+mkdir -p ~/.config/doom/modules/tools
+ln -s ~/path/to/vulpea/doom ~/.config/doom/modules/tools/vulpea
+#+end_src
+
+or by copying the =doom/= directory there. Then enable it in your =doom!=
+block in =init.el=:
+
+#+begin_src emacs-lisp
+:tools
+vulpea
+#+end_src
+
+and run =doom sync=.
+
+Note: the module installs the =vulpea= package from MELPA via =package!=; the
+clone above is only the module definition, not the package itself.
+
+For best performance also install [[https://github.com/emcrisostomo/fswatch][fswatch]] and [[https://github.com/sharkdp/fd][fd]], then run =doom env= so
+Emacs sees them (=doom doctor= will remind you if they are missing).
+
+* Usage
+| Binding     | Description                                            |
+|-------------+--------------------------------------------------------|
+| =SPC n v f= | Find note (=vulpea-find=)                              |
+| =SPC n v b= | Find backlink (=vulpea-find-backlink=)                 |
+| =SPC n v i= | Insert link (=vulpea-insert=)                          |
+| =SPC n v p= | Propagate title change (=vulpea-propagate-title-change=) |
+| =SPC n v r= | Rename tag everywhere (=vulpea-tags-batch-rename=)     |
+| =SPC n v s= | Full scan (=vulpea-db-sync-full-scan=)                 |
+| =SPC n v d= | Diagnostics (=vulpea-doctor=)                          |
+
+* Configuration
+Vulpea derives its defaults from =org-directory= at load time. Doom's
+=:lang org= module sets it to =~/org/= - if your notes live elsewhere, set it
+(or =vulpea-db-sync-directories=) in your =config.el=:
+
+#+begin_src emacs-lisp
+(setq org-directory "~/notes/")
+;; or, independently of org-directory:
+;; (setq vulpea-db-sync-directories (list "~/notes/"))
+#+end_src
+
+All other options are documented in the [[https://github.com/d12frosted/vulpea/blob/master/docs/configuration.org][configuration guide]].
+
+This module coexists with =:lang org +roam= - Vulpea and org-roam maintain
+separate databases and do not conflict.
+
+* Troubleshooting
+Run =M-x vulpea-doctor= (or =SPC n v d=) - it reports versions, configuration,
+database and sync state, and flags common problems. See also the
+[[https://github.com/d12frosted/vulpea/blob/master/docs/troubleshooting.org][troubleshooting guide]], which has a section on Doom-specific pitfalls.
