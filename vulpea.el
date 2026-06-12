@@ -363,7 +363,11 @@ Example customization:
           :head \"#+created: %<[%Y-%m-%d]>\"
           :properties ((\"CREATED\" . \"%<[%Y-%m-%d]>\")
                        (\"AUTHOR\" . \"%(user-full-name)\"))
-          :context (:source \"%(buffer-name)\")))
+          :context (:source \"manual\")))
+
+Note: %(elisp) and %<format> directives are honored only inside
+the template fields themselves (e.g. :head, :properties values).
+Context values are inserted literally and are not re-evaluated.
 
 Available parameters:
   :file-name   - File name template (relative to default directory)
@@ -518,6 +522,14 @@ Returns expanded string with placeholders replaced.
 Built-in variables: ${title}, ${slug}, ${timestamp}, ${id}
 Context variables: ${key} for each :key in CONTEXT.
 
+Evaluation order matters for safety: the %(elisp) and %<format>
+directives are expanded first, on the template itself, and only
+then are ${var} and context values substituted in.  Consequently
+%(...) and %<...> are honored only when written by the template
+author - they are NOT re-evaluated when they appear inside a
+substituted value such as TITLE or a CONTEXT value.  This keeps
+untrusted data (e.g. a note title) from being executed as code.
+
 Note: Does not support %a (annotation) or %i (initial content)
 from org-capture as they don't make sense for programmatic creation."
   (let* ((slug (vulpea-title-to-slug title))
@@ -525,21 +537,14 @@ from org-capture as they don't make sense for programmatic creation."
          (id (or id (org-id-new)))
          (result template))
 
-    ;; Expand ${var} placeholders
-    (setq result (thread-last result
-                              (s-replace "${title}" title)
-                              (s-replace "${slug}" slug)
-                              (s-replace "${timestamp}" timestamp)
-                              (s-replace "${id}" id)))
-
-    ;; Expand context variables
-    (when context
-      (let ((ctx context))
-        (while ctx
-          (let* ((key (pop ctx))
-                 (val (pop ctx))
-                 (placeholder (format "${%s}" (substring (symbol-name key) 1))))
-            (setq result (s-replace placeholder (format "%s" val) result))))))
+    ;; SECURITY: expand the active directives (%(elisp) and %<format>)
+    ;; on the raw template FIRST, before substituting ${var} and context
+    ;; values.  The directives are written by the template author and are
+    ;; trusted; the substituted values (note title, slug, id, context)
+    ;; are data and may be untrusted.  Substituting first and scanning
+    ;; afterwards would let a value containing "%(...)" be evaluated as
+    ;; code - an arbitrary code execution hazard.  Expanding before
+    ;; substitution keeps all substituted data strictly literal.
 
     ;; Expand %(elisp) - evaluate elisp expressions
     ;; Note: save-match-data is critical because eval'd expressions may
@@ -561,6 +566,23 @@ from org-capture as they don't make sense for programmatic creation."
       (let* ((format-str (match-string 1 result))
              (value (format-time-string format-str)))
         (setq result (replace-match value t t result))))
+
+    ;; Expand ${var} placeholders.  Done AFTER directive expansion so
+    ;; substituted values are never re-scanned for %(...) or %<...>.
+    (setq result (thread-last result
+                              (s-replace "${title}" title)
+                              (s-replace "${slug}" slug)
+                              (s-replace "${timestamp}" timestamp)
+                              (s-replace "${id}" id)))
+
+    ;; Expand context variables (treated as literal data, like ${var})
+    (when context
+      (let ((ctx context))
+        (while ctx
+          (let* ((key (pop ctx))
+                 (val (pop ctx))
+                 (placeholder (format "${%s}" (substring (symbol-name key) 1))))
+            (setq result (s-replace placeholder (format "%s" val) result))))))
 
     result))
 

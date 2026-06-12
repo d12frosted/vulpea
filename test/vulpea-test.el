@@ -330,6 +330,39 @@ Uses Unicode normalization to preserve base characters from accented letters."
       (when (file-directory-p vulpea-default-notes-directory)
         (delete-directory vulpea-default-notes-directory t)))))
 
+(ert-deftest vulpea--expand-template-evaluates-author-directives ()
+  "Directives written in the template itself are still expanded."
+  (should (equal (vulpea--expand-template "%(concat \"ab\" \"cd\")" "Title" "id")
+                 "abcd"))
+  (should (string-match-p "\\`[0-9]\\{4\\}\\'"
+                          (vulpea--expand-template "%<%Y>" "Title" "id")))
+  (should (equal (vulpea--expand-template "title=${title} id=${id}" "T" "I")
+                 "title=T id=I")))
+
+(ert-deftest vulpea--expand-template-does-not-eval-injected-title ()
+  "A %(...) arriving via ${title} must not be evaluated.
+Guards against arbitrary code execution from untrusted note titles."
+  (let ((sentinel (make-temp-name
+                   (expand-file-name "vulpea-inject-" temporary-file-directory))))
+    (unwind-protect
+        (let* ((title (format "%%(write-region \"x\" nil %S nil 0)" sentinel))
+               (result (vulpea--expand-template "T: ${title}" title "id")))
+          (should-not (file-exists-p sentinel))
+          (should (string-match-p (regexp-quote "%(write-region") result)))
+      (when (file-exists-p sentinel) (delete-file sentinel)))))
+
+(ert-deftest vulpea--expand-template-does-not-eval-injected-context ()
+  "A %(...) arriving via a context value must not be evaluated."
+  (let ((sentinel (make-temp-name
+                   (expand-file-name "vulpea-inject-" temporary-file-directory))))
+    (unwind-protect
+        (let* ((evil (format "%%(write-region \"x\" nil %S nil 0)" sentinel))
+               (result (vulpea--expand-template "U: ${url}" "Title" "id"
+                                                (list :url evil))))
+          (should-not (file-exists-p sentinel))
+          (should (string-match-p (regexp-quote "%(write-region") result)))
+      (when (file-exists-p sentinel) (delete-file sentinel)))))
+
 (ert-deftest vulpea--format-note-content-minimal ()
   "Test minimal note content formatting."
   (let* ((id "test-id-123")
