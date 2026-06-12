@@ -9,6 +9,8 @@
 
 ** Unreleased
 
+** v2.3.0
+
 *Features*
 
 - [[https://github.com/d12frosted/vulpea/issues/277][vulpea#277]] Change the default of =vulpea-db-sync-scan-on-enable= from =nil= to =async=: enabling autosync now scans note directories in the background, so changes made while Emacs was closed (git pulls, cloud sync, external edits) are picked up automatically instead of staying invisible until the files are touched again. Additionally, when the database is empty (e.g. the very first activation), an async scan is performed even when the option is set to =nil= - otherwise the database would stay empty with no indication why. Users of very large collections (10000+ notes) who prefer the old behavior can set the option back to =nil=.
