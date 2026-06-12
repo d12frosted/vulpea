@@ -265,7 +265,7 @@ VALUES are quoted and combined into single string using
 If SEPARATORS is non-nil, it should be a regular expression
 matching text that separates, but is not part of, the substrings.
 If nil it defaults to `split-string-default-separators', normally
-\"[ \f\t\n\r\v]+\", and OMIT-NULLS is forced to t.
+\"[ \\f\\t\\n\\r\\v]+\", and OMIT-NULLS is forced to t.
 
 If the property is already set, replace its value."
   (vulpea-buffer-prop-set
@@ -312,7 +312,7 @@ match, this collects values from all lines matching #+NAME:."
 If SEPARATORS is non-nil, it should be a regular expression
 matching text that separates, but is not part of, the substrings.
 If nil it defaults to `split-string-default-separators', normally
-\"[ \f\t\n\r\v]+\", and OMIT-NULLS is forced to t."
+\"[ \\f\\t\\n\\r\\v]+\", and OMIT-NULLS is forced to t."
   (let ((value (vulpea-buffer-prop-get name)))
     (when value
       (split-string-and-unquote value separators))))

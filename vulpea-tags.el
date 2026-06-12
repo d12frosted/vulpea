@@ -51,6 +51,11 @@
 (require 'vulpea-db-query)
 (require 'vulpea-buffer)
 
+;; Defined in vulpea.el, which requires this file; declared here to
+;; avoid a load-time circular dependency.  Reached at runtime via the
+;; `vulpea-utils-process-notes' macro used by the batch operations.
+(declare-function vulpea-visit "vulpea")
+
 ;;; Per-note tag operations
 
 (defun vulpea-tags (note-or-id)
