@@ -145,5 +145,32 @@
       (when (file-exists-p temp-org-file)
         (delete-file temp-org-file)))))
 
+(ert-deftest vulpea-utils--kill-org-buffers-kills-org-keeps-others ()
+  "Kills Org-named buffers, leaves others alive, never prompting."
+  (let ((org-buf (get-buffer-create "vulpea-kill-me.org"))
+        (txt-buf (get-buffer-create "vulpea-keep-me.txt")))
+    (unwind-protect
+        (progn
+          (vulpea-utils--kill-org-buffers)
+          (should-not (buffer-live-p org-buf))
+          (should (buffer-live-p txt-buf)))
+      (when (buffer-live-p org-buf) (kill-buffer org-buf))
+      (when (buffer-live-p txt-buf) (kill-buffer txt-buf)))))
+
+(ert-deftest vulpea-utils--kill-org-buffers-fallback-without-no-ask ()
+  "The Emacs < 29 fallback path also kills Org buffers without prompting.
+Simulated by temporarily unbinding `kill-matching-buffers-no-ask'."
+  (let ((org-buf (get-buffer-create "vulpea-fallback.org"))
+        (orig (when (fboundp 'kill-matching-buffers-no-ask)
+                (symbol-function 'kill-matching-buffers-no-ask))))
+    (unwind-protect
+        (progn
+          (fmakunbound 'kill-matching-buffers-no-ask)
+          (should-not (fboundp 'kill-matching-buffers-no-ask))
+          (vulpea-utils--kill-org-buffers)
+          (should-not (buffer-live-p org-buf)))
+      (when orig (fset 'kill-matching-buffers-no-ask orig))
+      (when (buffer-live-p org-buf) (kill-buffer org-buf)))))
+
 (provide 'vulpea-utils-test)
 ;;; vulpea-utils-test.el ends here
