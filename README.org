@@ -155,7 +155,7 @@ Companion packages that extend Vulpea:
 - [[https://github.com/fabcontigiani/consult-vulpea][consult-vulpea]] - Consult integration for Vulpea. Provides =consult-vulpea-find= and =consult-vulpea-insert= with live preview and consult's narrowing features.
 - [[https://github.com/fabcontigiani/citar-vulpea][citar-vulpea]] - Citar integration for Vulpea. Minor mode for managing bibliographic notes, linking citation library entries to Vulpea notes.
 - [[https://github.com/fabcontigiani/embark-vulpea][embark-vulpea]] - Embark actions and export for Vulpea notes.
-- [[https://github.com/jwiegley/vulpea-field][vulpea-field]] - Extension for easily adding new database fields.
+- [[https://github.com/jwiegley/vulpea-field][vulpea-field]] - Extension for easily adding new database fields. Compatible with v1 only - it builds on the org-roam-backed =vulpea-db-define-table= mechanism; in v2 use the [[file:docs/plugin-guide.org][plugin system]] instead.
 - [[https://github.com/d12frosted/publicatorg][publicatorg]] - Make your Vulpea notes public.
 
 ** Real-World Usage
