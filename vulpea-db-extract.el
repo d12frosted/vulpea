@@ -262,7 +262,7 @@ See README.org and bench/PERFORMANCE.md for guidance."
   "Current `vulpea-db-parse-method' while parsing.
 
 This is let-bound during parsing so hook authors can skip expensive
-work, e.g. `(unless (bound-and-true-p 'vulpea-db--active-parse-method) …)'.")
+work by testing it with `bound-and-true-p'.")
 
 (defvar vulpea-db--parse-buffer nil
   "Reusable buffer for parsing org files.
@@ -272,6 +272,10 @@ repeated `org-mode' activation overhead.")
 
 (defvar vulpea-db--parse-buffer-run-hooks t
   "Whether `org-mode' should run hooks when initializing parse buffer.")
+
+(defvar vulpea-db--timing-data nil
+  "Accumulated timing data for profiling.
+Format: ((phase . total-time-ms) ...)")
 
 (defmacro vulpea-db--with-parse-buffer (&rest body)
   "Execute BODY in a reusable parse buffer with `org-mode' initialized.
@@ -431,9 +435,11 @@ Returns the #+TITLE keyword value if present, otherwise the filename base."
            (org-link-display-format title)))
         (file-name-base path))))
 
-(defun vulpea-db--extract-file-node (ast path buffer file-title)
-  "Extract file-level node data from AST at PATH in BUFFER.
+(defun vulpea-db--extract-file-node (ast _path buffer file-title)
+  "Extract file-level node data from AST in BUFFER.
 
+_PATH is accepted for signature symmetry with
+`vulpea-db--extract-heading-nodes' but is not used.
 FILE-TITLE is the title of the file (from #+TITLE or filename).
 
 Returns plist with:
@@ -734,7 +740,7 @@ links from plain (non-note) subtrees."
         (let ((type (org-element-property :type link))
               (path (org-element-property :path link))
               (pos (org-element-property :begin link))
-              (desc (when-let ((contents (org-element-contents link)))
+              (desc (when-let* ((contents (org-element-contents link)))
                       (substring-no-properties
                        (org-element-interpret-data contents)))))
           (when (and type path)
@@ -763,7 +769,7 @@ Descends into child headlines only if they lack an ID property."
         (let ((type (org-element-property :type child))
               (path (org-element-property :path child))
               (pos (org-element-property :begin child))
-              (desc (when-let ((contents (org-element-contents child)))
+              (desc (when-let* ((contents (org-element-contents child)))
                       (substring-no-properties
                        (org-element-interpret-data contents)))))
           (when (and type path)
@@ -954,10 +960,6 @@ Returns updated note-data after all extractors have run."
              :initial-value note-data))
 
 ;;; Update File
-
-(defvar vulpea-db--timing-data nil
-  "Accumulated timing data for profiling.
-Format: ((phase . total-time-ms) ...)")
 
 (defun vulpea-db-update-file (path)
   "Parse and update database for file at PATH.

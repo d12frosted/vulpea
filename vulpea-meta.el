@@ -48,6 +48,11 @@
 (require 'vulpea-buffer)
 (require 'vulpea-select)
 
+;; Defined in vulpea.el, which requires this file; declared here to
+;; avoid a load-time circular dependency.  Reached at runtime via the
+;; `vulpea-utils-process-notes' macro used by the batch operations.
+(declare-function vulpea-visit "vulpea")
+
 (defun vulpea-meta (note-or-id)
   "Get metadata for NOTE-OR-ID.
 

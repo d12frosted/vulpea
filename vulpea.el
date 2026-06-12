@@ -749,7 +749,10 @@ If OTHER-WINDOW, visit the NOTE in another window."
         (org-back-to-heading t))
       (if (fboundp 'org-fold-show-context)
           (org-fold-show-context)
-        (org-show-context)))))
+        ;; Fallback for Org < 9.6; the function is obsolete there but
+        ;; still the correct entry point, so silence the warning.
+        (with-suppressed-warnings ((obsolete org-show-context))
+          (org-show-context))))))
 
 
 
@@ -883,11 +886,12 @@ BODY is optional body text after the property drawer."
     (when body (list body)))
    "\n"))
 
-(defun vulpea--find-heading-insertion-point (parent-note level after)
+(defun vulpea--find-heading-insertion-point (parent-note _level after)
   "Find buffer position to insert a new heading.
 
 PARENT-NOTE is the parent vulpea-note.
-LEVEL is the heading level to insert.
+_LEVEL is accepted for call-site symmetry but is not used; the
+insertion point is derived from PARENT-NOTE.
 AFTER controls position:
   \\='last (default) - append as last child
   nil - insert as first child
@@ -1226,7 +1230,7 @@ Interactive flow:
          (note (cond
                 ((vulpea-note-p note-or-id) note-or-id)
                 ((stringp note-or-id) (vulpea-db-get-by-id note-or-id))
-                (t (when-let ((id (org-entry-get nil "ID")))
+                (t (when-let* ((id (org-entry-get nil "ID")))
                      (vulpea-db-get-by-id id)))))
          (note (or note
                    (vulpea-select "Note to propagate")))
@@ -1299,7 +1303,7 @@ Interactive flow:
               (plist-get link :source-path)
               (plist-get link :pos)
               new-title)
-             (when-let ((buf (get-file-buffer (plist-get link :source-path))))
+             (when-let* ((buf (get-file-buffer (plist-get link :source-path))))
                (with-current-buffer buf
                  (save-buffer))))
            (message "Updated %d link%s"
@@ -1313,7 +1317,7 @@ Interactive flow:
                  (when (y-or-n-p (format "Update \"%s\" in %s? "
                                          desc (file-name-nondirectory path)))
                    (vulpea--update-link-description path pos new-title)
-                   (when-let ((buf (get-file-buffer path)))
+                   (when-let* ((buf (get-file-buffer path)))
                      (with-current-buffer buf
                        (save-buffer)))
                    (cl-incf updated))))
