@@ -599,6 +599,17 @@ Creates a temp file with ID and CONTENT, adds it to temp DB, then executes BODY.
                        (vulpea-buffer-prop-get "title"))
                      "Title 2")))))
 
+(ert-deftest vulpea-buffer-prop-set-preserves-backslashes ()
+  "A property value with backslashes must be stored verbatim.
+Without a literal replacement, a sequence like \\1 in the value is
+interpreted by `replace-match' as a match-group backreference and
+corrupts the stored value."
+  (with-temp-buffer
+    (org-mode)
+    (insert "#+title: old value\n")
+    (vulpea-buffer-prop-set "title" "a\\1b")
+    (should (equal (vulpea-buffer-prop-get "title") "a\\1b"))))
+
 (ert-deftest vulpea-buffer-prop-remove ()
   "Test removing existing property."
   (let ((id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"))

@@ -492,11 +492,13 @@ descriptions [[id:xxx][old]]."
        ;; Link with existing description: [[id:xxx][old]]
        ((looking-at "\\(\\[\\[id:[^]]+\\]\\)\\[\\([^]]*\\)\\]\\]")
         (let ((link-part (match-string 1)))
-          (replace-match (concat link-part "[" new-description "]]"))))
+          ;; LITERAL (3rd arg) so backslashes in NEW-DESCRIPTION are not
+          ;; interpreted as match-group backreferences.
+          (replace-match (concat link-part "[" new-description "]]") t t)))
        ;; Bare link without description: [[id:xxx]]
        ((looking-at "\\(\\[\\[id:[^]]+\\)\\]\\]")
         (let ((link-part (match-string 1)))
-          (replace-match (concat link-part "][" new-description "]]"))))))))
+          (replace-match (concat link-part "][" new-description "]]") t t)))))))
 
 (defun vulpea--default-directory ()
   "Return the default directory for creating new notes.
