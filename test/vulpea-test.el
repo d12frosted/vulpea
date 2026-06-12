@@ -1503,6 +1503,60 @@ Guards against arbitrary code execution from untrusted note titles."
       (when (file-exists-p linking-path)
         (delete-file linking-path)))))
 
+(ert-deftest vulpea-update-link-description-preserves-backslashes ()
+  "Updating a description with backslashes must insert it verbatim.
+Without a literal replacement, \\1 is treated by `replace-match' as a
+match-group backreference and corrupts the link."
+  (let* ((target-id "target-note-id")
+         (new-desc "a\\1b")
+         (linking-content
+          (format ":PROPERTIES:\n:ID: linking-id\n:END:\n#+TITLE: Linking Note\n\nSee [[id:%s][Old Description]]." target-id))
+         (linking-path (vulpea-test--create-temp-org-file linking-content)))
+    (unwind-protect
+        (progn
+          (with-current-buffer (find-file-noselect linking-path)
+            (goto-char (point-min))
+            (re-search-forward "\\[\\[id:")
+            (let ((link-pos (match-beginning 0)))
+              (vulpea--update-link-description linking-path link-pos new-desc)
+              (save-buffer)))
+          (with-temp-buffer
+            (insert-file-contents linking-path)
+            (should (string-match-p
+                     (regexp-quote (format "[[id:%s][%s]]" target-id new-desc))
+                     (buffer-string)))))
+      (when (get-file-buffer linking-path)
+        (kill-buffer (get-file-buffer linking-path)))
+      (when (file-exists-p linking-path)
+        (delete-file linking-path)))))
+
+(ert-deftest vulpea-update-link-description-bare-preserves-backslashes ()
+  "Adding a backslash description to a bare link must insert it verbatim.
+Covers the bare-link branch, where \\& would otherwise be expanded to
+the whole match."
+  (let* ((target-id "target-note-id")
+         (new-desc "x\\&y")
+         (linking-content
+          (format ":PROPERTIES:\n:ID: linking-id\n:END:\n#+TITLE: Linking Note\n\nSee [[id:%s]]." target-id))
+         (linking-path (vulpea-test--create-temp-org-file linking-content)))
+    (unwind-protect
+        (progn
+          (with-current-buffer (find-file-noselect linking-path)
+            (goto-char (point-min))
+            (re-search-forward "\\[\\[id:")
+            (let ((link-pos (match-beginning 0)))
+              (vulpea--update-link-description linking-path link-pos new-desc)
+              (save-buffer)))
+          (with-temp-buffer
+            (insert-file-contents linking-path)
+            (should (string-match-p
+                     (regexp-quote (format "[[id:%s][%s]]" target-id new-desc))
+                     (buffer-string)))))
+      (when (get-file-buffer linking-path)
+        (kill-buffer (get-file-buffer linking-path)))
+      (when (file-exists-p linking-path)
+        (delete-file linking-path)))))
+
 ;;;; Integration Tests for Incoming Links
 
 (ert-deftest vulpea-get-incoming-links-with-descriptions ()

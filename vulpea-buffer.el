@@ -243,7 +243,9 @@ If the property is already set, replace its value."
     (let ((case-fold-search t))
       (if (re-search-forward (concat "^#\\+" name ":\\(.*\\)")
                              (point-max) t)
-          (replace-match (concat "#+" name ": " value) 'fixedcase)
+          ;; LITERAL (3rd arg) so backslashes in VALUE are inserted
+          ;; verbatim rather than interpreted as backreferences.
+          (replace-match (concat "#+" name ": " value) 'fixedcase t)
         (while (and (not (eobp))
                     (looking-at "^[#:]"))
           (if (save-excursion (end-of-line) (eobp))
