@@ -185,6 +185,22 @@ apt install fswatch       # Debian/Ubuntu
 pacman -S fswatch         # Arch
 #+end_src
 
+*** Make sure Emacs can find fswatch
+
+Vulpea locates =fswatch= (and =fd=) via =executable-find=, which uses Emacs's own =PATH= - not your shell's. GUI Emacs often starts with a minimal =PATH=, so the tools may be installed yet invisible. Check:
+
+#+begin_src emacs-lisp
+(executable-find "fswatch") ; should return a path, not nil
+(executable-find "fd")
+#+end_src
+
+If either returns =nil=:
+
+- *Doom Emacs:* Doom snapshots your environment into an env file. Re-run =doom env= after installing the tools, then restart Emacs.
+- *Other setups:* use [[https://github.com/purcell/exec-path-from-shell][exec-path-from-shell]] or add the install location to =exec-path= manually.
+
+With =vulpea-db-sync-external-method= set to ='auto= (the default), a missing =fswatch= causes a /silent/ fallback to polling - the only trace is a one-line message in =*Messages*= at startup.
+
 *** Configure external detection
 
 #+begin_src emacs-lisp
@@ -295,6 +311,16 @@ Vulpea v2 is independent from org-roam. Both can coexist:
 - They maintain separate databases
 - No configuration overlap
 - Use either or both for queries
+
+** With Doom Emacs
+
+See the [[file:getting-started.org][Getting Started guide]] for the recommended =packages.el= / =config.el= setup. Common Doom-specific pitfalls:
+
+1. *=fswatch= / =fd= not detected:* Doom snapshots your shell environment into an env file, so tools installed afterwards are invisible to GUI Emacs. Re-run =doom env= and restart. See [[*Make sure Emacs can find fswatch][Make sure Emacs can find fswatch]].
+
+2. *Running an old version:* =package!= installs a MELPA snapshot that is only updated when you run =doom sync -u= - just restarting Emacs does not update packages. Check what you are actually running with =M-x vulpea-version= before reporting bugs.
+
+3. *=org-directory= mismatch:* Doom's =:lang org= module sets =org-directory= (default =~/org/=), and Vulpea derives its defaults from it at load time. If your notes live elsewhere, set =org-directory= (or =vulpea-db-sync-directories=) in =config.el= /before/ Vulpea loads.
 
 ** With Other Packages
 
