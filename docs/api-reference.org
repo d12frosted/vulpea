@@ -203,6 +203,18 @@ Find notes that share the same title:
 
 Returns list of =(TITLE . NOTES)= groups where each group has two or more notes with the same title. Optional LEVEL argument restricts to notes at a specific heading level (0 for file-level).
 
+** Stale Notes
+
+Find notes whose file has not been modified within the last N days:
+
+#+begin_src emacs-lisp
+;; notes untouched for more than 90 days
+(vulpea-db-query-stale-notes 90)
+;; => (#s(vulpea-note ...) ...)
+#+end_src
+
+Uses the modification time recorded in the =files= table during sync. All notes in a stale file are returned (a heading-level note shares its file's mtime), ordered oldest file first. Useful for surfacing notes that may need review or archiving.
+
 * Link Queries
 
 Query links directly from the database. All functions return plists with =:source=, =:dest=, =:type=, and =:pos= keys.
@@ -882,6 +894,7 @@ For advanced use cases, direct database access:
 | =vulpea-db-query-orphan-notes=        | Notes with no incoming ID links      |
 | =vulpea-db-query-isolated-notes=      | Notes with no connections at all     |
 | =vulpea-db-query-title-collisions=    | Notes sharing the same title         |
+| =vulpea-db-query-stale-notes=         | Notes in files unmodified for N days |
 | =vulpea-db-query-links=               | All links as plists                  |
 | =vulpea-db-query-links-by-type=       | Links filtered by type               |
 | =vulpea-db-query-links-from=          | Outgoing links from a note           |

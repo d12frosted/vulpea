@@ -475,6 +475,36 @@ Returns list of `vulpea-note' structs."
                          date))))
     (mapcar #'vulpea-db--row-to-note rows)))
 
+;;; Stale Note Queries
+
+(defun vulpea-db-query-stale-notes (days)
+  "Get notes whose file has not been modified within the last DAYS days.
+
+DAYS is a number; a note is considered stale when its file's last
+modification time is older than DAYS days ago.
+
+Uses the modification time recorded in the `files' table during
+sync (the real filesystem mtime), joined to the notes from each
+file.  All notes in a stale file are returned - a heading-level
+note shares its file's modification time.  Results are ordered
+oldest file first, which suits review and archiving workflows.
+
+Note: the mtime is the value captured at the last sync.  A file
+modified but not yet synced keeps its previous mtime until the
+next sync.
+
+Returns list of `vulpea-note' structs."
+  (let* ((cutoff (- (float-time) (* days 86400)))
+         (rows (emacsql (vulpea-db)
+                        [:select [notes:*]
+                         :from notes
+                         :inner :join files
+                         :on (= notes:path files:path)
+                         :where (< files:mtime $s1)
+                         :order :by files:mtime]
+                        cutoff)))
+    (mapcar #'vulpea-db--row-to-note rows)))
+
 ;;; Property-Based Queries
 
 (defun vulpea-db-query-by-property (key value)
