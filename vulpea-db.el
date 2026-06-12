@@ -334,19 +334,29 @@ settings change between sessions so the DB can be re-indexed."
 
 ;;; Utilities
 
+;; NOTE: `sqlite_master' is populated by SQLite with plain strings,
+;; whereas emacsql encodes string parameters in their `prin1' form
+;; (e.g. "notes" becomes the quoted "notes"), which would never match.
+;; Passing the type and name as symbols makes emacsql emit them as the
+;; bare values 'table'/'notes', which do match - while still escaping
+;; them through emacsql's parameter machinery rather than string
+;; interpolation, so the name cannot break out of the query.
+
 (defun vulpea-db--table-exists-p (table)
   "Check if TABLE exists in database."
-  (let ((table-name (symbol-name table)))
-    (not (null (emacsql (vulpea-db)
-                        (format "SELECT name FROM sqlite_master WHERE type = 'table' AND name = '%s'"
-                                table-name))))))
+  (not (null (emacsql (vulpea-db)
+                      [:select [name] :from sqlite-master
+                       :where (and (= type $s1)
+                                   (= name $s2))]
+                      'table table))))
 
 (defun vulpea-db--index-exists-p (index)
   "Check if INDEX exists in database."
-  (let ((index-name (symbol-name index)))
-    (not (null (emacsql (vulpea-db)
-                        (format "SELECT name FROM sqlite_master WHERE type = 'index' AND name = '%s'"
-                                index-name))))))
+  (not (null (emacsql (vulpea-db)
+                      [:select [name] :from sqlite-master
+                       :where (and (= type $s1)
+                                   (= name $s2))]
+                      'index index))))
 
 (defun vulpea-db--all-extensions ()
   "Return all tracked file extensions (`.org' + extras)."

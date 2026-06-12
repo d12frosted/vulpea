@@ -370,6 +370,17 @@ See https://github.com/d12frosted/vulpea/issues/271."
     (should (vulpea-db--table-exists-p 'tags))
     (should (vulpea-db--table-exists-p 'schema_registry))))
 
+(ert-deftest vulpea-db-table-exists-p-handles-special-chars ()
+  "Existence checks must treat the name as data, not raw SQL.
+A name with a quote would break a format-built query; a
+parameterized query returns nil safely."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (should (vulpea-db--table-exists-p 'notes))
+    (should-not (vulpea-db--table-exists-p (intern "no_such_table")))
+    (should-not (vulpea-db--table-exists-p (intern "weird'name")))
+    (should-not (vulpea-db--index-exists-p (intern "weird'index")))))
+
 (ert-deftest vulpea-db-same-version-no-rebuild ()
   "Test that same version does not trigger rebuild."
   (vulpea-test--with-temp-db
