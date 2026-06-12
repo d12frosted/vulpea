@@ -108,6 +108,20 @@
       (should (equal (vulpea-note-title producer) "ShortName"))
       (should (equal (vulpea-note-primary-title producer) "Full Title")))))
 
+(ert-deftest vulpea-note-meta-get-note-dangling-link ()
+  "A meta id-link with a description pointing to a missing note must not crash.
+Previously this raised (wrong-type-argument vulpea-note nil) because
+the resolved note is nil; it should degrade to a nil entry instead."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note
+     "note1" "Test Note"
+     :meta '(("producer" . ("[[id:11111111-1111-1111-1111-111111111111][Ghost]]"))))
+
+    (let ((note (vulpea-db-get-by-id "note1")))
+      (should (equal (vulpea-note-meta-get-list note "producer" 'note) '(nil)))
+      (should (null (vulpea-note-meta-get note "producer" 'note))))))
+
 (ert-deftest vulpea-note-meta-get-list-multiple ()
   "Test getting list of metadata values."
   (vulpea-test--with-temp-db
