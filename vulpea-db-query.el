@@ -409,19 +409,24 @@ LEVEL is optional filter: 0 for file-level, 1+ for headings.
 When LEVEL is nil, returns all notes from the directory.
 
 Uses prefix matching on file paths, so includes all subdirectories.
+Matching is case-sensitive.
 
 Returns list of `vulpea-note' structs."
+  ;; Use GLOB rather than LIKE: LIKE would treat % and _ in the
+  ;; directory path as wildcards, pulling in sibling directories.  The
+  ;; directory is escaped for GLOB's own specials (*, ?, [) so it
+  ;; matches literally; the trailing * is the prefix wildcard.
   (let* ((dir (file-name-as-directory directory))
-         (pattern (concat dir "%"))
+         (pattern (concat (vulpea-db--escape-glob-pattern dir) "*"))
          (rows (if level
                    (emacsql (vulpea-db)
                             [:select * :from notes
-                             :where (and (like path $s1)
+                             :where (and (glob path $s1)
                                          (= level $s2))]
                             pattern level)
                  (emacsql (vulpea-db)
                           [:select * :from notes
-                           :where (like path $s1)]
+                           :where (glob path $s1)]
                           pattern))))
     (mapcar #'vulpea-db--row-to-note rows)))
 

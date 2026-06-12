@@ -782,6 +782,30 @@ from being inserted into the normalized tags table."
 
     (should-not (vulpea-db-query-by-directory "/tmp/other"))))
 
+(ert-deftest vulpea-db-query-by-directory-literal-underscore ()
+  "An underscore in the directory must match literally, not as a wildcard.
+With LIKE, the directory name was used as a pattern, so `_' matched any
+single character and pulled in sibling directories."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "note1" "Note 1" :path "/tmp/my_notes/file1.org")
+    (vulpea-test--insert-test-note "note2" "Note 2" :path "/tmp/myXnotes/file2.org")
+
+    (let ((notes (vulpea-db-query-by-directory "/tmp/my_notes")))
+      (should (= (length notes) 1))
+      (should (equal (vulpea-note-id (car notes)) "note1")))))
+
+(ert-deftest vulpea-db-query-by-directory-glob-special-chars ()
+  "GLOB special characters in the directory are matched literally."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "note1" "Note 1" :path "/tmp/a[b]/file1.org")
+    (vulpea-test--insert-test-note "note2" "Note 2" :path "/tmp/ab/file2.org")
+
+    (let ((notes (vulpea-db-query-by-directory "/tmp/a[b]")))
+      (should (= (length notes) 1))
+      (should (equal (vulpea-note-id (car notes)) "note1")))))
+
 ;;; Property-Based Query Tests
 
 (ert-deftest vulpea-db-query-by-property-basic ()
