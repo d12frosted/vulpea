@@ -25,6 +25,7 @@
 
 *Fixes*
 
+- Always reset the shared parse buffer's state after parsing a file, even when extraction errors. Previously a parse error left =buffer-file-name= pointing at the file on the reused parse buffer, which could mark it modified and interfere with file-change tracking on a later save. The cleanup now runs in an =unwind-protect=.
 - Make =vulpea-buffer-prop-get= bind =case-fold-search= (like its sibling readers) so a property is found regardless of the caller's setting, and quote the property name so a regexp-special character in it is matched literally rather than as part of the search pattern.
 - Match directory paths literally in =vulpea-db-query-by-directory=. It built a SQL =LIKE= pattern from the directory name without escaping, so =%= or =_= in a path (e.g. =my_notes=) acted as wildcards and pulled in sibling directories. It now uses =GLOB= with the directory escaped for GLOB's special characters, sharing the escape helper with the sync layer (=vulpea-db--escape-glob-pattern=). Note that matching is now case-sensitive, consistent with file-path semantics.
 - Make =vulpea-db-query-by-tags-every= and =vulpea-db-query-by-links-every= ignore duplicate entries in their input. Because they match on =COUNT(DISTINCT ...)= equal to the number of requested items, a repeated tag or id previously inflated the target count and made the query return nothing; the input is now de-duplicated first.
