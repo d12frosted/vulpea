@@ -54,6 +54,28 @@
    "\\)")
   "UUID regexp.")
 
+(defun vulpea-utils--kill-buffers-matching (regexp)
+  "Kill all live, non-internal buffers whose name matches REGEXP.
+Does not prompt.  Used as a fallback when
+`kill-matching-buffers-no-ask' is unavailable."
+  (dolist (buffer (buffer-list))
+    (let ((name (buffer-name buffer)))
+      (when (and name
+                 (not (string-prefix-p " " name))
+                 (string-match-p regexp name))
+        (kill-buffer buffer)))))
+
+(defun vulpea-utils--kill-org-buffers ()
+  "Kill all buffers whose name ends in \".org\" without prompting.
+Prefers `kill-matching-buffers-no-ask' (added in Emacs 29.1) and
+falls back to a manual sweep on older Emacsen, where
+`kill-matching-buffers' has no no-ask option and would prompt for
+every buffer - breaking the non-interactive batch processing this
+is used for."
+  (if (fboundp 'kill-matching-buffers-no-ask)
+      (kill-matching-buffers-no-ask ".*\\.org$")
+    (vulpea-utils--kill-buffers-matching ".*\\.org$")))
+
 (defmacro vulpea-utils-process-notes (notes &rest body)
   "Evaluate BODY for each element of NOTES.
 
@@ -115,7 +137,7 @@ useful features and properties:
         (ignore it it-index)
         ,@body
         (save-some-buffers t)
-        (kill-matching-buffers-no-ask ".*\\.org$"))
+        (vulpea-utils--kill-org-buffers))
        (setq ,i (1+ ,i))))))
 
 (defmacro vulpea-utils-with-file (file &rest body)
