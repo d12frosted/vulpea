@@ -1998,5 +1998,31 @@ could be picked up by file-change tracking on a later save."
                                               vulpea-db--parse-buffer)))))
       (delete-file path))))
 
+(ert-deftest vulpea-db-extract-parse-buffer-init-no-let-bound-warning ()
+  "Initializing the parse buffer must not warn about `delay-mode-hooks'.
+Let-binding `delay-mode-hooks' around `org-mode' triggers a \"Making
+delay-mode-hooks buffer-local while locally let-bound!\" warning.
+Regression test for https://github.com/d12frosted/vulpea/issues/301."
+  (let ((path (vulpea-test--create-temp-org-file
+               ":PROPERTIES:\n:ID: issue-301\n:END:\n#+title: T\n")))
+    (unwind-protect
+        (progn
+          ;; Force a fresh parse buffer so init runs during this test.
+          (when (buffer-live-p vulpea-db--parse-buffer)
+            (kill-buffer vulpea-db--parse-buffer))
+          (setq vulpea-db--parse-buffer nil)
+          ;; The C-level warning is written to *Messages*, so watch how
+          ;; many matching lines exist before and after init.
+          (let ((count (lambda ()
+                         (with-current-buffer (get-buffer-create "*Messages*")
+                           (count-matches "locally let-bound"
+                                          (point-min) (point-max))))))
+            (let ((before (funcall count)))
+              ;; `single-temp-buffer' takes the delay-mode-hooks branch.
+              (let ((vulpea-db-parse-method 'single-temp-buffer))
+                (vulpea-db--parse-file path))
+              (should (= before (funcall count))))))
+      (delete-file path))))
+
 (provide 'vulpea-db-extract-test)
 ;;; vulpea-db-extract-test.el ends here
