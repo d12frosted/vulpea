@@ -617,5 +617,106 @@ parent headings top-down, then own tags."
       (should (emacsql (vulpea-db)
                        [:select * :from files])))))
 
+;;; Parser Epoch Tests
+;; https://github.com/d12frosted/vulpea/issues/277
+
+(ert-deftest vulpea-db-parser-epoch-stored-on-init ()
+  "Parser epoch is stored in schema-registry on init."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((stored (caar (emacsql (vulpea-db)
+                                 [:select [version] :from schema-registry
+                                  :where (= name "parser-epoch")]))))
+      (should stored)
+      (should (equal stored vulpea-db-parser-epoch)))))
+
+(ert-deftest vulpea-db-parser-epoch-change-triggers-reindex ()
+  "Changing the parser epoch clears the files cache and flags a
+re-index, while preserving the notes table."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-db--insert-note
+     :id "epoch-id" :path "/tmp/epoch.org" :level 0 :pos 0
+     :title "Epoch Note" :properties nil
+     :modified-at "2025-11-16 10:00:00")
+    (emacsql (vulpea-db)
+             [:insert :into files :values $v1]
+             (list (vector "/tmp/epoch.org" "hash" "2025-01-01" 100)))
+    ;; Simulate a DB written by an older parser epoch
+    (vulpea-db--register-schema (vulpea-db) 'parser-epoch
+                                (1- vulpea-db-parser-epoch))
+    (vulpea-db-close)
+    (setq vulpea-db--connection nil
+          vulpea-db--parser-changed nil)
+
+    (vulpea-db)
+
+    ;; Flag should be set
+    (should vulpea-db--parser-changed)
+    ;; Notes preserved (no full rebuild)
+    (should (emacsql (vulpea-db)
+                     [:select * :from notes :where (= id $s1)] "epoch-id"))
+    ;; files cache cleared to force re-extraction
+    (should-not (emacsql (vulpea-db) [:select * :from files]))
+    ;; Stored epoch updated to current
+    (should (equal (caar (emacsql (vulpea-db)
+                                  [:select [version] :from schema-registry
+                                   :where (= name "parser-epoch")]))
+                   vulpea-db-parser-epoch))))
+
+(ert-deftest vulpea-db-parser-epoch-unchanged-no-reindex ()
+  "Same parser epoch leaves the files cache intact."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (emacsql (vulpea-db)
+             [:insert :into files :values $v1]
+             (list (vector "/tmp/epoch.org" "hash" "2025-01-01" 100)))
+    (vulpea-db-close)
+    (setq vulpea-db--connection nil
+          vulpea-db--parser-changed nil)
+
+    (vulpea-db)
+
+    (should-not vulpea-db--parser-changed)
+    (should (emacsql (vulpea-db) [:select * :from files]))))
+
+(ert-deftest vulpea-db-parser-epoch-missing-with-cached-files-triggers ()
+  "An existing DB with cached files but no recorded parser epoch is
+treated as stale, so upgrading to an epoch-aware vulpea re-extracts
+all files once.  Regression test for
+https://github.com/d12frosted/vulpea/issues/277."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (emacsql (vulpea-db)
+             [:insert :into files :values $v1]
+             (list (vector "/tmp/epoch.org" "hash" "2025-01-01" 100)))
+    ;; Simulate a pre-epoch database: no parser-epoch row
+    (emacsql (vulpea-db)
+             [:delete :from schema-registry :where (= name "parser-epoch")])
+    (vulpea-db-close)
+    (setq vulpea-db--connection nil
+          vulpea-db--parser-changed nil)
+
+    (vulpea-db)
+
+    (should vulpea-db--parser-changed)
+    (should-not (emacsql (vulpea-db) [:select * :from files]))))
+
+(ert-deftest vulpea-db-parser-epoch-missing-brand-new-db-no-trigger ()
+  "A brand-new DB (empty files cache) does not trigger a parser
+re-index even before an epoch is recorded."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    ;; Drop the freshly-registered epoch but keep the files cache empty
+    (emacsql (vulpea-db)
+             [:delete :from schema-registry :where (= name "parser-epoch")])
+    (vulpea-db-close)
+    (setq vulpea-db--connection nil
+          vulpea-db--parser-changed nil)
+
+    (vulpea-db)
+
+    (should-not vulpea-db--parser-changed)))
+
 (provide 'vulpea-db-test)
 ;;; vulpea-db-test.el ends here

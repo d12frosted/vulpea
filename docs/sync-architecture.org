@@ -287,6 +287,23 @@ vulpea-db-sync--update-file-if-changed(path)
 ;; Use after changing vulpea-db-index-heading-level
 #+end_src
 
+** Automatic cache invalidation
+
+On database access Vulpea clears the change-detection cache (forcing a
+re-extraction of all files on the next scan) when any of these change
+since the database was last opened:
+
+- the schema version (=vulpea-db-version=) - also rebuilds the database;
+- the tag inheritance fingerprint (=org-use-tag-inheritance=,
+  =org-tags-exclude-from-inheritance=);
+- the parser epoch (=vulpea-db-parser-epoch=), bumped whenever the
+  extractor changes what it produces from the same file content.
+
+The parser epoch is what heals notes that an older Vulpea failed to
+index: upgrading past an epoch bump re-extracts every file once,
+without discarding the database. Existing databases predating the
+epoch mechanism are treated as stale and re-extracted on first open.
+
 
 * Performance Characteristics
 

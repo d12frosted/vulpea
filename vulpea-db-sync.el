@@ -363,13 +363,18 @@ a subprocess.  The `blocking' mode still scans synchronously."
         (message "[vulpea-sync] cleanup-deleted-files: %.0fms"
                  (* 1000 (float-time (time-subtract (current-time) t-phase))))))
 
-    ;; If schema was rebuilt or tag settings changed, trigger forced re-index
-    (when (or vulpea-db--schema-rebuilt vulpea-db--settings-changed)
+    ;; If schema was rebuilt, tag settings changed, or the parser epoch
+    ;; changed, trigger forced re-index
+    (when (or vulpea-db--schema-rebuilt
+              vulpea-db--settings-changed
+              vulpea-db--parser-changed)
       (let ((reason (cond
                      (vulpea-db--schema-rebuilt "Schema upgraded")
-                     (vulpea-db--settings-changed "Tag inheritance settings changed"))))
+                     (vulpea-db--settings-changed "Tag inheritance settings changed")
+                     (vulpea-db--parser-changed "Parser updated"))))
         (setq vulpea-db--schema-rebuilt nil)
         (setq vulpea-db--settings-changed nil)
+        (setq vulpea-db--parser-changed nil)
         (vulpea-db-sync--message "Vulpea: %s, re-indexing all files..." reason)
         (dolist (dir vulpea-db-sync-directories)
           (vulpea-db-sync-update-directory dir 'force))))
