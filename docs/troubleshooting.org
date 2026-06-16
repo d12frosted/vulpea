@@ -256,6 +256,37 @@ Rebuild the database:
 
 Or with =C-u= prefix: =C-u M-x vulpea-db-sync-full-scan=
 
+** Notes Missing After an Upgrade or External Sync
+
+*** Symptom
+
+Some notes never show up in =vulpea-find=, even after a normal sync.
+Editing and re-saving an affected file (or running a force scan)
+makes it appear.
+
+*** Cause
+
+Vulpea keeps a per-file change-detection cache (mtime/size/hash) and
+skips files that have not changed since they were last seen.  If a
+file was once indexed while it produced no note - for example a
+partially-synced cloud file, or an older Vulpea version that failed to
+extract its =ID= - that "no note" result was cached.  A normal scan
+then keeps skipping the file (its content has not changed), so it
+stays invisible until the file is edited.
+
+*** Solution
+
+Vulpea now invalidates this cache automatically when its extraction
+logic changes (the parser epoch), so upgrading re-extracts every file
+once and heals such notes.  To fix it immediately without waiting:
+
+#+begin_src emacs-lisp
+;; Force complete re-index, ignoring the change-detection cache
+(vulpea-db-sync-full-scan 'force)
+#+end_src
+
+Or with =C-u= prefix: =C-u M-x vulpea-db-sync-full-scan=
+
 ** Database Corruption
 
 *** Symptom

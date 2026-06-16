@@ -108,7 +108,24 @@ Example:
 ;;; Constants
 
 (defconst vulpea-db-version 3
-  "Current database schema version.")
+  "Current database schema version.
+
+Bumping this triggers a full database rebuild (the file is deleted
+and recreated).  Use it only for incompatible schema changes.  For
+changes to extraction logic that keep the schema intact, bump
+`vulpea-db-parser-epoch' instead - it re-extracts files without
+discarding the database.")
+
+(defconst vulpea-db-parser-epoch 1
+  "Epoch of the note extraction logic.
+
+Increment this whenever the parser/extractor in `vulpea-db-extract'
+changes what it produces from the same file content (e.g. a bug fix
+that makes more notes recognizable).  On the next database access the
+file change cache is cleared and all files are re-extracted, so users
+pick up the improved parsing without a manual force scan or a full
+schema rebuild.  Unlike `vulpea-db-version', the database and its
+notes are preserved.")
 
 (defconst vulpea-db--schema
   '(;; Materialized view table (denormalized for fast retrieval)
@@ -210,6 +227,10 @@ Checked by `vulpea-db-sync--start' to trigger automatic re-index.")
   "Non-nil if tag inheritance settings changed since last init.
 Checked by `vulpea-db-sync--start' to trigger automatic re-index.")
 
+(defvar vulpea-db--parser-changed nil
+  "Non-nil if the parser epoch changed since last init.
+Checked by `vulpea-db-sync--start' to trigger automatic re-index.")
+
 ;;; Core API
 
 (defun vulpea-db ()
@@ -273,6 +294,22 @@ settings change between sessions so the DB can be re-indexed."
              (not (equal stored (vulpea-db--tag-settings-fingerprint)))))
     (error nil)))
 
+(defun vulpea-db--parser-epoch-changed-p (db)
+  "Return non-nil if the epoch stored in DB differs from the current one.
+
+When no epoch is recorded, the result depends on whether DB already
+has cached files: an existing database (non-empty `files' table) is
+treated as stale so upgrading to an epoch-aware vulpea re-extracts it
+once, while a brand-new database (empty `files' table) is left alone."
+  (condition-case nil
+      (let ((stored (caar (emacsql db
+                                   [:select [version] :from schema-registry
+                                    :where (= name "parser-epoch")]))))
+        (if stored
+            (not (equal stored vulpea-db-parser-epoch))
+          (< 0 (caar (emacsql db [:select (funcall count *) :from files])))))
+    (error nil)))
+
 (defun vulpea-db--init ()
   "Initialize database connection and schema."
   ;; Ensure the parent directory exists, otherwise emacsql fails with an
@@ -303,10 +340,20 @@ settings change between sessions so the DB can be re-indexed."
       (setq vulpea-db--settings-changed t)
       (message "Vulpea: Tag inheritance settings changed, re-index needed..."))
 
-    ;; Register schema version and tag settings fingerprint
+    ;; Check if the parser epoch changed (extraction logic updated, or
+    ;; an existing pre-epoch database).  Clearing the files cache forces
+    ;; every file to be re-extracted, healing notes that an older parser
+    ;; failed to recognize. See vulpea#277.
+    (when (vulpea-db--parser-epoch-changed-p db)
+      (emacsql db [:delete :from files])
+      (setq vulpea-db--parser-changed t)
+      (message "Vulpea: Parser updated, re-index needed..."))
+
+    ;; Register schema version, tag settings fingerprint and parser epoch
     (vulpea-db--register-schema db 'core vulpea-db-version)
     (vulpea-db--register-schema db 'tag-inheritance
                                 (vulpea-db--tag-settings-fingerprint))
+    (vulpea-db--register-schema db 'parser-epoch vulpea-db-parser-epoch)
 
     db))
 
