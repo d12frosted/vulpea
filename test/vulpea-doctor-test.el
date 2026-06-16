@@ -147,5 +147,41 @@ creating it as a side effect."
         (should (null issues))
         (should (string-match-p "No issues detected" (vulpea-doctor)))))))
 
+;;; Cached File Diagnostics
+;; https://github.com/d12frosted/vulpea/issues/277
+
+(ert-deftest vulpea-doctor-cached-file-stats-counts-note-less ()
+  "Stats report total cached files and how many produced no note."
+  (vulpea-test--with-temp-db
+    (let ((db (vulpea-db)))
+      (vulpea-test--insert-test-note "n1" "Note 1" :path "/tmp/a.org")
+      (emacsql db [:insert :into files :values $v1]
+               (list (vector "/tmp/a.org" "h" "t" 1)))
+      (emacsql db [:insert :into files :values $v1]
+               (list (vector "/tmp/orphan.org" "h" "t" 1))))
+    (should (equal (vulpea-doctor--cached-file-stats) '(2 . 1)))))
+
+(ert-deftest vulpea-doctor-cached-file-stats-nil-without-db ()
+  "Stats are nil (no side effect) when the database file is absent."
+  (let* ((temp-file (make-temp-file "vulpea-test-" nil ".db"))
+         (vulpea-db-location temp-file)
+         (vulpea-db--connection nil))
+    (delete-file temp-file)
+    (should (null (vulpea-doctor--cached-file-stats)))
+    (should-not (file-exists-p temp-file))))
+
+(ert-deftest vulpea-doctor-reports-cached-files ()
+  "Report includes cached file counts in the Database section."
+  (vulpea-test--with-temp-db
+    (let ((db (vulpea-db)))
+      (vulpea-test--insert-test-note "n1" "Note 1" :path "/tmp/a.org")
+      (emacsql db [:insert :into files :values $v1]
+               (list (vector "/tmp/a.org" "h" "t" 1)))
+      (emacsql db [:insert :into files :values $v1]
+               (list (vector "/tmp/orphan.org" "h" "t" 1))))
+    (let ((report (vulpea-doctor)))
+      (should (string-match-p "cached files +2\\b" report))
+      (should (string-match-p "files without notes +1\\b" report)))))
+
 (provide 'vulpea-doctor-test)
 ;;; vulpea-doctor-test.el ends here
