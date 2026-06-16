@@ -289,8 +289,9 @@ by initializing `org-mode' only once and reusing the buffer."
               (buffer-live-p vulpea-db--parse-buffer))
       (setq vulpea-db--parse-buffer (generate-new-buffer " *vulpea-parse*"))
       (with-current-buffer vulpea-db--parse-buffer
-       (let ((delay-mode-hooks (not vulpea-db--parse-buffer-run-hooks)))
-        (org-mode))))
+       (if vulpea-db--parse-buffer-run-hooks
+           (org-mode)
+         (delay-mode-hooks (org-mode)))))
      (with-current-buffer vulpea-db--parse-buffer
       ,@body)))
 
