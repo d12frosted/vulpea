@@ -663,8 +663,13 @@ Respects `vulpea-db-index-heading-level' setting:
 
 Looks for property defined by `vulpea-buffer-alias-property'.
 Handles both quoted aliases (with spaces) and unquoted aliases properly.
-Strips org links and emphasis markers from each alias."
-  (when-let* ((aliases-str (cdr (assoc vulpea-buffer-alias-property properties))))
+Strips org links and emphasis markers from each alias.
+
+The property name is upcased before lookup because PROPERTIES keys
+are stored upcased, so a lowercase or mixed-case
+`vulpea-buffer-alias-property' still matches."
+  (when-let* ((aliases-str (cdr (assoc (upcase vulpea-buffer-alias-property)
+                                       properties))))
     (setq aliases-str (string-trim aliases-str))
     (let ((result nil)
           (pos 0))

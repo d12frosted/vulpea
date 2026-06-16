@@ -20,6 +20,7 @@
 *Fixes*
 
 - [[https://github.com/d12frosted/vulpea/issues/277][vulpea#277]] Invalidate the file change-detection cache when the note extractor changes, via a new parser epoch (=vulpea-db-parser-epoch=). Previously a file that was once indexed while producing no note (e.g. a partially-synced cloud file, or an older Vulpea version that failed to extract its =ID=) had that "no note" result cached, so later scans kept skipping it and the note stayed invisible until the file was edited or a force scan was run. Bumping the parser epoch now clears the cache and re-extracts every file once, without discarding the database. Existing databases predating this mechanism are treated as stale and re-extracted on first open, so the fix applies retroactively on upgrade.
+- [[https://github.com/d12frosted/vulpea/issues/277][vulpea#277]] Upcase =vulpea-buffer-alias-property= before looking it up during extraction. Property keys are stored upcased, so a lowercase or mixed-case alias property name (e.g. =(setq vulpea-buffer-alias-property "roam_aliases")=) previously caused aliases to be silently dropped. The default =ALIASES= and the common =ROAM_ALIASES= were unaffected.
 
 ** v2.3.0
 
