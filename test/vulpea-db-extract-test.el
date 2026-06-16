@@ -309,6 +309,24 @@ handled correctly when mixed together."
           (should (member "Blauburgunder" aliases)))
       (delete-file path))))
 
+(ert-deftest vulpea-db-extract-aliases-lowercase-property-name ()
+  "Test alias extraction when `vulpea-buffer-alias-property' is lowercase.
+
+Property keys are upcased during extraction, so the lookup must
+upcase the configured property name too, otherwise aliases silently
+fail to extract. Regression test for
+https://github.com/d12frosted/vulpea/issues/277."
+  (let ((vulpea-buffer-alias-property "roam_aliases")
+        (path (vulpea-test--create-temp-org-file
+               (format ":PROPERTIES:\n:ID: %s\n:ROAM_ALIASES: Alias1 Alias2\n:END:\n#+TITLE: Main Title\n" (org-id-new)))))
+    (unwind-protect
+        (let* ((ctx (vulpea-db--parse-file path))
+               (node (vulpea-parse-ctx-file-node ctx))
+               (aliases (plist-get node :aliases)))
+          (should (member "Alias1" aliases))
+          (should (member "Alias2" aliases)))
+      (delete-file path))))
+
 (ert-deftest vulpea-db-extract-heading-aliases ()
   "Test alias extraction on heading-level notes."
   (let ((path (vulpea-test--create-temp-org-file
