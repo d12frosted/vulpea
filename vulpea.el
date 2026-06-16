@@ -152,6 +152,28 @@ not exist - the doctor must not modify state."
   (when (file-exists-p vulpea-db-location)
     (ignore-errors (vulpea-db-count-notes))))
 
+(defun vulpea-doctor--cached-file-stats ()
+  "Return (TOTAL . NOTE-LESS) file change-detection cache counts.
+
+TOTAL is how many files are tracked in the `files' table; NOTE-LESS
+is how many of them have no note in the `notes' table.  A non-zero
+NOTE-LESS is expected for genuinely note-less files (READMEs,
+drafts), but a surprising count can indicate notes that failed to
+index and are now skipped by change detection (see vulpea#277);
+`vulpea-db-sync-full-scan' with a force argument re-extracts them.
+
+Returns nil when the database file is absent; does not create it."
+  (when (file-exists-p vulpea-db-location)
+    (ignore-errors
+      (let ((db (vulpea-db)))
+        (cons
+         (caar (emacsql db [:select (funcall count *) :from files]))
+         (caar (emacsql db
+                        [:select (funcall count *) :from files
+                         :where (not (in path
+                                         [:select :distinct [path]
+                                          :from notes]))])))))))
+
 (defun vulpea-doctor--monitoring-status ()
   "Return a string describing the active external file monitoring."
   (cond
@@ -228,6 +250,7 @@ not exist - the doctor must not modify state."
   "Build the doctor report as a string."
   (let* ((issues (vulpea-doctor--issues))
          (notes (vulpea-doctor--note-count))
+         (stats (vulpea-doctor--cached-file-stats))
          (line (lambda (label value) (format "  %-32s %s" label value))))
     (string-join
      (append
@@ -258,6 +281,10 @@ not exist - the doctor must not modify state."
        (funcall line "file" (vulpea-doctor--db-file-info))
        (funcall line "schema version" (format "%s" vulpea-db-version))
        (funcall line "notes" (if notes (format "%d" notes) "n/a"))
+       (funcall line "cached files"
+                (if stats (format "%d" (car stats)) "n/a"))
+       (funcall line "files without notes"
+                (if stats (format "%d" (cdr stats)) "n/a"))
        ""
        "Sync"
        (funcall line "autosync"

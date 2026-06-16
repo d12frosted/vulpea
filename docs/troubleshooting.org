@@ -13,6 +13,8 @@ M-x vulpea-doctor
 
 It reports versions, configuration, database state, sync state, and external tool availability in one buffer, and flags common problems automatically: missing sync directories, an empty database, =fswatch= / =fd= not visible to Emacs (a frequent =PATH= issue on GUI Emacs and Doom), autosync disabled, and external monitoring that is configured but not running. It is read-only - nothing is created or modified.
 
+The Database section also reports =cached files= (how many files the change-detection cache tracks) and =files without notes= (how many of those produced no note). A non-zero =files without notes= is normal for genuinely note-less files (READMEs, drafts), but if notes you expect are missing, a high count points at files stuck in the cache - run =C-u M-x vulpea-db-sync-full-scan= to re-extract them.
+
 If the report shows no issues but the problem persists, continue with the sections below - and include the report when [[*Getting Help][asking for help]].
 
 * Notes Not Appearing
