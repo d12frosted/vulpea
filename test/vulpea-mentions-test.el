@@ -73,6 +73,20 @@
     ;; no term at all
     (should-not (vulpea-mentions--line-unlinked-p "nothing here" terms))))
 
+(ert-deftest vulpea-mentions--metadata-line-p ()
+  "Org keyword and property-drawer lines are recognized as metadata."
+  ;; keyword lines
+  (should (vulpea-mentions--metadata-line-p "#+title: Cabernet Sauvignon"))
+  (should (vulpea-mentions--metadata-line-p "#+filetags: :wine:"))
+  ;; property-drawer lines
+  (should (vulpea-mentions--metadata-line-p ":PROPERTIES:"))
+  (should (vulpea-mentions--metadata-line-p ":END:"))
+  (should (vulpea-mentions--metadata-line-p ":ID: abc-123"))
+  (should (vulpea-mentions--metadata-line-p "  :CREATED: [2026-01-01]"))
+  ;; prose is not metadata
+  (should-not (vulpea-mentions--metadata-line-p "We drank Cabernet Sauvignon."))
+  (should-not (vulpea-mentions--metadata-line-p "- a list item")))
+
 (ert-deftest vulpea-mentions--rg-command-shape ()
   "The ripgrep command carries the fixed-string, word, org-glob flags."
   (let ((cmd (vulpea-mentions--rg-command "rg" '("A" "B") '("/dir"))))
@@ -87,11 +101,12 @@
 ;;; Collection (DB-backed)
 
 (ert-deftest vulpea-mentions--collect-maps-and-filters ()
-  "Collect maps hits to notes, skips own file and already-linked text."
+  "Collect maps hits to notes; skips own file, linked text, and metadata lines."
   (vulpea-test--with-temp-db
     (vulpea-db)
     (vulpea-test--insert-test-note "target" "Cabernet" :path "/n/target.org")
     (vulpea-test--insert-test-note "mentioner" "Tasting" :path "/n/tasting.org")
+    (vulpea-test--insert-test-note "twin" "Cabernet" :path "/n/twin.org")
     (let* ((note (vulpea-db-get-by-id "target"))
            (own (expand-file-name "/n/target.org"))
            (output (concat
@@ -103,7 +118,10 @@
                     "\"lines\":{\"text\":\"see [[id:target][Cabernet]]\\n\"},\"line_number\":4}}\n"
                     ;; a hit in the note's own file -> excluded
                     "{\"type\":\"match\",\"data\":{\"path\":{\"text\":\"/n/target.org\"},"
-                    "\"lines\":{\"text\":\"Cabernet is me\\n\"},\"line_number\":1}}\n"))
+                    "\"lines\":{\"text\":\"Cabernet is me\\n\"},\"line_number\":1}}\n"
+                    ;; a same-titled note's #+title line -> metadata, excluded
+                    "{\"type\":\"match\",\"data\":{\"path\":{\"text\":\"/n/twin.org\"},"
+                    "\"lines\":{\"text\":\"#+title: Cabernet\\n\"},\"line_number\":4}}\n"))
            (mentions (vulpea-mentions--collect output note own)))
       (should (= (length mentions) 1))
       (should (equal (vulpea-note-id (plist-get (car mentions) :note)) "mentioner"))

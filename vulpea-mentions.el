@@ -135,6 +135,14 @@ events and unparseable lines are ignored."
   (seq-some (lambda (span) (and (>= pos (car span)) (< pos (cdr span))))
             spans))
 
+(defun vulpea-mentions--metadata-line-p (line)
+  "Return non-nil when LINE is an Org keyword or property-drawer line.
+
+Lines such as #+title:, #+filetags:, :PROPERTIES:, :ID:, or :END:
+declare a note's own metadata rather than prose, so a title that appears
+on them (often a same-titled note's own #+title:) is not a real mention."
+  (string-match-p "\\`[ \t]*\\(#\\+\\|:[A-Za-z0-9_@%-]+:\\)" line))
+
 (defun vulpea-mentions--line-unlinked-p (line terms)
   "Return non-nil when some term in TERMS occurs in LINE outside any link.
 
@@ -179,6 +187,7 @@ Returns a list of plists with :note (the mentioning note), :path,
       (let ((path (plist-get hit :path))
             (line-text (plist-get hit :line-text)))
         (when (and (not (equal (expand-file-name path) own-path))
+                   (not (vulpea-mentions--metadata-line-p line-text))
                    (vulpea-mentions--line-unlinked-p line-text terms))
           (let ((mentioning (vulpea-mentions--file-note path path->note)))
             (when mentioning
@@ -197,8 +206,9 @@ Returns a list of plists with :note (the mentioning note), :path,
 
 Searches the files under `vulpea-db-sync-directories' with ripgrep for
 NOTE's title and aliases, drops occurrences that are already inside an
-Org link or that live in NOTE's own file, and maps each remaining hit
-to the mentioning note.
+Org link, that live in NOTE's own file, or that fall on an Org metadata
+line (a keyword or property-drawer line), and maps each remaining hit to
+the mentioning note.
 
 This is asynchronous and promise-style: exactly one of RESOLVE or
 REJECT is called.
