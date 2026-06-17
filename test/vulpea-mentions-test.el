@@ -121,12 +121,28 @@
                     "\"lines\":{\"text\":\"Cabernet is me\\n\"},\"line_number\":1}}\n"
                     ;; a same-titled note's #+title line -> metadata, excluded
                     "{\"type\":\"match\",\"data\":{\"path\":{\"text\":\"/n/twin.org\"},"
-                    "\"lines\":{\"text\":\"#+title: Cabernet\\n\"},\"line_number\":4}}\n"))
+                    "\"lines\":{\"text\":\"#+title: Cabernet\\n\"},\"line_number\":4}}\n"
+                    ;; a same-titled note's prose line -> title collision, excluded
+                    "{\"type\":\"match\",\"data\":{\"path\":{\"text\":\"/n/twin.org\"},"
+                    "\"lines\":{\"text\":\"Cabernet appears again here\\n\"},\"line_number\":8}}\n"))
            (mentions (vulpea-mentions--collect output note own)))
       (should (= (length mentions) 1))
       (should (equal (vulpea-note-id (plist-get (car mentions) :note)) "mentioner"))
       (should (equal (plist-get (car mentions) :line) 3))
       (should (equal (plist-get (car mentions) :context) "a lovely Cabernet")))))
+
+(ert-deftest vulpea-mentions--shares-name-p ()
+  "A note that shares a title or alias with the search terms is detected."
+  (let ((terms '("Cabernet Sauvignon" "Cab Sauv")))
+    ;; same title (case-insensitive)
+    (should (vulpea-mentions--shares-name-p
+             (make-vulpea-note :title "cabernet sauvignon") terms))
+    ;; shares via alias
+    (should (vulpea-mentions--shares-name-p
+             (make-vulpea-note :title "Other" :aliases '("Cab Sauv")) terms))
+    ;; unrelated note
+    (should-not (vulpea-mentions--shares-name-p
+                 (make-vulpea-note :title "Merlot") terms))))
 
 ;;; Integration with real ripgrep
 
