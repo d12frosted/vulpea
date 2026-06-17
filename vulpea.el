@@ -296,6 +296,7 @@ Returns nil when the database file is absent; does not create it."
        "External Tools"
        (funcall line "fd" (or (executable-find "fd") "not found"))
        (funcall line "fswatch" (or (executable-find "fswatch") "not found"))
+       (funcall line "rg" (or (executable-find "rg") "not found"))
        (funcall line "git" (or (executable-find "git") "not found"))
        ""
        "Issues")

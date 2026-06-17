@@ -78,6 +78,27 @@ creating it as a side effect."
       (when (get-buffer "*vulpea-doctor*")
         (kill-buffer "*vulpea-doctor*")))))
 
+(ert-deftest vulpea-doctor-reports-external-tools ()
+  "Report lists fd, fswatch, rg, and git under External Tools with paths."
+  (vulpea-doctor-test--with-tools '(("fd" . "/usr/bin/fd")
+                                    ("fswatch" . "/usr/bin/fswatch")
+                                    ("rg" . "/usr/bin/rg")
+                                    ("git" . "/usr/bin/git"))
+    (vulpea-test--with-temp-db
+      (vulpea-db)
+      (let ((report (vulpea-doctor)))
+        (should (string-match-p "fd +/usr/bin/fd" report))
+        (should (string-match-p "fswatch +/usr/bin/fswatch" report))
+        (should (string-match-p "rg +/usr/bin/rg" report))
+        (should (string-match-p "git +/usr/bin/git" report))))))
+
+(ert-deftest vulpea-doctor-reports-ripgrep-missing ()
+  "Report shows ripgrep as not found when it is absent from PATH."
+  (vulpea-doctor-test--with-tools '(("fd" . "/usr/bin/fd"))
+    (vulpea-test--with-temp-db
+      (vulpea-db)
+      (should (string-match-p "rg +not found" (vulpea-doctor))))))
+
 ;;; Issue Detection
 
 (ert-deftest vulpea-doctor-issue-fswatch-missing-with-auto ()
