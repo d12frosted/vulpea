@@ -174,12 +174,27 @@ Returns nil (also cached) when PATH holds no indexed note."
         (puthash path note cache)
         note))))
 
+(defun vulpea-mentions--shares-name-p (note terms)
+  "Return non-nil when NOTE's title or an alias matches one of TERMS.
+
+Comparison is case-insensitive.  Used to drop a hit whose mentioning
+note shares a name with the searched note (a title collision): an
+occurrence in a same-named note's file is more likely that note's own
+title in prose than a reference to a different note, so it is excluded -
+the same reasoning as skipping the searched note's own file."
+  (let ((names (mapcar #'downcase
+                       (cons (or (vulpea-note-title note) "")
+                             (vulpea-note-aliases note))))
+        (lc-terms (mapcar #'downcase terms)))
+    (seq-intersection names lc-terms #'string=)))
+
 (defun vulpea-mentions--collect (output note own-path)
   "Collect unlinked mentions of NOTE from ripgrep OUTPUT.
 
 OWN-PATH is NOTE's own expanded file path, whose hits are skipped.
-Returns a list of plists with :note (the mentioning note), :path,
-:line, and :context."
+Hits whose mentioning note shares a name with NOTE (a title collision)
+are skipped too.  Returns a list of plists with :note (the mentioning
+note), :path, :line, and :context."
   (let ((terms (vulpea-mentions--note-terms note))
         (path->note (make-hash-table :test 'equal))
         (result nil))
@@ -190,7 +205,8 @@ Returns a list of plists with :note (the mentioning note), :path,
                    (not (vulpea-mentions--metadata-line-p line-text))
                    (vulpea-mentions--line-unlinked-p line-text terms))
           (let ((mentioning (vulpea-mentions--file-note path path->note)))
-            (when mentioning
+            (when (and mentioning
+                       (not (vulpea-mentions--shares-name-p mentioning terms)))
               (push (list :note mentioning
                           :path path
                           :line (plist-get hit :line)
@@ -206,9 +222,10 @@ Returns a list of plists with :note (the mentioning note), :path,
 
 Searches the files under `vulpea-db-sync-directories' with ripgrep for
 NOTE's title and aliases, drops occurrences that are already inside an
-Org link, that live in NOTE's own file, or that fall on an Org metadata
-line (a keyword or property-drawer line), and maps each remaining hit to
-the mentioning note.
+Org link, that live in NOTE's own file or in the file of a note sharing
+NOTE's title (a title collision), or that fall on an Org metadata line (a
+keyword or property-drawer line), and maps each remaining hit to the
+mentioning note.
 
 This is asynchronous and promise-style: exactly one of RESOLVE or
 REJECT is called.
