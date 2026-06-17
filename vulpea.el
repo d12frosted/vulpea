@@ -64,6 +64,7 @@
 (require 'vulpea-db)
 (require 'vulpea-db-extract)
 (require 'vulpea-db-sync)
+(require 'vulpea-mentions)
 (require 'vulpea-meta)
 (require 'vulpea-note)
 (require 'vulpea-schema)

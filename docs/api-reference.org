@@ -235,6 +235,38 @@ Query links directly from the database. All functions return plists with =:sourc
 (vulpea-db-query-links-to "note-id")
 #+end_src
 
+* Unlinked Mentions
+
+An /unlinked mention/ is a place where a note's title or alias appears as
+plain text in another note, without an =id:= link pointing to it.
+=vulpea-note-unlinked-mentions-async= finds the notes that mention a
+given note this way.
+
+It uses [[https://github.com/BurntSushi/ripgrep][ripgrep]] (=rg=) to search the files under
+=vulpea-db-sync-directories=, so =rg= must be installed (=vulpea-doctor=
+reports its availability). The scan is potentially expensive, so the
+function is asynchronous and promise-style: it calls exactly one of
+=resolve= or =reject=.
+
+#+begin_src emacs-lisp
+(vulpea-note-unlinked-mentions-async
+ note
+ ;; resolve: list of plists, each with :note (the mentioning note),
+ ;; :path, :line, and :context (the matching line)
+ (lambda (mentions)
+   (dolist (m mentions)
+     (message "%s mentions it: %s"
+              (vulpea-note-title (plist-get m :note))
+              (plist-get m :context))))
+ ;; reject: called with an error string (e.g. rg missing)
+ (lambda (err) (message "unlinked mentions failed: %s" err)))
+#+end_src
+
+Occurrences already inside an Org link, and hits in the note's own file,
+are excluded. The =(note resolve reject)= shape is a ready-made loader
+for reactive UIs - for example a =vui-use-async= widget can use
+=(apply-partially #'vulpea-note-unlinked-mentions-async note)= directly.
+
 * Statistics
 
 #+begin_src emacs-lisp
