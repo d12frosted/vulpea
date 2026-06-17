@@ -211,11 +211,16 @@ REJECT is called.
 
 The (NOTE RESOLVE REJECT) shape matches a reactive loader, so a UI can
 use `(apply-partially #\\='vulpea-note-unlinked-mentions-async note)'
-directly."
+directly.
+
+Returns the ripgrep process, so the caller can wait on or
+`delete-process' it, or nil when the result is delivered synchronously
+\(no ripgrep, no search terms, or no directories)."
   (let ((rg (executable-find "rg")))
     (cond
      ((not rg)
-      (funcall reject "ripgrep (rg) not found on `exec-path'"))
+      (funcall reject "ripgrep (rg) not found on `exec-path'")
+      nil)
      (t
       (let ((terms (vulpea-mentions--note-terms note))
             (dirs (seq-filter #'file-directory-p
@@ -223,7 +228,7 @@ directly."
                                       vulpea-db-sync-directories)))
             (own-path (expand-file-name (vulpea-note-path note))))
         (if (or (null terms) (null dirs))
-            (funcall resolve nil)
+            (progn (funcall resolve nil) nil)
           (let ((output ""))
             (make-process
              :name "vulpea-mentions"

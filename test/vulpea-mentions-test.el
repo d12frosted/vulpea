@@ -110,18 +110,23 @@
       (should (equal (plist-get (car mentions) :line) 3))
       (should (equal (plist-get (car mentions) :context) "a lovely Cabernet")))))
 
-;;; Async integration (requires ripgrep)
+;;; Integration with real ripgrep
 
-(ert-deftest vulpea-mentions-async-end-to-end ()
-  "End-to-end: ripgrep finds an unlinked mention, links are excluded."
+;; The full subprocess pipeline is exercised by running ripgrep
+;; synchronously (via `call-process') and feeding its real output to
+;; `vulpea-mentions--collect'.  This is deterministic in batch mode,
+;; unlike waiting on an async sentinel, which is timing-sensitive across
+;; Emacs versions.  The async wiring's error path has its own test below.
+
+(ert-deftest vulpea-mentions-collect-with-real-rg ()
+  "Real ripgrep finds the bare mention; the linked and own-file hits are excluded."
   (skip-unless (executable-find "rg"))
   (let* ((dir (make-temp-file "vulpea-mentions-" t))
          (target (expand-file-name "target.org" dir))
          (other (expand-file-name "other.org" dir))
          (vulpea-db-location (make-temp-file "vulpea-mentions-" nil ".db"))
          (vulpea-db--connection nil)
-         (vulpea-db-sync-directories (list dir))
-         (done nil) (result 'unset) (err 'unset))
+         (vulpea-db-sync-directories (list dir)))
     (unwind-protect
         (progn
           (with-temp-file target
@@ -133,19 +138,20 @@
           (vulpea-db)
           (vulpea-db-update-file target)
           (vulpea-db-update-file other)
-          (vulpea-note-unlinked-mentions-async
-           (vulpea-db-get-by-id "target")
-           (lambda (ms) (setq result ms done t))
-           (lambda (e) (setq err e done t)))
-          (let ((deadline (+ (float-time) 10)))
-            (while (and (not done) (< (float-time) deadline))
-              (accept-process-output nil 0.05)))
-          (should done)
-          (should (eq err 'unset))
-          (should (= (length result) 1))
-          (should (equal (vulpea-note-id (plist-get (car result) :note)) "other"))
-          (should (string-match-p "bare Cabernet"
-                                  (plist-get (car result) :context))))
+          (let* ((note (vulpea-db-get-by-id "target"))
+                 (cmd (vulpea-mentions--rg-command
+                       (executable-find "rg")
+                       (vulpea-mentions--note-terms note)
+                       (list dir)))
+                 (output (with-temp-buffer
+                           (apply #'call-process (car cmd) nil t nil (cdr cmd))
+                           (buffer-string)))
+                 (mentions (vulpea-mentions--collect
+                            output note (expand-file-name target))))
+            (should (= (length mentions) 1))
+            (should (equal (vulpea-note-id (plist-get (car mentions) :note)) "other"))
+            (should (string-match-p "bare Cabernet"
+                                    (plist-get (car mentions) :context)))))
       (when vulpea-db--connection (vulpea-db-close))
       (when (file-exists-p vulpea-db-location) (delete-file vulpea-db-location))
       (delete-directory dir t))))
