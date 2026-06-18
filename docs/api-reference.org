@@ -811,6 +811,11 @@ Interactive command for note selection and navigation:
 
 ;; Require exact match (no creating new notes)
 (vulpea-find :require-match t)
+
+;; Custom note creation ("capture on empty"): called with the typed
+;; title and capture properties, returns the note to visit (or nil)
+(vulpea-find :create-fn (lambda (title &optional _props)
+                          (vulpea-create title nil :tags '("inbox"))))
 #+end_src
 
 ** vulpea-insert
@@ -835,6 +840,8 @@ Interactive command for inserting a link to a note:
 #+end_src
 
 Both functions support =:candidates-fn= to customize the source of candidates, and =:filter-fn= to filter candidates. Global defaults can be configured via =vulpea-find-default-candidates-source= / =vulpea-insert-default-candidates-source= and =vulpea-find-default-filter= / =vulpea-insert-default-filter=.
+
+Both also support =:create-fn= to control how a new note is created when the user selects a non-existent note. It is called with two arguments - the typed title and capture properties (currently always nil) - which makes "capture on empty" workflows easy: route to =org-capture= or a custom command to turn a fruitless search straight into note creation. For =vulpea-find=, =:create-fn= should return the =vulpea-note= to visit (or nil to skip visiting), and a global default can be set via =vulpea-find-default-create-fn=.
 
 * Synchronization
 

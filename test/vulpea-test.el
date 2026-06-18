@@ -254,6 +254,89 @@
         (when (file-exists-p path)
           (delete-file path))))))
 
+;;; vulpea-find Tests
+
+(ert-deftest vulpea-find-uses-create-fn ()
+  "Test that vulpea-find uses :create-fn for a non-existent note."
+  (let* ((create-fn-called nil)
+         (received-title nil)
+         (created (make-vulpea-note :id "created-id"
+                                    :title "Created"
+                                    :level 0))
+         (visited nil)
+         (custom-create-fn (lambda (title &optional _props)
+                             (setq create-fn-called t
+                                   received-title title)
+                             created)))
+    (cl-letf (((symbol-function 'vulpea-select-from)
+               (lambda (_prompt _notes &rest _)
+                 (make-vulpea-note :title "New Title" :level 0)))
+              ((symbol-function 'vulpea-visit)
+               (lambda (note &optional _other-window)
+                 (setq visited note))))
+      (vulpea-find :candidates-fn (lambda (_) nil)
+                   :create-fn custom-create-fn)
+      ;; create-fn is invoked instead of the default behaviour
+      (should create-fn-called)
+      ;; it receives the title typed by the user
+      (should (equal received-title "New Title"))
+      ;; and its result is visited
+      (should (eq visited created)))))
+
+(ert-deftest vulpea-find-uses-default-create-fn ()
+  "Test that vulpea-find uses `vulpea-find-default-create-fn' by default."
+  (let* ((default-called nil)
+         (created (make-vulpea-note :id "default-id"
+                                    :title "Default"
+                                    :level 0))
+         (vulpea-find-default-create-fn
+          (lambda (_title &optional _props)
+            (setq default-called t)
+            created)))
+    (cl-letf (((symbol-function 'vulpea-select-from)
+               (lambda (_prompt _notes &rest _)
+                 (make-vulpea-note :title "New" :level 0)))
+              ((symbol-function 'vulpea-visit)
+               (lambda (&rest _) nil)))
+      (vulpea-find :candidates-fn (lambda (_) nil))
+      (should default-called))))
+
+(ert-deftest vulpea-find-existing-note-skips-create-fn ()
+  "Test that vulpea-find does not call :create-fn for an existing note."
+  (let* ((create-fn-called nil)
+         (existing (make-vulpea-note :id "existing-id"
+                                     :title "Existing"
+                                     :level 0))
+         (visited nil)
+         (custom-create-fn (lambda (_title &optional _props)
+                             (setq create-fn-called t)
+                             nil)))
+    (cl-letf (((symbol-function 'vulpea-select-from)
+               (lambda (_prompt _notes &rest _)
+                 existing))
+              ((symbol-function 'vulpea-visit)
+               (lambda (note &optional _other-window)
+                 (setq visited note))))
+      (vulpea-find :candidates-fn (lambda (_) nil)
+                   :create-fn custom-create-fn)
+      (should-not create-fn-called)
+      (should (eq visited existing)))))
+
+(ert-deftest vulpea-find-create-note-uses-vulpea-create ()
+  "Test that the default create function delegates to `vulpea-create'."
+  (let* ((created (make-vulpea-note :id "created-id"
+                                    :title "Hello"
+                                    :level 0))
+         (received-title nil))
+    (cl-letf (((symbol-function 'vulpea-create)
+               (lambda (title &rest _)
+                 (setq received-title title)
+                 created)))
+      ;; returns whatever vulpea-create returns
+      (should (eq (vulpea-find-create-note "Hello") created))
+      ;; and passes the title through
+      (should (equal received-title "Hello")))))
+
 ;;; Capture System Helper Function Tests
 
 (ert-deftest vulpea-title-to-slug-basic ()

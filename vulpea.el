@@ -438,6 +438,20 @@ Template variables for :file-name:
 Must be a function that accepts one argument - optional note
 filter function.")
 
+(defvar vulpea-find-default-create-fn #'vulpea-find-create-note
+  "Default function to create a note in `vulpea-find'.
+
+Called with two arguments - the title typed by the user and
+capture properties (currently always nil, reserved for future
+use) - mirroring the CREATE-FN argument of `vulpea-insert'. It
+should create the note and return the resulting `vulpea-note' to
+visit, or nil to skip visiting (e.g. when creation is interactive,
+asynchronous, or was aborted).
+
+This is the hook for \"capture on empty\" workflows: set it to a
+function that routes to `org-capture' or your own command to turn
+a fruitless search straight into note creation.")
+
 ;;; Helper Functions
 
 (defun vulpea-title-to-slug (title)
@@ -681,10 +695,21 @@ PROPERTIES (alist)."
    "\n"))
 
 
+(defun vulpea-find-create-note (title &optional _props)
+  "Create a new note with TITLE selected in `vulpea-find'.
+
+Creates a file-level note via `vulpea-create' and returns the
+resulting `vulpea-note'. PROPS mirrors the capture properties
+argument of `vulpea-insert' CREATE-FN and is currently unused.
+
+This is the default value of `vulpea-find-default-create-fn'."
+  (vulpea-create title))
+
 ;;;###autoload
 (cl-defun vulpea-find (&key other-window
                             filter-fn
                             candidates-fn
+                            create-fn
                             require-match
                             (expand-aliases t))
   "Select and find a note.
@@ -700,8 +725,17 @@ FILTER-FN is the function to apply on the candidates, which takes
 as its argument a `vulpea-note'. Unless specified,
 `vulpea-find-default-filter' is used.
 
-When REQUIRE-MATCH is nil user may select a non-existent note and
-start the capture process.
+CREATE-FN controls how a new note is created when user selects a
+non-existent note (only possible when REQUIRE-MATCH is nil). Like
+the CREATE-FN of `vulpea-insert', it is called with two arguments
+- the typed title and capture properties (currently always nil).
+It should return the created `vulpea-note' to visit, or nil to
+skip visiting. Unless specified, `vulpea-find-default-create-fn'
+is used.
+
+When REQUIRE-MATCH is nil user may select a non-existent note,
+which is then created via CREATE-FN. When non-nil, only existing
+notes may be selected.
 
 When EXPAND-ALIASES is non-nil (the default), each note with
 aliases will appear multiple times in the completion list - once
@@ -732,7 +766,10 @@ for the original title and once for each alias."
         (vulpea-visit note other-window)
       ;; New note - create it
       (when (not require-match)
-        (let ((new-note (vulpea-create (vulpea-note-title note))))
+        (let ((new-note (funcall (or create-fn
+                                     vulpea-find-default-create-fn)
+                                 (vulpea-note-title note)
+                                 nil)))
           (when new-note
             (vulpea-visit new-note other-window)))))))
 

@@ -54,6 +54,8 @@ If you type a title that doesn't exist, Vulpea offers to create a new note.
 
 When you use =vulpea-find= and type a title that doesn't exist, Vulpea asks if you want to create it.
 
+By default the note is created from the typed title via =vulpea-create=. You can customize this - for example to route through =org-capture= for interactive editing - by setting =vulpea-find-default-create-fn= (or passing =:create-fn= to =vulpea-find=). The function is called with the typed title and capture properties (currently always nil) and should return the =vulpea-note= to visit, or nil to skip visiting. This makes "capture on empty" workflows straightforward: a search that finds nothing becomes the start of note creation.
+
 ** Programmatically
 
 For scripts or custom commands:
