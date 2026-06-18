@@ -917,7 +917,7 @@ BODY is optional body text after the property drawer."
    "\n"))
 
 (defun vulpea--find-heading-insertion-point (parent-note _level after)
-  "Find buffer position to insert a new heading.
+  "Move point to where a new child heading should be inserted.
 
 PARENT-NOTE is the parent vulpea-note.
 _LEVEL is accepted for call-site symmetry but is not used; the
@@ -925,26 +925,32 @@ insertion point is derived from PARENT-NOTE.
 AFTER controls position:
   \\='last (default) - append as last child
   nil - insert as first child
-  string - insert after the child heading with that ID."
+  string - insert after the child heading with that ID.
+
+Return non-nil when the new heading will follow an existing sibling
+subtree (so a separating blank line is wanted), and nil when it will
+be the first child or the first heading in the file.  This function
+only positions point; surrounding blank lines are managed by
+`vulpea--insert-heading-content'."
   (let ((parent-level (vulpea-note-level parent-note)))
     (cond
      ;; Insert as first child
      ((null after)
       (if (= parent-level 0)
-          ;; File-level parent: insert before first heading
+          ;; File-level parent: position before the first heading
           (progn
             (goto-char (point-min))
             (if (re-search-forward "^\\*+ " nil t)
                 (goto-char (match-beginning 0))
-              (goto-char (point-max))
-              (unless (bolp) (insert "\n"))))
-        ;; Heading parent: insert after parent's property drawer
+              (goto-char (point-max))))
+        ;; Heading parent: position after the parent's property drawer
         (goto-char (vulpea-note-pos parent-note))
         (forward-line 1)
         ;; Skip past property drawer if present
         (when (looking-at-p "[ \t]*:PROPERTIES:")
           (re-search-forward "^[ \t]*:END:" nil t)
-          (forward-line 1))))
+          (forward-line 1)))
+      nil)
 
      ;; Insert after specific sibling
      ((stringp after)
@@ -953,20 +959,52 @@ AFTER controls position:
           (error "vulpea-create: Sibling note with ID %s not found" after))
         (goto-char sibling-pos)
         ;; Move past the sibling's entire subtree
-        (org-end-of-subtree t)
-        (unless (bolp) (insert "\n"))))
+        (org-end-of-subtree t))
+      t)
 
      ;; Insert as last child (default)
      (t
       (if (= parent-level 0)
           ;; File-level parent: append at end of file
-          (progn
+          (let ((has-sibling (save-excursion
+                               (goto-char (point-min))
+                               (and (re-search-forward "^\\*+ " nil t) t))))
             (goto-char (point-max))
-            (unless (bolp) (insert "\n")))
-        ;; Heading parent: go to end of parent's subtree
-        (goto-char (vulpea-note-pos parent-note))
-        (org-end-of-subtree t)
-        (unless (bolp) (insert "\n")))))))
+            has-sibling)
+        ;; Heading parent: append at end of the parent's subtree
+        (let* ((parent-pos (vulpea-note-pos parent-note))
+               (subtree-end (save-excursion
+                              (goto-char parent-pos)
+                              (org-end-of-subtree t)
+                              (point)))
+               (has-sibling (save-excursion
+                              (goto-char parent-pos)
+                              (forward-line 1)
+                              (and (re-search-forward "^\\*+ " subtree-end t) t))))
+          (goto-char parent-pos)
+          (org-end-of-subtree t)
+          has-sibling))))))
+
+(defun vulpea--insert-heading-content (content blank-before)
+  "Insert heading CONTENT at point with normalized blank lines.
+
+CONTENT is heading text with no leading or trailing blank lines.
+Any whitespace already surrounding point is removed first so the
+result is deterministic.  When there is preceding content, CONTENT
+starts on its own line, preceded by exactly one blank line when
+BLANK-BEFORE is non-nil and none otherwise.  CONTENT is followed by
+a single newline, which also guarantees a single trailing newline
+when inserting at the end of the buffer."
+  (skip-chars-backward " \t\n")
+  (let ((preceding (not (bobp)))
+        (following (save-excursion
+                     (skip-chars-forward " \t\n")
+                     (point))))
+    (delete-region (point) following)
+    (when preceding
+      (insert "\n")
+      (when blank-before (insert "\n")))
+    (insert content "\n")))
 
 ;;;###autoload
 (cl-defun vulpea-create (title
@@ -1165,12 +1203,10 @@ BODY, TAGS, PROPERTIES, and CONTEXT are as in `vulpea-create'."
     ;; Insert heading into parent's file
     (with-current-buffer (find-file-noselect file-path)
       (org-with-wide-buffer
-       (vulpea--find-heading-insertion-point parent level after)
-       ;; Ensure we're at beginning of line
-       (when (not (bolp))
-         (insert "\n"))
-       (insert heading-content)
-       (unless (eobp) (insert "\n")))
+       (let ((blank-before (vulpea--find-heading-insertion-point
+                            parent level after)))
+         (vulpea--insert-heading-content (string-trim-right heading-content)
+                                         blank-before)))
       (save-buffer))
 
     ;; Register ID with org-id
