@@ -44,10 +44,10 @@
                        (lambda (_prompt collection &rest _)
                          ;; Find the completion for "Reference"
                          (setq selected-completion
-                               (car (seq-find
-                                     (lambda (entry)
-                                       (string-match-p "Reference" (car entry)))
-                                     collection)))
+                               (seq-find
+                                (lambda (cand)
+                                  (string-match-p "Reference" cand))
+                                (all-completions "" collection)))
                          selected-completion)))
               (vulpea-select "Note"))))
 
@@ -149,10 +149,10 @@
           (cl-letf (((symbol-function 'completing-read)
                      (lambda (_prompt collection &rest _)
                        ;; Select first note
-                       (car (seq-find
-                             (lambda (entry)
-                               (string-match-p "First Note" (car entry)))
-                             collection)))))
+                       (seq-find
+                        (lambda (cand)
+                          (string-match-p "First Note" cand))
+                        (all-completions "" collection)))))
             (vulpea-select-from "Note" notes))))
 
     (should result)
@@ -299,12 +299,12 @@
          (result
           (cl-letf (((symbol-function 'completing-read)
                      (lambda (_prompt collection &rest _)
-                       (setq completions-seen collection)
+                       (setq completions-seen (all-completions "" collection))
                        ;; Select the alias
-                       (car (seq-find
-                             (lambda (entry)
-                               (string-match-p "Alias1" (car entry)))
-                             collection)))))
+                       (seq-find
+                        (lambda (cand)
+                          (string-match-p "Alias1" cand))
+                        completions-seen))))
             (vulpea-select-from "Note" notes :expand-aliases t))))
 
     ;; Should have 4 completions: Original + 2 aliases + Other Note
@@ -326,8 +326,8 @@
          (completions-seen nil))
     (cl-letf (((symbol-function 'completing-read)
                (lambda (_prompt collection &rest _)
-                 (setq completions-seen collection)
-                 (caar collection))))
+                 (setq completions-seen (all-completions "" collection))
+                 (car completions-seen))))
       (vulpea-select-from "Note" notes))
 
     ;; Should have only 1 completion (no expansion)
@@ -349,12 +349,12 @@
                        (list test-note)))
                     ((symbol-function 'completing-read)
                      (lambda (_prompt collection &rest _)
-                       (setq completions-seen collection)
+                       (setq completions-seen (all-completions "" collection))
                        ;; Select the alias
-                       (car (seq-find
-                             (lambda (entry)
-                               (string-match-p "Alias1" (car entry)))
-                             collection)))))
+                       (seq-find
+                        (lambda (cand)
+                          (string-match-p "Alias1" cand))
+                        completions-seen))))
             (vulpea-select "Note" :expand-aliases t))))
 
     ;; Should have 2 completions: Original + Alias
@@ -363,6 +363,34 @@
     ;; Result should have alias as title
     (should (equal (vulpea-note-title result) "Alias1"))
     (should (equal (vulpea-note-primary-title result) "Original Title"))))
+
+(ert-deftest vulpea-select-completion-table-exposes-category ()
+  "Test that the completion table reports the `vulpea-note' category."
+  (let* ((note (make-vulpea-note :id "id1" :title "One" :level 0))
+         (table (vulpea-select--completion-table
+                 (list (cons (vulpea-select-describe note) note)))))
+    ;; metadata reports the vulpea-note category
+    (should (eq (completion-metadata-get
+                 (completion-metadata "" table nil)
+                 'category)
+                'vulpea-note))
+    ;; and the table still completes against the candidates
+    (should (member "One" (all-completions "" table)))))
+
+(ert-deftest vulpea-select-from-exposes-category ()
+  "Test that vulpea-select-from gives completing-read the `vulpea-note' category."
+  (let* ((note (make-vulpea-note :id "id1" :title "One" :level 0))
+         (seen-category nil))
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (_prompt collection &rest _)
+                 (setq seen-category
+                       (completion-metadata-get
+                        (completion-metadata "" collection nil)
+                        'category))
+                 ;; simulate selecting the only candidate
+                 (car (all-completions "" collection)))))
+      (vulpea-select-from "Note" (list note)))
+    (should (eq seen-category 'vulpea-note))))
 
 (provide 'vulpea-select-test)
 ;;; vulpea-select-test.el ends here

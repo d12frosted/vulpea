@@ -788,6 +788,16 @@ Control how notes are displayed in completion with =vulpea-select-describe-fn=:
 
 The outline variants are useful when using headings as notes (=vulpea-db-index-heading-level=) to disambiguate notes with identical titles.
 
+** Completion Category
+
+All selection commands (=vulpea-select=, =vulpea-select-from=, and therefore =vulpea-find= / =vulpea-insert=) report a completion category of =vulpea-note= to the minibuffer. Completion frameworks and their extensions use this category to recognize candidates as notes:
+
+- *marginalia* can annotate candidates via an annotator registered for the =vulpea-note= category.
+- *embark* can offer note-specific actions - [[https://github.com/fabcontigiani/embark-vulpea][embark-vulpea]] keys its keymap on this category and reads the note id from the =vulpea-note-id= text property carried by each candidate.
+- *consult* integrations such as [[https://github.com/fabcontigiani/consult-vulpea][consult-vulpea]] use the same =vulpea-note= category.
+
+The category is additive - plain =completing-read= and frameworks that ignore it are unaffected.
+
 * Finding and Inserting Notes
 
 ** vulpea-find
