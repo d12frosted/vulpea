@@ -1515,6 +1515,44 @@ Guards against arbitrary code execution from untrusted note titles."
         (when (file-exists-p path2)
           (delete-file path2))))))
 
+(ert-deftest vulpea-insert-uses-default-create-fn ()
+  "Test that vulpea-insert uses `vulpea-insert-default-create-fn' by default."
+  (let* ((default-called nil)
+         (received-title nil)
+         (vulpea-insert-default-create-fn
+          (lambda (title &optional _props)
+            (setq default-called t
+                  received-title title))))
+    (cl-letf (((symbol-function 'vulpea-select-from)
+               (lambda (_prompt _notes &rest _)
+                 (make-vulpea-note :title "New Insert" :level 0)))
+              ;; guard the built-in path in case the default is ignored
+              ((symbol-function 'vulpea-create)
+               (lambda (&rest _)
+                 (make-vulpea-note :id "stub-id" :title "New Insert" :level 0))))
+      (with-temp-buffer
+        (org-mode)
+        (vulpea-insert :candidates-fn (lambda (_) nil))
+        ;; the global default takes over note creation
+        (should default-called)
+        (should (equal received-title "New Insert"))))))
+
+(ert-deftest vulpea-insert-create-fn-overrides-default ()
+  "Test that :create-fn takes precedence over the global default."
+  (let* ((explicit-called nil)
+         (default-called nil)
+         (vulpea-insert-default-create-fn
+          (lambda (&rest _) (setq default-called t))))
+    (cl-letf (((symbol-function 'vulpea-select-from)
+               (lambda (_prompt _notes &rest _)
+                 (make-vulpea-note :title "X" :level 0))))
+      (with-temp-buffer
+        (org-mode)
+        (vulpea-insert :candidates-fn (lambda (_) nil)
+                       :create-fn (lambda (&rest _) (setq explicit-called t)))
+        (should explicit-called)
+        (should-not default-called)))))
+
 ;;; Title Propagation Tests
 
 ;;;; Link Categorization Tests
