@@ -162,6 +162,20 @@ title stored in `vulpea-note-primary-title'."
      :initial-prompt initial-prompt
      :expand-aliases expand-aliases)))
 
+(defun vulpea-select--completion-table (completions)
+  "Build a completion table over COMPLETIONS exposing the `vulpea-note' category.
+
+COMPLETIONS is an alist of (description . note). The table completes
+like COMPLETIONS and reports a completion category of `vulpea-note',
+so that completion UIs and integrations (marginalia, embark, consult)
+can recognize and act on the candidates. The candidate strings carry
+the note id as the `vulpea-note-id' text property (see
+`vulpea-select-describe')."
+  (lambda (string predicate action)
+    (if (eq action 'metadata)
+        '(metadata (category . vulpea-note))
+      (complete-with-action action completions string predicate))))
+
 (cl-defun vulpea-select-from (prompt
                               notes
                               &key
@@ -198,7 +212,7 @@ title stored in `vulpea-note-primary-title'."
               expanded-notes)
     (let ((note (completing-read
                  (concat prompt ": ")
-                 completions
+                 (vulpea-select--completion-table completions)
                  nil require-match initial-prompt)))
       (or (cdr (assoc note completions))
           (make-vulpea-note
