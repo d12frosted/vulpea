@@ -48,6 +48,7 @@
 ;;
 ;;; Code:
 
+(require 'cl-lib)
 (require 'seq)
 (require 'subr-x)
 (require 'json)
@@ -68,6 +69,25 @@ Very short titles (e.g. \"a\") produce too much noise, so titles and
 aliases shorter than this are ignored when looking for unlinked
 mentions."
   :type 'integer
+  :group 'vulpea-mentions)
+
+(defun vulpea-mentions-file-level-note-p (note)
+  "Return non-nil when NOTE is a file-level note.
+The default value of `vulpea-mentions-note-filter'."
+  (= (vulpea-note-level note) 0))
+
+(defcustom vulpea-mentions-note-filter #'vulpea-mentions-file-level-note-p
+  "Predicate selecting which notes are searched for as candidates.
+
+A function called with a `vulpea-note' that returns non-nil to keep the
+note.  Its title and aliases are then searched for when looking for the
+unlinked mentions a buffer makes (`vulpea-buffer-unlinked-mentions-async').
+
+The default keeps only file-level notes, which avoids noise from
+heading-level notes.  Set it to your own predicate to, say, exclude a
+journal: (lambda (note) (not (member \"journal\" (vulpea-note-tags note)))),
+or to `always' to consider every note."
+  :type 'function
   :group 'vulpea-mentions)
 
 ;;; Pure helpers
@@ -104,8 +124,9 @@ word-boundary matches restricted to Org files."
 (defun vulpea-mentions--parse-rg-json (output)
   "Parse ripgrep --json OUTPUT into a list of raw hit plists.
 
-Each hit is a plist with :path, :line, and :line-text.  Non-match
-events and unparseable lines are ignored."
+Each hit is a plist with :path, :line, :line-text, and :matched (the
+list of matched substrings on the line).  Non-match events and
+unparseable lines are ignored."
   (let ((result nil))
     (dolist (line (split-string output "\n" t))
       (let ((obj (ignore-errors (json-parse-string line :object-type 'alist))))
@@ -113,11 +134,18 @@ events and unparseable lines are ignored."
           (let* ((data (alist-get 'data obj))
                  (path (alist-get 'text (alist-get 'path data)))
                  (line-no (alist-get 'line_number data))
-                 (text (alist-get 'text (alist-get 'lines data))))
-            (when (and path text)
+                 (text (alist-get 'text (alist-get 'lines data)))
+                 (submatches (alist-get 'submatches data))
+                 (matched (and submatches
+                               (delq nil
+                                     (mapcar (lambda (sm)
+                                               (alist-get 'text (alist-get 'match sm)))
+                                             (append submatches nil))))))
+            (when text
               (push (list :path path
                           :line line-no
-                          :line-text (string-trim-right text "[\n\r]+"))
+                          :line-text (string-trim-right text "[\n\r]+")
+                          :matched matched)
                     result))))))
     (nreverse result)))
 
@@ -214,6 +242,58 @@ note), :path, :line, and :context."
                     result))))))
     (nreverse result)))
 
+;;; Outgoing: mentions made by a buffer
+
+(defun vulpea-mentions--title-dictionary ()
+  "Return (DICT . TERMS) describing the candidate notes' names.
+
+Candidates are the notes kept by `vulpea-mentions-note-filter'.  DICT is
+a hash table mapping a downcased title or alias to the list of note ids
+that bear it.  TERMS is the de-duplicated list of the original title and
+alias strings to search for."
+  (let ((dict (make-hash-table :test 'equal))
+        (terms nil))
+    (dolist (note (vulpea-db-query vulpea-mentions-note-filter))
+      (let ((id (vulpea-note-id note))
+            (names (cons (vulpea-note-title note) (vulpea-note-aliases note))))
+        (dolist (name names)
+          (when (stringp name)
+            (let ((trimmed (string-trim name)))
+              (when (>= (length trimmed) vulpea-mentions-min-term-length)
+                (push trimmed terms)
+                (push id (gethash (downcase trimmed) dict))))))))
+    (cons dict (delete-dups terms))))
+
+(defun vulpea-mentions--collect-outgoing (output dict self-ids)
+  "Collect outgoing unlinked mentions from ripgrep OUTPUT over one buffer.
+
+DICT maps a downcased title/alias to candidate note ids (see
+`vulpea-mentions--title-dictionary').  SELF-IDS are the note ids in the
+buffer's own file, excluded as candidates.
+
+Returns a list of plists with :note (a candidate note to link to),
+:line, :context, and :matched (the text that matched)."
+  (let ((id->note (make-hash-table :test 'equal))
+        (result nil))
+    (cl-flet ((resolve-note (id)
+                (let ((cached (gethash id id->note 'miss)))
+                  (if (not (eq cached 'miss)) cached
+                    (puthash id (vulpea-db-get-by-id id) id->note)))))
+      (dolist (hit (vulpea-mentions--parse-rg-json output))
+        (let ((line-text (plist-get hit :line-text))
+              (line-no (plist-get hit :line)))
+          (unless (vulpea-mentions--metadata-line-p line-text)
+            (dolist (term (seq-uniq (plist-get hit :matched)))
+              (when (vulpea-mentions--line-unlinked-p line-text (list term))
+                (dolist (id (gethash (downcase term) dict))
+                  (unless (member id self-ids)
+                    (when-let* ((cand (resolve-note id)))
+                      (push (list :note cand :line line-no
+                                  :context (string-trim line-text)
+                                  :matched term)
+                            result))))))))))
+    (nreverse result)))
+
 ;;; Async entry point
 
 ;;;###autoload
@@ -277,6 +357,73 @@ Returns the ripgrep process, so the caller can wait on or
                          (error (funcall reject (error-message-string err))))
                      (funcall reject
                               (format "ripgrep failed (exit %s)" code))))))))))))))
+
+;;;###autoload
+(defun vulpea-buffer-unlinked-mentions-async (resolve reject)
+  "Find notes mentioned as plain text in the current buffer without a link.
+
+Scans the current buffer's content with ripgrep for the titles and
+aliases of the candidate notes (those kept by
+`vulpea-mentions-note-filter', file-level notes by default), drops
+occurrences inside an Org link or on an Org metadata line, ignores notes
+in the buffer's own file, and maps each remaining match to the candidate
+note(s) it could link to.  The buffer's live content is searched (via the
+process's standard input), so unsaved edits are included.
+
+Asynchronous and promise-style: exactly one of RESOLVE or REJECT is
+called.  RESOLVE receives a list of plists with :note (a candidate note
+to link to), :line, :context, and :matched (the text that matched).
+REJECT receives an error message string.
+
+Returns the ripgrep process, or nil when answered synchronously.  As
+with `vulpea-note-unlinked-mentions-async', the (RESOLVE REJECT) shape
+is a ready-made reactive loader; wrap it in `with-current-buffer' to
+target a specific buffer."
+  (let ((rg (executable-find "rg")))
+    (cond
+     ((not rg)
+      (funcall reject "ripgrep (rg) not found on `exec-path'")
+      nil)
+     (t
+      (let* ((content (buffer-string))
+             (file (and buffer-file-name (expand-file-name buffer-file-name)))
+             (self-ids (when file
+                         (mapcar #'vulpea-note-id
+                                 (vulpea-db-query-by-file-path file))))
+             (dict-terms (vulpea-mentions--title-dictionary))
+             (dict (car dict-terms))
+             (terms (cdr dict-terms)))
+        (if (null terms)
+            (progn (funcall resolve nil) nil)
+          (let ((patterns-file (make-temp-file "vulpea-mentions-pat-"))
+                (output ""))
+            (with-temp-file patterns-file
+              (insert (mapconcat #'identity terms "\n") "\n"))
+            (let ((proc (make-process
+                         :name "vulpea-mentions-out"
+                         :command (list rg "--json" "--fixed-strings"
+                                        "--ignore-case" "--word-regexp"
+                                        "-f" patterns-file "-")
+                         :connection-type 'pipe
+                         :noquery t
+                         :filter (lambda (_proc chunk)
+                                   (setq output (concat output chunk)))
+                         :sentinel
+                         (lambda (proc _event)
+                           (when (memq (process-status proc) '(exit signal))
+                             (ignore-errors (delete-file patterns-file))
+                             (let ((code (process-exit-status proc)))
+                               (if (memq code '(0 1))
+                                   (condition-case err
+                                       (funcall resolve
+                                                (vulpea-mentions--collect-outgoing
+                                                 output dict self-ids))
+                                     (error (funcall reject (error-message-string err))))
+                                 (funcall reject
+                                          (format "ripgrep failed (exit %s)" code)))))))))
+              (process-send-string proc content)
+              (process-send-eof proc)
+              proc))))))))
 
 (provide 'vulpea-mentions)
 ;;; vulpea-mentions.el ends here

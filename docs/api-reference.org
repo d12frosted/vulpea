@@ -267,6 +267,35 @@ are excluded. The =(note resolve reject)= shape is a ready-made loader
 for reactive UIs - for example a =vui-use-async= widget can use
 =(apply-partially #'vulpea-note-unlinked-mentions-async note)= directly.
 
+The dual direction - which existing notes does /this/ buffer mention
+without linking? - is =vulpea-buffer-unlinked-mentions-async=. It
+searches the current buffer's live content (so unsaved edits count) for
+the titles and aliases of the candidate notes, and resolves with the
+candidate note(s) each match could link to.
+
+#+begin_src emacs-lisp
+(vulpea-buffer-unlinked-mentions-async
+ ;; resolve: list of plists, each with :note (a note this buffer could
+ ;; link to), :line, :context (the matching line), and :matched (the
+ ;; text that matched)
+ (lambda (mentions)
+   (dolist (m mentions)
+     (message "line %d could link to %s"
+              (plist-get m :line)
+              (vulpea-note-title (plist-get m :note)))))
+ ;; reject: called with an error string (e.g. rg missing)
+ (lambda (err) (message "unlinked mentions failed: %s" err)))
+#+end_src
+
+Which notes are searched for is controlled by
+=vulpea-mentions-note-filter=, a predicate on a =vulpea-note=. It
+defaults to file-level notes only (=vulpea-mentions-file-level-note-p=),
+which keeps heading-level notes - often dates or common single words -
+from producing noisy suggestions. Both directions share the same
+exclusions (an occurrence inside an Org link or on an Org metadata line
+is never a mention) and both return the ripgrep process, so a caller can
+wait on or cancel the scan.
+
 * Statistics
 
 #+begin_src emacs-lisp
