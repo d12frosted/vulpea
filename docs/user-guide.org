@@ -89,9 +89,13 @@ Create heading-level notes inside an existing file using =:parent=:
 (vulpea-create "After X" nil :parent parent :after "x-id") ; after specific sibling
 #+end_src
 
+=vulpea-create-default-template= and =vulpea-create-default-function=
+are not consulted for heading-level notes, so pass =:tags=, =:body=,
+=:properties=, and =:context= explicitly when you need them.
+
 ** Default Templates
 
-Configure defaults that apply to all new notes:
+Configure defaults that apply to new file-level notes:
 
 #+begin_src emacs-lisp
 (setq vulpea-create-default-template

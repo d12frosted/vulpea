@@ -366,7 +366,11 @@ The function allows dynamic parameter computation based on context:
                 :properties (list (cons \"SOURCE\"
                                         (buffer-name))))))
 
-Parameters explicitly passed to `vulpea-create' override these defaults."
+Parameters explicitly passed to `vulpea-create' override these defaults.
+
+These defaults seed file-level note creation only.  When
+`vulpea-create' is called with a non-nil `:parent' (a heading-level
+note), this function is not called and no defaults are applied."
   :type '(choice (const :tag "Use template instead" nil)
           (function :tag "Function returning plist"))
   :group 'vulpea)
@@ -376,6 +380,11 @@ Parameters explicitly passed to `vulpea-create' override these defaults."
   "Default template (plist) for note creation.
 Only used when `vulpea-create-default-function' is nil.
 Parameters explicitly passed to `vulpea-create' override these defaults.
+
+These defaults seed file-level note creation only.  When
+`vulpea-create' is called with a non-nil `:parent' (a heading-level
+note), no defaults are consulted and the heading is built solely
+from the explicitly passed arguments.
 
 Supports all template expansion features:
   ${var}     - Variable substitution
@@ -1028,6 +1037,12 @@ editing, use `org-capture' with vulpea-compatible templates.
 FILE-NAME is optional. When nil, uses `:file-name' from
 `vulpea-create-default-template' to generate the file name.
 Ignored when PARENT is provided (file is determined by parent).
+
+Defaults from `vulpea-create-default-function' and
+`vulpea-create-default-template' are applied only when creating a
+file-level note (PARENT is nil).  When PARENT is provided no
+defaults are consulted; the heading is built solely from the
+arguments passed here.
 
 Returns the created `vulpea-note' object.
 

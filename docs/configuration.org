@@ -74,6 +74,11 @@ Default: =~/.emacs.d/vulpea.db=
 
 Configure how new notes are created.
 
+These defaults seed *file-level* note creation only. When you create a
+heading-level note by passing =:parent= to =vulpea-create=, no defaults
+are consulted - the heading is built only from the arguments you pass
+explicitly (=:tags=, =:body=, =:properties=, =:context=).
+
 ** Static Template
 
 #+begin_src emacs-lisp
