@@ -1264,6 +1264,81 @@ Guards against arbitrary code execution from untrusted note titles."
         (when (file-directory-p vulpea-default-notes-directory)
           (delete-directory vulpea-default-notes-directory t))))))
 
+(ert-deftest vulpea-create-heading-spacing-between-siblings ()
+  "Test sibling headings are separated by exactly one blank line."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((vulpea-default-notes-directory (make-temp-file "vulpea-test-" t))
+           (vulpea-create-default-template '(:file-name "${slug}.org"))
+           parent-note parent-file)
+      (unwind-protect
+          (progn
+            (setq parent-note (vulpea-create "Container" nil))
+            (setq parent-file (vulpea-note-path parent-note))
+            (vulpea-create "First" nil :parent parent-note)
+            (vulpea-create "Second" nil :parent parent-note)
+            (with-temp-buffer
+              (insert-file-contents parent-file)
+              (let ((content (buffer-string)))
+                ;; First heading sits directly under the file header
+                (should (string-match-p "#\\+title: Container\n\\* First" content))
+                ;; Exactly one blank line before the sibling
+                (should (string-match-p ":END:\n\n\\* Second" content))
+                ;; No run of two or more blank lines anywhere
+                (should-not (string-match-p "\n\n\n" content))
+                ;; Single trailing newline
+                (should (string-match-p "[^\n]\n\\'" content))
+                (should-not (string-match-p "\n\n\\'" content)))))
+        (when (and parent-file (file-exists-p parent-file))
+          (when (get-file-buffer parent-file)
+            (kill-buffer (get-file-buffer parent-file)))
+          (delete-file parent-file))
+        (when (file-directory-p vulpea-default-notes-directory)
+          (delete-directory vulpea-default-notes-directory t))))))
+
+(ert-deftest vulpea-create-heading-spacing-nested-with-body ()
+  "Test nested entries with body keep tidy, deterministic spacing."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((vulpea-default-notes-directory (make-temp-file "vulpea-test-" t))
+           (vulpea-create-default-template '(:file-name "${slug}.org"))
+           month week24 parent-file)
+      (unwind-protect
+          (progn
+            (setq month (vulpea-create "Month" nil))
+            (setq parent-file (vulpea-note-path month))
+            ;; week 24 group, two days under it, then week 25 group
+            (setq week24 (vulpea-create "week 24" nil :parent month))
+            (vulpea-create "Mon" nil :parent week24 :body "X\n\nY\n")
+            (vulpea-create "Tue" nil :parent week24 :body "X\n\nY\n")
+            (vulpea-create "week 25" nil :parent month)
+            (with-temp-buffer
+              (insert-file-contents parent-file)
+              (let ((content (buffer-string)))
+                ;; First group sits directly under the file header
+                (should (string-match-p "#\\+title: Month\n\\* week 24" content))
+                ;; First child (Mon) has no blank line before it
+                (should (string-match-p
+                         "\\* week 24\n:PROPERTIES:\n:ID:[^\n]*\n:END:\n\\*\\* Mon"
+                         content))
+                ;; Body trailing newline does not leak; internal blank kept
+                (should (string-match-p "X\n\nY" content))
+                ;; A sibling day gets exactly one blank line before it
+                (should (string-match-p "Y\n\n\\*\\* Tue" content))
+                ;; A sibling group also gets exactly one blank line
+                (should (string-match-p "Y\n\n\\* week 25" content))
+                ;; No run of two or more blank lines anywhere
+                (should-not (string-match-p "\n\n\n" content))
+                ;; Single trailing newline
+                (should (string-match-p "[^\n]\n\\'" content))
+                (should-not (string-match-p "\n\n\\'" content)))))
+        (when (and parent-file (file-exists-p parent-file))
+          (when (get-file-buffer parent-file)
+            (kill-buffer (get-file-buffer parent-file)))
+          (delete-file parent-file))
+        (when (file-directory-p vulpea-default-notes-directory)
+          (delete-directory vulpea-default-notes-directory t))))))
+
 ;;; vulpea-insert Tests
 
 (ert-deftest vulpea-insert-uses-candidates-fn ()
