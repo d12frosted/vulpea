@@ -841,6 +841,21 @@ If OTHER-WINDOW, visit the NOTE in another window."
 Must be a function that accepts one argument - optional note
 filter function.")
 
+(defvar vulpea-insert-default-create-fn nil
+  "Default function to create a note in `vulpea-insert'.
+
+When non-nil, used as the CREATE-FN of `vulpea-insert' for a note
+that does not exist yet (see its CREATE-FN argument): it is called
+with the typed title and capture properties and is responsible for
+both creating the note and inserting the link. When nil, the
+built-in behavior is used (create via `vulpea-create' and insert
+an id: link).
+
+This mirrors `vulpea-find-default-create-fn' for \"capture on
+empty\" workflows. Note that, unlike the `vulpea-find' hook, this
+function must perform the link insertion itself, since inserting a
+link is what `vulpea-insert' does with a new note.")
+
 (defvar vulpea-insert-handle-functions nil
   "Abnormal hooks to run after `vulpea-note' is inserted.
 
@@ -871,8 +886,9 @@ as its argument a `vulpea-note'. Unless specified,
 
 CREATE-FN allows to control how a new note is created when user picks a
 non-existent note. This function is called with two arguments - title
-and capture properties. When CREATE-FN is nil, default implementation is
-used.
+and capture properties. When CREATE-FN is nil,
+`vulpea-insert-default-create-fn' is used; when that is also nil, the
+default implementation is used.
 
 When EXPAND-ALIASES is non-nil (the default), each note with
 aliases will appear multiple times in the completion list - once
@@ -914,20 +930,21 @@ for the original title and once for each alias."
                  'vulpea-insert-handle-functions
                  note))
             ;; New note - create it then insert link
-            (if create-fn
-                (funcall create-fn (vulpea-note-title note) nil)
-              ;; Create the note programmatically
-              (let ((new-note (vulpea-create (vulpea-note-title note))))
-                (when region-text
-                  (delete-region beg end)
-                  (set-marker beg nil)
-                  (set-marker end nil))
-                (insert (org-link-make-string
-                         (concat "id:" (vulpea-note-id new-note))
-                         description))
-                (run-hook-with-args
-                 'vulpea-insert-handle-functions
-                 new-note))))))
+            (let ((cfn (or create-fn vulpea-insert-default-create-fn)))
+              (if cfn
+                  (funcall cfn (vulpea-note-title note) nil)
+                ;; Create the note programmatically
+                (let ((new-note (vulpea-create (vulpea-note-title note))))
+                  (when region-text
+                    (delete-region beg end)
+                    (set-marker beg nil)
+                    (set-marker end nil))
+                  (insert (org-link-make-string
+                           (concat "id:" (vulpea-note-id new-note))
+                           description))
+                  (run-hook-with-args
+                   'vulpea-insert-handle-functions
+                   new-note)))))))
     (deactivate-mark)))
 
 
