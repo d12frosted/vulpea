@@ -795,6 +795,35 @@ Returns list of plists with :source, :dest, :type, :pos, and :description keys."
                     :where (= dest $s1)]
                    id)))
 
+(defun vulpea-db-query-backlink-counts (&optional link-type)
+  "Return a hash table mapping a link destination to its number of incoming links.
+
+Each key is a link destination and each value is the number of links
+pointing at it.  For =id:= links the destination is the target note's
+ID, so looking up a `vulpea-note-id' yields that note's backlink count.
+Destinations with no incoming links are absent from the table - read it
+with a default of 0, e.g. (gethash id counts 0).
+
+The whole table is computed with a single grouped query, which is far
+cheaper than calling `vulpea-db-query-links-to' once per note when you
+need counts for many notes (for example to display a backlink count in a
+completion UI).
+
+When LINK-TYPE is non-nil (e.g. \"id\"), only links of that type are
+counted; otherwise links of every type are included."
+  (let ((counts (make-hash-table :test 'equal))
+        (rows (if link-type
+                  (emacsql (vulpea-db)
+                           [:select [dest (funcall count *)] :from links
+                            :where (= type $s1)
+                            :group-by dest]
+                           link-type)
+                (emacsql (vulpea-db)
+                         [:select [dest (funcall count *)] :from links
+                          :group-by dest]))))
+    (dolist (row rows counts)
+      (puthash (nth 0 row) (nth 1 row) counts))))
+
 (defun vulpea-db--row-to-link (row)
   "Convert a links table ROW to a plist."
   (list :source (nth 0 row)

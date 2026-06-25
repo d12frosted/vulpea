@@ -357,6 +357,49 @@ from being inserted into the normalized tags table."
       (should (= (length notes) 1))
       (should (equal (vulpea-note-id (car notes)) "note1")))))
 
+;;; Backlink Count Tests
+
+(ert-deftest vulpea-db-query-backlink-counts-basic ()
+  "Test backlink counts aggregate incoming links per destination."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "target" "Target")
+    (vulpea-test--insert-test-note "other" "Other")
+    (vulpea-test--insert-test-note "src1" "Source 1"
+                                   :links '((:dest "target" :type "id" :pos 100)))
+    (vulpea-test--insert-test-note "src2" "Source 2"
+                                   :links '((:dest "target" :type "id" :pos 100)
+                                            (:dest "other" :type "id" :pos 200)))
+
+    (let ((counts (vulpea-db-query-backlink-counts)))
+      (should (hash-table-p counts))
+      (should (= (gethash "target" counts) 2))
+      (should (= (gethash "other" counts) 1))
+      ;; notes with no incoming links are simply absent
+      (should-not (gethash "src1" counts)))))
+
+(ert-deftest vulpea-db-query-backlink-counts-empty-db ()
+  "Test backlink counts on an empty database returns an empty table."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((counts (vulpea-db-query-backlink-counts)))
+      (should (hash-table-p counts))
+      (should (= (hash-table-count counts) 0)))))
+
+(ert-deftest vulpea-db-query-backlink-counts-with-type ()
+  "Test backlink counts can be restricted to a single link type."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "target" "Target")
+    (vulpea-test--insert-test-note "src1" "Source 1"
+                                   :links '((:dest "target" :type "id" :pos 100)
+                                            (:dest "target" :type "file" :pos 200)))
+
+    ;; all types counted by default
+    (should (= (gethash "target" (vulpea-db-query-backlink-counts)) 2))
+    ;; only id links when filtered
+    (should (= (gethash "target" (vulpea-db-query-backlink-counts "id")) 1))))
+
 ;;; Attachment Query Tests
 
 (ert-deftest vulpea-db-query-attachments-by-path-basic ()
