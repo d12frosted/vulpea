@@ -914,6 +914,46 @@ Control how notes are displayed in completion with =vulpea-select-describe-fn=:
 
 The outline variants are useful when using headings as notes (=vulpea-db-index-heading-level=) to disambiguate notes with identical titles.
 
+A candidate is rendered as =describe-fn= output followed by =annotate-fn= output, so the two divide the row between them. =vulpea-select-describe-fn= produces the main, searchable part of the candidate (matched by completion); =vulpea-select-annotate-fn= produces a trailing annotation, shown in the =completions-annotations= face by default. The default annotator appends the primary title (when a note is matched through an alias) and =#tag= list:
+
+#+begin_src emacs-lisp
+;; Default annotation: "(primary title) #tag1 #tag2"
+(setq vulpea-select-annotate-fn #'vulpea-select-annotate)
+
+;; No annotation at all
+(setq vulpea-select-annotate-fn (lambda (_note) ""))
+#+end_src
+
+Both functions take a =vulpea-note= and return a string, so you can assemble any layout from the note's slots. Because the whole =vulpea-note= is available, you can combine fields - outline path, tags, timestamps, even a precomputed backlink count - into a single aligned row. For example, a fixed-width row with directory, hierarchy, tags and backlink count:
+
+#+begin_src emacs-lisp
+(defun my-vulpea-describe (counts)
+  "Return a describe function closing over a backlink COUNTS table."
+  (lambda (note)
+    (let* ((dir (file-name-nondirectory
+                 (directory-file-name
+                  (file-name-directory (vulpea-note-path note)))))
+           (hierarchy (string-join
+                       (delq nil (cons (vulpea-note-file-title note)
+                                       (vulpea-note-outline-path note)))
+                       " → "))
+           (tags (mapconcat (lambda (x) (concat "#" x))
+                            (vulpea-note-tags note) " "))
+           (backlinks (gethash (vulpea-note-id note) counts 0)))
+      (concat
+       (truncate-string-to-width dir 15 nil ?\s) " "
+       (truncate-string-to-width hierarchy 60 nil ?\s) " "
+       (propertize (truncate-string-to-width tags 30 nil ?\s) 'face 'org-tag) " "
+       (format "%6d" backlinks)))))
+
+;; Build the counts table once (single query), then set the hooks
+(let ((counts (vulpea-db-query-backlink-counts "id")))
+  (setq vulpea-select-describe-fn (my-vulpea-describe counts)
+        vulpea-select-annotate-fn (lambda (_note) "")))
+#+end_src
+
+=vulpea-db-query-backlink-counts= computes every count in one query (see [[*Link Queries][Link Queries]]); building it once and closing over it avoids a per-candidate query. To order candidates by recency rather than display them differently, sort the note list (e.g. by =vulpea-note-modified-at= or =vulpea-note-created-at=) before passing it to =vulpea-select-from=, or let a completion framework such as consult sort on a field - the displayed text does not affect candidate order on its own.
+
 ** Completion Category
 
 All selection commands (=vulpea-select=, =vulpea-select-from=, and therefore =vulpea-find= / =vulpea-insert=) report a completion category of =vulpea-note= to the minibuffer. Completion frameworks and their extensions use this category to recognize candidates as notes:

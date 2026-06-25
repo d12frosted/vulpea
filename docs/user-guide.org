@@ -30,6 +30,27 @@ M-x vulpea-find-backlink
 
 This is useful for discovering connections - seeing what other notes reference the one you're viewing.
 
+** Customizing How Notes Are Displayed
+
+By default each candidate shows the note's title followed by its aliases and tags. You can change what every selection command (=vulpea-find=, =vulpea-insert=, and any custom =vulpea-select=) shows by setting two variables:
+
+- =vulpea-select-describe-fn= - builds the main, searchable part of the candidate. It takes a =vulpea-note= and returns a string. The default is =vulpea-note-title=.
+- =vulpea-select-annotate-fn= - builds a trailing annotation (shown dimmed). It also takes a =vulpea-note= and returns a string. The default appends the primary title (when matched through an alias) and =#tags=.
+
+For notes that live in headings, two ready-made describe functions prefix the title with its location so same-named notes are easy to tell apart:
+
+#+begin_src emacs-lisp
+;; "Projects → Work → Task"
+(setq vulpea-select-describe-fn #'vulpea-select-describe-outline)
+
+;; "My Notes → Projects → Task"
+(setq vulpea-select-describe-fn #'vulpea-select-describe-outline-full)
+#+end_src
+
+Because the whole =vulpea-note= is available, you can assemble any layout you like - directory, outline path, tags, timestamps, even a backlink count - into a single aligned row. See [[file:api-reference.org::*Customizing Selection Display][Customizing Selection Display]] in the API reference for a worked multi-column example, and note that the displayed text does not by itself change the order of candidates - sort the note list (e.g. by =vulpea-note-modified-at=) or let your completion framework sort if you want a specific order.
+
+Selection also reports a =vulpea-note= completion category, so completion UIs and their extensions (marginalia, embark, consult) can recognize note candidates and annotate or act on them. See [[file:api-reference.org::*Completion Category][Completion Category]].
+
 * Creating Links
 
 ** vulpea-insert
