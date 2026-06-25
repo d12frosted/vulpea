@@ -519,6 +519,20 @@ These operate on the current buffer (must be an org file).
 
 When setting multiple metadata properties, prefer =vulpea-meta-set-batch= over multiple =vulpea-meta-set= calls - it's significantly faster (up to 10x for 20 properties) since it only parses the file once.
 
+To observe metadata mutations without advising the buffer API, add a function to the abnormal hook =vulpea-buffer-meta-change-functions=. It runs whenever metadata changes through =vulpea-buffer-meta-set=, =vulpea-buffer-meta-set-batch=, =vulpea-buffer-meta-remove= or =vulpea-buffer-meta-clean=:
+
+#+begin_src emacs-lisp
+;; Log every metadata change during a batch operation
+(defun my/log-meta-change (prop old new)
+  ;; OLD and NEW are lists of string values; adding a property gives
+  ;; an empty OLD, removing one gives an empty NEW.
+  (message "%s: %S -> %S" prop old new))
+
+(add-hook 'vulpea-buffer-meta-change-functions #'my/log-meta-change)
+#+end_src
+
+Each handler is called with =PROP=, =OLD= and =NEW=. The hook fires once per affected property and only for real changes; it reports the outermost operation only, so the nested removal performed by =vulpea-buffer-meta-set= and the clean/set churn of =vulpea-buffer-meta-sort= do not produce extra events (a pure reorder fires nothing). =OLD= and =NEW= are computed only while the hook is non-nil, so an empty hook adds no overhead.
+
 ** Heading-Level Metadata
 
 Both file-level and heading-level notes can have their own metadata. The metadata API automatically scopes operations to the correct level based on the note's =level= attribute.
@@ -750,6 +764,61 @@ When you need to query updated data right away:
 (vulpea-note-meta-get (vulpea-db-get-by-id id) "status")
 ;; => "done"
 #+end_src
+
+** Tracking What Changed
+
+When a script rewrites metadata across many notes - say a periodic job
+that refreshes wine prices from shop data - you often want an audit
+trail of exactly what moved. =vulpea-buffer-meta-change-functions=
+makes this a few lines: collect the changes during the run, then print
+them. Because the hook reports the property's =OLD= and =NEW= values,
+no diffing of your own is needed.
+
+#+begin_src emacs-lisp
+;; A tiny change log built on the metadata-change hook.
+(defvar my/meta-changes nil
+  "Hash of note id -> list of (PROP OLD NEW).")
+
+(defun my/meta-record (prop old new)
+  "Collect a change of PROP from OLD to NEW under the note at point."
+  (when-let* ((id (save-excursion (goto-char (point-min)) (org-id-get))))
+    (push (list prop old new) (gethash id my/meta-changes))))
+
+(defun my/meta-log-start ()
+  (setq my/meta-changes (make-hash-table :test 'equal))
+  (add-hook 'vulpea-buffer-meta-change-functions #'my/meta-record))
+
+(defun my/meta-log-stop ()
+  (remove-hook 'vulpea-buffer-meta-change-functions #'my/meta-record))
+
+(defun my/meta-log-report ()
+  (maphash
+   (lambda (id changes)
+     (message "* %s" (vulpea-note-title (vulpea-db-get-by-id id)))
+     (dolist (it (reverse changes))
+       (message "  %s: %S -> %S" (nth 0 it) (nth 1 it) (nth 2 it))))
+   my/meta-changes))
+#+end_src
+
+Wrap the batch update between =start= and =stop=, then report:
+
+#+begin_src emacs-lisp
+(my/meta-log-start)
+(unwind-protect
+    (dolist (note (vulpea-db-query-by-tags-every '("wine" "cellar")))
+      (when-let* ((price (my/shop-price-for note)))   ; your data source
+        (vulpea-utils-with-note note
+          (vulpea-buffer-meta-set "price" price)
+          (save-buffer))))
+  (my/meta-log-stop))
+
+(my/meta-log-report)
+;; * Château Test 2019
+;;   price: ("18.50") -> ("21.00")
+#+end_src
+
+Only notes whose =price= actually changed appear: a no-op
+=vulpea-buffer-meta-set= (same value) fires nothing.
 
 * Selection Interface
 
