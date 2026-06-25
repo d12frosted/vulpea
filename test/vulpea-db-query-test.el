@@ -46,6 +46,27 @@
     (vulpea-db)
     (should-not (vulpea-db-get-by-id "nonexistent-id"))))
 
+(ert-deftest vulpea-db-note-exposes-created-and-modified-at ()
+  "Test that created-at and modified-at are exposed on the note struct."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "test-id" "Test Note"
+                                   :created-at "2025-12-08"
+                                   :modified-at "2025-12-09 10:30:00")
+    (let ((note (vulpea-db-get-by-id "test-id")))
+      (should (equal (vulpea-note-created-at note) "2025-12-08"))
+      (should (equal (vulpea-note-modified-at note) "2025-12-09 10:30:00")))))
+
+(ert-deftest vulpea-db-note-created-at-nil-when-absent ()
+  "Test that created-at is nil when the note has no CREATED date."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "test-id" "Test Note")
+    (let ((note (vulpea-db-get-by-id "test-id")))
+      (should-not (vulpea-note-created-at note))
+      ;; modified-at is always populated
+      (should (vulpea-note-modified-at note)))))
+
 (ert-deftest vulpea-db-query-all ()
   "Test querying all notes without predicate."
   (vulpea-test--with-temp-db
