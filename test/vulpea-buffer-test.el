@@ -1293,5 +1293,164 @@ gives a descriptive error."
    (should (equal (vulpea-buffer-tags-get)
                   '("tag1" "tag2" "tag3" "tag4")))))
 
+;;; vulpea-buffer-meta-change-functions Tests
+
+(ert-deftest vulpea-buffer-meta-change-set-new-prop ()
+  "Setting a brand new prop fires the hook with empty OLD."
+  (vulpea-buffer-test--with-temp-buffer
+   "#+title: T
+
+- a :: 1
+"
+   (let* ((events nil)
+          (vulpea-buffer-meta-change-functions
+           (list (lambda (prop old new) (push (list prop old new) events)))))
+     (vulpea-buffer-meta-set "b" "2")
+     (should (equal (nreverse events)
+                    '(("b" nil ("2"))))))))
+
+(ert-deftest vulpea-buffer-meta-change-set-existing-prop ()
+  "Changing an existing prop fires the hook with OLD and NEW."
+  (vulpea-buffer-test--with-temp-buffer
+   "#+title: T
+
+- a :: 1
+"
+   (let* ((events nil)
+          (vulpea-buffer-meta-change-functions
+           (list (lambda (prop old new) (push (list prop old new) events)))))
+     (vulpea-buffer-meta-set "a" "2")
+     (should (equal (nreverse events)
+                    '(("a" ("1") ("2"))))))))
+
+(ert-deftest vulpea-buffer-meta-change-set-multi-value ()
+  "Setting a list value reports OLD and NEW as lists of strings."
+  (vulpea-buffer-test--with-temp-buffer
+   "#+title: T
+
+- a :: 1
+"
+   (let* ((events nil)
+          (vulpea-buffer-meta-change-functions
+           (list (lambda (prop old new) (push (list prop old new) events)))))
+     (vulpea-buffer-meta-set "a" '("x" "y"))
+     (should (equal (nreverse events)
+                    '(("a" ("1") ("x" "y"))))))))
+
+(ert-deftest vulpea-buffer-meta-change-set-no-op-silent ()
+  "Setting a prop to its current value fires nothing."
+  (vulpea-buffer-test--with-temp-buffer
+   "#+title: T
+
+- a :: 1
+"
+   (let* ((events nil)
+          (vulpea-buffer-meta-change-functions
+           (list (lambda (prop old new) (push (list prop old new) events)))))
+     (vulpea-buffer-meta-set "a" "1")
+     (should (null events)))))
+
+(ert-deftest vulpea-buffer-meta-change-set-existing-fires-once ()
+  "Changing an existing prop fires exactly once.
+
+`vulpea-buffer-meta-set' removes the prop internally before
+re-inserting it; that nested removal must not produce a second
+event."
+  (vulpea-buffer-test--with-temp-buffer
+   "#+title: T
+
+- a :: 1
+"
+   (let* ((events nil)
+          (vulpea-buffer-meta-change-functions
+           (list (lambda (prop old new) (push (list prop old new) events)))))
+     (vulpea-buffer-meta-set "a" "2")
+     (should (= (length events) 1)))))
+
+(ert-deftest vulpea-buffer-meta-change-remove ()
+  "Removing a prop fires the hook with empty NEW."
+  (vulpea-buffer-test--with-temp-buffer
+   "#+title: T
+
+- a :: x
+- a :: y
+"
+   (let* ((events nil)
+          (vulpea-buffer-meta-change-functions
+           (list (lambda (prop old new) (push (list prop old new) events)))))
+     (vulpea-buffer-meta-remove "a")
+     (should (equal (nreverse events)
+                    '(("a" ("x" "y") nil)))))))
+
+(ert-deftest vulpea-buffer-meta-change-clean ()
+  "Cleaning fires one event per existing prop, in document order."
+  (vulpea-buffer-test--with-temp-buffer
+   "#+title: T
+
+- a :: 1
+- b :: 2
+"
+   (let* ((events nil)
+          (vulpea-buffer-meta-change-functions
+           (list (lambda (prop old new) (push (list prop old new) events)))))
+     (vulpea-buffer-meta-clean)
+     (should (equal (nreverse events)
+                    '(("a" ("1") nil)
+                      ("b" ("2") nil)))))))
+
+(ert-deftest vulpea-buffer-meta-change-sort-silent ()
+  "Sorting reorders props without firing any change event."
+  (vulpea-buffer-test--with-temp-buffer
+   "#+title: T
+
+- a :: 1
+- b :: 2
+"
+   (let* ((events nil)
+          (vulpea-buffer-meta-change-functions
+           (list (lambda (prop old new) (push (list prop old new) events)))))
+     (vulpea-buffer-meta-sort '("b" "a"))
+     (should (null events)))))
+
+(ert-deftest vulpea-buffer-meta-change-batch ()
+  "Batch set fires one event per changed prop."
+  (vulpea-buffer-test--with-temp-buffer
+   "#+title: T
+
+- a :: 1
+"
+   (let* ((events nil)
+          (vulpea-buffer-meta-change-functions
+           (list (lambda (prop old new) (push (list prop old new) events)))))
+     (vulpea-buffer-meta-set-batch '(("a" . "2") ("c" . "new")))
+     (should (equal (nreverse events)
+                    '(("a" ("1") ("2"))
+                      ("c" nil ("new"))))))))
+
+(ert-deftest vulpea-buffer-meta-change-no-hook-no-error ()
+  "Mutations work normally when no hook function is registered."
+  (vulpea-buffer-test--with-temp-buffer
+   "#+title: T
+
+- a :: 1
+"
+   (let ((vulpea-buffer-meta-change-functions nil))
+     (vulpea-buffer-meta-set "a" "2")
+     (should (equal (vulpea-buffer-meta-get "a" 'string) "2")))))
+
+(ert-deftest vulpea-buffer-meta-change-inhibit ()
+  "Binding the inhibit flag suppresses events."
+  (vulpea-buffer-test--with-temp-buffer
+   "#+title: T
+
+- a :: 1
+"
+   (let* ((events nil)
+          (vulpea-buffer-meta-change-functions
+           (list (lambda (prop old new) (push (list prop old new) events)))))
+     (let ((vulpea-buffer-meta--inhibit-change t))
+       (vulpea-buffer-meta-set "a" "2"))
+     (should (null events)))))
+
 (provide 'vulpea-buffer-test)
 ;;; vulpea-buffer-test.el ends here

@@ -67,6 +67,29 @@ You can change this to any property name you prefer, such as
   :type 'string
   :group 'vulpea)
 
+(defcustom vulpea-buffer-meta-change-functions nil
+  "Abnormal hook run when buffer metadata changes.
+
+Each function is called with three arguments: PROP, OLD and NEW.
+PROP is the affected metadata property name (a string).  OLD and
+NEW are the lists of its string values before and after the
+change.  Adding a property yields an empty OLD; removing one
+yields an empty NEW.
+
+The hook fires once per affected property, in the buffer that was
+modified, and only for actual changes (when OLD and NEW differ).
+It reports the outermost public operation only: the nested
+mutations performed by `vulpea-buffer-meta-set' and
+`vulpea-buffer-meta-sort' do not produce extra events, and a
+reorder via `vulpea-buffer-meta-sort' produces none at all.
+
+OLD and NEW are computed only while this hook is non-nil, so an
+empty hook adds no overhead.  Handlers run with re-entrant
+notification inhibited, so a handler that itself mutates metadata
+does not trigger the hook recursively."
+  :type 'hook
+  :group 'vulpea)
+
 (defun vulpea-buffer-title-get ()
   "Get TITLE in current buffer."
   (vulpea-buffer-prop-get "title"))
@@ -334,6 +357,27 @@ If nil it defaults to `split-string-default-separators', normally
 
 
 
+(defvar vulpea-buffer-meta--inhibit-change nil
+  "When non-nil, suppress `vulpea-buffer-meta-change-functions'.
+
+Bound to t while a higher-level metadata operation performs nested
+mutations, so the change hook fires once for the outermost call.")
+
+(defun vulpea-buffer-meta--notify-p ()
+  "Return non-nil when a metadata change should be reported."
+  (and vulpea-buffer-meta-change-functions
+       (not vulpea-buffer-meta--inhibit-change)))
+
+(defun vulpea-buffer-meta--notify (prop old new)
+  "Report a metadata change of PROP from OLD to NEW.
+
+OLD and NEW are lists of string values.  Does nothing when they
+are equal.  Re-entrant notification is inhibited while the hook
+runs."
+  (unless (equal old new)
+    (let ((vulpea-buffer-meta--inhibit-change t))
+      (run-hook-with-args 'vulpea-buffer-meta-change-functions prop old new))))
+
 (defun vulpea-buffer-meta (&optional bound)
   "Get metadata from the current buffer.
 
@@ -567,7 +611,10 @@ which case VALUE is added at the end of the meta.
 BOUND controls the scope - see `vulpea-buffer-meta' for details.
 When BOUND is \\='heading or a position, operates within that
 heading's subtree."
-  (let* ((values (if (listp value) value (list value)))
+  (let* ((notify (vulpea-buffer-meta--notify-p))
+         (old (and notify (vulpea-buffer-meta-get-list prop 'string bound)))
+         (vulpea-buffer-meta--inhibit-change t)
+         (values (if (listp value) value (list value)))
          (meta (vulpea-buffer-meta--get (vulpea-buffer-meta bound) prop))
          (buffer (plist-get meta :buffer))
          (pl (plist-get meta :pl))
@@ -630,7 +677,10 @@ heading's subtree."
            (insert "- " prop " :: "
                    (vulpea-buffer-meta-format val)
                    "\n"))
-         values))))))
+         values))))
+    (when notify
+      (vulpea-buffer-meta--notify
+       prop old (vulpea-buffer-meta-get-list prop 'string bound)))))
 
 (defun vulpea-buffer-meta--insertion-point (buffer bound)
   "Find the insertion point for new metadata.
@@ -693,7 +743,15 @@ Example:
       (\"priority\" . 1)
       (\"tags\" . (\"a\" \"b\" \"c\"))))"
   (when props-alist
-    (let* ((meta (vulpea-buffer-meta bound))
+    (let* ((notify (vulpea-buffer-meta--notify-p))
+           (olds (and notify
+                      (let ((m (vulpea-buffer-meta bound)))
+                        (mapcar
+                         (lambda (pair)
+                           (cons (car pair)
+                                 (vulpea-buffer-meta-get-list! m (car pair) 'string)))
+                         props-alist))))
+           (meta (vulpea-buffer-meta bound))
            (buffer (plist-get meta :buffer))
            (pl (plist-get meta :pl))
            (items-all (when pl (org-element-map pl 'item #'identity)))
@@ -767,12 +825,21 @@ Example:
               (dolist (val values)
                 (insert "- " prop " :: "
                         (vulpea-buffer-meta-format val)
-                        "\n"))))))))))
+                        "\n")))))))
+      (when notify
+        (let ((m (vulpea-buffer-meta bound)))
+          (dolist (pair props-alist)
+            (vulpea-buffer-meta--notify
+             (car pair)
+             (cdr (assoc (car pair) olds))
+             (vulpea-buffer-meta-get-list! m (car pair) 'string))))))))
 
 (defun vulpea-buffer-meta-remove (prop &optional bound)
   "Delete values of PROP from current buffer.
 BOUND controls the scope - see `vulpea-buffer-meta' for details."
-  (let* ((meta (vulpea-buffer-meta--get (vulpea-buffer-meta bound) prop))
+  (let* ((notify (vulpea-buffer-meta--notify-p))
+         (old (and notify (vulpea-buffer-meta-get-list prop 'string bound)))
+         (meta (vulpea-buffer-meta--get (vulpea-buffer-meta bound) prop))
          (items (plist-get meta :items))
          (pl (plist-get meta :pl)))
     (when (car items)
@@ -785,16 +852,28 @@ BOUND controls the scope - see `vulpea-buffer-meta' for details."
            (when-let* ((begin (org-element-property :begin item))
                        (end (org-element-property :end item)))
              (delete-region begin end)))
-         (seq-reverse items))))))
+         (seq-reverse items))))
+    (when notify
+      (vulpea-buffer-meta--notify prop old nil))))
 
 (defun vulpea-buffer-meta-clean (&optional bound)
   "Delete all meta from current buffer.
 BOUND controls the scope - see `vulpea-buffer-meta' for details."
-  (when-let* ((meta (vulpea-buffer-meta bound))
-              (pl (plist-get meta :pl)))
-    (delete-region
-     (org-element-property :begin pl)
-     (org-element-property :end pl))))
+  (let* ((notify (vulpea-buffer-meta--notify-p))
+         (snapshot
+          (and notify
+               (let ((meta (vulpea-buffer-meta bound)))
+                 (mapcar (lambda (p)
+                           (cons p (vulpea-buffer-meta-get-list! meta p 'string)))
+                         (vulpea-buffer-meta-props meta))))))
+    (when-let* ((meta (vulpea-buffer-meta bound))
+                (pl (plist-get meta :pl)))
+      (delete-region
+       (org-element-property :begin pl)
+       (org-element-property :end pl)))
+    (when notify
+      (dolist (it snapshot)
+        (vulpea-buffer-meta--notify (car it) (cdr it) nil)))))
 
 (defun vulpea-buffer-meta-format (value)
   "Format a VALUE depending on it's type."
@@ -823,7 +902,8 @@ BOUND controls the scope - see `vulpea-buffer-meta' for details."
 
 Whatever is not part of PROPS is left in the same order but appended to
 the end after PROPS."
-  (let* ((meta (vulpea-buffer-meta))
+  (let* ((vulpea-buffer-meta--inhibit-change t)
+         (meta (vulpea-buffer-meta))
          (props-all (->> (org-element-map (plist-get meta :pl) 'item #'identity)
                          (--map (substring-no-properties
                                  (org-element-interpret-data
