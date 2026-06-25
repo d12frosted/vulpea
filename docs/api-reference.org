@@ -246,6 +246,23 @@ Query links directly from the database. All functions return plists with =:sourc
 (vulpea-db-query-links-to "note-id")
 #+end_src
 
+To display or sort by a backlink /count/ for many notes, do not call
+=vulpea-db-query-links-to= per note - that is one query each. Use
+=vulpea-db-query-backlink-counts=, which computes every count with a
+single grouped query and returns a hash table from destination to count:
+
+#+begin_src emacs-lisp
+;; Backlink counts for all notes (one query)
+(let ((counts (vulpea-db-query-backlink-counts)))
+  (gethash (vulpea-note-id note) counts 0))
+
+;; Count only id: links (ignore file:, https:, ... destinations)
+(vulpea-db-query-backlink-counts "id")
+#+end_src
+
+Destinations with no incoming links are absent from the table, so read
+it with a default of 0.
+
 * Unlinked Mentions
 
 An /unlinked mention/ is a place where a note's title or alias appears as
