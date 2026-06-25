@@ -49,6 +49,8 @@ For notes that live in headings, two ready-made describe functions prefix the ti
 
 Because the whole =vulpea-note= is available, you can assemble any layout you like - directory, outline path, tags, timestamps, even a backlink count - into a single aligned row. See [[file:api-reference.org::*Customizing Selection Display][Customizing Selection Display]] in the API reference for a worked multi-column example, and note that the displayed text does not by itself change the order of candidates - sort the note list (e.g. by =vulpea-note-modified-at=) or let your completion framework sort if you want a specific order.
 
+Keep these functions cheap. They run once for every candidate when the finder opens, so heavy work - especially an extra database query per candidate - can make selection slow on large collections. If you need DB-derived data such as a backlink count, compute it once per invocation and close over it rather than querying inside the function (the API reference example shows the pattern).
+
 Selection also reports a =vulpea-note= completion category, so completion UIs and their extensions (marginalia, embark, consult) can recognize note candidates and annotate or act on them. See [[file:api-reference.org::*Completion Category][Completion Category]].
 
 * Creating Links

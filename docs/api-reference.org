@@ -946,13 +946,24 @@ Both functions take a =vulpea-note= and return a string, so you can assemble any
        (propertize (truncate-string-to-width tags 30 nil ?\s) 'face 'org-tag) " "
        (format "%6d" backlinks)))))
 
-;; Build the counts table once (single query), then set the hooks
-(let ((counts (vulpea-db-query-backlink-counts "id")))
-  (setq vulpea-select-describe-fn (my-vulpea-describe counts)
-        vulpea-select-annotate-fn (lambda (_note) "")))
+;; Wrap the finder so the counts are rebuilt fresh on each call, then
+;; dynamically bind the hooks for the duration of that call.
+(defun my-vulpea-find ()
+  (interactive)
+  (let* (;; "id" counts only id: links (the real backlinks); it is
+         ;; effectively optional, since only id: links have a note ID as
+         ;; their destination. Omit it to count every link type.
+         (counts (vulpea-db-query-backlink-counts "id"))
+         (vulpea-select-describe-fn (my-vulpea-describe counts))
+         (vulpea-select-annotate-fn (lambda (_note) "")))
+    (vulpea-find)))
 #+end_src
 
-=vulpea-db-query-backlink-counts= computes every count in one query (see [[*Link Queries][Link Queries]]); building it once and closing over it avoids a per-candidate query. To order candidates by recency rather than display them differently, sort the note list (e.g. by =vulpea-note-modified-at= or =vulpea-note-created-at=) before passing it to =vulpea-select-from=, or let a completion framework such as consult sort on a field - the displayed text does not affect candidate order on its own.
+Compute the counts table *once per invocation*, not inside =describe-fn=. =describe-fn= runs once for every candidate, so querying inside it would issue a query per candidate; building =counts= up front and closing over it keeps it to a single query. Binding it at invocation time (rather than once at startup with =setq=) also keeps the numbers fresh - a value cached at startup would not reflect links added later.
+
+Be aware of the cost: even done this way, the work happens when the finder *opens* - one grouped query over the whole =links= table, plus =describe-fn= (the =truncate-string-to-width= / =propertize= calls) running once per candidate. On a large collection this adds a noticeable delay before the finder appears. It is open-time cost, not per-keystroke lag (candidate strings are precomputed), but it grows with the number of notes, so keep =describe-fn= cheap and only pull in extra data like backlink counts when you actually want them on screen.
+
+To order candidates by recency rather than display them differently, sort the note list (e.g. by =vulpea-note-modified-at= or =vulpea-note-created-at=) before passing it to =vulpea-select-from=, or let a completion framework such as consult sort on a field - the displayed text does not affect candidate order on its own.
 
 ** Completion Category
 
