@@ -190,6 +190,71 @@
     (should (string-match-p "#tag1" annotation))
     (should (string-match-p "#tag2" annotation))))
 
+;;; Dynamic Context Tests
+
+(ert-deftest vulpea-select-describe-passes-context-to-2-arg-describe-fn ()
+  "A describe function accepting two arguments receives the context."
+  (let* ((received 'unset)
+         (vulpea-select-describe-fn
+          (lambda (note ctx) (setq received ctx) (vulpea-note-title note)))
+         (vulpea-select-annotate-fn (lambda (_note) ""))
+         (note (make-vulpea-note :id "x" :title "Title" :level 0)))
+    (vulpea-select-describe note "CTX")
+    (should (equal received "CTX"))))
+
+(ert-deftest vulpea-select-describe-passes-context-to-2-arg-annotate-fn ()
+  "An annotate function accepting two arguments receives the context."
+  (let* ((received 'unset)
+         (vulpea-select-describe-fn (lambda (note) (vulpea-note-title note)))
+         (vulpea-select-annotate-fn
+          (lambda (_note ctx) (setq received ctx) ""))
+         (note (make-vulpea-note :id "x" :title "Title" :level 0)))
+    (vulpea-select-describe note "CTX")
+    (should (equal received "CTX"))))
+
+(ert-deftest vulpea-select-describe-backward-compatible-with-1-arg-fn ()
+  "Passing a context must not break describe/annotate functions taking one arg."
+  (let* ((vulpea-select-describe-fn (lambda (note) (vulpea-note-title note)))
+         (vulpea-select-annotate-fn (lambda (_note) ""))
+         (note (make-vulpea-note :id "x" :title "Title" :level 0)))
+    (should (equal (substring-no-properties (vulpea-select-describe note "CTX"))
+                   "Title"))))
+
+(ert-deftest vulpea-select-describe-context-defaults-to-nil ()
+  "When called without a context, a two-arg describe function gets nil."
+  (let* ((received 'unset)
+         (vulpea-select-describe-fn
+          (lambda (note ctx) (setq received ctx) (vulpea-note-title note)))
+         (vulpea-select-annotate-fn (lambda (_note) ""))
+         (note (make-vulpea-note :id "x" :title "Title" :level 0)))
+    (vulpea-select-describe note)
+    (should (null received))))
+
+(ert-deftest vulpea-select-from-builds-context-once-with-notes ()
+  "`vulpea-select-dyncontext-fn' is called once per selection with the notes."
+  (let* ((calls 0)
+         (seen-notes nil)
+         (note1 (make-vulpea-note :id "id1" :title "First" :level 0))
+         (note2 (make-vulpea-note :id "id2" :title "Second" :level 0))
+         (notes (list note1 note2))
+         (vulpea-select-dyncontext-fn
+          (lambda (ns) (setq calls (1+ calls) seen-notes ns) "CTX"))
+         (context-in-describe 'unset)
+         (vulpea-select-describe-fn
+          (lambda (note ctx)
+            (setq context-in-describe ctx)
+            (vulpea-note-title note)))
+         (vulpea-select-annotate-fn (lambda (_note) "")))
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (_prompt collection &rest _)
+                 (seq-find (lambda (cand) (string-match-p "First" cand))
+                           (all-completions "" collection)))))
+      (vulpea-select-from "Note" notes))
+    ;; computed exactly once, over the presented notes, and threaded through
+    (should (= calls 1))
+    (should (equal seen-notes notes))
+    (should (equal context-in-describe "CTX"))))
+
 ;;; Describe Outline Tests
 
 (ert-deftest vulpea-select-describe-outline-file-level ()
