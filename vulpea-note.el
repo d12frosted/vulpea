@@ -63,7 +63,9 @@ Slots:
   closed       - Closed timestamp
   outline-path - Path to heading
   attach-dir   - Attachment directory
-  file-title   - Title of the file containing this note"
+  file-title   - Title of the file containing this note
+  created-at   - Creation timestamp (from the CREATED property, may be nil)
+  modified-at  - Modification timestamp (set when the note was last synced)"
   id
   path
   level
@@ -82,7 +84,9 @@ Slots:
   closed
   outline-path
   attach-dir
-  file-title)
+  file-title
+  created-at
+  modified-at)
 
 ;;; Predicates
 
