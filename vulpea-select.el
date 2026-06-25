@@ -48,13 +48,47 @@ Accepts a `vulpea-note'. Returns a `string'.")
 
 Accepts a `vulpea-note'. Returns a `string'.")
 
-(defun vulpea-select-describe (note)
-  "Describe a NOTE for completion."
+(defvar vulpea-select-dyncontext-fn nil
+  "Function computing a shared context for the current selection.
+
+When non-nil, it is called once per selection with the list of
+`vulpea-note' values being presented and may return any value - the
+\"dynamic context\". That value is then passed as the second argument to
+`vulpea-select-describe-fn' and `vulpea-select-annotate-fn', but only to
+functions that accept a second argument.
+
+The point is to compute expensive shared data once - for example a table
+of backlink counts built with a single query (see
+`vulpea-db-query-backlink-counts') - and reuse it across every candidate,
+instead of recomputing it per candidate or capturing it from a wrapper
+command. Describe and annotate functions that take only a NOTE argument
+are unaffected.")
+
+(defun vulpea-select--accepts-context-p (fn)
+  "Return non-nil when FN can be called with a NOTE and a context argument."
+  (let ((arity (func-arity fn)))
+    (and (<= (car arity) 2)
+         (or (eq (cdr arity) 'many)
+             (>= (cdr arity) 2)))))
+
+(defun vulpea-select--funcall (fn note context)
+  "Call FN with NOTE, also passing CONTEXT when FN accepts a second argument."
+  (if (vulpea-select--accepts-context-p fn)
+      (funcall fn note context)
+    (funcall fn note)))
+
+(defun vulpea-select-describe (note &optional context)
+  "Describe a NOTE for completion.
+
+CONTEXT is the optional shared value produced by
+`vulpea-select-dyncontext-fn'. It is forwarded as the second argument to
+`vulpea-select-describe-fn' and `vulpea-select-annotate-fn' when they
+accept one."
   (propertize
    (concat
-    (funcall vulpea-select-describe-fn note)
+    (vulpea-select--funcall vulpea-select-describe-fn note context)
     (propertize
-     (funcall vulpea-select-annotate-fn note)
+     (vulpea-select--funcall vulpea-select-annotate-fn note context)
      'face 'completions-annotations))
    'vulpea-note-id
    (vulpea-note-id note)))
@@ -201,9 +235,11 @@ title stored in `vulpea-note-primary-title'."
   (let* ((expanded-notes (if expand-aliases
                              (seq-mapcat #'vulpea-note-expand-aliases notes)
                            notes))
+         (context (when vulpea-select-dyncontext-fn
+                    (funcall vulpea-select-dyncontext-fn expanded-notes)))
          (completions (seq-map
                        (lambda (n)
-                         (cons (vulpea-select-describe n)
+                         (cons (vulpea-select-describe n context)
                                n))
                        expanded-notes))
          (notes-table (make-hash-table :test #'equal)))

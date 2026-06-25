@@ -924,44 +924,50 @@ A candidate is rendered as =describe-fn= output followed by =annotate-fn= output
 (setq vulpea-select-annotate-fn (lambda (_note) ""))
 #+end_src
 
-Both functions take a =vulpea-note= and return a string, so you can assemble any layout from the note's slots. Because the whole =vulpea-note= is available, you can combine fields - outline path, tags, timestamps, even a precomputed backlink count - into a single aligned row. For example, a fixed-width row with directory, hierarchy, tags and backlink count:
+Both functions take a =vulpea-note= and return a string, so you can assemble any layout from the note's slots. Combining fields from the note alone is straightforward. Some layouts, though, want data that is expensive to compute per candidate - a backlink count is the classic example. For those, use the shared context hook.
+
+*** Shared context for the whole selection
+
+=vulpea-select-dyncontext-fn= is called once per selection with the list of notes being presented and returns any value you like - the "dynamic context". Vulpea passes that value as a *second argument* to your describe and annotate functions, so they can read precomputed shared data instead of recomputing it for every candidate.
+
+The second argument is only passed to functions that accept it (checked via `func-arity'), so existing one-argument describe/annotate functions keep working unchanged - adopting the context is opt-in per function.
+
+For example, a fixed-width row with directory, hierarchy, tags and a backlink count, where the counts are built with a single query per selection:
 
 #+begin_src emacs-lisp
-(defun my-vulpea-describe (counts)
-  "Return a describe function closing over a backlink COUNTS table."
-  (lambda (note)
-    (let* ((dir (file-name-nondirectory
-                 (directory-file-name
-                  (file-name-directory (vulpea-note-path note)))))
-           (hierarchy (string-join
-                       (delq nil (cons (vulpea-note-file-title note)
-                                       (vulpea-note-outline-path note)))
-                       " → "))
-           (tags (mapconcat (lambda (x) (concat "#" x))
-                            (vulpea-note-tags note) " "))
-           (backlinks (gethash (vulpea-note-id note) counts 0)))
-      (concat
-       (truncate-string-to-width dir 15 nil ?\s) " "
-       (truncate-string-to-width hierarchy 60 nil ?\s) " "
-       (propertize (truncate-string-to-width tags 30 nil ?\s) 'face 'org-tag) " "
-       (format "%6d" backlinks)))))
+(defun my-vulpea-describe (note counts)
+  "Describe NOTE, reading its backlink count from the shared COUNTS table."
+  (let* ((dir (file-name-nondirectory
+               (directory-file-name
+                (file-name-directory (vulpea-note-path note)))))
+         (hierarchy (string-join
+                     (delq nil (cons (vulpea-note-file-title note)
+                                     (vulpea-note-outline-path note)))
+                     " → "))
+         (tags (mapconcat (lambda (x) (concat "#" x))
+                          (vulpea-note-tags note) " "))
+         (backlinks (gethash (vulpea-note-id note) counts 0)))
+    (concat
+     (truncate-string-to-width dir 15 nil ?\s) " "
+     (truncate-string-to-width hierarchy 60 nil ?\s) " "
+     (propertize (truncate-string-to-width tags 30 nil ?\s) 'face 'org-tag) " "
+     (format "%6d" backlinks))))
 
-;; Wrap the finder so the counts are rebuilt fresh on each call, then
-;; dynamically bind the hooks for the duration of that call.
-(defun my-vulpea-find ()
-  (interactive)
-  (let* (;; "id" counts only id: links (the real backlinks); it is
-         ;; effectively optional, since only id: links have a note ID as
-         ;; their destination. Omit it to count every link type.
-         (counts (vulpea-db-query-backlink-counts "id"))
-         (vulpea-select-describe-fn (my-vulpea-describe counts))
-         (vulpea-select-annotate-fn (lambda (_note) "")))
-    (vulpea-find)))
+;; Build the shared backlink-count table once per selection. "id" counts
+;; only id: links (the real backlinks); it is effectively optional, since
+;; only id: links have a note ID as their destination. Omit it to count
+;; every link type.
+(setq vulpea-select-dyncontext-fn
+      (lambda (_notes) (vulpea-db-query-backlink-counts "id"))
+      vulpea-select-describe-fn #'my-vulpea-describe
+      vulpea-select-annotate-fn (lambda (_note) ""))
 #+end_src
 
-Compute the counts table *once per invocation*, not inside =describe-fn=. =describe-fn= runs once for every candidate, so querying inside it would issue a query per candidate; building =counts= up front and closing over it keeps it to a single query. Binding it at invocation time (rather than once at startup with =setq=) also keeps the numbers fresh - a value cached at startup would not reflect links added later.
+This is a plain =setq= - no command wrapper, no manual hook binding - and it applies to every selection command (=vulpea-find=, =vulpea-insert=, custom =vulpea-select= calls). Because =vulpea-select-dyncontext-fn= runs once per selection, the counts are always fresh, and because the table is shared the per-candidate =describe-fn= never touches the database.
 
-Be aware of the cost: even done this way, the work happens when the finder *opens* - one grouped query over the whole =links= table, plus =describe-fn= (the =truncate-string-to-width= / =propertize= calls) running once per candidate. On a large collection this adds a noticeable delay before the finder appears. It is open-time cost, not per-keystroke lag (candidate strings are precomputed), but it grows with the number of notes, so keep =describe-fn= cheap and only pull in extra data like backlink counts when you actually want them on screen.
+Do *not* query the database inside =describe-fn= itself: it runs once for every candidate, so a query there means a query per candidate. The whole point of =vulpea-select-dyncontext-fn= is to move that work out to a single call.
+
+Be aware of the cost even when done right: the work happens when the finder *opens* - one grouped query over the whole =links= table, plus =describe-fn= running once per candidate. On a large collection this adds a noticeable delay before the finder appears. It is open-time cost, not per-keystroke lag (candidate strings are precomputed), but it grows with the number of notes, so keep =describe-fn= cheap and only pull in extra data like backlink counts when you actually want them on screen.
 
 To order candidates by recency rather than display them differently, sort the note list (e.g. by =vulpea-note-modified-at= or =vulpea-note-created-at=) before passing it to =vulpea-select-from=, or let a completion framework such as consult sort on a field - the displayed text does not affect candidate order on its own.
 
