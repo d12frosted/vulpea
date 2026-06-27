@@ -924,10 +924,6 @@ A candidate is rendered as =describe-fn= output followed by =annotate-fn= output
 (setq vulpea-select-annotate-fn (lambda (_note) ""))
 #+end_src
 
-When two or more notes render to the *same* candidate (same =describe-fn= and =annotate-fn= output - i.e. same title, aliases and tags), they would collapse into a single entry: completion UIs hide identical strings, and the candidate-to-note lookup resolves by string equality and so always returns the first match. To keep every note reachable, =vulpea-select-from= appends a short, stable note id prefix to each candidate in such a collision group. Unique candidates are left untouched. =vulpea-select-disambiguator-length= sets the minimum length of that id prefix (default 8); it is extended automatically when a longer prefix is needed to tell the notes apart, so reachability is guaranteed regardless of the value.
-
-This is a safety net for accidental duplicates, not a presentation choice. To control how same-named notes look (rather than just keep them selectable), set =describe-fn=/=annotate-fn= to include something distinguishing - the =describe-outline= variants above, or a custom annotation. =vulpea-select-dyncontext-fn= is handy here: compute the set of colliding candidates once and append a marker (a short id, the file name, a counter) only to the notes that need it. =vulpea-db-query-title-collisions= reports duplicate titles offline if you would rather fix the data than render around it.
-
 Both functions take a =vulpea-note= and return a string, so you can assemble any layout from the note's slots. Combining fields from the note alone is straightforward. Some layouts, though, want data that is expensive to compute per candidate - a backlink count is the classic example. For those, use the shared context hook.
 
 *** Shared context for the whole selection

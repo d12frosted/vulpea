@@ -37,8 +37,6 @@ By default each candidate shows the note's title followed by its aliases and tag
 - =vulpea-select-describe-fn= - builds the main, searchable part of the candidate. It takes a =vulpea-note= and returns a string. The default is =vulpea-note-title=.
 - =vulpea-select-annotate-fn= - builds a trailing annotation (shown dimmed). It also takes a =vulpea-note= and returns a string. The default appends the primary title (when matched through an alias) and =#tags=.
 
-If two notes would end up with exactly the same candidate (same title, aliases and tags), Vulpea keeps both selectable by appending a short note id to each - so a duplicate never silently shadows another note. That is only a safety net; to make same-named notes genuinely easy to tell apart, give them distinguishing text with the variables below (or fix the duplication with =vulpea-db-query-title-collisions=).
-
 For notes that live in headings, two ready-made describe functions prefix the title with its location so same-named notes are easy to tell apart:
 
 #+begin_src emacs-lisp
