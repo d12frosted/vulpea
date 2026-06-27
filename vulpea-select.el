@@ -64,6 +64,17 @@ instead of recomputing it per candidate or capturing it from a wrapper
 command. Describe and annotate functions that take only a NOTE argument
 are unaffected.")
 
+(defvar vulpea-select-disambiguator-length 8
+  "Minimum number of note id characters used to disambiguate candidates.
+
+When several notes would otherwise share the same completion candidate
+string - same `vulpea-select-describe-fn' and `vulpea-select-annotate-fn'
+output, i.e. same title, aliases and tags - `vulpea-select-from' appends
+a short note id prefix so that every note stays selectable (see Issue
+#326). This value is the minimum length of that prefix; it is extended
+automatically when a longer prefix is needed to tell the colliding notes
+apart, so reachability is guaranteed regardless of this setting.")
+
 (defun vulpea-select--accepts-context-p (fn)
   "Return non-nil when FN can be called with a NOTE and a context argument."
   (let ((arity (func-arity fn)))
@@ -210,6 +221,56 @@ the note id as the `vulpea-note-id' text property (see
         '(metadata (category . vulpea-note))
       (complete-with-action action completions string predicate))))
 
+(defun vulpea-select--unique-prefix-length (ids)
+  "Return the shortest prefix length at which all IDS are distinct.
+
+The result is at least `vulpea-select-disambiguator-length' and never
+exceeds the length of the longest id in IDS.  Since note ids are unique,
+such a length always exists."
+  (let ((max-len (apply #'max 0 (mapcar #'length ids)))
+        (len vulpea-select-disambiguator-length))
+    (while (and (< len max-len)
+                (let ((prefixes (mapcar
+                                 (lambda (id)
+                                   (substring id 0 (min len (length id))))
+                                 ids)))
+                  (> (length prefixes) (length (seq-uniq prefixes)))))
+      (setq len (1+ len)))
+    len))
+
+(defun vulpea-select--disambiguate (completions)
+  "Ensure every candidate string in COMPLETIONS is unique.
+
+COMPLETIONS is an alist of (DESCRIPTION . NOTE) as built by
+`vulpea-select-from'.  Notes that render to the same DESCRIPTION collapse
+into a single completion candidate, leaving all but the first
+unreachable (Issue #326): completion UIs hide the duplicates, and the
+candidate-to-note lookup resolves by string equality and so always
+returns the first match.
+
+For each group of notes sharing a DESCRIPTION, append a short, stable
+note id prefix (see `vulpea-select--unique-prefix-length') so that each
+note keeps a distinct, selectable candidate.  Cells whose DESCRIPTION is
+already unique are returned unchanged."
+  (let ((groups (make-hash-table :test #'equal)))
+    (dolist (cell completions)
+      (push (vulpea-note-id (cdr cell))
+            (gethash (car cell) groups)))
+    (mapcar
+     (lambda (cell)
+       (let ((ids (gethash (car cell) groups)))
+         (if (cdr ids)
+             (let* ((id (vulpea-note-id (cdr cell)))
+                    (len (vulpea-select--unique-prefix-length ids)))
+               (cons (concat
+                      (car cell)
+                      (propertize
+                       (concat " " (substring id 0 (min len (length id))))
+                       'face 'completions-annotations))
+                     (cdr cell)))
+           cell)))
+     completions)))
+
 (cl-defun vulpea-select-from (prompt
                               notes
                               &key
@@ -237,15 +298,12 @@ title stored in `vulpea-note-primary-title'."
                            notes))
          (context (when vulpea-select-dyncontext-fn
                     (funcall vulpea-select-dyncontext-fn expanded-notes)))
-         (completions (seq-map
-                       (lambda (n)
-                         (cons (vulpea-select-describe n context)
-                               n))
-                       expanded-notes))
-         (notes-table (make-hash-table :test #'equal)))
-    (seq-each (lambda (note)
-                (puthash (vulpea-note-id note) note notes-table))
-              expanded-notes)
+         (completions (vulpea-select--disambiguate
+                       (seq-map
+                        (lambda (n)
+                          (cons (vulpea-select-describe n context)
+                                n))
+                        expanded-notes))))
     (let ((note (completing-read
                  (concat prompt ": ")
                  (vulpea-select--completion-table completions)
