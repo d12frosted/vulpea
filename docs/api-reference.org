@@ -971,6 +971,12 @@ Be aware of the cost even when done right: the work happens when the finder *ope
 
 To order candidates by recency rather than display them differently, sort the note list (e.g. by =vulpea-note-modified-at= or =vulpea-note-created-at=) before passing it to =vulpea-select-from=, or let a completion framework such as consult sort on a field - the displayed text does not affect candidate order on its own.
 
+*** Notes that render to the same candidate
+
+Every candidate carries its note id as the =vulpea-note-id= text property. When you pick one, =vulpea-select-from= resolves it back to a note by that id, so two notes that render to the *same* candidate string (same =describe-fn= and =annotate-fn= output - i.e. same title, aliases and tags) still resolve to the right note, as long as the completion frontend returns the picked candidate with its text properties intact (Vertico, Consult, Ivy and similar do). Frontends that hand back a bare string (e.g. vanilla =completing-read=) fall back to matching by string, which can only ever return the first such note.
+
+This is about *resolution*, not display. Many completion UIs also collapse identical-looking rows, so a duplicate may not even be visible to pick. If you want same-named notes to be individually visible or easy to tell apart, give them distinguishing text through =vulpea-select-describe-fn= / =vulpea-select-annotate-fn= (the =describe-outline= variants above are one ready-made option, or append a marker - a short id, the file name - via =vulpea-select-dyncontext-fn= computed once for the colliding notes). =vulpea-db-query-title-collisions= reports duplicate titles if you would rather fix the data than render around it.
+
 ** Completion Category
 
 All selection commands (=vulpea-select=, =vulpea-select-from=, and therefore =vulpea-find= / =vulpea-insert=) report a completion category of =vulpea-note= to the minibuffer. Completion frameworks and their extensions use this category to recognize candidates as notes:

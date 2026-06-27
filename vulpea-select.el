@@ -241,16 +241,32 @@ title stored in `vulpea-note-primary-title'."
                        (lambda (n)
                          (cons (vulpea-select-describe n context)
                                n))
-                       expanded-notes))
-         (notes-table (make-hash-table :test #'equal)))
-    (seq-each (lambda (note)
-                (puthash (vulpea-note-id note) note notes-table))
-              expanded-notes)
+                       expanded-notes)))
     (let ((note (completing-read
                  (concat prompt ": ")
                  (vulpea-select--completion-table completions)
                  nil require-match initial-prompt)))
-      (or (cdr (assoc note completions))
+      ;; Resolve the pick to the exact note. Every candidate carries its
+      ;; note id as the `vulpea-note-id' text property (see
+      ;; `vulpea-select-describe'). When the frontend returns the picked
+      ;; candidate with its properties intact, prefer the cell matching
+      ;; both the candidate string and that id: this keeps notes that
+      ;; render to the same candidate (Issue #326) individually resolvable,
+      ;; while alias-expanded notes - which share an id but differ by
+      ;; candidate string - are still told apart by the string. Frontends
+      ;; that strip text properties leave ID nil and fall through to a
+      ;; plain string match; a pick that matches nothing yields a virtual
+      ;; note.
+      (or (let ((id (and (> (length note) 0)
+                         (get-text-property 0 'vulpea-note-id note))))
+            (and id
+                 (seq-some
+                  (lambda (cell)
+                    (and (equal (car cell) note)
+                         (equal (vulpea-note-id (cdr cell)) id)
+                         (cdr cell)))
+                  completions)))
+          (cdr (assoc note completions))
           (make-vulpea-note
            :title (substring-no-properties note)
            :level 0)))))

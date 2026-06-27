@@ -457,5 +457,48 @@
       (vulpea-select-from "Note" (list note)))
     (should (eq seen-category 'vulpea-note))))
 
+;;; Candidate resolution (Issue #326)
+
+(ert-deftest vulpea-select-from-resolves-via-note-id-property ()
+  "Resolution maps the picked candidate to the note via its id property.
+
+When two notes render to the same candidate string, the lookup must
+honor the `vulpea-note-id' text property carried by the picked candidate
+rather than always returning the first string-equal match."
+  (let* ((note1 (make-vulpea-note :id "id-1" :title "Dup" :level 0))
+         (note2 (make-vulpea-note :id "id-2" :title "Dup" :level 0)))
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (_prompt _collection &rest _)
+                 ;; a frontend returns note2's candidate, properties intact
+                 (vulpea-select-describe note2))))
+      (should (equal (vulpea-note-id
+                      (vulpea-select-from "Note" (list note1 note2)))
+                     "id-2")))))
+
+(ert-deftest vulpea-select-from-resolves-first-when-properties-stripped ()
+  "Without an id property on the pick, resolution falls back to the string.
+
+Some frontends (e.g. vanilla `completing-read') return a bare string with
+no text properties.  In that case there is no way to tell identical
+candidates apart, so resolution falls back to the first string match -
+the historical behavior, kept as a safe default."
+  (let* ((note (make-vulpea-note :id "id-x" :title "Solo" :level 0)))
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (_prompt _collection &rest _)
+                 ;; bare string, no properties
+                 "Solo")))
+      (should (equal (vulpea-note-id
+                      (vulpea-select-from "Note" (list note)))
+                     "id-x")))))
+
+(ert-deftest vulpea-select-from-resolves-virtual-note-on-no-match ()
+  "A pick that matches no candidate yields a virtual note (nil id)."
+  (let* ((note (make-vulpea-note :id "id1" :title "Real" :level 0)))
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (_prompt _collection &rest _) "Made up")))
+      (let ((result (vulpea-select-from "Note" (list note))))
+        (should (null (vulpea-note-id result)))
+        (should (equal (vulpea-note-title result) "Made up"))))))
+
 (provide 'vulpea-select-test)
 ;;; vulpea-select-test.el ends here
