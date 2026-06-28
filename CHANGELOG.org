@@ -19,6 +19,7 @@
 *Documentation*
 
 - Document how to customize the text shown for each candidate in note selection (=vulpea-find=, =vulpea-insert=, =vulpea-select=). The user guide gains a "Customizing How Notes Are Displayed" section, and the API reference now also covers =vulpea-select-annotate-fn= (alongside the already-documented =vulpea-select-describe-fn= and the =describe-outline= variants) with a worked multi-column example combining outline path, tags and a =vulpea-db-query-backlink-counts= count. No behavior change.
+- Refresh =docs/comparison.org=: correct the vulpea-ui widget list (outline, backlinks with context previews, unlinked mentions, forward links, stats) and expand the vulpea-journal description (daily or monthly granularity, calendar, date navigation, created-today, previous years); note unlinked mentions as a capability shared with org-roam's unlinked references; and document the now-real third-party ecosystem (=consult-vulpea=, =embark-vulpea=, =vulpea-para=, =ace-link-vui=) enabled by the =vulpea-note= completion category; and validate the org-roam/org-node sections against their mid-2026 state - org-node's data layer is now =org-mem=, which adds an optional org-roam-compatible SQLite database (=org-mem-roamy-db-mode=) and whole-file =.gpg=/=.age= support and documents multi-Emacs behavior (no longer "untested"), while org-roam's unlinked-references section is opt-in and its DB schema, though queryable, is not a stability-guaranteed API. Also bumps the "last updated" date. No behavior change.
 
 ** v2.4.0
 

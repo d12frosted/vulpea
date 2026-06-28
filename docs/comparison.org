@@ -7,7 +7,7 @@ This document compares Vulpea with other Org-mode note management libraries, spe
 
 The author of this document has not used org-node personally; the analysis is based on reading its README and source code. If you notice any inaccuracies, please open an issue or pull request.
 
-Last updated: 2026-01-15
+Last updated: 2026-06-28
 
 * Overview
 
@@ -18,11 +18,11 @@ The key differences lie in their design goals, architecture, and what they enabl
 | Aspect              | org-roam                | org-node                    | vulpea                                            |
 |---------------------+-------------------------+-----------------------------+---------------------------------------------------|
 | Primary goal        | Roam Research for Emacs | Fast org-roam replacement   | Foundation (+ replacement with vulpea-ui/journal) |
-| Storage             | SQLite (persisted)      | Hash tables (in-memory)     | SQLite (persisted)                                |
+| Storage             | SQLite (persisted)      | Hash tables (+ opt. SQLite) | SQLite (persisted)                                |
 | Parser              | Org's native parser     | Custom regex parser         | Org's native parser                               |
 | Sync model          | Save hooks              | Save hooks + periodic reset | File watchers + async                             |
-| Multi-Emacs support | Problematic             | Untested                    | Designed for it                                   |
-| Encrypted files     | Yes (.gpg, .age)        | ?                           | No (see note below)                               |
+| Multi-Emacs support | Problematic             | Per-process (DB caveat)     | Designed for it                                   |
+| Encrypted files     | Yes (.gpg, .age)        | Yes (.gpg/.age, config)     | No (see note below)                               |
 | =roam:= links       | Yes                     | No                          | No                                                |
 
 * Design Philosophy
@@ -100,15 +100,15 @@ The regex approach works well for basic ID-based linking. For structured data ex
 
 - Persisted to disk
 - Complex queries possible
-- Schema is part of the public API
+- Schema is exposed and queried directly, though upstream guarantees no stability
 - Can cause issues with multiple Emacs instances (locking)
 
-*** org-node: Hash tables
+*** org-node: Hash tables (optional SQLite)
 
-- In-memory only, rebuilt each session
+- In-memory hash tables by default, rebuilt each session
 - Fast lookups by ID
-- No persistence overhead
 - Full rebuild is fast (~2 seconds for 3000 nodes)
+- Via =org-mem=, can also mirror into an org-roam-compatible SQLite database (=org-mem-roamy-db-mode=), even drop-in backing org-roam's own queries - though that shared DB can hit "readonly database" errors across multiple Emacs instances
 
 *** vulpea: SQLite with abstraction
 
@@ -170,6 +170,8 @@ All three support:
 - Backlink discovery
 - Aliases (org-roam/org-node use =ROAM_ALIASES=; vulpea uses =ALIASES= by default, configurable via =vulpea-buffer-alias-property=)
 - Tags (file and heading level)
+
+Beyond linked backlinks, org-roam and vulpea also surface *unlinked mentions* - notes that name the current one in plain text without an =id:= link. org-roam ships this as an opt-in =org-roam-mode= section (off by default, needs ripgrep); in vulpea it is =vulpea-note-unlinked-mentions-async=, shown as a vulpea-ui widget.
 
 ** Structured Data
 
@@ -270,11 +272,13 @@ Not designed for this use case. Focused on interactive note-taking.
 
 Designed as a foundation with API stability and expressiveness as core values:
 
-- *vulpea-ui* - Sidebar infrastructure with widgets (backlinks, outline, stats)
-- *vulpea-journal* - Daily notes with calendar integration
+- *vulpea-ui* - Per-frame sidebar with a widget framework. Built-in widgets: outline, backlinks with context previews, unlinked mentions, forward links, and stats - plus an API for your own.
+- *vulpea-journal* - Daily or monthly journaling with a calendar widget, date navigation, a "created today" list, and an "on this day" view of past years - all rendered as vulpea-ui sidebar widgets, no custom window management.
 - *vino* - Wine cellar management with ratings, producers, regions
 
 These aren't complex applications - they just use the foundation well. The clean API layer means you can build workflows and apps without coupling to implementation details.
+
+The ecosystem now includes third-party packages, too. Because note selection reports a =vulpea-note= completion category, the standard completion stack plugs straight in: [[https://github.com/fabcontigiani/consult-vulpea][consult-vulpea]] (live preview and narrowing), [[https://github.com/fabcontigiani/embark-vulpea][embark-vulpea]] (actions on notes), marginalia annotations, and so on. Other companions include [[https://github.com/d12frosted/vulpea-para][vulpea-para]] (the PARA method on vulpea) and [[https://github.com/d12frosted/ace-link-vui][ace-link-vui]].
 
 Benefits of the clean API:
 
@@ -353,4 +357,4 @@ Choose based on what you're building. For simple note-taking, any will work. For
 
 ** Encrypted files
 
-org-roam supports encrypted files (.gpg, .age). vulpea does not yet support them. However, this is debatable - if the file content is secret, so are the titles, tags, and metadata. Persisting them in an unencrypted SQLite database partially defeats the purpose of encryption. This needs more thought before implementation.
+org-roam supports encrypted files (.gpg, .age), and org-node/org-mem added support too (with extra config; entry bodies encrypted by org-crypt stay opaque to its parser). vulpea does not yet support them. However, this is debatable - if the file content is secret, so are the titles, tags, and metadata. Persisting them in an unencrypted SQLite database partially defeats the purpose of encryption. This needs more thought before implementation.
