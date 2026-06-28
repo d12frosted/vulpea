@@ -399,5 +399,31 @@ is sugar for `vulpea-schema-validate-notes' over the matching notes."
      (vulpea-db-query (lambda (note) (vulpea-schema-applies-p note schema)))
      schema)))
 
+;;; Authoring
+
+(defun vulpea-schema-applicable (note)
+  "Return the names of registered schemas whose predicate matches NOTE.
+Schemas are tested in registration order."
+  (cl-remove-if-not (lambda (name) (vulpea-schema-applies-p note name))
+                    (vulpea-schema-list)))
+
+(defun vulpea-schema-missing-fields (note schema-or-name &optional required-only)
+  "Return the fields of SCHEMA-OR-NAME that NOTE has no value for.
+
+Required fields come first (in declared order), then optional ones;
+with REQUIRED-ONLY non-nil only required fields are returned.
+Requiredness is evaluated against NOTE, so a function :required is
+honored.  A field counts as present when NOTE has any value for its
+:key, so this never proposes a field the note already carries."
+  (let ((schema (vulpea-schema--resolve schema-or-name))
+        (required nil)
+        (optional nil))
+    (dolist (field (vulpea-schema-fields schema))
+      (when (null (vulpea-note-meta-get-list note (plist-get field :key) 'string))
+        (if (vulpea-schema--call-or-value (plist-get field :required) note)
+            (push field required)
+          (unless required-only (push field optional)))))
+    (append (nreverse required) (nreverse optional))))
+
 (provide 'vulpea-schema)
 ;;; vulpea-schema.el ends here

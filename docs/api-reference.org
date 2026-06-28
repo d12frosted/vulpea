@@ -1247,6 +1247,39 @@ Each violation carries =note-id=, =note-title=, =schema=, =field=,
 | =vulpea-schema-validate-notes= | Violations for a list of notes           |
 | =vulpea-schema-validate-all=   | Violations for all notes a schema matches |
 
+** Authoring
+
+Where validation checks a note after the fact, authoring helps you write
+a conforming one. =vulpea-schema-insert-fields= is an interactive command
+that inserts the fields of an applicable schema into the current buffer:
+
+#+begin_src emacs-lisp
+;; M-x vulpea-schema-insert-fields
+;;   - picks the schema applicable to the buffer (prompts when several
+;;     apply, or over all schemas when none do)
+;;   - prompts for each field the note does not already have, required
+;;     ones first, offering :one-of values as completion and a note
+;;     selection for `note' fields
+;;   - inserts the answers as metadata
+;;
+;; With a prefix argument it skips prompting and inserts empty
+;; placeholders instead:
+;;   C-u M-x vulpea-schema-insert-fields
+#+end_src
+
+Existing fields are never overwritten, and a =note= value is stored as a
+proper =id:= link. Because it operates on the schema's merged fields,
+inherited fields (=:include=) are offered too.
+
+Two headless primitives back the command and are useful on their own -
+for example to build a "what's missing" view:
+
+| Function                       | Description                                         |
+|--------------------------------+-----------------------------------------------------|
+| =vulpea-schema-applicable=     | Names of schemas whose predicate matches a note     |
+| =vulpea-schema-missing-fields= | A schema's fields a note lacks, required ones first |
+| =vulpea-schema-insert-fields=  | Interactive: insert an applicable schema's fields   |
+
 * Quick Reference Tables
 
 ** Core Functions

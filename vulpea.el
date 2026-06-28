@@ -1526,5 +1526,128 @@ Signals an error if:
 
 
 
+;;; Schema authoring
+
+(defun vulpea--schema-buffer-note (&optional schema)
+  "Build a synthetic `vulpea-note' from the current buffer.
+
+The note always carries the buffer's title and tags.  When SCHEMA is
+given, it also carries the current values of that schema's field keys,
+so predicates and conditional :required / :one-of rules see in-buffer
+content while authoring."
+  (make-vulpea-note
+   :title (vulpea-buffer-title-get)
+   :tags (vulpea-buffer-tags-get)
+   :meta (when schema
+           (delq nil
+                 (mapcar
+                  (lambda (field)
+                    (let* ((key (plist-get field :key))
+                           (vals (vulpea-buffer-meta-get-list key 'string)))
+                      (when vals (cons key vals))))
+                  (vulpea-schema-fields (vulpea-schema--resolve schema)))))))
+
+(defun vulpea--schema-read-schema (note)
+  "Choose a schema to author NOTE against, prompting when ambiguous.
+
+Returns a schema name symbol.  Uses the schema applicable to NOTE when
+exactly one matches, prompts among the matches when several do, and
+prompts over all registered schemas when none match."
+  (let ((applicable (vulpea-schema-applicable note)))
+    (cond
+     ((= (length applicable) 1) (car applicable))
+     (applicable
+      (intern (completing-read "Schema: " (mapcar #'symbol-name applicable) nil t)))
+     (t
+      (let ((all (vulpea-schema-list)))
+        (unless all (user-error "No schemas are registered"))
+        (intern (completing-read "Schema: " (mapcar #'symbol-name all) nil t)))))))
+
+(defun vulpea--schema-prompt-field (field note required)
+  "Prompt for a value for FIELD.
+
+NOTE gives context and REQUIRED is non-nil when the field is required.
+Honors :type (note selection for `note' / `link'), :one-of (completion)
+and :one-of with :multiple (multi-selection).  Quitting a note prompt
+skips that field.  Returns the entered value, a list of values, or an
+empty value when skipped."
+  (let* ((type (or (plist-get field :type) 'string))
+         (one-of (vulpea-schema--call-or-value (plist-get field :one-of) note))
+         (multiple (plist-get field :multiple))
+         (prompt (format "%s%s: " (plist-get field :key)
+                         (if required " (required)" "")))
+         (candidates (lambda () (mapcar (lambda (v) (format "%s" v)) one-of))))
+    (cond
+     ((memq type '(note link))
+      (condition-case nil
+          (vulpea-select prompt :require-match t)
+        (quit nil)))
+     ((and one-of multiple)
+      (completing-read-multiple prompt (funcall candidates)))
+     (one-of
+      (completing-read prompt (funcall candidates)))
+     (t (read-string prompt)))))
+
+(defun vulpea--schema-prompt-fields (fields note)
+  "Prompt for each field in FIELDS, returning a (KEY . VALUE) alist.
+
+NOTE supplies context for conditional :required and :one-of.  An empty
+answer drops an optional field but keeps a required one as an empty
+placeholder, so the author is still reminded of it."
+  (let (values)
+    (dolist (field fields)
+      (let* ((key (plist-get field :key))
+             (required (vulpea-schema--call-or-value
+                        (plist-get field :required) note))
+             (value (vulpea--schema-prompt-field field note required))
+             ;; a multi-value answer may contain blank entries (e.g. an
+             ;; empty `completing-read-multiple'); drop them so an empty
+             ;; optional field is not written as a stray placeholder
+             (value (if (listp value) (remove "" value) value)))
+        (cond
+         ((and value (not (equal value "")))
+          (push (cons key value) values))
+         (required (push (cons key "") values)))))
+    (nreverse values)))
+
+(defun vulpea--schema-insert-field-values (fields values &optional bound)
+  "Write FIELDS into the current buffer, taking values from VALUES.
+
+FIELDS is an ordered list of field specs.  VALUES is an alist mapping a
+field :key to a value or list of values; a field absent from VALUES is
+written as an empty placeholder.  Fields are appended in order, so a
+`note' value (or a bare id) becomes a proper link via
+`vulpea-buffer-meta-format'.  BOUND limits the scope as in
+`vulpea-buffer-meta-set'."
+  (dolist (field fields)
+    (let* ((key (plist-get field :key))
+           (cell (assoc key values)))
+      (vulpea-buffer-meta-set key (if cell (cdr cell) "") 'append bound))))
+
+;;;###autoload
+(defun vulpea-schema-insert-fields (&optional schema-or-name skeleton)
+  "Insert an applicable schema's fields into the current buffer.
+
+The schema is taken from SCHEMA-OR-NAME when given, otherwise chosen
+from the schemas applicable to the current buffer (prompting when
+several apply, or over all registered schemas when none do).
+
+For each field the note does not already carry, prompt for a value -
+offering :one-of values as completion and selecting a note for `note'
+fields - and insert it; required fields are handled first.  With a
+prefix argument (SKELETON non-nil), skip prompting and insert empty
+placeholders for every missing field instead."
+  (interactive (list nil current-prefix-arg))
+  (let* ((schema (or schema-or-name
+                     (vulpea--schema-read-schema (vulpea--schema-buffer-note))))
+         (note (vulpea--schema-buffer-note schema))
+         (fields (vulpea-schema-missing-fields note schema)))
+    (if skeleton
+        (vulpea--schema-insert-field-values fields nil)
+      (let ((values (vulpea--schema-prompt-fields fields note)))
+        (vulpea--schema-insert-field-values
+         (cl-remove-if-not (lambda (f) (assoc (plist-get f :key) values)) fields)
+         values)))))
+
 (provide 'vulpea)
 ;;; vulpea.el ends here
