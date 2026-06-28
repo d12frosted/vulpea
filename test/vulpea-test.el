@@ -1971,5 +1971,233 @@ the whole match."
         (when (file-directory-p temp-dir)
           (delete-directory temp-dir t))))))
 
+;;; Schema authoring (#330)
+
+(ert-deftest vulpea-schema-insert-field-values-writes-in-order ()
+  "The writer inserts the given field values, in field order."
+  (with-temp-buffer
+    (org-mode)
+    (insert ":PROPERTIES:\n:ID: x\n:END:\n#+title: T\n")
+    (vulpea--schema-insert-field-values
+     '((:key "name") (:key "colour" :type symbol))
+     '(("name" . "Chablis") ("colour" . red)))
+    (let ((s (buffer-string)))
+      (should (string-match-p "- name :: Chablis" s))
+      (should (string-match-p "- colour :: red" s))
+      (should (< (string-match "- name ::" s) (string-match "- colour ::" s))))))
+
+(ert-deftest vulpea-schema-insert-field-values-skeleton ()
+  "With no values, the writer inserts empty placeholders."
+  (with-temp-buffer
+    (org-mode)
+    (insert ":PROPERTIES:\n:ID: x\n:END:\n#+title: T\n")
+    (vulpea--schema-insert-field-values '((:key "name") (:key "producer")) nil)
+    (let ((s (buffer-string)))
+      (should (string-match-p "- name ::" s))
+      (should (string-match-p "- producer ::" s)))))
+
+(ert-deftest vulpea-schema-insert-field-values-multiple ()
+  "A list value inserts one item per value."
+  (with-temp-buffer
+    (org-mode)
+    (insert ":PROPERTIES:\n:ID: x\n:END:\n#+title: T\n")
+    (vulpea--schema-insert-field-values
+     '((:key "grapes" :multiple t)) '(("grapes" . ("Pinot" "Gamay"))))
+    (let ((s (buffer-string)))
+      (should (string-match-p "- grapes :: Pinot" s))
+      (should (string-match-p "- grapes :: Gamay" s)))))
+
+(ert-deftest vulpea-schema-buffer-note-reads-tags ()
+  "`vulpea--schema-buffer-note' reads the buffer's title and tags."
+  (with-temp-buffer
+    (org-mode)
+    (insert ":PROPERTIES:\n:ID: x\n:END:\n#+title: My Title\n#+filetags: :wine:tasty:\n")
+    (let ((note (vulpea--schema-buffer-note)))
+      (should (equal (vulpea-note-title note) "My Title"))
+      (should (member "wine" (vulpea-note-tags note))))))
+
+(ert-deftest vulpea-schema-buffer-note-seeds-field-meta ()
+  "With a schema, the synthetic note carries current field values."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq)))
+    (vulpea-schema-define 'w :predicate #'ignore
+      :fields '((:key "carbonation") (:key "name")))
+    (with-temp-buffer
+      (org-mode)
+      (insert ":PROPERTIES:\n:ID: x\n:END:\n#+title: T\n\n- carbonation :: sparkling\n")
+      (let ((note (vulpea--schema-buffer-note 'w)))
+        (should (equal (vulpea-note-meta-get note "carbonation" 'string)
+                       "sparkling"))))))
+
+(ert-deftest vulpea-schema-insert-fields-guided ()
+  "The command resolves the schema and inserts prompted values, notes linked."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq)))
+    (vulpea-schema-define 'wine :predicate #'ignore
+      :fields '((:key "name" :required t)
+                (:key "producer" :type note :required t)
+                (:key "colour" :type symbol :one-of (red white))))
+    (with-temp-buffer
+      (org-mode)
+      (insert ":PROPERTIES:\n:ID: x\n:END:\n#+title: T\n")
+      (cl-letf (((symbol-function 'read-string) (lambda (&rest _) "Chablis"))
+                ((symbol-function 'completing-read) (lambda (&rest _) "white"))
+                ((symbol-function 'vulpea-select)
+                 (lambda (&rest _) (make-vulpea-note :id "p1" :title "Producer"))))
+        (vulpea-schema-insert-fields 'wine))
+      (let ((s (buffer-string)))
+        (should (string-match-p "- name :: Chablis" s))
+        (should (string-match-p "- producer :: \\[\\[id:p1\\]\\[Producer\\]\\]" s))
+        (should (string-match-p "- colour :: white" s))))))
+
+(ert-deftest vulpea-schema-insert-fields-skeleton ()
+  "With SKELETON non-nil the command inserts empty placeholders, no prompts."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq)))
+    (vulpea-schema-define 'wine :predicate #'ignore
+      :fields '((:key "name" :required t) (:key "colour")))
+    (with-temp-buffer
+      (org-mode)
+      (insert ":PROPERTIES:\n:ID: x\n:END:\n#+title: T\n")
+      (vulpea-schema-insert-fields 'wine t)
+      (let ((s (buffer-string)))
+        (should (string-match-p "- name ::" s))
+        (should (string-match-p "- colour ::" s))))))
+
+(ert-deftest vulpea-schema-prompt-fields-handles-empty ()
+  "An empty answer drops an optional field but keeps a required placeholder."
+  (let ((note (make-vulpea-note)))
+    (cl-letf (((symbol-function 'read-string) (lambda (&rest _) "")))
+      (let ((values (vulpea--schema-prompt-fields
+                     '((:key "req" :required t) (:key "opt")) note)))
+        (should (equal values '(("req" . ""))))))))
+
+(ert-deftest vulpea-schema-insert-fields-no-schemas ()
+  "With no schemas registered the command signals a user-error."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq)))
+    (with-temp-buffer
+      (org-mode)
+      (insert ":PROPERTIES:\n:ID: x\n:END:\n#+title: T\n")
+      (should-error (vulpea-schema-insert-fields) :type 'user-error))))
+
+(ert-deftest vulpea-schema-insert-fields-prompts-among-applicable ()
+  "When several schemas apply the prompt offers only the matching ones."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq))
+        (offered nil))
+    (vulpea-schema-define 'wine :predicate (lambda (n) (member "x" (vulpea-note-tags n)))
+      :fields '((:key "wname")))
+    (vulpea-schema-define 'account :predicate (lambda (n) (member "x" (vulpea-note-tags n)))
+      :fields '((:key "aname")))
+    (vulpea-schema-define 'other :predicate (lambda (n) (member "y" (vulpea-note-tags n)))
+      :fields '((:key "oname")))
+    (with-temp-buffer
+      (org-mode)
+      (insert ":PROPERTIES:\n:ID: x\n:END:\n#+title: T\n#+filetags: :x:\n")
+      (cl-letf (((symbol-function 'completing-read)
+                 (lambda (_prompt coll &rest _) (setq offered coll) "wine"))
+                ((symbol-function 'read-string) (lambda (&rest _) "V")))
+        (vulpea-schema-insert-fields))
+      (should (member "wine" offered))
+      (should (member "account" offered))
+      (should-not (member "other" offered))
+      (should (string-match-p "- wname :: V" (buffer-string))))))
+
+(ert-deftest vulpea-schema-insert-fields-prompts-over-all-when-none-apply ()
+  "When no schema applies the prompt offers all registered schemas."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq))
+        (offered nil))
+    (vulpea-schema-define 'wine :predicate (lambda (n) (member "wine" (vulpea-note-tags n)))
+      :fields '((:key "wname")))
+    (with-temp-buffer
+      (org-mode)
+      (insert ":PROPERTIES:\n:ID: x\n:END:\n#+title: T\n")
+      (cl-letf (((symbol-function 'completing-read)
+                 (lambda (_prompt coll &rest _) (setq offered coll) "wine"))
+                ((symbol-function 'read-string) (lambda (&rest _) "V")))
+        (vulpea-schema-insert-fields))
+      (should (member "wine" offered))
+      (should (string-match-p "- wname :: V" (buffer-string))))))
+
+(ert-deftest vulpea-schema-insert-fields-quit-skips-field ()
+  "Quitting a note prompt skips that field without aborting the command."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq)))
+    (vulpea-schema-define 'wine :predicate #'ignore
+      :fields '((:key "producer" :type note :required t) (:key "name")))
+    (with-temp-buffer
+      (org-mode)
+      (insert ":PROPERTIES:\n:ID: x\n:END:\n#+title: T\n")
+      (cl-letf (((symbol-function 'vulpea-select) (lambda (&rest _) (signal 'quit nil)))
+                ((symbol-function 'read-string) (lambda (&rest _) "Chablis")))
+        (vulpea-schema-insert-fields 'wine))
+      (let ((s (buffer-string)))
+        (should (string-match-p "- producer ::" s))
+        (should (string-match-p "- name :: Chablis" s))))))
+
+(ert-deftest vulpea-schema-insert-fields-does-not-clobber ()
+  "An existing field value is left untouched; only missing fields are added."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq)))
+    (vulpea-schema-define 'wine :predicate #'ignore
+      :fields '((:key "name") (:key "colour")))
+    (with-temp-buffer
+      (org-mode)
+      (insert ":PROPERTIES:\n:ID: x\n:END:\n#+title: T\n\n- name :: Existing\n")
+      (cl-letf (((symbol-function 'read-string) (lambda (&rest _) "NEW")))
+        (vulpea-schema-insert-fields 'wine))
+      (let ((s (buffer-string)))
+        (should (string-match-p "- name :: Existing" s))
+        (should-not (string-match-p "- name :: NEW" s))
+        (should (string-match-p "- colour :: NEW" s))))))
+
+(ert-deftest vulpea-schema-insert-fields-conditional-required-from-buffer ()
+  "A conditional :required driven by an existing sibling re-orders to required-first."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq))
+        (prompts nil))
+    (vulpea-schema-define 'wine :predicate #'ignore
+      :fields (list '(:key "carbonation")
+                    '(:key "still")
+                    (list :key "method"
+                          :required (lambda (n)
+                                      (equal (vulpea-note-meta-get n "carbonation" 'string)
+                                             "sparkling")))))
+    (with-temp-buffer
+      (org-mode)
+      (insert ":PROPERTIES:\n:ID: x\n:END:\n#+title: T\n\n- carbonation :: sparkling\n")
+      (cl-letf (((symbol-function 'read-string)
+                 (lambda (prompt &rest _) (push prompt prompts) "v")))
+        (vulpea-schema-insert-fields 'wine))
+      (should (string-match-p "method (required)" (car (nreverse prompts)))))))
+
+(ert-deftest vulpea-schema-insert-fields-include-skeleton ()
+  "Inherited (:include) fields are offered by the command."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq)))
+    (vulpea-schema-define 'base :predicate #'ignore :fields '((:key "inherited")))
+    (vulpea-schema-define 'child :include 'base :predicate #'ignore
+      :fields '((:key "own")))
+    (with-temp-buffer
+      (org-mode)
+      (insert ":PROPERTIES:\n:ID: x\n:END:\n#+title: T\n")
+      (vulpea-schema-insert-fields 'child t)
+      (let ((s (buffer-string)))
+        (should (string-match-p "- inherited ::" s))
+        (should (string-match-p "- own ::" s))))))
+
+(ert-deftest vulpea-schema-insert-fields-crm-multi ()
+  "A :one-of :multiple field inserts each chosen value as its own item."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq)))
+    (vulpea-schema-define 'w :predicate #'ignore
+      :fields '((:key "tags" :one-of (a b c) :multiple t)))
+    (with-temp-buffer
+      (org-mode)
+      (insert ":PROPERTIES:\n:ID: x\n:END:\n#+title: T\n")
+      (cl-letf (((symbol-function 'completing-read-multiple) (lambda (&rest _) '("a" "b"))))
+        (vulpea-schema-insert-fields 'w))
+      (let ((s (buffer-string)))
+        (should (string-match-p "- tags :: a" s))
+        (should (string-match-p "- tags :: b" s))))))
+
+(ert-deftest vulpea-schema-prompt-fields-drops-empty-crm-list ()
+  "An optional multi-value field with a blank-only answer is dropped, not written."
+  (let ((note (make-vulpea-note)))
+    (cl-letf (((symbol-function 'completing-read-multiple) (lambda (&rest _) '(""))))
+      (should-not (vulpea--schema-prompt-fields
+                   '((:key "tags" :one-of (a b) :multiple t)) note)))))
+
 (provide 'vulpea-test)
 ;;; vulpea-test.el ends here

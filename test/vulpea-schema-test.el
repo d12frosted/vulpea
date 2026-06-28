@@ -571,5 +571,67 @@
     (should-error (vulpea-schema-define 'c :include (list 'base 99)
                                         :predicate #'ignore :fields nil))))
 
+;;; Authoring helpers (#330)
+
+(ert-deftest vulpea-schema-applicable-returns-matching-schemas ()
+  "`vulpea-schema-applicable' returns the schemas whose predicate matches."
+  (vulpea-schema-test--with-registry
+    (vulpea-schema-define 'wine
+      :predicate (lambda (n) (member "wine" (vulpea-note-tags n))) :fields nil)
+    (vulpea-schema-define 'account
+      :predicate (lambda (n) (member "account" (vulpea-note-tags n))) :fields nil)
+    (should (equal (vulpea-schema-applicable (make-vulpea-note :tags '("wine")))
+                   '(wine)))
+    (let ((both (vulpea-schema-applicable
+                 (make-vulpea-note :tags '("wine" "account")))))
+      (should (= (length both) 2))
+      (should (memq 'wine both))
+      (should (memq 'account both)))
+    (should-not (vulpea-schema-applicable (make-vulpea-note :tags '("beer"))))))
+
+(ert-deftest vulpea-schema-missing-fields-required-first ()
+  "`vulpea-schema-missing-fields' lists absent fields, required ones first."
+  (vulpea-schema-test--with-registry
+    (vulpea-schema-define 'wine :predicate #'ignore
+      :fields '((:key "name" :required t)
+                (:key "producer" :required t)
+                (:key "vintage")
+                (:key "colour")))
+    (let* ((note (make-vulpea-note :meta '(("name" "Chablis"))))
+           (keys (mapcar (lambda (f) (plist-get f :key))
+                         (vulpea-schema-missing-fields note 'wine))))
+      ;; "name" is present -> skipped; required "producer" first, then optionals
+      (should (equal keys '("producer" "vintage" "colour"))))))
+
+(ert-deftest vulpea-schema-missing-fields-required-only ()
+  "REQUIRED-ONLY limits the result to required fields."
+  (vulpea-schema-test--with-registry
+    (vulpea-schema-define 'wine :predicate #'ignore
+      :fields '((:key "name" :required t)
+                (:key "vintage")))
+    (let ((keys (mapcar (lambda (f) (plist-get f :key))
+                        (vulpea-schema-missing-fields
+                         (make-vulpea-note) 'wine t))))
+      (should (equal keys '("name"))))))
+
+(ert-deftest vulpea-schema-missing-fields-conditional-required ()
+  "A function :required is evaluated against the note, affecting ordering."
+  (vulpea-schema-test--with-registry
+    (vulpea-schema-define 'w :predicate #'ignore
+      :fields (list '(:key "a")
+                    (list :key "method"
+                          :required (lambda (n)
+                                      (equal (vulpea-note-meta-get n "trigger" 'string)
+                                             "yes")))))
+    ;; trigger=yes -> "method" is required, sorted before optional "a"
+    (let ((keys (mapcar (lambda (f) (plist-get f :key))
+                        (vulpea-schema-missing-fields
+                         (make-vulpea-note :meta '(("trigger" "yes"))) 'w))))
+      (should (equal keys '("method" "a"))))
+    ;; no trigger -> both optional, declared order
+    (let ((keys (mapcar (lambda (f) (plist-get f :key))
+                        (vulpea-schema-missing-fields (make-vulpea-note) 'w))))
+      (should (equal keys '("a" "method"))))))
+
 (provide 'vulpea-schema-test)
 ;;; vulpea-schema-test.el ends here
