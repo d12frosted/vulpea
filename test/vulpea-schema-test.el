@@ -299,5 +299,106 @@
         (should (equal (vulpea-violation-note-id (car vs)) "bad"))
         (should (eq (vulpea-violation-type (car vs)) 'missing-required))))))
 
+;;; Link-target restrictions (#329)
+
+(ert-deftest vulpea-schema-validate-target-tags-satisfied ()
+  "A note field whose target carries every :target-tags passes."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note
+     "acc-1" "Adobe Account" :tags '("adobe" "account"))
+    (let* ((vulpea-schema--registry (make-hash-table :test 'eq))
+           (schema (vulpea-schema-define 'client
+                     :predicate (lambda (_n) t)
+                     :fields
+                     (list '(:key "account" :type note
+                                  :target-tags ("adobe"))))))
+      (should-not
+       (vulpea-schema-validate
+        (make-vulpea-note
+         :id "c" :title "C"
+         :meta '(("account" "[[id:acc-1][Adobe Account]]")))
+        schema)))))
+
+(ert-deftest vulpea-schema-validate-target-tags-missing ()
+  "A note field whose target lacks a required tag yields invalid-target."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "acc-2" "Plain Account" :tags '("account"))
+    (let* ((vulpea-schema--registry (make-hash-table :test 'eq))
+           (schema (vulpea-schema-define 'client
+                     :predicate (lambda (_n) t)
+                     :fields
+                     (list '(:key "account" :type note
+                                  :target-tags ("adobe"))))))
+      (let ((vs (vulpea-schema-validate
+                 (make-vulpea-note
+                  :id "c" :title "C"
+                  :meta '(("account" "[[id:acc-2][Plain Account]]")))
+                 schema)))
+        (should (= (length vs) 1))
+        (should (eq (vulpea-violation-type (car vs)) 'invalid-target))
+        (should (equal (vulpea-violation-field (car vs)) "account"))))))
+
+(ert-deftest vulpea-schema-validate-target-tags-all-of ()
+  "All :target-tags must be present; the missing one is named in the message."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "acc-3" "Partial" :tags '("adobe"))
+    (let* ((vulpea-schema--registry (make-hash-table :test 'eq))
+           (schema (vulpea-schema-define 'client
+                     :predicate (lambda (_n) t)
+                     :fields
+                     (list '(:key "account" :type note
+                                  :target-tags ("adobe" "enterprise"))))))
+      (let ((vs (vulpea-schema-validate
+                 (make-vulpea-note
+                  :id "c" :title "C"
+                  :meta '(("account" "[[id:acc-3][Partial]]")))
+                 schema)))
+        (should (= (length vs) 1))
+        (should (eq (vulpea-violation-type (car vs)) 'invalid-target))
+        (should (string-match-p "enterprise" (vulpea-violation-message (car vs))))))))
+
+(ert-deftest vulpea-schema-validate-target-tags-missing-reference ()
+  "A missing target yields invalid-reference, not invalid-target."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((vulpea-schema--registry (make-hash-table :test 'eq))
+           (schema (vulpea-schema-define 'client
+                     :predicate (lambda (_n) t)
+                     :fields
+                     (list '(:key "account" :type note
+                                  :target-tags ("adobe"))))))
+      (let ((vs (vulpea-schema-validate
+                 (make-vulpea-note
+                  :id "c" :title "C"
+                  :meta '(("account" "[[id:ghost][Ghost]]")))
+                 schema)))
+        (should (= (length vs) 1))
+        (should (eq (vulpea-violation-type (car vs)) 'invalid-reference))))))
+
+(ert-deftest vulpea-schema-validate-target-tags-multiple-field ()
+  "Each value of a :multiple note field is checked against :target-tags."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "g-ok" "Good Grape" :tags '("grape"))
+    (vulpea-test--insert-test-note "g-no" "Bad Grape" :tags '("misc"))
+    (let* ((vulpea-schema--registry (make-hash-table :test 'eq))
+           (schema (vulpea-schema-define 'wine
+                     :predicate (lambda (_n) t)
+                     :fields
+                     (list '(:key "grapes" :type note :multiple t
+                                  :target-tags ("grape"))))))
+      (let ((vs (vulpea-schema-validate
+                 (make-vulpea-note
+                  :id "w" :title "W"
+                  :meta '(("grapes" "[[id:g-ok][Good Grape]]"
+                           "[[id:g-no][Bad Grape]]")))
+                 schema)))
+        (should (= (length vs) 1))
+        (should (eq (vulpea-violation-type (car vs)) 'invalid-target))
+        (should (equal (vulpea-violation-value (car vs)) "g-no"))))))
+
 (provide 'vulpea-schema-test)
 ;;; vulpea-schema-test.el ends here

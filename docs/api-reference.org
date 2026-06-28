@@ -1142,20 +1142,29 @@ declaring the metadata those notes should carry.
 
 Field spec keys:
 
-| Key         | Meaning                                                          |
-|-------------+-----------------------------------------------------------------|
-| =:key=      | metadata key string (required)                                  |
-| =:type=     | =string= (default), =number=, =symbol=, =note=, or =link=       |
-| =:required= | =t=/=nil=, or a function =(note)= → boolean                     |
-| =:one-of=   | a list of allowed values, or a function =(note)= → list         |
-| =:multiple= | non-nil when the field holds a list of values                   |
-| =:validate= | optional function =(value note)= → =t= or an error string       |
+| Key            | Meaning                                                   |
+|----------------+-----------------------------------------------------------|
+| =:key=         | metadata key string (required)                            |
+| =:type=        | =string= (default), =number=, =symbol=, =note=, or =link= |
+| =:required=    | =t=/=nil=, or a function =(note)= → boolean               |
+| =:one-of=      | a list of allowed values, or a function =(note)= → list   |
+| =:multiple=    | non-nil when the field holds a list of values             |
+| =:target-tags= | for a =note= field, tags its target must all carry        |
+| =:validate=    | optional function =(value note)= → =t= or an error string |
 
 The =:type= vocabulary matches =vulpea-note-meta-get=, so values are read
 the same way everywhere. Use a function for =:required= or =:one-of= when
 the rule depends on another field (e.g. allowed sweetness levels that
 vary by carbonation). To read a sibling field inside such a function,
 call =vulpea-note-meta-get= directly so you control the value type.
+
+For a =note= field, =:target-tags= additionally constrains the /target/:
+the linked note must carry every listed tag, otherwise validation reports
+an =invalid-target= violation. For example, =(:key "account" :type note
+:target-tags ("adobe"))= only accepts links to notes tagged =adobe=. The
+check applies per value, so it also covers each link in a =:multiple=
+field. (Restricting a target by another schema - =:target-schema= - is
+planned but not yet implemented.)
 
 Registry and helpers:
 
@@ -1198,6 +1207,7 @@ Each violation carries =note-id=, =note-title=, =schema=, =field=,
 | =missing-required=  | a required field has no value                      |
 | =wrong-type=        | a value does not match the field's declared type   |
 | =invalid-reference= | a =note= field links to a non-existent note        |
+| =invalid-target=    | a =note= target is missing a =:target-tags= tag    |
 | =disallowed-value=  | a value is not in the field's =:one-of= set        |
 | =invalid-value=     | a value is rejected by the field's =:validate= fn  |
 

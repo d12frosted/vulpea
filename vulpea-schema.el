@@ -52,6 +52,9 @@
 ;;              a dependent enum (e.g. sweetness levels depend on
 ;;              carbonation).
 ;;   :multiple  non-nil when the field holds a list of values.
+;;   :target-tags  for a `note' field, a list of tags its target must
+;;              carry (all of them); a missing tag yields an
+;;              `invalid-target' violation.
 ;;   :validate  optional function (value note) -> t, or an error message
 ;;              string, for arbitrary checks.
 ;;
@@ -225,11 +228,30 @@ MESSAGE describes the problem and VALUE is the offending value."
    :message message
    :value value))
 
+(defun vulpea-schema--target-tags-violation (target id field note schema)
+  "Return a violation when TARGET is missing FIELD's :target-tags, else nil.
+
+TARGET is the resolved `vulpea-note' referenced by FIELD on NOTE, and ID
+is its id (used in the message and as the offending value).  SCHEMA owns
+the field.  All declared tags must be present (all-of); the missing ones
+are named in the message."
+  (let* ((required (plist-get field :target-tags))
+         (missing (and required
+                       (cl-remove-if
+                        (lambda (tag) (member tag (vulpea-note-tags target)))
+                        required))))
+    (when missing
+      (vulpea-schema--violation
+       note schema field 'invalid-target
+       (format "Field %S target %s is missing required tag(s) %S"
+               (plist-get field :key) id missing)
+       id))))
+
 (defun vulpea-schema--value-violation (raw field note schema)
   "Return a violation for the RAW value of FIELD on NOTE, or nil when valid.
 SCHEMA is the owning schema.  Checks, in order: type, reference
-resolution (for `note' fields), allowed values, then a custom
-:validate function.  Returns the first problem found."
+resolution and :target-tags (for `note' fields), allowed values, then a
+custom :validate function.  Returns the first problem found."
   (let* ((key (plist-get field :key))
          (type (or (plist-get field :type) 'string))
          (one-of (vulpea-schema--call-or-value (plist-get field :one-of) note))
@@ -249,10 +271,16 @@ resolution (for `note' fields), allowed values, then a custom
             (vulpea-schema--violation
              note schema field 'wrong-type
              (format "Field %S expected an id link, got %S" key raw) raw))
-           ((and (eq type 'note) (not (vulpea-db-get-by-id id)))
-            (vulpea-schema--violation
-             note schema field 'invalid-reference
-             (format "Field %S references missing note %s" key id) id))))))
+           ;; `link' fields only check the id-link shape; `note' fields
+           ;; additionally resolve the target and enforce :target-tags.
+           ((eq type 'note)
+            (let ((target (vulpea-db-get-by-id id)))
+              (if (not target)
+                  (vulpea-schema--violation
+                   note schema field 'invalid-reference
+                   (format "Field %S references missing note %s" key id) id)
+                (vulpea-schema--target-tags-violation
+                 target id field note schema))))))))
      ;; allowed values (not meaningful for note/link references)
      (when (and one-of (not (memq type '(note link))))
        (let ((typed (vulpea-schema--coerce raw type)))
@@ -297,6 +325,7 @@ Each field is checked for the following problem types:
 - `missing-required'   a required field has no value
 - `wrong-type'         a value does not match the field's declared type
 - `invalid-reference'  a `note' field links to a non-existent note
+- `invalid-target'     a `note' field's target is missing a :target-tags tag
 - `disallowed-value'   a value is not in the field's :one-of set
 - `invalid-value'      a value is rejected by the field's :validate function
 
