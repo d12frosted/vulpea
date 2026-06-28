@@ -75,6 +75,12 @@
 ;; To read a sibling field inside a :required / :one-of function, use
 ;; `vulpea-note-meta-get' directly so you control the value type.
 ;;
+;; A schema may inherit fields from others with `:include' (a schema
+;; name or a list of names).  Included fields are merged in before the
+;; schema's own; on a :key collision the later definition wins, so a
+;; schema's own field overrides an included one.  See
+;; `vulpea-schema-define' for the full merge rules.
+;;
 ;;; Code:
 
 (require 'cl-lib)
@@ -102,12 +108,39 @@ Slots:
 (defvar vulpea-schema--registry (make-hash-table :test 'eq)
   "Registry of defined schemas, keyed by name symbol.")
 
-(cl-defun vulpea-schema-define (name &key predicate fields)
+(defun vulpea-schema--merge-fields (field-lists)
+  "Merge FIELD-LISTS, a list of field-spec lists, into a single list.
+The lists are processed in order; a later field spec overrides an
+earlier one with the same :key, whether the duplicate falls within a
+single list or across lists, while an overridden field keeps the
+position of its first appearance.  Used to fold the fields of included
+schemas into a schema that names them in :include."
+  (let ((order nil)
+        (by-key (make-hash-table :test 'equal)))
+    (dolist (fields field-lists)
+      (dolist (field fields)
+        (let ((key (plist-get field :key)))
+          (unless (gethash key by-key)
+            (push key order))
+          (puthash key field by-key))))
+    (mapcar (lambda (key) (gethash key by-key)) (nreverse order))))
+
+(cl-defun vulpea-schema-define (name &key predicate fields include)
   "Define and register a schema called NAME.
 
 PREDICATE is a function (note) -> non-nil when the schema applies to
 the note.  FIELDS is a list of field spec plists (see Commentary for
 the supported keys).
+
+INCLUDE names another schema to inherit fields from - a schema name
+symbol, a `vulpea-schema' object, or a list of either.  The included
+schemas contribute their fields first (multiple includes merged
+left-to-right), then FIELDS.  When a :key appears more than once the
+later definition wins, so FIELDS overrides an included field and a
+later include overrides an earlier one; an overridden field keeps the
+position of its first appearance.  Includes are resolved now, so an
+included schema must already be registered, and re-defining it later
+does not retroactively update schemas that included it.
 
 Registering a schema with an existing NAME replaces it.  Returns the
 `vulpea-schema' object."
@@ -119,10 +152,20 @@ Registering a schema with an existing NAME replaces it.  Returns the
     (unless (and (plist-member field :key)
                  (stringp (plist-get field :key)))
       (error "Schema field must have a string :key: %S" field)))
-  (let ((schema (vulpea-schema--create
-                 :name name
-                 :predicate predicate
-                 :fields fields)))
+  (let* ((includes (cond
+                    ((null include) nil)
+                    ((or (symbolp include) (vulpea-schema-p include)) (list include))
+                    ((listp include) include)
+                    (t (error "Schema :include must be a symbol, a schema, or a list of them: %S"
+                              include))))
+         (inherited (mapcar (lambda (s)
+                              (vulpea-schema-fields (vulpea-schema--resolve s)))
+                            includes))
+         (schema (vulpea-schema--create
+                  :name name
+                  :predicate predicate
+                  :fields (vulpea-schema--merge-fields
+                           (append inherited (list fields))))))
     (puthash name schema vulpea-schema--registry)
     schema))
 
