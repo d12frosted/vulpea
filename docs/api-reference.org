@@ -1177,6 +1177,36 @@ Registry and helpers:
 | =vulpea-schema-applies-p=                 | Does a schema's predicate match a note |
 | =vulpea-schema-field-value=               | Read a field's value with its type     |
 
+** Composition
+
+A schema can inherit fields from others with =:include=, which takes a
+schema name (a symbol or =vulpea-schema= object) or a list of them:
+
+#+begin_src emacs-lisp
+(vulpea-schema-define 'base-account
+  :predicate (lambda (note) (member "account" (vulpea-note-tags note)))
+  :fields '((:key "username" :required t)
+            (:key "domain"   :required t)))
+
+(vulpea-schema-define 'adobe-account
+  :include 'base-account
+  :predicate (lambda (note) (member "adobe" (vulpea-note-tags note)))
+  :fields '((:key "cloud-tier" :type symbol :one-of (free pro enterprise))))
+#+end_src
+
+Included schemas contribute their fields first (multiple includes are
+merged left to right), then the schema's own =:fields=. When the same
+=:key= appears more than once the later definition wins, so a schema's
+own field overrides an inherited one, and an overridden field keeps the
+position of its first appearance. Inheritance is transitive: including a
+schema that itself includes others pulls in the whole chain. Includes
+are resolved when the schema is defined, so an included schema must
+already be registered, and re-defining it later does not retroactively
+update schemas that included it. The predicate is not inherited - each
+schema declares its own. The merged field list is what validation and
+=vulpea-schema-field-value= operate on, so inherited fields behave
+exactly like native ones.
+
 ** Validation
 
 Validate notes against a schema, getting back a list of =vulpea-violation=

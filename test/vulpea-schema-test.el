@@ -400,5 +400,176 @@
         (should (eq (vulpea-violation-type (car vs)) 'invalid-target))
         (should (equal (vulpea-violation-value (car vs)) "g-no"))))))
 
+;;; Composition / inheritance (#327)
+
+(defun vulpea-schema-test--field (schema key)
+  "Return the field spec for KEY in SCHEMA, or nil."
+  (cl-find key (vulpea-schema-fields schema)
+           :key (lambda (f) (plist-get f :key)) :test #'equal))
+
+(defun vulpea-schema-test--field-keys (schema)
+  "Return the ordered list of field keys in SCHEMA."
+  (mapcar (lambda (f) (plist-get f :key)) (vulpea-schema-fields schema)))
+
+(ert-deftest vulpea-schema-include-inherits-fields ()
+  "A schema with :include gains the included schema's fields, before its own."
+  (vulpea-schema-test--with-registry
+    (vulpea-schema-define 'base
+      :predicate #'ignore
+      :fields '((:key "username" :required t)
+                (:key "domain" :required t)))
+    (let ((child (vulpea-schema-define 'adobe
+                   :include 'base
+                   :predicate (lambda (_n) t)
+                   :fields '((:key "cloud-tier" :one-of (free pro))))))
+      (should (equal (vulpea-schema-test--field-keys child)
+                     '("username" "domain" "cloud-tier")))
+      ;; the inherited spec is carried verbatim
+      (should (plist-get (vulpea-schema-test--field child "username") :required)))))
+
+(ert-deftest vulpea-schema-include-child-overrides-collision ()
+  "On a :key collision the child's field spec wins, keeping the base position."
+  (vulpea-schema-test--with-registry
+    (vulpea-schema-define 'base
+      :predicate #'ignore
+      :fields '((:key "domain" :required t)
+                (:key "username" :required t)))
+    (let ((child (vulpea-schema-define 'child
+                   :include 'base
+                   :predicate (lambda (_n) t)
+                   :fields '((:key "domain" :required nil :one-of (com org))))))
+      (let ((domain (vulpea-schema-test--field child "domain")))
+        (should-not (plist-get domain :required))
+        (should (equal (plist-get domain :one-of) '(com org))))
+      ;; "domain" keeps its base position; no duplicate is introduced
+      (should (equal (vulpea-schema-test--field-keys child)
+                     '("domain" "username"))))))
+
+(ert-deftest vulpea-schema-include-multiple ()
+  "Multiple includes merge left-to-right; a later one overrides an earlier one."
+  (vulpea-schema-test--with-registry
+    (vulpea-schema-define 'a :predicate #'ignore
+      :fields '((:key "shared" :required t) (:key "a-only")))
+    (vulpea-schema-define 'b :predicate #'ignore
+      :fields '((:key "shared" :required nil) (:key "b-only")))
+    (let ((child (vulpea-schema-define 'child
+                   :include '(a b)
+                   :predicate (lambda (_n) t)
+                   :fields '((:key "c-only")))))
+      (should (equal (vulpea-schema-test--field-keys child)
+                     '("shared" "a-only" "b-only" "c-only")))
+      ;; b's "shared" (later include) overrides a's
+      (should-not (plist-get (vulpea-schema-test--field child "shared") :required)))))
+
+(ert-deftest vulpea-schema-include-transitive ()
+  "Includes flatten transitively (a includes b, b includes c)."
+  (vulpea-schema-test--with-registry
+    (vulpea-schema-define 'c :predicate #'ignore :fields '((:key "c1")))
+    (vulpea-schema-define 'b :include 'c :predicate #'ignore :fields '((:key "b1")))
+    (let ((a (vulpea-schema-define 'a :include 'b :predicate (lambda (_n) t)
+                                   :fields '((:key "a1")))))
+      (should (equal (vulpea-schema-test--field-keys a) '("c1" "b1" "a1"))))))
+
+(ert-deftest vulpea-schema-include-accepts-symbol-or-list ()
+  "`:include' accepts a single symbol or a list of symbols equivalently."
+  (vulpea-schema-test--with-registry
+    (vulpea-schema-define 'base :predicate #'ignore :fields '((:key "x")))
+    (let ((sym (vulpea-schema-define 's :include 'base
+                                     :predicate #'ignore :fields nil))
+          (lst (vulpea-schema-define 'l :include '(base)
+                                     :predicate #'ignore :fields nil)))
+      (should (equal (vulpea-schema-test--field-keys sym) '("x")))
+      (should (equal (vulpea-schema-test--field-keys lst) '("x"))))))
+
+(ert-deftest vulpea-schema-include-unregistered-errors ()
+  "Including an unregistered schema errors at define time."
+  (vulpea-schema-test--with-registry
+    (should-error (vulpea-schema-define 'child :include 'nope
+                                        :predicate #'ignore :fields nil))))
+
+(ert-deftest vulpea-schema-include-validation-inherits ()
+  "Validation honors inherited fields (a missing inherited required field)."
+  (vulpea-schema-test--with-registry
+    (vulpea-schema-define 'base :predicate (lambda (_n) t)
+      :fields '((:key "name" :required t)))
+    (vulpea-schema-define 'child :include 'base :predicate (lambda (_n) t)
+      :fields '((:key "extra")))
+    (let ((vs (vulpea-schema-validate
+               (make-vulpea-note :id "n" :title "N" :meta '(("extra" "x")))
+               'child)))
+      (should (= (length vs) 1))
+      (should (eq (vulpea-violation-type (car vs)) 'missing-required))
+      (should (equal (vulpea-violation-field (car vs)) "name")))))
+
+(ert-deftest vulpea-schema-include-dedups-duplicate-own-keys ()
+  "A duplicate :key within a schema's own :fields collapses last-wins."
+  (vulpea-schema-test--with-registry
+    (let ((s (vulpea-schema-define 'dup
+               :predicate #'ignore
+               :fields '((:key "a" :required t)
+                         (:key "b")
+                         (:key "a" :required nil :one-of (x y))))))
+      (should (equal (vulpea-schema-test--field-keys s) '("a" "b")))
+      (let ((a (vulpea-schema-test--field s "a")))
+        (should-not (plist-get a :required))
+        (should (equal (plist-get a :one-of) '(x y)))))))
+
+(ert-deftest vulpea-schema-include-cycle-snapshots-safely ()
+  "Cyclic and self includes snapshot at define time without looping."
+  (vulpea-schema-test--with-registry
+    ;; self-include: redefining a registered schema to include itself just
+    ;; folds in its own previous (snapshot) fields - no infinite loop.
+    (vulpea-schema-define 'selfy :predicate #'ignore :fields '((:key "orig")))
+    (let ((s (vulpea-schema-define 'selfy :include 'selfy
+                                   :predicate #'ignore :fields '((:key "new")))))
+      (should (equal (vulpea-schema-test--field-keys s) '("orig" "new"))))
+    ;; a <-> b cycle, resolved against current snapshots
+    (vulpea-schema-define 'cyc-b :predicate #'ignore :fields '((:key "b1")))
+    (vulpea-schema-define 'cyc-a :include 'cyc-b :predicate #'ignore
+                          :fields '((:key "a1")))
+    (let ((b (vulpea-schema-define 'cyc-b :include 'cyc-a :predicate #'ignore
+                                   :fields '((:key "b2")))))
+      (should (equal (vulpea-schema-test--field-keys b) '("b1" "a1" "b2"))))))
+
+(ert-deftest vulpea-schema-include-redefinition-is-snapshot ()
+  "Re-defining a parent after a child does not update the child."
+  (vulpea-schema-test--with-registry
+    (vulpea-schema-define 'par :predicate #'ignore :fields '((:key "p1")))
+    (vulpea-schema-define 'kid :include 'par :predicate #'ignore
+                          :fields '((:key "k1")))
+    (should (equal (vulpea-schema-test--field-keys (vulpea-schema-get 'kid))
+                   '("p1" "k1")))
+    ;; redefine the parent with an extra field
+    (vulpea-schema-define 'par :predicate #'ignore
+                          :fields '((:key "p1") (:key "p2")))
+    ;; the child keeps the fields it snapshotted at its own define time
+    (should (equal (vulpea-schema-test--field-keys (vulpea-schema-get 'kid))
+                   '("p1" "k1")))))
+
+(ert-deftest vulpea-schema-include-accepts-schema-object ()
+  "`:include' accepts a `vulpea-schema' object, bare or inside a list."
+  (vulpea-schema-test--with-registry
+    (let ((base (vulpea-schema-define 'base :predicate #'ignore
+                                      :fields '((:key "x")))))
+      (let ((bare (vulpea-schema-define 'b1 :include base
+                                        :predicate #'ignore :fields nil))
+            (listed (vulpea-schema-define 'b2 :include (list base)
+                                          :predicate #'ignore :fields nil)))
+        (should (equal (vulpea-schema-test--field-keys bare) '("x")))
+        (should (equal (vulpea-schema-test--field-keys listed) '("x")))))))
+
+(ert-deftest vulpea-schema-include-rejects-bad-input ()
+  "`:include' rejects non-symbol / non-schema inputs."
+  (vulpea-schema-test--with-registry
+    (vulpea-schema-define 'base :predicate #'ignore :fields '((:key "x")))
+    ;; a bare string or number is not a schema reference
+    (should-error (vulpea-schema-define 'a :include "base"
+                                        :predicate #'ignore :fields nil))
+    (should-error (vulpea-schema-define 'b :include 99
+                                        :predicate #'ignore :fields nil))
+    ;; a list element that is not a symbol/schema fails on resolution
+    (should-error (vulpea-schema-define 'c :include (list 'base 99)
+                                        :predicate #'ignore :fields nil))))
+
 (provide 'vulpea-schema-test)
 ;;; vulpea-schema-test.el ends here
