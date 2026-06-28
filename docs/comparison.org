@@ -22,7 +22,7 @@ The key differences lie in their design goals, architecture, and what they enabl
 | Parser              | Org's native parser     | Custom regex parser         | Org's native parser                               |
 | Sync model          | Save hooks              | Save hooks + periodic reset | File watchers + async                             |
 | Multi-Emacs support | Problematic             | Per-process (DB caveat)     | Designed for it                                   |
-| Encrypted files     | Yes (.gpg, .age)        | Yes (.gpg/.age, config)     | No (see note below)                               |
+| Encrypted files     | Yes (.gpg, .age)        | Yes (.gpg/.age, config)     | Yes (.gpg/.age, opt-in)                           |
 | =roam:= links       | Yes                     | No                          | No                                                |
 
 * Design Philosophy
@@ -292,7 +292,6 @@ Benefits of the clean API:
 
 - You want the Roam Research experience in Emacs
 - You need =roam:= links
-- You need encrypted file support (.gpg, .age)
 - You want a large, active community with many third-party packages (org-roam-ui, org-roam-bibtex, consult-org-roam, and many more)
 - Performance is acceptable for your collection size
 
@@ -357,4 +356,6 @@ Choose based on what you're building. For simple note-taking, any will work. For
 
 ** Encrypted files
 
-org-roam supports encrypted files (.gpg, .age), and org-node/org-mem added support too (with extra config; entry bodies encrypted by org-crypt stay opaque to its parser). vulpea does not yet support them. However, this is debatable - if the file content is secret, so are the titles, tags, and metadata. Persisting them in an unencrypted SQLite database partially defeats the purpose of encryption. This needs more thought before implementation.
+All three can index encrypted files. org-roam handles =.gpg= and =.age=; org-node/org-mem support whole-file =.gpg=/=.age= with extra config (org-crypt-encrypted entry bodies stay opaque to the parser). vulpea supports them opt-in: set =vulpea-db-extra-extensions= to e.g. =(".org.age" ".org.gpg")= and install the matching decryption package (=age.el=, or the built-in =epa-file=); those files are parsed via the slower =find-file= method so the hooks can decrypt them.
+
+The same caveat applies to all three: the extracted metadata (titles, tags, links) is stored in an *unencrypted* database. If a file's contents are secret, its title and tags usually are too, so indexing them partially defeats the purpose. That is a real trade-off to weigh, not a blocker - and in vulpea, change detection runs on the raw (still-encrypted) bytes.
