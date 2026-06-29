@@ -425,5 +425,17 @@ honored.  A field counts as present when NOTE has any value for its
           (unless required-only (push field optional)))))
     (append (nreverse required) (nreverse optional))))
 
+(defun vulpea-schema-note-violations (note)
+  "Return all violations of NOTE across the schemas that apply to it.
+
+Validates NOTE against each schema named by `vulpea-schema-applicable'
+and concatenates the results.  Returns nil when no schema applies or the
+note conforms to all that do.  This is the per-note counterpart to
+`vulpea-schema-validate-all' and the shared entry point for surfacing a
+single note's violations (sync warnings, in-buffer linting, health
+widgets)."
+  (cl-loop for name in (vulpea-schema-applicable note)
+           append (vulpea-schema-validate note name)))
+
 (provide 'vulpea-schema)
 ;;; vulpea-schema.el ends here

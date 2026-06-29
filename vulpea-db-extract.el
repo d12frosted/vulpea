@@ -51,6 +51,7 @@
 (require 'seq)
 (require 'cl-lib)
 (require 'vulpea-db)
+(require 'vulpea-note)
 (require 'vulpea-buffer)
 
 (defsubst vulpea-db--string-no-properties (value)
@@ -967,6 +968,46 @@ Returns updated note-data after all extractors have run."
 
 ;;; Update File
 
+(defvar vulpea-db-note-index-filter-functions nil
+  "Abnormal hook to veto notes before they are indexed.
+
+Each function is called with the `vulpea-note' that is about to be
+inserted while `vulpea-db-update-file' processes a file, and should
+return non-nil to allow indexing it or nil to skip it.  A note is
+indexed only when every function allows it
+\(`run-hook-with-args-until-failure').  Functions may also emit warnings.
+
+Handlers see the note built from the file currently being synced, so
+they observe the live on-disk content.  This is the supported way to
+react to a note as it enters the database - for example to surface
+schema violations (see `vulpea-db-schema-validation-action').")
+
+(defun vulpea-db--note-from-data (data path level)
+  "Build a `vulpea-note' from extraction DATA for PATH at LEVEL.
+Only the fields needed to reason about a note (identity, tags, meta,
+links) are populated.  Used to present the note to
+`vulpea-db-note-index-filter-functions' before insertion."
+  (make-vulpea-note
+   :id (plist-get data :id)
+   :path path
+   :level level
+   :title (plist-get data :title)
+   :tags (plist-get data :tags)
+   :aliases (plist-get data :aliases)
+   :meta (plist-get data :meta)
+   :links (plist-get data :links)
+   :properties (plist-get data :properties)
+   :file-title (plist-get data :file-title)))
+
+(defun vulpea-db--note-allowed-p (data path level)
+  "Return non-nil when the note in DATA (at PATH, LEVEL) may be indexed.
+Runs `vulpea-db-note-index-filter-functions'; with no handlers the note
+is always allowed and no note object is built."
+  (or (null vulpea-db-note-index-filter-functions)
+      (run-hook-with-args-until-failure
+       'vulpea-db-note-index-filter-functions
+       (vulpea-db--note-from-data data path level))))
+
 (defun vulpea-db-update-file (path)
   "Parse and update database for file at PATH.
 
@@ -989,21 +1030,24 @@ Returns number of notes updated (file-level + headings)."
       ;; Insert file-level note
       (let ((file-data (vulpea-parse-ctx-file-node ctx)))
         (when-let* ((id (plist-get file-data :id)))
-          (vulpea-db--insert-note-from-plist ctx path 0 0 file-data)
-          (push id ids)
-          (setq count (1+ count))))
+          (when (vulpea-db--note-allowed-p file-data path 0)
+            (vulpea-db--insert-note-from-plist ctx path 0 0 file-data)
+            (push id ids)
+            (setq count (1+ count)))))
 
       ;; Insert heading-level notes
       (dolist (heading-data (vulpea-parse-ctx-heading-nodes ctx))
-        (vulpea-db--insert-note-from-plist
-         ctx
-         path
-         (plist-get heading-data :level)
-         (plist-get heading-data :pos)
-         heading-data)
-        (when-let* ((id (plist-get heading-data :id)))
-          (push id ids))
-        (setq count (1+ count)))
+        (when (vulpea-db--note-allowed-p
+               heading-data path (plist-get heading-data :level))
+          (vulpea-db--insert-note-from-plist
+           ctx
+           path
+           (plist-get heading-data :level)
+           (plist-get heading-data :pos)
+           heading-data)
+          (when-let* ((id (plist-get heading-data :id)))
+            (push id ids))
+          (setq count (1+ count))))
 
       ;; Update file hash
       (vulpea-db--update-file-hash path
