@@ -65,7 +65,7 @@ Slots:
   attach-dir   - Attachment directory
   file-title   - Title of the file containing this note
   created-at   - Creation timestamp (from the CREATED property, may be nil)
-  modified-at  - Modification timestamp (set when the note was last synced)"
+  modified-at  - File modification time (mtime), captured at last sync"
   id
   path
   level
