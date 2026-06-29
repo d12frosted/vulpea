@@ -27,17 +27,19 @@ All query functions return =vulpea-note= structs:
 (vulpea-note-attach-dir note)    ; Attachment directory or nil
 (vulpea-note-file-title note)    ; Title of file containing note
 (vulpea-note-created-at note)    ; Creation date "YYYY-MM-DD" or nil
-(vulpea-note-modified-at note)   ; Timestamp of the note's last sync
+(vulpea-note-modified-at note)   ; File mtime "YYYY-MM-DD HH:MM:SS"
 #+end_src
 
 =vulpea-note-created-at= is the note's creation date, derived from its
 =CREATED= property and normalized to a =YYYY-MM-DD= string (the same
 source used by the =vulpea-db-query-by-created-*= queries), or nil when
-the note has no =CREATED= property. =vulpea-note-modified-at= is a
-=YYYY-MM-DD HH:MM:SS= timestamp recorded when the note was last synced
-into the database; it tracks indexing time rather than the file's own
-modification time (for the latter, see =vulpea-db-query-stale-notes=,
-which reads the =files= table).
+the note has no =CREATED= property. =vulpea-note-modified-at= is the
+file's own modification time (mtime), formatted as a =YYYY-MM-DD
+HH:MM:SS= string and captured at the last sync. All notes in a file
+share it (a heading-level note carries its file's mtime), and a file
+edited but not yet re-synced keeps its previous value until the next
+sync. =vulpea-db-query-stale-notes= filters notes by this same mtime,
+read from the =files= table.
 
 * Getting Notes
 

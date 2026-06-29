@@ -1040,7 +1040,8 @@ Returns number of notes updated (file-level + headings)."
 
 CTX is the parse context containing AST and other metadata.
 Runs registered extractors after insertion."
-  (let* ((modified-at (format-time-string "%Y-%m-%d %H:%M:%S"))
+  (let* ((modified-at (format-time-string "%Y-%m-%d %H:%M:%S"
+                                          (vulpea-parse-ctx-mtime ctx)))
          (properties (plist-get data :properties))
          (created-at (vulpea-db--extract-created-date properties)))
     ;; First insert the note so foreign keys can reference it

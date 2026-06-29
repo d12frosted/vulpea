@@ -208,6 +208,23 @@
               (should (equal title "Version 2"))))
         (delete-file path)))))
 
+(ert-deftest vulpea-db-note-modified-at-tracks-file-mtime ()
+  "`modified-at' reflects the file's mtime, not the sync wall-clock."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((path (vulpea-test--create-temp-org-file
+                 ":PROPERTIES:\n:ID: mtime-id\n:END:\n#+TITLE: Mtime Test\n")))
+      (unwind-protect
+          ;; Pin the file's modification time to a fixed point in the past,
+          ;; clearly distinct from "now" so a sync-clock value would not match.
+          (let ((mtime (encode-time (list 0 0 12 1 1 2020 nil -1 nil))))
+            (set-file-times path mtime)
+            (vulpea-db-update-file path)
+            (let ((note (vulpea-db-get-by-id "mtime-id")))
+              (should (equal (vulpea-note-modified-at note)
+                             (format-time-string "%Y-%m-%d %H:%M:%S" mtime)))))
+        (delete-file path)))))
+
 (ert-deftest vulpea-db-sync-update-if-changed-deleted-file ()
   "Test updating file that was deleted after being indexed."
   (vulpea-test--with-temp-db
