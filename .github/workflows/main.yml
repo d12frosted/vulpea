@@ -20,7 +20,7 @@ jobs:
     env:
       ORG_ROAM_V2_PATH: .org-roam
     steps:
-      - uses: purcell/setup-emacs@master
+      - uses: d12frosted/setup-emacs@v1
         with:
           version: ${{ matrix.emacs_version }}
 
