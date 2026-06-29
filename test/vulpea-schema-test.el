@@ -633,5 +633,42 @@
                         (vulpea-schema-missing-fields (make-vulpea-note) 'w))))
       (should (equal keys '("a" "method"))))))
 
+;;; Note violations across applicable schemas (#331)
+
+(ert-deftest vulpea-schema-note-violations-across-applicable ()
+  "`vulpea-schema-note-violations' validates a note against every applicable schema."
+  (vulpea-schema-test--with-registry
+    (vulpea-schema-define 'wine
+      :predicate (lambda (n) (member "wine" (vulpea-note-tags n)))
+      :fields '((:key "name" :required t)))
+    (vulpea-schema-define 'rated
+      :predicate (lambda (n) (member "wine" (vulpea-note-tags n)))
+      :fields '((:key "score" :required t)))
+    (let ((vs (vulpea-schema-note-violations
+               (make-vulpea-note :id "w" :title "W" :tags '("wine")))))
+      (should (= (length vs) 2))
+      (should (cl-every (lambda (v) (eq (vulpea-violation-type v) 'missing-required)) vs))
+      (should (member "name" (mapcar #'vulpea-violation-field vs)))
+      (should (member "score" (mapcar #'vulpea-violation-field vs))))))
+
+(ert-deftest vulpea-schema-note-violations-conformant ()
+  "A conformant note yields no violations."
+  (vulpea-schema-test--with-registry
+    (vulpea-schema-define 'wine
+      :predicate (lambda (n) (member "wine" (vulpea-note-tags n)))
+      :fields '((:key "name" :required t)))
+    (should-not (vulpea-schema-note-violations
+                 (make-vulpea-note :id "w" :title "W" :tags '("wine")
+                                   :meta '(("name" "Chablis")))))))
+
+(ert-deftest vulpea-schema-note-violations-no-applicable-schema ()
+  "A note no schema applies to yields no violations."
+  (vulpea-schema-test--with-registry
+    (vulpea-schema-define 'wine
+      :predicate (lambda (n) (member "wine" (vulpea-note-tags n)))
+      :fields '((:key "name" :required t)))
+    (should-not (vulpea-schema-note-violations
+                 (make-vulpea-note :id "b" :title "B" :tags '("beer"))))))
+
 (provide 'vulpea-schema-test)
 ;;; vulpea-schema-test.el ends here
