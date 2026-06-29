@@ -1315,6 +1315,26 @@ Two pieces back it and are reusable on their own:
   allows it. This is the general extension point the validation action
   builds on.
 
+** In-buffer linting
+
+=vulpea-schema-flymake-mode= is a buffer-local minor mode (off by default)
+that flags schema violations with flymake while you edit a note:
+
+#+begin_src emacs-lisp
+;; turn it on in the current buffer
+(vulpea-schema-flymake-mode)
+
+;; or enable it for note buffers from a hook
+(add-hook 'org-mode-hook #'vulpea-schema-flymake-mode)
+#+end_src
+
+Every note in the buffer (file-level and heading-level) is validated
+against each schema =vulpea-schema-applicable= returns, and each violation
+is shown as a warning on the offending field's metadata line, or on the
+note's heading line for a missing required field. It reuses
+=vulpea-schema-note-violations=, so it is the live, in-buffer counterpart
+to the sync-time =vulpea-db-schema-validation-action=.
+
 * Quick Reference Tables
 
 ** Core Functions
