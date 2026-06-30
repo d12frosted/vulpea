@@ -265,6 +265,23 @@ If you use polling, install =fd= — it is critical for polling performance. Ben
 
 Both run asynchronously and don't block the editor, but =fd= completes the scan 15× faster, meaning changes are detected sooner.
 
+** Windows fswatch Path Style
+
+The MSYS2/mingw and Cygwin builds of =fswatch= take different directory arguments: the mingw build watches native =c:/...= paths, while the Cygwin build (e.g. the one from winget) only watches =/cygdrive/c/...= paths. =vulpea-db-sync-fswatch-path-style= controls which form Vulpea passes, and defaults to =auto= (start native, switch to =/cygdrive/= automatically if the Cygwin build's path errors are seen).
+
+#+begin_src emacs-lisp
+;; Automatic detection (default)
+(setq vulpea-db-sync-fswatch-path-style 'auto)
+
+;; Force native paths (MSYS2/mingw build)
+(setq vulpea-db-sync-fswatch-path-style 'native)
+
+;; Force /cygdrive/ paths (Cygwin build)
+(setq vulpea-db-sync-fswatch-path-style 'cygwin)
+#+end_src
+
+This has no effect off Windows.
+
 * Startup Behavior
 
 Control what happens when =vulpea-db-autosync-mode= is enabled.

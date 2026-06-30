@@ -98,6 +98,26 @@ Possible values:
           (const :tag "Filenotify only (unreliable)" nil))
   :group 'vulpea-db-sync)
 
+(defcustom vulpea-db-sync-fswatch-path-style 'auto
+  "Path style to use when launching `fswatch' on Windows.
+
+The available Windows builds of fswatch expect different directory
+arguments.  The MSYS2/mingw build accepts native paths like
+\"c:/notes\"; the Cygwin build (e.g. the one distributed via winget)
+only accepts \"/cygdrive/c/notes\" and fails to watch native paths.
+
+Possible values:
+- `auto' - start with native paths and automatically switch to the
+  Cygwin style if that build's path errors are detected at runtime
+- `native' - always pass native paths (MSYS2/mingw build)
+- `cygwin' - always pass `/cygdrive/' paths (Cygwin build)
+
+Has no effect off Windows, where fswatch always receives native paths."
+  :type '(choice (const :tag "Automatic" auto)
+          (const :tag "Native (MSYS2/mingw)" native)
+          (const :tag "Cygwin (/cygdrive/)" cygwin))
+  :group 'vulpea-db-sync)
+
 (defcustom vulpea-db-sync-poll-interval 2
   "Interval in seconds for polling external changes.
 
@@ -183,6 +203,19 @@ Each entry is (path . timestamp).")
 
 (defvar vulpea-db-sync--fswatch-buffer ""
   "Buffer for incomplete fswatch output lines.")
+
+(defvar vulpea-db-sync--fswatch-effective-style nil
+  "Auto-detected fswatch path style: `native', `cygwin', or nil.
+
+Set when `vulpea-db-sync-fswatch-path-style' is `auto' and the Cygwin
+build of fswatch is detected at runtime.  Reset when external
+monitoring stops.")
+
+(defvar vulpea-db-sync--fswatch-seen-valid-event nil
+  "Non-nil once fswatch has reported a valid watched-path event.
+
+Guards auto-detection so a watcher that is already working is never
+switched to a different path style by a stray error.")
 
 (defvar vulpea-db-sync--poll-timer nil
   "Timer for polling-based external monitoring.")
@@ -994,8 +1027,10 @@ is enabled."
       (delete-process vulpea-db-sync--fswatch-process))
     (setq vulpea-db-sync--fswatch-process nil))
 
-  ;; Clear fswatch buffer
+  ;; Clear fswatch buffer and reset path-style auto-detection
   (setq vulpea-db-sync--fswatch-buffer "")
+  (setq vulpea-db-sync--fswatch-effective-style nil)
+  (setq vulpea-db-sync--fswatch-seen-valid-event nil)
 
   ;; Stop polling timer
   (when vulpea-db-sync--poll-timer
@@ -1032,26 +1067,35 @@ restarts are unaffected."
 
       ;; Only setup fswatch if there are valid directories
       (when valid-dirs
-        (setq vulpea-db-sync--fswatch-process
-              (make-process
-               :name "vulpea-fswatch"
-               :buffer (get-buffer-create "*vulpea-fswatch-debug*")
-               :command `("fswatch"
-                          "--recursive"
-                          "--event=Updated"
-                          "--event=Created"
-                          "--event=Removed"
-                          "--event=Renamed"          ; needed to detect moves (e.g., to trash)
-                          "--exclude" "\\.#.*$"      ; exclude auto-save files
-                          "--exclude" "#.*#$"        ; exclude backup files
-                          "--exclude" ".*~$"         ; exclude backup files
-                          "--exclude" "\\.git/"      ; exclude .git directory
-                          "--format" "%p|||%f"      ; include event flag with ||| separator
-                          ,@(nreverse valid-dirs))
-               :noquery t
-               :filter #'vulpea-db-sync--fswatch-filter
-               :sentinel #'vulpea-db-sync--fswatch-sentinel))
-        (vulpea-db-sync--message "Vulpea: Started fswatch monitoring")))))
+        ;; The Cygwin build of fswatch needs `/cygdrive/' paths; the
+        ;; native build (and every non-Windows platform) takes the
+        ;; directories as-is.  `file-directory-p' above ran on the
+        ;; native paths, so translate only what we hand to the process.
+        (let ((command-dirs
+               (if (eq (vulpea-db-sync--fswatch-resolve-style) 'cygwin)
+                   (mapcar #'vulpea-db-sync--fswatch-to-cygwin-path
+                           (nreverse valid-dirs))
+                 (nreverse valid-dirs))))
+          (setq vulpea-db-sync--fswatch-process
+                (make-process
+                 :name "vulpea-fswatch"
+                 :buffer (get-buffer-create "*vulpea-fswatch-debug*")
+                 :command `("fswatch"
+                            "--recursive"
+                            "--event=Updated"
+                            "--event=Created"
+                            "--event=Removed"
+                            "--event=Renamed"          ; needed to detect moves (e.g., to trash)
+                            "--exclude" "\\.#.*$"      ; exclude auto-save files
+                            "--exclude" "#.*#$"        ; exclude backup files
+                            "--exclude" ".*~$"         ; exclude backup files
+                            "--exclude" "\\.git/"      ; exclude .git directory
+                            "--format" "%p|||%f"      ; include event flag with ||| separator
+                            ,@command-dirs)
+                 :noquery t
+                 :filter #'vulpea-db-sync--fswatch-filter
+                 :sentinel #'vulpea-db-sync--fswatch-sentinel))
+          (vulpea-db-sync--message "Vulpea: Started fswatch monitoring"))))))
 
 (defun vulpea-db-sync--fswatch-normalize-path (path)
   "Canonicalize PATH as reported by fswatch.
@@ -1096,6 +1140,55 @@ case than `expand-file-name'."
                                       path ignore-case))
                    vulpea-db-sync-directories))))
 
+(defun vulpea-db-sync--fswatch-to-cygwin-path (path)
+  "Convert a native Windows PATH to the Cygwin `/cygdrive/' form.
+
+For example \"c:/Users/foo/notes\" becomes
+\"/cygdrive/c/Users/foo/notes\".  A PATH with no drive letter is
+returned unchanged (with backslashes converted to forward slashes)."
+  (let ((p (replace-regexp-in-string "\\\\" "/" path)))
+    (if (string-match "\\`\\([A-Za-z]\\):/" p)
+        (concat "/cygdrive/" (downcase (match-string 1 p)) "/"
+                (substring p (match-end 0)))
+      p)))
+
+(defun vulpea-db-sync--fswatch-resolve-style ()
+  "Return the effective fswatch path style: `native' or `cygwin'.
+
+Honors `vulpea-db-sync-fswatch-path-style'; in `auto' mode returns the
+style detected so far, defaulting to `native' until the Cygwin build is
+detected."
+  (pcase vulpea-db-sync-fswatch-path-style
+    ('native 'native)
+    ('cygwin 'cygwin)
+    (_ (or vulpea-db-sync--fswatch-effective-style 'native))))
+
+(defun vulpea-db-sync--fswatch-cygwin-error-p (line)
+  "Return non-nil when LINE is a Cygwin fswatch path-handling error.
+
+The Cygwin build cannot open native Windows paths and prints an
+\"Invalid handle\" error for each one instead of watching it."
+  (and (stringp line)
+       (string-match-p "Invalid handle" line)))
+
+(defun vulpea-db-sync--fswatch-switch-to-cygwin ()
+  "Remember the Cygwin path style and restart fswatch with it.
+
+Used by auto-detection: the Cygwin build of fswatch cannot watch the
+native paths vulpea passes, so once its error output is seen the
+watcher is restarted with `/cygdrive/' directories instead."
+  (setq vulpea-db-sync--fswatch-effective-style 'cygwin)
+  (setq vulpea-db-sync--fswatch-buffer "")
+  (vulpea-db-sync--message
+   "Vulpea: detected Cygwin fswatch, retrying with /cygdrive/ paths")
+  (when vulpea-db-sync--fswatch-process
+    ;; Suppress the sentinel's auto-restart; we restart explicitly below.
+    (set-process-sentinel vulpea-db-sync--fswatch-process #'ignore)
+    (when (process-live-p vulpea-db-sync--fswatch-process)
+      (delete-process vulpea-db-sync--fswatch-process))
+    (setq vulpea-db-sync--fswatch-process nil))
+  (vulpea-db-sync--setup-fswatch))
+
 (defun vulpea-db-sync--fswatch-filter (_proc output)
   "Process fswatch OUTPUT.
 
@@ -1114,33 +1207,44 @@ Handles partial lines by buffering incomplete output."
       (setq vulpea-db-sync--fswatch-buffer (or (car (last lines)) ""))
       (setq lines (butlast lines)))
 
-    ;; Process complete lines
-    (dolist (line lines)
-      (let* ((raw (string-trim line))
-             (parts (split-string raw "|||" t))
-             (file (vulpea-db-sync--fswatch-normalize-path (car parts)))
-             (flags (cadr parts)))
-        (when (and file
-                   (not (string-empty-p file))
-                   (vulpea-db-sync--fswatch-path-valid-p file)
-                   (not (string-match-p "/\\.git/" file))
-                   (not (string-match-p "/\\.#" file))
-                   (not (string-match-p "#$" file))
-                   (not (string-match-p "~$" file)))
-          (cond
-           ;; Explicit removal event
-           ((and flags (string-match-p "Removed" flags))
-            (vulpea-db-sync--handle-removed-file file))
-           ;; File/directory no longer exists (e.g., moved to trash)
-           ((not (file-exists-p file))
-            (vulpea-db-sync--handle-removed-file file))
-           ;; Directory created/renamed - scan for org files inside
-           ((file-directory-p file)
-            (dolist (org-file (vulpea-db-sync--list-org-files file))
-              (vulpea-db-sync--enqueue org-file)))
-           ;; Regular file change
-           ((vulpea-db-sync--org-file-p file)
-            (vulpea-db-sync--enqueue file))))))))
+    (if (and (eq vulpea-db-sync-fswatch-path-style 'auto)
+             (not vulpea-db-sync--fswatch-seen-valid-event)
+             (not (eq vulpea-db-sync--fswatch-effective-style 'cygwin))
+             (seq-some #'vulpea-db-sync--fswatch-cygwin-error-p lines))
+        ;; The Cygwin build cannot watch the native paths we passed and
+        ;; only emits errors; switch path style and restart instead of
+        ;; processing this batch.
+        (vulpea-db-sync--fswatch-switch-to-cygwin)
+      ;; Process complete lines
+      (dolist (line lines)
+        (let* ((raw (string-trim line))
+               (parts (split-string raw "|||" t))
+               (file (vulpea-db-sync--fswatch-normalize-path (car parts)))
+               (flags (cadr parts)))
+          (when (and file
+                     (not (string-empty-p file))
+                     (vulpea-db-sync--fswatch-path-valid-p file)
+                     (not (string-match-p "/\\.git/" file))
+                     (not (string-match-p "/\\.#" file))
+                     (not (string-match-p "#$" file))
+                     (not (string-match-p "~$" file)))
+            ;; A valid watched-path event means the current path style
+            ;; works; lock it in so a later stray error cannot flip it.
+            (setq vulpea-db-sync--fswatch-seen-valid-event t)
+            (cond
+             ;; Explicit removal event
+             ((and flags (string-match-p "Removed" flags))
+              (vulpea-db-sync--handle-removed-file file))
+             ;; File/directory no longer exists (e.g., moved to trash)
+             ((not (file-exists-p file))
+              (vulpea-db-sync--handle-removed-file file))
+             ;; Directory created/renamed - scan for org files inside
+             ((file-directory-p file)
+              (dolist (org-file (vulpea-db-sync--list-org-files file))
+                (vulpea-db-sync--enqueue org-file)))
+             ;; Regular file change
+             ((vulpea-db-sync--org-file-p file)
+              (vulpea-db-sync--enqueue file)))))))))
 
 (defun vulpea-db-sync--fswatch-sentinel (proc event)
   "Handle fswatch PROC sentinel EVENT."

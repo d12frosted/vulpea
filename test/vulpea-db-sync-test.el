@@ -1361,7 +1361,10 @@ issue #344)."
            (vulpea-db-sync-directories (list dir))
            (vulpea-db-sync--queue nil)
            (vulpea-db-sync--queue-set (make-hash-table :test 'equal))
-           (vulpea-db-sync--timer nil))
+           (vulpea-db-sync--timer nil)
+           (vulpea-db-sync-fswatch-path-style 'auto)
+           (vulpea-db-sync--fswatch-effective-style nil)
+           (vulpea-db-sync--fswatch-seen-valid-event nil))
       (unwind-protect
           (progn
             (with-temp-file file
@@ -1379,6 +1382,78 @@ issue #344)."
             (should (equal (caar vulpea-db-sync--queue) file)))
         (when (file-directory-p dir)
           (delete-directory dir t))))))
+
+;;; fswatch Cygwin support (Windows)
+
+(ert-deftest vulpea-db-sync-fswatch-to-cygwin-path ()
+  "A native Windows path is converted to the /cygdrive/ form."
+  (should (equal (vulpea-db-sync--fswatch-to-cygwin-path "c:/Users/foo/notes")
+                 "/cygdrive/c/Users/foo/notes"))
+  ;; Upper-case drive is lowered.
+  (should (equal (vulpea-db-sync--fswatch-to-cygwin-path "C:/X/y")
+                 "/cygdrive/c/X/y"))
+  ;; Backslashes are converted too.
+  (should (equal (vulpea-db-sync--fswatch-to-cygwin-path "c:\\X\\y")
+                 "/cygdrive/c/X/y"))
+  ;; A path with no drive letter is returned unchanged.
+  (should (equal (vulpea-db-sync--fswatch-to-cygwin-path "/home/foo/notes")
+                 "/home/foo/notes")))
+
+(ert-deftest vulpea-db-sync-fswatch-resolve-style ()
+  "Path style honors the option, falling back to detection in auto mode."
+  (let ((vulpea-db-sync--fswatch-effective-style nil))
+    (let ((vulpea-db-sync-fswatch-path-style 'native))
+      (should (eq (vulpea-db-sync--fswatch-resolve-style) 'native)))
+    (let ((vulpea-db-sync-fswatch-path-style 'cygwin))
+      (should (eq (vulpea-db-sync--fswatch-resolve-style) 'cygwin)))
+    ;; auto with nothing detected yet defaults to native
+    (let ((vulpea-db-sync-fswatch-path-style 'auto))
+      (should (eq (vulpea-db-sync--fswatch-resolve-style) 'native)))
+    ;; auto honors a previously detected style
+    (let ((vulpea-db-sync-fswatch-path-style 'auto)
+          (vulpea-db-sync--fswatch-effective-style 'cygwin))
+      (should (eq (vulpea-db-sync--fswatch-resolve-style) 'cygwin)))))
+
+(ert-deftest vulpea-db-sync-fswatch-cygwin-error-p ()
+  "The Cygwin path-handling error is recognized; valid output is not."
+  (should (vulpea-db-sync--fswatch-cygwin-error-p
+           "Invalid handle when opening C:\\Users\\me\\notes."))
+  (should-not (vulpea-db-sync--fswatch-cygwin-error-p
+               "c:/Users/me/notes/file.org|||Updated"))
+  (should-not (vulpea-db-sync--fswatch-cygwin-error-p nil)))
+
+(ert-deftest vulpea-db-sync-fswatch-auto-switches-to-cygwin ()
+  "Auto mode flips to the Cygwin style when native paths error out."
+  (let ((vulpea-db-sync-fswatch-path-style 'auto)
+        (vulpea-db-sync--fswatch-effective-style nil)
+        (vulpea-db-sync--fswatch-seen-valid-event nil)
+        (vulpea-db-sync--fswatch-process nil)
+        (vulpea-db-sync--fswatch-buffer "")
+        (system-type 'windows-nt)
+        (setup-called 0))
+    (cl-letf (((symbol-function 'vulpea-db-sync--setup-fswatch)
+               (lambda () (setq setup-called (1+ setup-called)))))
+      (vulpea-db-sync--fswatch-filter
+       nil "Invalid handle when opening C:\\Users\\me\\notes.\n")
+      (should (eq vulpea-db-sync--fswatch-effective-style 'cygwin))
+      (should (= setup-called 1)))))
+
+(ert-deftest vulpea-db-sync-fswatch-auto-no-switch-after-valid ()
+  "A watcher that already produced events is not switched by a stray error."
+  (let ((vulpea-db-sync-fswatch-path-style 'auto)
+        (vulpea-db-sync--fswatch-effective-style nil)
+        ;; Pretend a valid event was already seen.
+        (vulpea-db-sync--fswatch-seen-valid-event t)
+        (vulpea-db-sync--fswatch-process nil)
+        (vulpea-db-sync--fswatch-buffer "")
+        (system-type 'windows-nt)
+        (setup-called 0))
+    (cl-letf (((symbol-function 'vulpea-db-sync--setup-fswatch)
+               (lambda () (setq setup-called (1+ setup-called)))))
+      (vulpea-db-sync--fswatch-filter
+       nil "Invalid handle when opening C:\\Users\\me\\notes.\n")
+      (should (null vulpea-db-sync--fswatch-effective-style))
+      (should (= setup-called 0)))))
 
 (provide 'vulpea-db-sync-test)
 ;;; vulpea-db-sync-test.el ends here
