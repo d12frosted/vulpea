@@ -1568,20 +1568,29 @@ prompts over all registered schemas when none match."
   "Prompt for a value for FIELD.
 
 NOTE gives context and REQUIRED is non-nil when the field is required.
-Honors :type (note selection for `note' / `link'), :one-of (completion)
-and :one-of with :multiple (multi-selection).  Quitting a note prompt
-skips that field.  Returns the entered value, a list of values, or an
-empty value when skipped."
+Honors :type (note selection for `note' / `link'), :one-of (completion),
+:one-of with :multiple (multi-selection), and :target-tags (restricting
+note selection to notes carrying every listed tag).  Quitting a note
+prompt skips that field.  Returns the entered value, a list of values,
+or an empty value when skipped."
   (let* ((type (or (plist-get field :type) 'string))
          (one-of (vulpea-schema--call-or-value (plist-get field :one-of) note))
          (multiple (plist-get field :multiple))
+         (target-tags (plist-get field :target-tags))
          (prompt (format "%s%s: " (plist-get field :key)
                          (if required " (required)" "")))
          (candidates (lambda () (mapcar (lambda (v) (format "%s" v)) one-of))))
     (cond
      ((memq type '(note link))
       (condition-case nil
-          (vulpea-select prompt :require-match t)
+          (if target-tags
+              (vulpea-select prompt :require-match t
+                             :filter-fn
+                             (lambda (n)
+                               (cl-every (lambda (tag)
+                                           (member tag (vulpea-note-tags n)))
+                                         target-tags)))
+            (vulpea-select prompt :require-match t))
         (quit nil)))
      ((and one-of multiple)
       (completing-read-multiple prompt (funcall candidates)))
@@ -1649,6 +1658,33 @@ placeholders for every missing field instead."
         (vulpea--schema-insert-field-values
          (cl-remove-if-not (lambda (f) (assoc (plist-get f :key) values)) fields)
          values)))))
+
+;;;###autoload
+(defun vulpea-schema-fix-violation (violation &optional bound)
+  "Fix VIOLATION in the current buffer by prompting for a corrected value.
+
+Resolves the violated field from VIOLATION's schema and prompts for a
+value the way `vulpea-schema-insert-fields' does - offering :one-of
+values as completion, selecting a note for `note' fields, restricting to
+:target-tags - then writes it, replacing the offending value or
+inserting the field when it was missing.  Returns the value written, or
+nil when the prompt is skipped.  BOUND limits the scope as in
+`vulpea-buffer-meta-set'.
+
+This is the headless building block UIs use to offer one-key fixes for a
+`vulpea-schema-validate' violation."
+  (let* ((schema (vulpea-schema--resolve (vulpea-violation-schema violation)))
+         (field (cl-find (vulpea-violation-field violation)
+                         (vulpea-schema-fields schema)
+                         :key (lambda (f) (plist-get f :key))
+                         :test #'equal))
+         (note (vulpea--schema-buffer-note schema))
+         (required (vulpea-schema--call-or-value (plist-get field :required) note))
+         (value (vulpea--schema-prompt-field field note required))
+         (value (if (listp value) (remove "" value) value)))
+    (when (and field value (not (equal value "")))
+      (vulpea-buffer-meta-set (plist-get field :key) value 'append bound)
+      value)))
 
 (provide 'vulpea)
 ;;; vulpea.el ends here
