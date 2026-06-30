@@ -1375,6 +1375,23 @@ from =vulpea-schema-includes= (the names a schema now retains from its
 The whole scan is one query plus an in-memory pass, so it stays sub-second
 for collections of several thousand notes.
 
+** In vulpea-ui
+
+Everything above is headless; [[https://github.com/d12frosted/vulpea-ui][vulpea-ui]] is where schemas get a UI, so
+in practice you rarely call these functions by hand:
+
+- The sidebar *schema health widget* shows the current note's violations
+  (=vulpea-schema-note-violations=) and offers one-key quick-fixes
+  (=vulpea-schema-fix-violation=).
+- The *schema dashboard* (=M-x vulpea-ui-schema-dashboard=) renders
+  =vulpea-schema-collection-health= across the whole collection: every
+  schema with its covered and invalid counts and its =:include=
+  relationships, expanding each invalid note to its violations to fix or
+  jump to them.
+
+(=vulpea-schema-flymake-mode= above is vulpea's own and needs no UI
+package - it flags the same violations inline as you edit.)
+
 * Quick Reference Tables
 
 ** Core Functions

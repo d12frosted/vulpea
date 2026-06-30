@@ -272,7 +272,7 @@ Not designed for this use case. Focused on interactive note-taking.
 
 Designed as a foundation with API stability and expressiveness as core values:
 
-- *vulpea-ui* - Per-frame sidebar with a widget framework. Built-in widgets: outline, backlinks with context previews, unlinked mentions, forward links, and stats - plus an API for your own.
+- *vulpea-ui* - Per-frame sidebar with a widget framework, plus standalone views. Built-in widgets: outline, backlinks with context previews, unlinked mentions, forward links, stats, and schema health - plus a collection-wide schema dashboard and an API for your own.
 - *vulpea-journal* - Daily or monthly journaling with a calendar widget, date navigation, a "created today" list, and an "on this day" view of past years - all rendered as vulpea-ui sidebar widgets, no custom window management.
 - *vino* - Wine cellar management with ratings, producers, regions
 
