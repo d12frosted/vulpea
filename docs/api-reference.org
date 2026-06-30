@@ -1281,6 +1281,15 @@ for example to build a "what's missing" view:
 | =vulpea-schema-applicable=     | Names of schemas whose predicate matches a note     |
 | =vulpea-schema-missing-fields= | A schema's fields a note lacks, required ones first |
 | =vulpea-schema-insert-fields=  | Interactive: insert an applicable schema's fields   |
+| =vulpea-schema-fix-violation=  | Prompt to fix one violation in the current buffer   |
+
+Once a note's violations are known, =vulpea-schema-fix-violation= applies
+a one-shot fix for a single =vulpea-violation= in the current buffer: it
+prompts for a corrected value the same way - =:one-of= completion, and
+note selection that honours a field's =:target-tags= - then writes it,
+replacing the offending value or inserting a missing field. It is the
+headless building block UIs use to offer one-key fixes (for example the
+schema health widget in vulpea-ui).
 
 ** Validation at sync
 

@@ -2199,5 +2199,64 @@ the whole match."
       (should-not (vulpea--schema-prompt-fields
                    '((:key "tags" :one-of (a b) :multiple t)) note)))))
 
+;;; Schema quick-fix (#342)
+
+(ert-deftest vulpea-schema-fix-violation-missing ()
+  "Fixing a missing-required violation inserts the prompted value."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq)))
+    (vulpea-schema-define 'wine :predicate #'ignore
+      :fields '((:key "name" :required t)))
+    (with-temp-buffer
+      (org-mode)
+      (insert ":PROPERTIES:\n:ID: x\n:END:\n#+title: T\n#+filetags: :wine:\n")
+      (let ((v (car (vulpea-schema-validate (vulpea--schema-buffer-note 'wine) 'wine))))
+        (cl-letf (((symbol-function 'read-string) (lambda (&rest _) "Chablis")))
+          (vulpea-schema-fix-violation v))
+        (should (string-match-p "- name :: Chablis" (buffer-string)))))))
+
+(ert-deftest vulpea-schema-fix-violation-disallowed-replaces ()
+  "Fixing a disallowed value replaces it with the chosen one."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq)))
+    (vulpea-schema-define 'wine :predicate #'ignore
+      :fields '((:key "colour" :type symbol :one-of (red white))))
+    (with-temp-buffer
+      (org-mode)
+      (insert ":PROPERTIES:\n:ID: x\n:END:\n#+title: T\n#+filetags: :wine:\n\n- colour :: blue\n")
+      (let ((v (car (vulpea-schema-validate (vulpea--schema-buffer-note 'wine) 'wine))))
+        (cl-letf (((symbol-function 'completing-read) (lambda (&rest _) "white")))
+          (vulpea-schema-fix-violation v))
+        (let ((s (buffer-string)))
+          (should (string-match-p "- colour :: white" s))
+          (should-not (string-match-p "blue" s)))))))
+
+(ert-deftest vulpea-schema-fix-violation-note ()
+  "Fixing a note-field violation inserts a link to the chosen note."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq)))
+    (vulpea-schema-define 'wine :predicate #'ignore
+      :fields '((:key "producer" :type note :required t)))
+    (with-temp-buffer
+      (org-mode)
+      (insert ":PROPERTIES:\n:ID: x\n:END:\n#+title: T\n#+filetags: :wine:\n")
+      (let ((v (car (vulpea-schema-validate (vulpea--schema-buffer-note 'wine) 'wine))))
+        (cl-letf (((symbol-function 'vulpea-select)
+                   (lambda (&rest _) (make-vulpea-note :id "p1" :title "Producer"))))
+          (vulpea-schema-fix-violation v))
+        (should (string-match-p "- producer :: \\[\\[id:p1\\]\\[Producer\\]\\]"
+                                (buffer-string)))))))
+
+(ert-deftest vulpea-schema-prompt-field-target-tags-filter ()
+  "A note field with :target-tags restricts selection to valid targets."
+  (let (captured-filter)
+    (cl-letf (((symbol-function 'vulpea-select)
+               (lambda (_prompt &rest args)
+                 (setq captured-filter (plist-get args :filter-fn))
+                 (make-vulpea-note :id "p1"))))
+      (vulpea--schema-prompt-field
+       '(:key "producer" :type note :target-tags ("producer"))
+       (make-vulpea-note) t))
+    (should captured-filter)
+    (should (funcall captured-filter (make-vulpea-note :tags '("producer"))))
+    (should-not (funcall captured-filter (make-vulpea-note :tags '("other"))))))
+
 (provide 'vulpea-test)
 ;;; vulpea-test.el ends here
