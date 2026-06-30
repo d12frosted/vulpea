@@ -294,39 +294,69 @@ If the property is already set, replace its value."
   (vulpea-buffer-prop-set
    name (combine-and-quote-strings values separators)))
 
+(defun vulpea-buffer--point-in-raw-block-p ()
+  "Return non-nil when point sits inside a verbatim block.
+
+Source, example, export, and comment blocks hold raw text, so a
+line that looks like #+KEYWORD: inside them is block content, not a
+real document keyword.  The property readers consult this to skip
+such quoted markup (e.g. a note that embeds Org examples).
+
+Preserves the caller's point and match data."
+  (save-match-data
+    (let ((element (save-excursion
+                     (beginning-of-line)
+                     (org-element-at-point))))
+      (memq (org-element-type element)
+            '(src-block example-block export-block comment-block)))))
+
 (defun vulpea-buffer-prop-get (name)
-  "Get a buffer property called NAME as a string."
+  "Get a buffer property called NAME as a string.
+
+A line matching #+NAME: that lives inside a verbatim block (source,
+example, export, comment) is ignored, since it is block content
+rather than a real document keyword."
   (org-with-point-at 1
     ;; Bind `case-fold-search' (like the sibling readers) so the property
     ;; is found regardless of the caller's setting, and quote NAME so a
     ;; regexp-special character in it is matched literally.
-    (let ((case-fold-search t))
-      (when (re-search-forward
-             (concat "^#\\+" (regexp-quote name) ": \\(.*\\)")
-             (point-max) t)
-        (let ((value (string-trim
-                      (buffer-substring-no-properties
-                       (match-beginning 1)
-                       (match-end 1)))))
-          (unless (string-empty-p value)
-            value))))))
-
-(defun vulpea-buffer-prop-get-all (name)
-  "Get all values of buffer property called NAME as a list of strings.
-
-Unlike `vulpea-buffer-prop-get' which returns only the first
-match, this collects values from all lines matching #+NAME:."
-  (let (values)
-    (org-with-point-at 1
-      (let ((case-fold-search t))
-        (while (re-search-forward (concat "^#\\+" name ": \\(.*\\)")
-                                  (point-max) t)
+    (let ((case-fold-search t)
+          (regexp (concat "^#\\+" (regexp-quote name) ": \\(.*\\)"))
+          result done)
+      (while (and (not done)
+                  (re-search-forward regexp (point-max) t))
+        (unless (vulpea-buffer--point-in-raw-block-p)
+          ;; First genuine keyword wins, matching the historical
+          ;; first-match-or-nil behaviour.
+          (setq done t)
           (let ((value (string-trim
                         (buffer-substring-no-properties
                          (match-beginning 1)
                          (match-end 1)))))
             (unless (string-empty-p value)
-              (push value values))))))
+              (setq result value)))))
+      result)))
+
+(defun vulpea-buffer-prop-get-all (name)
+  "Get all values of buffer property called NAME as a list of strings.
+
+Unlike `vulpea-buffer-prop-get' which returns only the first
+match, this collects values from all lines matching #+NAME:.
+Lines inside verbatim blocks (source, example, export, comment)
+are ignored, since they are block content rather than real
+document keywords."
+  (let (values)
+    (org-with-point-at 1
+      (let ((case-fold-search t))
+        (while (re-search-forward (concat "^#\\+" name ": \\(.*\\)")
+                                  (point-max) t)
+          (unless (vulpea-buffer--point-in-raw-block-p)
+            (let ((value (string-trim
+                          (buffer-substring-no-properties
+                           (match-beginning 1)
+                           (match-end 1)))))
+              (unless (string-empty-p value)
+                (push value values)))))))
     (nreverse values)))
 
 (defun vulpea-buffer-prop-get-list (name &optional separators)

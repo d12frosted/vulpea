@@ -627,6 +627,24 @@ An unquoted name would let \".\" match a different property line."
     (insert "#+myXprop: wrong\n#+my.prop: value-a\n")
     (should (equal (vulpea-buffer-prop-get "my.prop") "value-a"))))
 
+(ert-deftest vulpea-buffer-prop-get-skips-src-block ()
+  "A #+KEYWORD: line inside a src block is not a real document keyword.
+prop-get must skip it, even when it appears before the genuine one."
+  (with-temp-buffer
+    (org-mode)
+    (insert "#+begin_src org\n#+title: Quoted\n#+end_src\n#+title: Real\n")
+    (should (equal (vulpea-buffer-prop-get "title") "Real"))))
+
+(ert-deftest vulpea-buffer-prop-get-all-skips-blocks ()
+  "prop-get-all must collect only genuine keywords, not quoted markup.
+Lines inside src/example blocks must be ignored."
+  (with-temp-buffer
+    (org-mode)
+    (insert "#+filetags: :real:\n"
+            "#+begin_src org\n#+filetags: :quoted:\n#+end_src\n"
+            "#+begin_example\n#+filetags: :alsoquoted:\n#+end_example\n")
+    (should (equal (vulpea-buffer-prop-get-all "filetags") '(":real:")))))
+
 (ert-deftest vulpea-buffer-prop-remove ()
   "Test removing existing property."
   (let ((id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"))
@@ -1292,6 +1310,34 @@ gives a descriptive error."
    (goto-char (point-min))
    (should (equal (vulpea-buffer-tags-get)
                   '("tag1" "tag2" "tag3" "tag4")))))
+
+;;; Filetags inside blocks tests
+
+(ert-deftest vulpea-buffer-tags-get-ignores-src-block-filetags ()
+  "File-level tags-get must not read #+filetags quoted in a src block.
+A note that merely quotes org markup should expose no tags."
+  (vulpea-buffer-test--with-temp-buffer
+   "#+title: PARA, not GTD
+
+#+begin_src org
+#+filetags: :agenda:area:
+#+end_src
+"
+   (goto-char (point-min))
+   (should (equal (vulpea-buffer-tags-get) nil))))
+
+(ert-deftest vulpea-buffer-tags-get-keeps-real-drops-quoted ()
+  "Genuine filetags are kept; ones quoted inside blocks are ignored."
+  (vulpea-buffer-test--with-temp-buffer
+   "#+title: Mixed
+#+filetags: :realtag:
+
+#+begin_example
+#+filetags: :agenda:area:
+#+end_example
+"
+   (goto-char (point-min))
+   (should (equal (vulpea-buffer-tags-get) '("realtag")))))
 
 ;;; vulpea-buffer-meta-change-functions Tests
 

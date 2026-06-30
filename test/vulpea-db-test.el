@@ -489,6 +489,26 @@ parent headings top-down, then own tags."
       (should note)
       (should (equal (vulpea-note-tags note) '("ftag1" "ftag2"))))))
 
+;;; #+filetags inside blocks Tests
+
+(ert-deftest vulpea-db-file-note-ignores-filetags-in-blocks ()
+  "Filetags quoted inside src/example blocks must not become real tags.
+A note that merely quotes org markup (e.g. a blog post about PARA)
+keeps only its genuine #+filetags."
+  (vulpea-test--with-temp-db-and-file "file-id"
+    "#+title: PARA, not GTD\n#+filetags: :realtag:\n\n#+begin_src org\n#+filetags: :agenda:area:\n#+end_src\n\n#+begin_example\n#+filetags: :project:\n#+end_example\n"
+    (let ((note (vulpea-db-get-by-id "file-id")))
+      (should note)
+      (should (equal (vulpea-note-tags note) '("realtag"))))))
+
+(ert-deftest vulpea-db-file-note-only-block-filetags-yields-none ()
+  "When the only #+filetags lives inside a block, the note has no tags."
+  (vulpea-test--with-temp-db-and-file "file-id"
+    "#+title: PARA, not GTD\n\n#+begin_src org\n#+filetags: :agenda:area:\n#+end_src\n"
+    (let ((note (vulpea-db-get-by-id "file-id")))
+      (should note)
+      (should (equal (vulpea-note-tags note) nil)))))
+
 ;;; Multiple #+filetags Tests
 
 (ert-deftest vulpea-db-multiple-filetags-file-level ()
