@@ -1299,5 +1299,86 @@ even with `vulpea-db-sync-scan-on-enable' set to nil."
       (vulpea-db-sync--message "Vulpea: hello %d" 1))
     (should-not calls)))
 
+;;; fswatch path normalization (Windows)
+
+(ert-deftest vulpea-db-sync-fswatch-normalize-mingw-backslash ()
+  "mingw fswatch reports an upper-case drive and a backslash separator."
+  (let ((system-type 'windows-nt))
+    (should (equal (vulpea-db-sync--fswatch-normalize-path
+                    "C:/Users/foo/notes\\bar.org")
+                   "c:/Users/foo/notes/bar.org"))))
+
+(ert-deftest vulpea-db-sync-fswatch-normalize-cygwin-prefix ()
+  "Cygwin fswatch reports a /cygdrive/ prefix."
+  (let ((system-type 'windows-nt))
+    (should (equal (vulpea-db-sync--fswatch-normalize-path
+                    "/cygdrive/c/Users/foo/notes/bar.org")
+                   "c:/Users/foo/notes/bar.org"))))
+
+(ert-deftest vulpea-db-sync-fswatch-normalize-drive-case ()
+  "An upper-case drive letter is lowered to match `expand-file-name'."
+  (let ((system-type 'windows-nt))
+    (should (equal (vulpea-db-sync--fswatch-normalize-path
+                    "C:/Users/foo/notes/bar.org")
+                   "c:/Users/foo/notes/bar.org"))))
+
+(ert-deftest vulpea-db-sync-fswatch-normalize-canonical-unchanged ()
+  "An already-canonical Windows path is left as-is."
+  (let ((system-type 'windows-nt))
+    (should (equal (vulpea-db-sync--fswatch-normalize-path
+                    "c:/Users/foo/notes/bar.org")
+                   "c:/Users/foo/notes/bar.org"))))
+
+(ert-deftest vulpea-db-sync-fswatch-normalize-unix-untouched ()
+  "On non-Windows systems paths are returned unchanged.
+
+A backslash is a legal file-name character on Unix and must not be
+rewritten."
+  (let ((system-type 'gnu/linux))
+    (should (equal (vulpea-db-sync--fswatch-normalize-path
+                    "/home/user/notes/bar.org")
+                   "/home/user/notes/bar.org"))
+    (should (equal (vulpea-db-sync--fswatch-normalize-path
+                    "/home/user/odd\\name.org")
+                   "/home/user/odd\\name.org"))))
+
+(ert-deftest vulpea-db-sync-fswatch-normalize-empty ()
+  "nil or empty input yields nil."
+  (let ((system-type 'windows-nt))
+    (should-not (vulpea-db-sync--fswatch-normalize-path nil))
+    (should-not (vulpea-db-sync--fswatch-normalize-path ""))))
+
+(ert-deftest vulpea-db-sync-fswatch-mingw-path-enqueued ()
+  "A mingw-style backslash path from fswatch is recognized and enqueued.
+
+Regression test for paths reported by the MSYS2/mingw fswatch build on
+Windows, which were silently dropped by the watched-directory check (see
+issue #344)."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((dir (make-temp-file "vulpea-fswatch-mingw-" t))
+           (file (expand-file-name "note.org" dir))
+           (vulpea-db-sync-directories (list dir))
+           (vulpea-db-sync--queue nil)
+           (vulpea-db-sync--queue-set (make-hash-table :test 'equal))
+           (vulpea-db-sync--timer nil))
+      (unwind-protect
+          (progn
+            (with-temp-file file
+              (insert ":PROPERTIES:\n:ID: mingw-note\n:END:\n#+TITLE: Mingw\n"))
+            ;; Simulate mingw fswatch: backslash before the file name.
+            ;; Pretend we are on Windows so backslash separators are
+            ;; normalized; the temp paths themselves stay POSIX, and file
+            ;; I/O above runs under the real `system-type'.
+            (let ((system-type 'windows-nt))
+              (vulpea-db-sync--fswatch-filter
+               nil (format "%s\\note.org|||Updated\n" dir)))
+            (should (= (length vulpea-db-sync--queue) 1))
+            ;; The enqueued path must be the canonical forward-slash form
+            ;; so downstream DB lookups match.
+            (should (equal (caar vulpea-db-sync--queue) file)))
+        (when (file-directory-p dir)
+          (delete-directory dir t))))))
+
 (provide 'vulpea-db-sync-test)
 ;;; vulpea-db-sync-test.el ends here

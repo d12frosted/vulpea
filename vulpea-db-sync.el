@@ -1053,13 +1053,48 @@ restarts are unaffected."
                :sentinel #'vulpea-db-sync--fswatch-sentinel))
         (vulpea-db-sync--message "Vulpea: Started fswatch monitoring")))))
 
+(defun vulpea-db-sync--fswatch-normalize-path (path)
+  "Canonicalize PATH as reported by fswatch.
+
+On Windows the available fswatch builds report paths in a form that
+does not match `expand-file-name' output, so the watched-directory
+check below fails and external changes are never synced (see issue
+#344).  The MSYS2/mingw build emits an upper-case drive letter and a
+backslash before the file name; the Cygwin build prefixes paths with
+\"/cygdrive/\".  Normalize both to the forward-slash, lower-case-drive
+form vulpea stores in the database.
+
+On non-Windows systems PATH is returned unchanged, since a backslash is
+a legal file-name character there."
+  (when (and (stringp path) (not (string-empty-p path)))
+    (if (not (memq system-type '(windows-nt ms-dos cygwin)))
+        path
+      (let ((p path))
+        ;; /cygdrive/c/... -> c:/...
+        (when (string-match "\\`/cygdrive/\\([A-Za-z]\\)/" p)
+          (setq p (concat (match-string 1 p) ":/"
+                          (substring p (match-end 0)))))
+        ;; Backslash separators -> forward slashes.
+        (setq p (replace-regexp-in-string "\\\\" "/" p))
+        ;; Lower-case the drive letter to match `expand-file-name'.
+        (when (string-match "\\`\\([A-Za-z]\\):" p)
+          (setq p (concat (downcase (match-string 1 p))
+                          (substring p 1))))
+        p))))
+
 (defun vulpea-db-sync--fswatch-path-valid-p (path)
-  "Return non-nil if PATH is within a watched directory."
+  "Return non-nil if PATH is within a watched directory.
+
+PATH is compared case-insensitively on Windows, whose file systems are
+case-insensitive and where fswatch may report a different drive-letter
+case than `expand-file-name'."
   (and path
        (file-name-absolute-p path)
-       (seq-some (lambda (dir)
-                   (string-prefix-p (file-name-as-directory (expand-file-name dir)) path))
-                 vulpea-db-sync-directories)))
+       (let ((ignore-case (memq system-type '(windows-nt ms-dos cygwin))))
+         (seq-some (lambda (dir)
+                     (string-prefix-p (file-name-as-directory (expand-file-name dir))
+                                      path ignore-case))
+                   vulpea-db-sync-directories))))
 
 (defun vulpea-db-sync--fswatch-filter (_proc output)
   "Process fswatch OUTPUT.
@@ -1083,7 +1118,7 @@ Handles partial lines by buffering incomplete output."
     (dolist (line lines)
       (let* ((raw (string-trim line))
              (parts (split-string raw "|||" t))
-             (file (car parts))
+             (file (vulpea-db-sync--fswatch-normalize-path (car parts)))
              (flags (cadr parts)))
         (when (and file
                    (not (string-empty-p file))

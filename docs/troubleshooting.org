@@ -239,6 +239,23 @@ If fswatch isn't available:
 (setq vulpea-db-sync-poll-interval 2)  ; seconds
 #+end_src
 
+*** Windows: use the MSYS2/mingw build of fswatch
+
+Vulpea passes =fswatch= the note directories as =expand-file-name=
+produces them (e.g. =c:/Users/you/notes=).  Two =fswatch= builds are
+common on Windows and they behave differently:
+
+- *MSYS2/mingw* (=c:/msys64/mingw64/bin/fswatch.exe=) - recommended.  It
+  watches these paths fine, and vulpea understands the paths it reports
+  back (an upper-case drive letter and a backslash before the file name).
+- *Cygwin* (e.g. from winget) - not supported for autosync.  It refuses
+  native =c:/...= paths and expects =/cygdrive/c/...= input, so external
+  monitoring never starts.
+
+If external changes are not detected on Windows, check which =fswatch=
+=M-x vulpea-doctor= reports under External Tools and switch to the
+MSYS2/mingw build.  See [[https://github.com/d12frosted/vulpea/issues/344][vulpea#344]].
+
 * Database Issues
 
 ** Stale or Incorrect Data
