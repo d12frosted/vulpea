@@ -1369,11 +1369,11 @@ order. Each reports:
 | =included-by=   | schema names that inherit fields from this one   |
 
 Schemas that match no notes are still reported with zero counts, so the
-result is a faithful map of every registered schema. The include
-relationships are read from =vulpea-schema-includes=, the names a schema
-now retains from its =:include=. The whole scan is one query plus an
-in-memory pass, so it stays sub-second for collections of several
-thousand notes.
+result is a faithful map of every registered schema. =includes= comes
+from =vulpea-schema-includes= (the names a schema now retains from its
+=:include=); =included-by= is its inverse, computed across every schema.
+The whole scan is one query plus an in-memory pass, so it stays sub-second
+for collections of several thousand notes.
 
 * Quick Reference Tables
 
