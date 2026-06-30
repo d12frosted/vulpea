@@ -1344,6 +1344,37 @@ note's heading line for a missing required field. It reuses
 =vulpea-schema-note-violations=, so it is the live, in-buffer counterpart
 to the sync-time =vulpea-db-schema-validation-action=.
 
+** Collection health
+
+Where =vulpea-schema-note-violations= answers "is this note healthy?",
+=vulpea-schema-collection-health= answers it for the whole collection at
+once - the data source a schema dashboard renders:
+
+#+begin_src emacs-lisp
+(vulpea-schema-collection-health)
+;; => one `vulpea-schema-health' per registered schema
+#+end_src
+
+It takes a list of notes (defaulting to all notes in the database) and
+returns one =vulpea-schema-health= per registered schema, in registration
+order. Each reports:
+
+| Slot            | Meaning                                          |
+|-----------------+--------------------------------------------------|
+| =schema=        | the schema name                                  |
+| =covered=       | how many notes the schema's predicate matches    |
+| =invalid=       | how many of those have at least one violation    |
+| =invalid-notes= | the invalid notes as =(note . violations)= pairs |
+| =includes=      | schema names this one inherits fields from       |
+| =included-by=   | schema names that inherit fields from this one   |
+
+Schemas that match no notes are still reported with zero counts, so the
+result is a faithful map of every registered schema. The include
+relationships are read from =vulpea-schema-includes=, the names a schema
+now retains from its =:include=. The whole scan is one query plus an
+in-memory pass, so it stays sub-second for collections of several
+thousand notes.
+
 * Quick Reference Tables
 
 ** Core Functions

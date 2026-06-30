@@ -670,5 +670,73 @@
     (should-not (vulpea-schema-note-violations
                  (make-vulpea-note :id "b" :title "B" :tags '("beer"))))))
 
+;;; Include relationships
+
+(ert-deftest vulpea-schema-includes-retained ()
+  "A schema remembers the names of the schemas it includes."
+  (vulpea-schema-test--with-registry
+    (vulpea-schema-define 'base :predicate #'ignore :fields '((:key "summary")))
+    (vulpea-schema-define 'mid :predicate #'ignore :fields '((:key "m")))
+    (vulpea-schema-define 'leaf :predicate #'ignore
+                          :include '(base mid) :fields '((:key "l")))
+    (should (equal (vulpea-schema-includes (vulpea-schema-get 'leaf)) '(base mid)))
+    (should-not (vulpea-schema-includes (vulpea-schema-get 'base)))))
+
+(ert-deftest vulpea-schema-includes-normalizes-objects ()
+  "Include given as a schema object is stored as its name."
+  (vulpea-schema-test--with-registry
+    (let ((base (vulpea-schema-define 'base :predicate #'ignore :fields nil)))
+      (vulpea-schema-define 'leaf :predicate #'ignore :include base :fields nil)
+      (should (equal (vulpea-schema-includes (vulpea-schema-get 'leaf)) '(base))))))
+
+;;; Collection health
+
+(ert-deftest vulpea-schema-collection-health-counts ()
+  "Collection health reports covered and invalid counts per schema."
+  (vulpea-schema-test--with-registry
+    (vulpea-schema-define 'wine
+      :predicate (lambda (n) (member "wine" (vulpea-note-tags n)))
+      :fields '((:key "name" :required t)))
+    (let* ((notes (list (make-vulpea-note :id "a" :tags '("wine")
+                                          :meta '(("name" "A")))
+                        (make-vulpea-note :id "b" :tags '("wine") :meta nil)
+                        (make-vulpea-note :id "c" :tags '("journal"))))
+           (health (vulpea-schema-collection-health notes))
+           (wine (cl-find 'wine health :key #'vulpea-schema-health-schema)))
+      (should (= (vulpea-schema-health-covered wine) 2))
+      (should (= (vulpea-schema-health-invalid wine) 1))
+      (let ((bad (vulpea-schema-health-invalid-notes wine)))
+        (should (= (length bad) 1))
+        (should (vulpea-note-p (car (car bad))))
+        (should (equal (vulpea-note-id (car (car bad))) "b"))
+        (should (cdr (car bad)))))))
+
+(ert-deftest vulpea-schema-collection-health-includes-unused ()
+  "A registered schema with no matching notes still appears, with zeros."
+  (vulpea-schema-test--with-registry
+    (vulpea-schema-define 'unused :predicate #'ignore :fields nil)
+    (let* ((health (vulpea-schema-collection-health (list (make-vulpea-note))))
+           (u (cl-find 'unused health :key #'vulpea-schema-health-schema)))
+      (should u)
+      (should (= (vulpea-schema-health-covered u) 0))
+      (should (= (vulpea-schema-health-invalid u) 0))
+      (should-not (vulpea-schema-health-invalid-notes u)))))
+
+(ert-deftest vulpea-schema-collection-health-relationships ()
+  "Collection health exposes includes and included-by per schema."
+  (vulpea-schema-test--with-registry
+    (vulpea-schema-define 'base-thing :predicate #'ignore
+                          :fields '((:key "summary")))
+    (vulpea-schema-define 'wine :predicate #'ignore :include 'base-thing :fields nil)
+    (vulpea-schema-define 'producer :predicate #'ignore
+                          :include 'base-thing :fields nil)
+    (let* ((health (vulpea-schema-collection-health '()))
+           (by (lambda (s) (cl-find s health :key #'vulpea-schema-health-schema))))
+      (should (equal (vulpea-schema-health-includes (funcall by 'wine)) '(base-thing)))
+      (let ((ib (vulpea-schema-health-included-by (funcall by 'base-thing))))
+        (should (= (length ib) 2))
+        (should (memq 'wine ib))
+        (should (memq 'producer ib))))))
+
 (provide 'vulpea-schema-test)
 ;;; vulpea-schema-test.el ends here
