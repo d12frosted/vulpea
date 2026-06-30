@@ -150,7 +150,7 @@ Without =fswatch=, Vulpea falls back to polling (periodic directory scanning). W
 
 Companion packages that extend Vulpea:
 
-- [[https://github.com/d12frosted/vulpea-ui][vulpea-ui]] - Sidebar infrastructure and widget framework. Provides a per-frame sidebar with outline, backlinks, forward links, and stats widgets. Easy API for creating custom widgets.
+- [[https://github.com/d12frosted/vulpea-ui][vulpea-ui]] - Visual tools for your notes: a per-note sidebar of widgets (outline, backlinks, stats, and more) plus standalone views, with an easy API for your own widgets. Schemas get especially nice treatment here: a sidebar health widget that flags the current note's violations with one-key fixes, and a collection-wide schema dashboard that shows how every note measures up to the schemas that apply to it.
 - [[https://github.com/d12frosted/vulpea-journal][vulpea-journal]] - Daily journaling with calendar integration. Creates one note per day with sidebar widgets for navigation, calendar view, and "on this day" from previous years.
 - [[https://github.com/d12frosted/vulpea-para][vulpea-para]] - The PARA method (Projects, Areas, Resources, Archives) on top of Vulpea. A note's role is read from its tags rather than its folder, with a self-updating agenda, capture that files itself, and views for areas, projects, and people.
 - [[https://github.com/fabcontigiani/consult-vulpea][consult-vulpea]] - Consult integration for Vulpea. Provides =consult-vulpea-find= and =consult-vulpea-insert= with live preview and consult's narrowing features.
