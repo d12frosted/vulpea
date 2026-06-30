@@ -239,22 +239,31 @@ If fswatch isn't available:
 (setq vulpea-db-sync-poll-interval 2)  ; seconds
 #+end_src
 
-*** Windows: use the MSYS2/mingw build of fswatch
+*** Windows: fswatch path styles
 
 Vulpea passes =fswatch= the note directories as =expand-file-name=
 produces them (e.g. =c:/Users/you/notes=).  Two =fswatch= builds are
-common on Windows and they behave differently:
+common on Windows and they take different directory arguments:
 
-- *MSYS2/mingw* (=c:/msys64/mingw64/bin/fswatch.exe=) - recommended.  It
-  watches these paths fine, and vulpea understands the paths it reports
-  back (an upper-case drive letter and a backslash before the file name).
-- *Cygwin* (e.g. from winget) - not supported for autosync.  It refuses
-  native =c:/...= paths and expects =/cygdrive/c/...= input, so external
-  monitoring never starts.
+- *MSYS2/mingw* (=c:/msys64/mingw64/bin/fswatch.exe=) watches native
+  =c:/...= paths directly.
+- *Cygwin* (e.g. from winget) only watches =/cygdrive/c/...= paths and
+  errors out on native ones.
 
-If external changes are not detected on Windows, check which =fswatch=
-=M-x vulpea-doctor= reports under External Tools and switch to the
-MSYS2/mingw build.  See [[https://github.com/d12frosted/vulpea/issues/344][vulpea#344]].
+Both work out of the box.  =vulpea-db-sync-fswatch-path-style= defaults
+to =auto=: vulpea starts with native paths and, if it sees the Cygwin
+build's path errors, automatically restarts the watcher with translated
+=/cygdrive/= directories.  If you'd rather skip the probe, set it
+explicitly:
+
+#+begin_src emacs-lisp
+;; Force a specific build's path style
+(setq vulpea-db-sync-fswatch-path-style 'cygwin) ; or 'native
+#+end_src
+
+If external changes still are not detected on Windows, check which
+=fswatch= =M-x vulpea-doctor= reports under External Tools.  See
+[[https://github.com/d12frosted/vulpea/issues/344][vulpea#344]].
 
 * Database Issues
 
