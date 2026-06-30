@@ -98,10 +98,12 @@
 Slots:
   name      - symbol identifying the schema
   predicate - function (note) -> non-nil selecting notes it applies to
-  fields    - list of field spec plists (see Commentary)"
+  fields    - list of field spec plists (see Commentary)
+  includes  - names of the schemas this one inherits fields from"
   name
   predicate
-  fields)
+  fields
+  includes)
 
 ;;; Registry
 
@@ -161,9 +163,13 @@ Registering a schema with an existing NAME replaces it.  Returns the
          (inherited (mapcar (lambda (s)
                               (vulpea-schema-fields (vulpea-schema--resolve s)))
                             includes))
+         (include-names (mapcar (lambda (s)
+                                  (if (vulpea-schema-p s) (vulpea-schema-name s) s))
+                                includes))
          (schema (vulpea-schema--create
                   :name name
                   :predicate predicate
+                  :includes include-names
                   :fields (vulpea-schema--merge-fields
                            (append inherited (list fields))))))
     (puthash name schema vulpea-schema--registry)
@@ -436,6 +442,59 @@ single note's violations (sync warnings, in-buffer linting, health
 widgets)."
   (cl-loop for name in (vulpea-schema-applicable note)
            append (vulpea-schema-validate note name)))
+
+;;; Collection health
+
+(cl-defstruct (vulpea-schema-health (:constructor vulpea-schema-health--create)
+                                    (:copier nil))
+  "Aggregated health of a single schema across a set of notes.
+
+Slots:
+  schema        - schema name symbol
+  covered       - number of notes the schema applies to
+  invalid       - number of covered notes with at least one violation
+  invalid-notes - list of (note . violations) for the invalid notes
+  includes      - schema names this schema inherits fields from
+  included-by   - schema names that inherit fields from this schema"
+  schema covered invalid invalid-notes includes included-by)
+
+(cl-defun vulpea-schema-collection-health (&optional (notes (vulpea-db-query)))
+  "Return the health of every registered schema across NOTES.
+
+NOTES defaults to all notes in the database.  The result is a list of
+`vulpea-schema-health' structures, one per registered schema in
+registration order, each carrying how many notes the schema covers, how
+many of those are invalid, the invalid notes paired with their
+violations, and the schema's include relationships.  Pure apart from the
+default `vulpea-db-query'; pass NOTES to aggregate an explicit set."
+  (let ((by-name (make-hash-table :test 'eq))
+        (included-by (make-hash-table :test 'eq))
+        result)
+    (dolist (name (vulpea-schema-list))
+      (let ((includes (vulpea-schema-includes (vulpea-schema-get name))))
+        (puthash name (vulpea-schema-health--create
+                       :schema name :covered 0 :invalid 0
+                       :invalid-notes nil :includes includes)
+                 by-name)
+        (dolist (inc includes)
+          (push name (gethash inc included-by)))))
+    (dolist (note notes)
+      (dolist (name (vulpea-schema-applicable note))
+        (let ((h (gethash name by-name)))
+          (when h
+            (cl-incf (vulpea-schema-health-covered h))
+            (let ((vs (vulpea-schema-validate note name)))
+              (when vs
+                (cl-incf (vulpea-schema-health-invalid h))
+                (push (cons note vs) (vulpea-schema-health-invalid-notes h))))))))
+    (dolist (name (vulpea-schema-list))
+      (let ((h (gethash name by-name)))
+        (setf (vulpea-schema-health-invalid-notes h)
+              (nreverse (vulpea-schema-health-invalid-notes h)))
+        (setf (vulpea-schema-health-included-by h)
+              (nreverse (gethash name included-by)))
+        (push h result)))
+    (nreverse result)))
 
 (provide 'vulpea-schema)
 ;;; vulpea-schema.el ends here
