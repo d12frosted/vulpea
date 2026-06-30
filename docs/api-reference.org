@@ -41,6 +41,15 @@ edited but not yet re-synced keeps its previous value until the next
 sync. =vulpea-db-query-stale-notes= filters notes by this same mtime,
 read from the =files= table.
 
+=vulpea-note-closed= is the note's completion timestamp. It is read
+from the =CLOSED:= planning line when present; otherwise, for a note
+currently in a done state, it falls back to the most recent =State
+"DONE"= entry in the note's =:LOGBOOK:= drawer. This covers the common
+workflow where state-change logging (=org-log-done=) records completion
+in the logbook rather than on a =CLOSED:= planning line. The fallback
+keys on =State "DONE"= specifically, so a cancelled task is left with a
+nil =closed=.
+
 * Getting Notes
 
 ** By ID
