@@ -516,6 +516,48 @@ Returns nil if:
               :attach-dir attach-dir
               :file-title file-title)))))
 
+(defun vulpea-db--extract-closed-from-logbook (section buffer)
+  "Extract the most recent completion timestamp from SECTION's LOGBOOK.
+
+SECTION is the `section' element of a headline (its own direct
+content, excluding any child headlines).  BUFFER is the buffer the
+AST was parsed from, used to read the raw drawer text.
+
+Scans the LOGBOOK drawer for state-change log entries of the form
+
+    - State \"DONE\" from \"...\" [timestamp]
+
+and returns the raw timestamp string of the most recent such entry
+\(for example \"[2024-08-13 Tue 09:41]\"), or nil when SECTION has no
+LOGBOOK drawer or no matching entry.
+
+This is a fallback for the common `org-mode' workflow where the
+completion time is recorded only in the LOGBOOK (via `org-log-done'
+state logging) rather than on a `CLOSED:' planning line."
+  (when (and section buffer)
+    (let (timestamps)
+      (org-element-map section 'drawer
+        (lambda (drawer)
+          (when (string= "LOGBOOK"
+                         (upcase (or (org-element-property :drawer-name drawer)
+                                     "")))
+            (let ((beg (org-element-property :contents-begin drawer))
+                  (end (org-element-property :contents-end drawer)))
+              (when (and beg end)
+                (with-current-buffer buffer
+                  (save-excursion
+                    (save-match-data
+                      (goto-char beg)
+                      (while (re-search-forward
+                              "State[ \t]+\"DONE\"[^][\n]*\\(\\[[^]\n]+\\]\\)"
+                              end t)
+                        (push (match-string-no-properties 1)
+                              timestamps))))))))))
+      ;; Log timestamps share a fixed-width \"[YYYY-MM-DD ...\" prefix, so
+      ;; a lexicographic comparison orders them chronologically.  The
+      ;; greatest is the most recent completion.
+      (car (sort timestamps #'string>)))))
+
 (defun vulpea-db--extract-heading-nodes (ast path buffer file-title)
   "Extract heading-level nodes from AST at PATH in BUFFER.
 
@@ -596,6 +638,19 @@ Respects `vulpea-db-index-heading-level' setting."
                                           (org-element-contents headline)))
                        (meta (when section
                                (vulpea-db--extract-meta section)))
+                       (closed-str
+                        (or (when closed
+                              (vulpea-db--string-no-properties
+                               (org-element-property :raw-value closed)))
+                            ;; Fallback: tasks whose completion time is
+                            ;; recorded only in the LOGBOOK drawer (State
+                            ;; "DONE" entries) rather than on a CLOSED
+                            ;; planning line.  Gate on done-state to mirror
+                            ;; org dropping CLOSED when a task is reopened.
+                            (when (eq (org-element-property :todo-type headline)
+                                      'done)
+                              (vulpea-db--extract-closed-from-logbook
+                               section buffer))))
                        (raw-title (vulpea-db--string-no-properties
                                    (org-element-property :raw-value headline)))
                        (title-start (+ pos level 1 ; stars + space
@@ -638,9 +693,7 @@ Respects `vulpea-db-index-heading-level' setting."
                         :deadline (when deadline
                                     (vulpea-db--string-no-properties
                                      (org-element-property :raw-value deadline)))
-                        :closed (when closed
-                                  (vulpea-db--string-no-properties
-                                   (org-element-property :raw-value closed)))
+                        :closed closed-str
                         :outline-path outline-path
                         :attach-dir attach-dir
                         :file-title file-title))))))))))

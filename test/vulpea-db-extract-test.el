@@ -249,6 +249,90 @@ Regression test for https://github.com/d12frosted/vulpea/issues/260."
           (should (equal (plist-get node :todo) "TODO")))
       (delete-file path))))
 
+(ert-deftest vulpea-db-extract-heading-nodes-closed-planning ()
+  "Test heading extraction reads CLOSED from the planning line."
+  (let ((path (vulpea-test--create-temp-org-file
+               "#+TITLE: File\n\n* DONE Task\nCLOSED: [2024-08-13 Tue 09:41]\n:PROPERTIES:\n:ID: task-id\n:END:\n")))
+    (unwind-protect
+        (let* ((vulpea-db-index-heading-level t)
+               (ctx (vulpea-db--parse-file path))
+               (nodes (vulpea-parse-ctx-heading-nodes ctx))
+               (node (car nodes)))
+          (should (equal (plist-get node :closed) "[2024-08-13 Tue 09:41]")))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-heading-nodes-closed-from-logbook ()
+  "Test CLOSED falls back to the LOGBOOK State \"DONE\" entry.
+
+Most org tasks record completion in the LOGBOOK drawer (via
+`org-log-done' state logging) rather than on a CLOSED planning
+line.  Such notes must still get a populated `:closed'."
+  (let ((path (vulpea-test--create-temp-org-file
+               "#+TITLE: File\n\n* DONE Task\n:PROPERTIES:\n:ID: task-id\n:END:\n:LOGBOOK:\n- State \"DONE\"       from \"TODO\"       [2024-08-13 Tue 09:41]\n:END:\n")))
+    (unwind-protect
+        (let* ((vulpea-db-index-heading-level t)
+               (ctx (vulpea-db--parse-file path))
+               (nodes (vulpea-parse-ctx-heading-nodes ctx))
+               (node (car nodes)))
+          (should (equal (plist-get node :closed) "[2024-08-13 Tue 09:41]")))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-heading-nodes-closed-logbook-most-recent ()
+  "Test CLOSED uses the most recent LOGBOOK State \"DONE\" entry.
+
+A task reopened and completed again has several State \"DONE\"
+entries; the latest one is the effective completion time."
+  (let ((path (vulpea-test--create-temp-org-file
+               "#+TITLE: File\n\n* DONE Task\n:PROPERTIES:\n:ID: task-id\n:END:\n:LOGBOOK:\n- State \"DONE\"       from \"TODO\"       [2024-08-15 Thu 10:00]\n- State \"TODO\"       from \"DONE\"       [2024-08-14 Wed 12:00]\n- State \"DONE\"       from \"TODO\"       [2024-08-13 Tue 09:41]\n:END:\n")))
+    (unwind-protect
+        (let* ((vulpea-db-index-heading-level t)
+               (ctx (vulpea-db--parse-file path))
+               (nodes (vulpea-parse-ctx-heading-nodes ctx))
+               (node (car nodes)))
+          (should (equal (plist-get node :closed) "[2024-08-15 Thu 10:00]")))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-heading-nodes-closed-planning-precedence ()
+  "Test the CLOSED planning line wins over the LOGBOOK fallback."
+  (let ((path (vulpea-test--create-temp-org-file
+               "#+TITLE: File\n\n* DONE Task\nCLOSED: [2024-08-20 Tue 09:41]\n:PROPERTIES:\n:ID: task-id\n:END:\n:LOGBOOK:\n- State \"DONE\"       from \"TODO\"       [2024-08-13 Tue 09:41]\n:END:\n")))
+    (unwind-protect
+        (let* ((vulpea-db-index-heading-level t)
+               (ctx (vulpea-db--parse-file path))
+               (nodes (vulpea-parse-ctx-heading-nodes ctx))
+               (node (car nodes)))
+          (should (equal (plist-get node :closed) "[2024-08-20 Tue 09:41]")))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-heading-nodes-closed-not-done-no-fallback ()
+  "Test the LOGBOOK fallback is skipped for non-done headings.
+
+A task that was completed and then reopened keeps the old State
+\"DONE\" entry in its LOGBOOK, but org removes its CLOSED planning
+line.  The extractor must mirror that: a TODO heading has no
+`:closed', even with a stale State \"DONE\" log entry."
+  (let ((path (vulpea-test--create-temp-org-file
+               "#+TITLE: File\n\n* TODO Task\n:PROPERTIES:\n:ID: task-id\n:END:\n:LOGBOOK:\n- State \"TODO\"       from \"DONE\"       [2024-08-14 Wed 12:00]\n- State \"DONE\"       from \"TODO\"       [2024-08-13 Tue 09:41]\n:END:\n")))
+    (unwind-protect
+        (let* ((vulpea-db-index-heading-level t)
+               (ctx (vulpea-db--parse-file path))
+               (nodes (vulpea-parse-ctx-heading-nodes ctx))
+               (node (car nodes)))
+          (should (null (plist-get node :closed))))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-closed-logbook-db-roundtrip ()
+  "Test the LOGBOOK-derived CLOSED reaches the DB and `vulpea-note-closed'.
+
+Exercises the full path the recipe relies on: index a DONE note
+whose completion is recorded only in its LOGBOOK, then read it back
+from the database."
+  (vulpea-test--with-temp-db-and-file "file-id"
+      "#+TITLE: File\n\n* DONE Task\n:PROPERTIES:\n:ID: e2e-task-id\n:END:\n:LOGBOOK:\n- State \"DONE\"       from \"TODO\"       [2024-08-13 Tue 09:41]\n:END:\n"
+    (let ((note (vulpea-db-get-by-id "e2e-task-id")))
+      (should note)
+      (should (equal (vulpea-note-closed note) "[2024-08-13 Tue 09:41]")))))
+
 (ert-deftest vulpea-db-extract-heading-nodes-ignore ()
   "Test heading with VULPEA_IGNORE is not extracted."
   (let ((path (vulpea-test--create-temp-org-file
