@@ -709,7 +709,9 @@
         (should (= (length bad) 1))
         (should (vulpea-note-p (car (car bad))))
         (should (equal (vulpea-note-id (car (car bad))) "b"))
-        (should (cdr (car bad)))))))
+        (let ((v (car (cdr (car bad)))))
+          (should (eq (vulpea-violation-type v) 'missing-required))
+          (should (equal (vulpea-violation-field v) "name")))))))
 
 (ert-deftest vulpea-schema-collection-health-includes-unused ()
   "A registered schema with no matching notes still appears, with zeros."
@@ -737,6 +739,47 @@
         (should (= (length ib) 2))
         (should (memq 'wine ib))
         (should (memq 'producer ib))))))
+
+(ert-deftest vulpea-schema-collection-health-multi-schema ()
+  "A note two schemas cover is attributed to each one independently."
+  (vulpea-schema-test--with-registry
+    (vulpea-schema-define 'wine
+      :predicate (lambda (n) (member "wine" (vulpea-note-tags n)))
+      :fields '((:key "name" :required t)))
+    (vulpea-schema-define 'rating
+      :predicate (lambda (n) (member "wine" (vulpea-note-tags n)))
+      :fields '((:key "score" :required t)))
+    (let* ((notes (list (make-vulpea-note :id "x" :tags '("wine")
+                                          :meta '(("name" "A")))))
+           (health (vulpea-schema-collection-health notes))
+           (by (lambda (s) (cl-find s health :key #'vulpea-schema-health-schema)))
+           (wine (funcall by 'wine))
+           (rating (funcall by 'rating)))
+      ;; covered by both, but invalid only under the schema it fails
+      (should (= (vulpea-schema-health-covered wine) 1))
+      (should (= (vulpea-schema-health-invalid wine) 0))
+      (should-not (vulpea-schema-health-invalid-notes wine))
+      (should (= (vulpea-schema-health-covered rating) 1))
+      (should (= (vulpea-schema-health-invalid rating) 1))
+      (should (equal (vulpea-note-id
+                      (car (car (vulpea-schema-health-invalid-notes rating))))
+                     "x")))))
+
+(ert-deftest vulpea-schema-collection-health-defaults-to-db ()
+  "Called with no arguments, it aggregates over `vulpea-db-query'."
+  (vulpea-schema-test--with-registry
+    (vulpea-schema-define 'wine
+      :predicate (lambda (n) (member "wine" (vulpea-note-tags n)))
+      :fields '((:key "name" :required t)))
+    (cl-letf (((symbol-function 'vulpea-db-query)
+               (lambda (&rest _)
+                 (list (make-vulpea-note :id "a" :tags '("wine")
+                                         :meta '(("name" "A")))
+                       (make-vulpea-note :id "b" :tags '("wine") :meta nil)))))
+      (let* ((health (vulpea-schema-collection-health))
+             (wine (cl-find 'wine health :key #'vulpea-schema-health-schema)))
+        (should (= (vulpea-schema-health-covered wine) 2))
+        (should (= (vulpea-schema-health-invalid wine) 1))))))
 
 (provide 'vulpea-schema-test)
 ;;; vulpea-schema-test.el ends here
