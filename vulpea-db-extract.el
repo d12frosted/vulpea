@@ -450,7 +450,7 @@ Returns plist with:
 
 Returns nil if:
 - File has no ID property in property drawer
-- File has VULPEA_IGNORE property set to non-nil value
+- File has `vulpea-db-exclude-property' set to non-nil value.
 - File is archived (when `vulpea-db-exclude-archived' is non-nil)"
   (let* ((keywords (org-element-map ast 'keyword
                      (lambda (kw)
@@ -466,7 +466,7 @@ Returns nil if:
                                  (list (cons "CATEGORY" category-kw)))
                        properties))
          (id (cdr (assoc "ID" properties)))
-         (ignored (cdr (assoc "VULPEA_IGNORE" properties)))
+         (ignored (org-not-nil (cdr (assoc vulpea-db-exclude-property properties))))
          (filetags (cl-mapcan (lambda (kw)
                                 (when (string= "FILETAGS" (car kw))
                                   (split-string (cdr kw) ":" t)))
@@ -568,7 +568,7 @@ Each plist has same structure as file-node.
 
 Skips headings that:
 - Have no ID property
-- Have VULPEA_IGNORE property set to non-nil value
+- Have `vulpea-db-exclude-property' set to non-nil value.
 - Are archived (when `vulpea-db-exclude-archived' is non-nil)
 
 Respects `vulpea-db-index-heading-level' setting."
@@ -586,7 +586,7 @@ Respects `vulpea-db-index-heading-level' setting."
         (lambda (headline)
           (when-let* ((id (org-element-property :ID headline)))
             (let* ((properties (vulpea-db--extract-properties ast headline))
-                   (ignored (cdr (assoc "VULPEA_IGNORE" properties)))
+                   (ignored (org-not-nil (cdr (assoc vulpea-db-exclude-property properties))))
                    (archived (vulpea-db--archived-p headline properties filetags)))
               ;; Only index if not explicitly ignored and not archived
               (unless (or ignored archived)
