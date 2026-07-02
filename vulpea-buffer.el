@@ -260,15 +260,24 @@ If ALIAS is nil, prompt for an alias to remove from available aliases."
 (defun vulpea-buffer-prop-set (name value)
   "Set a file property called NAME to VALUE in buffer file.
 
-If the property is already set, replace its value."
+If the property is already set, replace its value.  A matching line
+inside a verbatim block (source, example, export, comment) is block
+content rather than a real keyword: it is left untouched, and when
+only such lines exist a fresh property line is inserted."
   (setq name (downcase name))
   (org-with-point-at 1
-    (let ((case-fold-search t))
-      (if (re-search-forward (concat "^#\\+" name ":\\(.*\\)")
-                             (point-max) t)
+    (let ((case-fold-search t)
+          (regexp (concat "^#\\+" name ":\\(.*\\)"))
+          replaced)
+      (while (and (not replaced)
+                  (re-search-forward regexp (point-max) t))
+        (unless (vulpea-buffer--point-in-raw-block-p (match-beginning 0))
           ;; LITERAL (3rd arg) so backslashes in VALUE are inserted
           ;; verbatim rather than interpreted as backreferences.
           (replace-match (concat "#+" name ": " value) 'fixedcase t)
+          (setq replaced t)))
+      (unless replaced
+        (goto-char (point-min))
         (while (and (not (eobp))
                     (looking-at "^[#:]"))
           (if (save-excursion (end-of-line) (eobp))
@@ -294,17 +303,20 @@ If the property is already set, replace its value."
   (vulpea-buffer-prop-set
    name (combine-and-quote-strings values separators)))
 
-(defun vulpea-buffer--point-in-raw-block-p ()
-  "Return non-nil when point sits inside a verbatim block.
+(defun vulpea-buffer--point-in-raw-block-p (&optional pos)
+  "Return non-nil when POS (or point) sits inside a verbatim block.
 
 Source, example, export, and comment blocks hold raw text, so a
 line that looks like #+KEYWORD: inside them is block content, not a
-real document keyword.  The property readers consult this to skip
-such quoted markup (e.g. a note that embeds Org examples).
+real document keyword.  The property readers and writers consult
+this to skip such quoted markup (e.g. a note that embeds Org
+examples).
 
-Preserves the caller's point and match data."
+POS defaults to point.  Preserves the caller's point and match
+data."
   (save-match-data
     (let ((element (save-excursion
+                     (when pos (goto-char pos))
                      (beginning-of-line)
                      (org-element-at-point))))
       (memq (org-element-type element)
@@ -371,19 +383,33 @@ If nil it defaults to `split-string-default-separators', normally
       (split-string-and-unquote value separators))))
 
 (defun vulpea-buffer-prop-remove (name)
-  "Remove a buffer property called NAME."
+  "Remove a buffer property called NAME.
+
+A matching line inside a verbatim block (source, example, export,
+comment) is block content rather than a real keyword and is left
+untouched."
   (org-with-point-at 1
-    (when (re-search-forward (concat "\\(^#\\+" name ":.*\n?\\)")
-                             (point-max) t)
-      (replace-match ""))))
+    (let ((case-fold-search t)
+          (regexp (concat "^#\\+" name ":.*\n?"))
+          done)
+      (while (and (not done)
+                  (re-search-forward regexp (point-max) t))
+        (unless (vulpea-buffer--point-in-raw-block-p (match-beginning 0))
+          (replace-match "")
+          (setq done t))))))
 
 (defun vulpea-buffer-prop-remove-all (name)
-  "Remove all buffer properties called NAME."
+  "Remove all buffer properties called NAME.
+
+Matching lines inside verbatim blocks (source, example, export,
+comment) are block content rather than real keywords and are left
+untouched."
   (org-with-point-at 1
-    (let ((case-fold-search t))
-      (while (re-search-forward (concat "\\(^#\\+" name ":.*\n?\\)")
-                                (point-max) t)
-        (replace-match "")))))
+    (let ((case-fold-search t)
+          (regexp (concat "^#\\+" name ":.*\n?")))
+      (while (re-search-forward regexp (point-max) t)
+        (unless (vulpea-buffer--point-in-raw-block-p (match-beginning 0))
+          (replace-match ""))))))
 
 
 
