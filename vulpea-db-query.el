@@ -161,10 +161,11 @@ PREDICATE is a function that takes a `vulpea-note' and returns non-nil
 if the note should be included in results.
 
 This function loads all notes from the materialized table and filters
-in Elisp. For large databases (10k+ notes), prefer specialized query
-functions like `vulpea-db-query-by-tags-some' which use indexed lookups.
-
-Performance: ~500ms for 10k notes with predicate.
+in Elisp. That work is linear in the number of notes (roughly 10
+microseconds per note), so it stays fast even for large collections.
+Still, when the filter can be expressed in SQL, prefer a specialized
+query function like `vulpea-db-query-by-tags-some', which uses indexed
+lookups and does less work.
 
 Returns list of `vulpea-note' structs."
   (let ((notes (mapcar #'vulpea-db--row-to-note
