@@ -69,7 +69,9 @@ Vulpea only indexes entries with =ID= properties.
 
 *** Note is ignored
 
-Notes with =VULPEA_IGNORE= property are excluded.
+Notes whose exclusion property is set to a non-nil value are excluded.
+By default that property is =VULPEA_IGNORE= (configurable through
+=vulpea-db-exclude-property=).
 
 *Check:* Look for the property:
 
@@ -79,7 +81,8 @@ Notes with =VULPEA_IGNORE= property are excluded.
 :END:
 #+end_src
 
-*Fix:* Remove the property if you want the note indexed.
+*Fix:* Remove the property, or set it to =nil=, if you want the note
+indexed.
 
 *** Note not found by alias
 
