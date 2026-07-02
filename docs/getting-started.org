@@ -235,7 +235,8 @@ Vulpea extracts and stores:
 
 * Excluding Notes
 
-To prevent a note from being indexed, add the =VULPEA_IGNORE= property:
+To prevent a note from being indexed, add the =VULPEA_IGNORE= property
+with any value other than =nil=:
 
 #+begin_src org
 :PROPERTIES:
@@ -245,6 +246,19 @@ To prevent a note from being indexed, add the =VULPEA_IGNORE= property:
 #+title: Private Note
 
 This won't appear in Vulpea queries.
+#+end_src
+
+Any non-nil value excludes the note, so the value can double as a note
+to yourself (for example =:VULPEA_IGNORE: private, keep this out=).
+Setting it to =nil=, or leaving the property off, keeps the note
+indexed.
+
+The property name is configurable through =vulpea-db-exclude-property=.
+Point it at =ROAM_EXCLUDE=, for instance, to reuse the exclusion marks
+of an existing org-roam collection:
+
+#+begin_src emacs-lisp
+(setq vulpea-db-exclude-property "ROAM_EXCLUDE")
 #+end_src
 
 * Troubleshooting

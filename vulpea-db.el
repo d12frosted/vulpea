@@ -88,14 +88,18 @@ to be queried. Excluding them keeps the database cleaner and faster."
   :group 'vulpea-db)
 
 (defcustom vulpea-db-exclude-property "VULPEA_IGNORE"
-  "Property name to exclude a node from the database.
+  "Property name that marks a node for exclusion from the database.
 
-Entries are only excluded if they:
-- Have this property and its value is set to t
-- Any value other than t does not exclude the entry.
+A node, whether file-level or heading-level, is excluded when it
+carries this property with any value other than nil. The value is read
+with `org-not-nil', mirroring how Org reads its own boolean drawer
+properties such as ORDERED and UNNUMBERED, so it may even carry a
+human-readable reason and still exclude the node. Setting the property
+to nil, or omitting it, keeps the node indexed.
 
-You can change this to any property name you prefer, such as
-\"ROAM_EXCLUDE\" for org-roam compatibility."
+Change this to any property name you prefer, for example
+\"ROAM_EXCLUDE\" to reuse the exclusion marks of an existing org-roam
+collection."
   :type 'string
   :group 'vulpea-db)
 
