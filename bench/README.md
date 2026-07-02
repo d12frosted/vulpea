@@ -221,6 +221,7 @@ Reference targets for performance regression testing:
 | Query all | < 50ms | < 100ms | < 500ms |
 | Query by tag | < 20ms | < 50ms | < 200ms |
 | Extraction | < 2ms/note | < 2ms/note | < 2ms/note |
+| Schema validation | ~6ms | ~66ms | ~665ms |
 
 (Targets based on modern hardware, may vary)
 
@@ -232,9 +233,74 @@ Reference targets for performance regression testing:
 4. **Use SSD**: File I/O significantly impacts sync performance
 5. **Monitor memory**: Large databases may require significant RAM
 
+## Schema Pipeline Benchmarks
+
+The benchmarks above are about sync, query, and extraction. This one
+measures schema **validation**: how long `vulpea-schema-collection-health`
+takes to validate a collection of notes. It exists so I can catch
+regressions in the validation pipeline as the schema engine grows.
+
+It lives in `vulpea-bench-schema.el` and reuses the shared bench helpers
+(`vulpea-bench-measure` for timing, `vulpea-bench-uuid` for ids).
+
+### What it measures
+
+The notes are fabricated in memory with `make-vulpea-note`: there is no
+database, no generator, and nothing is written to disk. Reading notes
+from the DB is already covered by the query benchmark above, and the
+schema dashboard is a vulpea-ui concern benchmarked there. This
+benchmark isolates the validation compute.
+
+The schema under test is a wine schema (predicate "has tag wine", seven
+fields including required strings, a number, and a required `:one-of`
+symbol). It is deliberately DB-free: no `:type note` / `:target-tags`
+fields, so per-field validation issues no DB lookups. Reference-heavy
+schemas are a separate performance regime and are not what this
+benchmark measures. Each fabricated note carries the wine fields plus a
+little extra (a couple more meta keys and an alias) so the timing is
+representative of real notes rather than a bare floor. A configurable
+fraction (default 20%) is invalid: they drop the required "producer"
+field and set a disallowed "colour".
+
+### Running it
+
+Driven through `eldev exec` from the repo root, like the other benches.
+For each scale it fabricates the notes, does one warmup validation, then
+times `vulpea-schema-collection-health` and prints a summary line
+(scale, time, invalid count):
+
+```bash
+eldev -dtT exec "(progn \
+  (add-to-list 'load-path (expand-file-name \"bench\")) \
+  (require 'vulpea-bench-schema) \
+  (vulpea-bench-schema-run))"
+```
+
+`vulpea-bench-schema-run` takes optional SCALES and INVALID-FRACTION
+arguments; it defaults to scales `(1000 10000 100000)` and a 0.2 invalid
+fraction.
+
+### Measured reference numbers
+
+Numbers I measured while building this, so you know what good looks like.
+Hardware and Emacs version shift the absolutes; the shape (linear) is the
+thing to watch.
+
+Validation is linear, roughly 6us per note:
+
+| scale | time  |
+|-------|-------|
+| 1k    | 6ms   |
+| 10k   | 66ms  |
+| 100k  | 665ms |
+
+The takeaway: schema validation is linear and cheap, so the validation
+pipeline itself is not a bottleneck at realistic collection sizes.
+
 ## Files
 
-- `vulpea-bench-generate.el` - Note generator
-- `vulpea-bench.el` - Benchmark infrastructure
+- `vulpea-bench-generate.el` - Note generator (writes .org files)
+- `vulpea-bench.el` - Benchmark infrastructure (sync/query/extraction)
+- `vulpea-bench-schema.el` - Schema validation benchmark (in-memory notes)
 - `run-benchmarks.sh` - Benchmark runner script
 - `bench-output/` - Generated notes and databases (gitignored)
