@@ -645,6 +645,48 @@ Lines inside src/example blocks must be ignored."
             "#+begin_example\n#+filetags: :alsoquoted:\n#+end_example\n")
     (should (equal (vulpea-buffer-prop-get-all "filetags") '(":real:")))))
 
+(ert-deftest vulpea-buffer-prop-set-skips-src-block ()
+  "prop-set must replace the genuine keyword, not one quoted in a block.
+Even when the quoted line comes first, it is block content."
+  (with-temp-buffer
+    (org-mode)
+    (insert "#+begin_src org\n#+title: Quoted\n#+end_src\n#+title: Real\n")
+    (vulpea-buffer-prop-set "title" "Updated")
+    (should (string-match-p "#\\+title: Quoted" (buffer-string)))
+    (should (string-match-p "#\\+title: Updated" (buffer-string)))
+    (should-not (string-match-p "#\\+title: Real" (buffer-string)))))
+
+(ert-deftest vulpea-buffer-prop-set-inserts-when-only-block-match ()
+  "When the only #+KEY: lives inside a block, prop-set inserts a fresh
+line and leaves the block content untouched."
+  (with-temp-buffer
+    (org-mode)
+    (insert "#+title: Note\n\n#+begin_src org\n#+filetags: :quoted:\n#+end_src\n")
+    (vulpea-buffer-prop-set "filetags" ":real:")
+    (should (string-match-p "#\\+filetags: :quoted:" (buffer-string)))
+    (should (equal (vulpea-buffer-prop-get "filetags") ":real:"))))
+
+(ert-deftest vulpea-buffer-prop-remove-skips-src-block ()
+  "prop-remove must not delete a #+KEY: line quoted inside a block."
+  (with-temp-buffer
+    (org-mode)
+    (insert "#+begin_src org\n#+title: Quoted\n#+end_src\n#+title: Real\n")
+    (vulpea-buffer-prop-remove "title")
+    (should (string-match-p "#\\+title: Quoted" (buffer-string)))
+    (should-not (string-match-p "#\\+title: Real" (buffer-string)))))
+
+(ert-deftest vulpea-buffer-prop-remove-all-skips-blocks ()
+  "prop-remove-all must keep #+KEY: lines quoted inside verbatim blocks."
+  (with-temp-buffer
+    (org-mode)
+    (insert "#+filetags: :real:\n"
+            "#+begin_src org\n#+filetags: :quoted:\n#+end_src\n"
+            "#+begin_example\n#+filetags: :alsoquoted:\n#+end_example\n")
+    (vulpea-buffer-prop-remove-all "filetags")
+    (should-not (string-match-p "#\\+filetags: :real:" (buffer-string)))
+    (should (string-match-p "#\\+filetags: :quoted:" (buffer-string)))
+    (should (string-match-p "#\\+filetags: :alsoquoted:" (buffer-string)))))
+
 (ert-deftest vulpea-buffer-prop-remove ()
   "Test removing existing property."
   (let ((id "5093fc4e-8c63-4e60-a1da-83fc7ecd5db7"))
@@ -1338,6 +1380,23 @@ A note that merely quotes org markup should expose no tags."
 "
    (goto-char (point-min))
    (should (equal (vulpea-buffer-tags-get) '("realtag")))))
+
+(ert-deftest vulpea-buffer-tags-set-preserves-block-filetags ()
+  "tags-set must not corrupt a #+filetags quoted inside a block.
+It rewrites the genuine filetags and leaves the quoted example alone."
+  (vulpea-buffer-test--with-temp-buffer
+   "#+title: PARA, not GTD
+#+filetags: :realtag:
+
+#+begin_src org
+#+filetags: :agenda:area:
+#+end_src
+"
+   (goto-char (point-min))
+   (vulpea-buffer-tags-set "newtag")
+   (should (string-match-p "#\\+filetags: :agenda:area:" (buffer-string)))
+   (goto-char (point-min))
+   (should (equal (vulpea-buffer-tags-get) '("newtag")))))
 
 ;;; vulpea-buffer-meta-change-functions Tests
 
