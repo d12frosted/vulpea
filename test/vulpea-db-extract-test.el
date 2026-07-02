@@ -76,6 +76,44 @@
           (should (null node)))
       (delete-file path))))
 
+(ert-deftest vulpea-db-extract-file-node-ignore-nil ()
+  "Test file node with exclusion property set to nil is not excluded."
+  (let ((path (vulpea-test--create-temp-org-file
+               ":PROPERTIES:\n:ID: test-id\n:VULPEA_IGNORE: nil\n:END:\n#+TITLE: Kept Note\n")))
+    (unwind-protect
+        (let* ((ctx (vulpea-db--parse-file path))
+               (node (vulpea-parse-ctx-file-node ctx)))
+          (should node)
+          (should (equal (plist-get node :id) "test-id")))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-file-node-ignore-reason ()
+  "Test file node with a non-nil exclusion reason is still excluded."
+  (let ((path (vulpea-test--create-temp-org-file
+               ":PROPERTIES:\n:ID: test-id\n:VULPEA_IGNORE: private, keep out\n:END:\n#+TITLE: Ignored Note\n")))
+    (unwind-protect
+        (let* ((ctx (vulpea-db--parse-file path))
+               (node (vulpea-parse-ctx-file-node ctx)))
+          (should (null node)))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-file-node-ignore-custom-property ()
+  "Test file node honors a custom `vulpea-db-exclude-property'.
+The configured property excludes, and the default VULPEA_IGNORE no
+longer does."
+  (let ((excluded (vulpea-test--create-temp-org-file
+                   ":PROPERTIES:\n:ID: excluded-id\n:ROAM_EXCLUDE: t\n:END:\n#+TITLE: Excluded\n"))
+        (kept (vulpea-test--create-temp-org-file
+               ":PROPERTIES:\n:ID: kept-id\n:VULPEA_IGNORE: t\n:END:\n#+TITLE: Kept\n")))
+    (unwind-protect
+        (let ((vulpea-db-exclude-property "ROAM_EXCLUDE"))
+          (should (null (vulpea-parse-ctx-file-node (vulpea-db--parse-file excluded))))
+          (let ((node (vulpea-parse-ctx-file-node (vulpea-db--parse-file kept))))
+            (should node)
+            (should (equal (plist-get node :id) "kept-id"))))
+      (delete-file excluded)
+      (delete-file kept))))
+
 (ert-deftest vulpea-db-extract-file-node-auto-title ()
   "Test file node uses filename as title if missing."
   (let ((path (vulpea-test--create-temp-org-file ":PROPERTIES:\n:ID: test-id\n:END:\n")))
@@ -343,6 +381,33 @@ from the database."
                (nodes (vulpea-parse-ctx-heading-nodes ctx)))
           (should (= (length nodes) 1))
           (should (equal (plist-get (car nodes) :id) "heading-1")))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-heading-nodes-ignore-nil ()
+  "Test heading with exclusion property set to nil is not excluded."
+  (let ((path (vulpea-test--create-temp-org-file
+               (format ":PROPERTIES:\n:ID: %s\n:END:\n#+TITLE: File\n\n* Heading 1\n:PROPERTIES:\n:ID: heading-1\n:VULPEA_IGNORE: nil\n:END:\n" (org-id-new)))))
+    (unwind-protect
+        (let* ((vulpea-db-index-heading-level t)
+               (ctx (vulpea-db--parse-file path))
+               (nodes (vulpea-parse-ctx-heading-nodes ctx)))
+          (should (= (length nodes) 1))
+          (should (equal (plist-get (car nodes) :id) "heading-1")))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-heading-nodes-ignore-custom-property ()
+  "Test heading honors a custom `vulpea-db-exclude-property'.
+The configured property excludes its heading, and the default
+VULPEA_IGNORE no longer does."
+  (let ((path (vulpea-test--create-temp-org-file
+               (format ":PROPERTIES:\n:ID: %s\n:END:\n#+TITLE: File\n\n* Heading 1\n:PROPERTIES:\n:ID: heading-1\n:ROAM_EXCLUDE: t\n:END:\n\n* Heading 2\n:PROPERTIES:\n:ID: heading-2\n:VULPEA_IGNORE: t\n:END:\n" (org-id-new)))))
+    (unwind-protect
+        (let* ((vulpea-db-exclude-property "ROAM_EXCLUDE")
+               (vulpea-db-index-heading-level t)
+               (ctx (vulpea-db--parse-file path))
+               (nodes (vulpea-parse-ctx-heading-nodes ctx)))
+          (should (= (length nodes) 1))
+          (should (equal (plist-get (car nodes) :id) "heading-2")))
       (delete-file path))))
 
 (ert-deftest vulpea-db-extract-heading-with-timestamp ()
