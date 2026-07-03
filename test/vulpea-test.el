@@ -2199,6 +2199,119 @@ the whole match."
       (should-not (vulpea--schema-prompt-fields
                    '((:key "tags" :one-of (a b) :multiple t)) note)))))
 
+;;; Schema authoring into headings (#356)
+
+(ert-deftest vulpea-schema-insert-fields-into-heading-at-point ()
+  "Fields land under the heading at point, not at the top of the file (#356)."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq)))
+    (vulpea-schema-define 'execution :predicate #'ignore
+      :fields '((:key "efficacy" :required t) (:key "result" :required t)))
+    (with-temp-buffer
+      (org-mode)
+      (insert ":PROPERTIES:\n:ID: file\n:END:\n#+title: Journal\n#+filetags: :journal:\n\n"
+              "* Testing :execution:\n:PROPERTIES:\n:ID: h1\n:END:\n\n"
+              "* Target :execution:\n:PROPERTIES:\n:ID: h2\n:END:\n")
+      ;; point inside the "Target" subtree
+      (goto-char (point-max))
+      (vulpea-schema-insert-fields 'execution t)
+      (let ((s (buffer-string)))
+        (should (string-match-p "- efficacy ::" s))
+        (should (string-match-p "- result ::" s))
+        ;; the fields belong to Target, i.e. after its heading line ...
+        (should (> (string-match "- efficacy ::" s) (string-match "\\* Target" s)))
+        ;; ... and not before the first heading, where the bug put them
+        (should (< (string-match "\\* Testing" s) (string-match "- efficacy ::" s)))
+        ;; the sibling Testing heading is left untouched
+        (should-not
+         (string-match-p "ID: +h1\n:END:\n-" s))))))
+
+(ert-deftest vulpea-schema-buffer-note-scopes-meta-to-heading ()
+  "At a heading, the synthetic note reads that heading's meta, not the file's (#356)."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq)))
+    (vulpea-schema-define 'w :predicate #'ignore
+      :fields '((:key "efficacy") (:key "result")))
+    (with-temp-buffer
+      (org-mode)
+      (insert ":PROPERTIES:\n:ID: file\n:END:\n#+title: T\n\n"
+              "- efficacy :: file-level\n\n"
+              "* Heading\n:PROPERTIES:\n:ID: h\n:END:\n- efficacy :: heading-level\n")
+      (goto-char (point-max))
+      (let ((note (vulpea--schema-buffer-note 'w)))
+        (should (equal (vulpea-note-meta-get note "efficacy" 'string)
+                       "heading-level"))))))
+
+(ert-deftest vulpea-schema-insert-fields-heading-does-not-clobber ()
+  "Under a heading, an existing field is kept and only the missing one is added (#356)."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq)))
+    (vulpea-schema-define 'execution :predicate #'ignore
+      :fields '((:key "efficacy" :required t) (:key "result" :required t)))
+    (with-temp-buffer
+      (org-mode)
+      (insert ":PROPERTIES:\n:ID: file\n:END:\n#+title: Journal\n#+filetags: :journal:\n\n"
+              "* Target :execution:\n:PROPERTIES:\n:ID: h2\n:END:\n- efficacy :: complete\n")
+      (goto-char (point-max))
+      (cl-letf (((symbol-function 'read-string) (lambda (&rest _) "done")))
+        (vulpea-schema-insert-fields 'execution))
+      (let ((s (buffer-string)))
+        ;; the existing value is read (heading-scoped) and left untouched
+        (should (string-match-p "- efficacy :: complete" s))
+        (should-not (string-match-p "- efficacy :: done" s))
+        ;; the missing field is added under the heading, not at file level
+        (should (string-match-p "- result :: done" s))
+        (should (> (string-match "- result ::" s) (string-match "\\* Target" s)))))))
+
+(ert-deftest vulpea-schema-buffer-note-reads-heading-title-and-tags ()
+  "At a heading, the synthetic note carries the heading's title and tags (#356)."
+  (with-temp-buffer
+    ;; insert before enabling org-mode so #+filetags is parsed for inheritance
+    (insert ":PROPERTIES:\n:ID: file\n:END:\n#+title: File Title\n#+filetags: :journal:\n\n"
+            "* Target :execution:\n:PROPERTIES:\n:ID: h\n:END:\n")
+    (org-mode)
+    (goto-char (point-max))
+    (let ((note (vulpea--schema-buffer-note)))
+      ;; title is the heading text, not the file #+title
+      (should (equal (vulpea-note-title note) "Target"))
+      ;; the heading's own tag ...
+      (should (member "execution" (vulpea-note-tags note)))
+      ;; ... plus the filetag it inherits
+      (should (member "journal" (vulpea-note-tags note))))))
+
+(ert-deftest vulpea-schema-buffer-note-file-level-before-first-heading ()
+  "Before the first heading, the synthetic note is still file-scoped (#356)."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq)))
+    (vulpea-schema-define 'w :predicate #'ignore :fields '((:key "efficacy")))
+    (with-temp-buffer
+      (org-mode)
+      (insert ":PROPERTIES:\n:ID: file\n:END:\n#+title: File Title\n#+filetags: :journal:\n\n"
+              "- efficacy :: file-level\n\n"
+              "* Heading :execution:\n:PROPERTIES:\n:ID: h\n:END:\n- efficacy :: heading-level\n")
+      ;; point before the first heading
+      (goto-char (point-min))
+      (let ((note (vulpea--schema-buffer-note 'w)))
+        (should (equal (vulpea-note-title note) "File Title"))
+        (should (member "journal" (vulpea-note-tags note)))
+        (should-not (member "execution" (vulpea-note-tags note)))
+        ;; reads the file-level value, not the heading's
+        (should (equal (vulpea-note-meta-get note "efficacy" 'string) "file-level"))))))
+
+(ert-deftest vulpea-schema-insert-fields-resolves-schema-from-heading ()
+  "With no schema given, the applicable schema is resolved from the heading at point (#356)."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq)))
+    (vulpea-schema-define 'execution
+      :predicate (lambda (n) (member "execution" (vulpea-note-tags n)))
+      :fields '((:key "efficacy" :required t)))
+    (with-temp-buffer
+      (insert ":PROPERTIES:\n:ID: file\n:END:\n#+title: Journal\n#+filetags: :journal:\n\n"
+              "* Target :execution:\n:PROPERTIES:\n:ID: h\n:END:\n")
+      (org-mode)
+      (goto-char (point-max))
+      ;; no schema argument: it is resolved from the heading note's tags, and
+      ;; the execution predicate matches only the heading, not the file
+      (vulpea-schema-insert-fields nil t)
+      (let ((s (buffer-string)))
+        (should (string-match-p "- efficacy ::" s))
+        (should (> (string-match "- efficacy ::" s) (string-match "\\* Target" s)))))))
+
 ;;; Schema quick-fix (#342)
 
 (ert-deftest vulpea-schema-fix-violation-missing ()
@@ -2243,6 +2356,82 @@ the whole match."
           (vulpea-schema-fix-violation v))
         (should (string-match-p "- producer :: \\[\\[id:p1\\]\\[Producer\\]\\]"
                                 (buffer-string)))))))
+
+(ert-deftest vulpea-schema-fix-violation-into-heading ()
+  "Fixing a missing-required violation writes under the heading at point (#356)."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq)))
+    (vulpea-schema-define 'execution
+      :predicate (lambda (n) (member "execution" (vulpea-note-tags n)))
+      :fields '((:key "efficacy" :required t)))
+    (with-temp-buffer
+      (org-mode)
+      (insert ":PROPERTIES:\n:ID: file\n:END:\n#+title: Journal\n#+filetags: :journal:\n\n"
+              "* Target :execution:\n:PROPERTIES:\n:ID: h\n:END:\n")
+      (goto-char (point-max))
+      (let ((v (car (vulpea-schema-validate
+                     (vulpea--schema-buffer-note 'execution) 'execution))))
+        (cl-letf (((symbol-function 'read-string) (lambda (&rest _) "complete")))
+          (vulpea-schema-fix-violation v 'heading))
+        (let ((s (buffer-string)))
+          (should (string-match-p "- efficacy :: complete" s))
+          ;; written under the heading, not at the top of the file
+          (should (> (string-match "- efficacy ::" s) (string-match "\\* Target" s))))))))
+
+(ert-deftest vulpea-schema-fix-violation-heading-replaces-scoped ()
+  "Fixing a disallowed value replaces only the heading's value, sparing siblings (#356)."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq)))
+    (vulpea-schema-define 'execution
+      :predicate (lambda (n) (member "execution" (vulpea-note-tags n)))
+      :fields '((:key "colour" :type symbol :one-of (red white))))
+    (with-temp-buffer
+      (org-mode)
+      (insert ":PROPERTIES:\n:ID: file\n:END:\n#+title: T\n#+filetags: :journal:\n\n"
+              "* One :execution:\n:PROPERTIES:\n:ID: h1\n:END:\n- colour :: red\n\n"
+              "* Two :execution:\n:PROPERTIES:\n:ID: h2\n:END:\n- colour :: blue\n")
+      ;; point in the second heading, whose colour is invalid
+      (goto-char (point-max))
+      (let ((v (car (vulpea-schema-validate
+                     (vulpea--schema-buffer-note 'execution) 'execution))))
+        (should (eq (vulpea-violation-type v) 'disallowed-value))
+        (cl-letf (((symbol-function 'completing-read) (lambda (&rest _) "white")))
+          (vulpea-schema-fix-violation v 'heading))
+        (let ((s (buffer-string)))
+          ;; the first heading keeps its (valid) value
+          (should (string-match-p
+                   "One :execution:\n:PROPERTIES:\n:ID: h1\n:END:\n- colour :: red" s))
+          ;; the second heading's value is the replacement, blue is gone
+          (should (string-match-p "- colour :: white" s))
+          (should-not (string-match-p "- colour :: blue" s)))))))
+
+(ert-deftest vulpea-schema-fix-violation-defaults-to-heading-scope ()
+  "Without an explicit bound, the fix targets the note at point, not file level (#356).
+
+Guards a read/write scope mismatch: the fixer reads the violating note
+heading-scoped, so its write must default to the same scope - otherwise a
+heading-level fix silently rewrites an unrelated file-level value."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq)))
+    (vulpea-schema-define 'execution
+      :predicate (lambda (n) (member "execution" (vulpea-note-tags n)))
+      :fields '((:key "colour" :type symbol :one-of (red white))))
+    (with-temp-buffer
+      (insert ":PROPERTIES:\n:ID: file\n:END:\n#+title: T\n#+filetags: :journal:\n\n"
+              "- colour :: red\n\n"
+              "* Target :execution:\n:PROPERTIES:\n:ID: h\n:END:\n- colour :: blue\n")
+      (org-mode)
+      ;; point inside the heading whose colour is invalid
+      (goto-char (point-max))
+      (let ((v (car (vulpea-schema-validate
+                     (vulpea--schema-buffer-note 'execution) 'execution))))
+        (cl-letf (((symbol-function 'completing-read) (lambda (&rest _) "white")))
+          ;; no explicit bound - must still fix the heading, not the file
+          (vulpea-schema-fix-violation v))
+        (let ((s (buffer-string)))
+          ;; the heading's invalid value is the one replaced
+          (should (string-match-p
+                   "Target :execution:\n:PROPERTIES:\n:ID: h\n:END:\n- colour :: white" s))
+          (should-not (string-match-p "- colour :: blue" s))
+          ;; the valid file-level value is left untouched
+          (should (string-match-p "#\\+filetags: :journal:\n\n- colour :: red" s)))))))
 
 (ert-deftest vulpea-schema-prompt-field-target-tags-filter ()
   "A note field with :target-tags restricts selection to valid targets."

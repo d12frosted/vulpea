@@ -323,22 +323,32 @@ When called interactively, operates on the note at point:
 (defun vulpea-meta-batch-set (notes prop value)
   "Set VALUE of PROP for all NOTES.
 
-Uses `vulpea-utils-process-notes' for efficient batch processing.
+Uses `vulpea-utils-process-notes' for efficient batch processing, which
+places point at each note.  For a heading-level note the write is scoped
+to that heading's subtree, mirroring `vulpea-meta-set'.
+
 Returns the count of notes processed."
   (let ((count 0))
     (vulpea-utils-process-notes notes
-      (vulpea-buffer-meta-set prop value)
+      (vulpea-buffer-meta-set
+       prop value nil
+       (when (and (vulpea-note-level it) (> (vulpea-note-level it) 0)) 'heading))
       (setq count (1+ count)))
     count))
 
 (defun vulpea-meta-batch-remove (notes prop)
   "Remove PROP from all NOTES.
 
-Uses `vulpea-utils-process-notes' for efficient batch processing.
+Uses `vulpea-utils-process-notes' for efficient batch processing, which
+places point at each note.  For a heading-level note the removal is
+scoped to that heading's subtree, mirroring `vulpea-meta-remove'.
+
 Returns the count of notes processed."
   (let ((count 0))
     (vulpea-utils-process-notes notes
-      (vulpea-buffer-meta-remove prop)
+      (vulpea-buffer-meta-remove
+       prop
+       (when (and (vulpea-note-level it) (> (vulpea-note-level it) 0)) 'heading))
       (setq count (1+ count)))
     count))
 
