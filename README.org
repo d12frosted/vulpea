@@ -7,6 +7,11 @@
   <img width="256px" src="./images/logo.png" alt="Banner">
 </p>
 <p align="center">
+  <b>vulpea</b> /
+  <a href="https://github.com/d12frosted/vulpea-ui">vulpea-ui</a> /
+  <a href="https://github.com/d12frosted/vulpea-journal">vulpea-journal</a>
+</p>
+<p align="center">
   <a href="https://melpa.org/#/vulpea"><img alt="MELPA" src="https://melpa.org/packages/vulpea-badge.svg"/></a>
   <a href="https://github.com/d12frosted/vulpea/releases"><img alt="Release" src="https://img.shields.io/github/v/release/d12frosted/vulpea?include_prereleases"/></a>
   <a href="https://github.com/d12frosted/vulpea/actions"><img alt="CI" src="https://github.com/d12frosted/vulpea/actions/workflows/main.yml/badge.svg"/></a>
@@ -53,6 +58,7 @@ Vulpea originally started as a layer over org-roam, but v2 is a complete rewrite
 
 ** Key Features
 
+- 🌳 *Files or headings* - A note is any org node with an =ID=: a whole file, or a single heading inside a larger file
 - 🚀 *Async-first* - File watchers + background processing, no save hooks blocking you
 - 📊 *Optimized queries* - Hybrid database schema for fast reads
 - 🔌 *Extensible* - Plugin system for custom extractors and tables
@@ -76,7 +82,7 @@ Vulpea originally started as a layer over org-roam, but v2 is a complete rewrite
 ;; M-x vulpea-insert  - insert link to a note
 #+end_src
 
-*Note:* Vulpea only indexes notes with =ID= properties. Use =M-x org-id-get-create= to add IDs to your notes.
+*Note:* A note is any org node with an =ID= - a whole file /or/ a single heading. One file can hold many notes: keep every swim session as a heading in =swimming.org= and each one is a first-class, queryable note. Vulpea indexes exactly these ID-carrying entries; use =M-x org-id-get-create= to add one to the entry at point.
 
 → [[file:docs/getting-started.org][Full Getting Started Guide]]
 
@@ -141,7 +147,7 @@ Without =fswatch=, Vulpea falls back to polling (periodic directory scanning). W
 | [[file:docs/user-guide.org][User Guide]] | Daily usage, interactive commands, working with notes |
 | [[file:docs/configuration.org][Configuration]] | All options explained, performance tuning |
 | [[file:docs/api-reference.org][API Reference]] | Programmatic usage, query functions, data structures |
-| [[file:docs/journal.org][Journal Module]] | Daily notes with widgets and calendar integration |
+| [[https://github.com/d12frosted/vulpea-journal][Journal Module]] | Daily notes with widgets and calendar integration (separate package) |
 | [[file:docs/plugin-guide.org][Plugin Guide]] | Writing custom extractors for domain-specific data |
 | [[file:docs/troubleshooting.org][Troubleshooting]] | Common issues and solutions |
 | [[file:docs/comparison.org][Comparison]] | How vulpea compares to org-roam and org-node |

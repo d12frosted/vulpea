@@ -181,6 +181,12 @@ Content here...
 Content here...
 #+end_src
 
+Both are notes in every sense - found, linked, tagged, queried, and
+schema-validated the same way. This is what lets a single file hold many
+notes: a =swimming.org= where every session is its own heading is a whole
+collection of notes, and you can still read and edit the file as one org
+tree. Nothing forces one note per file.
+
 To add an ID to an existing entry: =M-x org-id-get-create=
 
 ** Tags
