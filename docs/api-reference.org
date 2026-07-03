@@ -1188,6 +1188,52 @@ Registry and helpers:
 | =vulpea-schema-applies-p=                 | Does a schema's predicate match a note |
 | =vulpea-schema-field-value=               | Read a field's value with its type     |
 
+** Per note, not per file
+
+A schema is not tied to a file. Its predicate runs against every note,
+and a note is any org node with an =ID= - a whole file or a single
+heading - so one file can hold many independently validated notes. A
+=swimming.org= where each session is its own heading is a good example:
+
+#+begin_src org
+,#+title: Swimming
+
+,* 2026-06-28 Morning laps :swim:
+:PROPERTIES:
+:ID: 3f2a6d1c-0b7e-4a2f-9c14-6d5e8a1b2c3d
+:END:
+- distance :: 1500
+- style :: freestyle
+- pool :: 25m
+
+,* 2026-06-30 Intervals :swim:
+:PROPERTIES:
+:ID: 7c9b0e42-1a3d-4f56-8b90-2e4c6a8d0f11
+:END:
+- distance :: 2000
+- style :: medley
+- pool :: 50m
+#+end_src
+
+#+begin_src emacs-lisp
+(vulpea-schema-define 'swim
+  :predicate (lambda (note) (member "swim" (vulpea-note-tags note)))
+  :fields
+  '((:key "distance" :type number :required t)
+    (:key "style"    :type symbol :required t
+          :one-of (freestyle backstroke breaststroke butterfly medley))
+    (:key "pool"     :type string)))
+
+;; validates every swim session heading, wherever it lives
+(vulpea-schema-validate-all 'swim)
+#+end_src
+
+The =:swim= tag on each heading is what the predicate keys off, so only
+the sessions are checked - not the file-level =Swimming= note that
+contains them. (The tag can also come from =#+filetags:=, which
+heading-level notes inherit; tagging the headings directly is what keeps
+the container note out.)
+
 ** Composition
 
 A schema can inherit fields from others with =:include=, which takes a
