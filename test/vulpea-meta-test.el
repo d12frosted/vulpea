@@ -1116,5 +1116,36 @@ This tests the fix for issue #200."
    (let ((count (vulpea-meta-batch-remove nil "status")))
      (should (= count 0)))))
 
+(ert-deftest vulpea-meta-batch-set-scopes-to-heading ()
+  "Batch set on a heading-level note writes to the heading, not file level.
+
+Regression guard for a scope bug: `vulpea-meta-batch-set' operated at
+whole-file scope regardless of the note's level, so setting a field on a
+heading note landed at file level (and could overwrite a same-named
+file-level value)."
+  (vulpea-meta-test--with-temp-db
+   ;; Section One is a heading-level note; the file-level note carries
+   ;; `file-prop :: file value'.  `file-prop' does not exist on the heading.
+   (let ((note (vulpea-db-get-by-id "11111111-1111-1111-1111-111111111111")))
+     (vulpea-meta-batch-set (list note) "file-prop" "heading batch value"))
+   ;; the heading gets its own value ...
+   (should (equal (vulpea-meta-get "11111111-1111-1111-1111-111111111111" "file-prop" 'string)
+                  "heading batch value"))
+   ;; ... and the file-level value is untouched
+   (should (equal (vulpea-meta-get "a1b2c3d4-e5f6-7890-abcd-ef1234567890" "file-prop" 'string)
+                  "file value"))))
+
+(ert-deftest vulpea-meta-batch-remove-scopes-to-heading ()
+  "Batch remove on a heading-level note does not delete a same-named file key.
+
+Section One has no `file-prop'; the file-level note does.  Removing
+`file-prop' from the heading must be a no-op - not a deletion of the
+file's value, which is what whole-file scope produced."
+  (vulpea-meta-test--with-temp-db
+   (let ((note (vulpea-db-get-by-id "11111111-1111-1111-1111-111111111111")))
+     (vulpea-meta-batch-remove (list note) "file-prop"))
+   (should (equal (vulpea-meta-get "a1b2c3d4-e5f6-7890-abcd-ef1234567890" "file-prop" 'string)
+                  "file value"))))
+
 (provide 'vulpea-meta-test)
 ;;; vulpea-meta-test.el ends here

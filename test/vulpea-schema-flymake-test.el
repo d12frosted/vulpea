@@ -94,6 +94,27 @@
       (let ((cd (cl-find-if (lambda (d) (string-match-p "colour" (nth 3 d))) ds)))
         (should (vulpea-flymake-test--on-line-p (nth 0 cd) "- colour"))))))
 
+(ert-deftest vulpea-schema-flymake-scopes-diagnostics-per-heading ()
+  "Two heading notes get their own diagnostics, each on its own line (#356)."
+  (vulpea-flymake-test--with
+      (concat ":PROPERTIES:\n:ID: file1\n:END:\n#+title: File\n\n"
+              "* First :wine:\n:PROPERTIES:\n:ID: h1\n:END:\n- name :: A\n- colour :: blue\n\n"
+              "* Second :wine:\n:PROPERTIES:\n:ID: h2\n:END:\n- colour :: green\n")
+    (vulpea-flymake-test--wine)
+    (let* ((ds (vulpea-schema-flymake--collect)))
+      ;; First: colour blue disallowed (1). Second: name missing + colour green
+      ;; disallowed (2). Three diagnostics in total, none from the file note.
+      (should (= (length ds) 3))
+      ;; both colour diagnostics sit on their own heading's colour line
+      (let ((colour-ds (cl-remove-if-not
+                        (lambda (d) (string-match-p "colour" (nth 3 d))) ds)))
+        (should (= (length colour-ds) 2))
+        (should (cl-every (lambda (d) (vulpea-flymake-test--on-line-p (nth 0 d) "- colour"))
+                          colour-ds)))
+      ;; the missing-required name is anchored to the Second heading line
+      (let ((name-d (cl-find-if (lambda (d) (string-match-p "name" (nth 3 d))) ds)))
+        (should (vulpea-flymake-test--on-line-p (nth 0 name-d) "* Second"))))))
+
 (ert-deftest vulpea-schema-flymake-backend-reports-diagnostics ()
   "The backend hands flymake real diagnostic objects."
   (vulpea-flymake-test--with

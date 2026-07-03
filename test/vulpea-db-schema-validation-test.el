@@ -136,5 +136,17 @@
       "#+title: Good Wine\n#+filetags: :wine:\n\n- name :: Chablis\n"
     (should (vulpea-db-get-by-id "33333333-3333-3333-3333-333333333333"))))
 
+(ert-deftest vulpea-db-schema-validation-error-skips-invalid-heading-keeps-file ()
+  "With `error', an invalid heading note is vetoed while the valid file note is kept."
+  (vulpea-dbsv-test--with-file 'error
+      "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+      (concat "#+title: Journal\n\n"
+              "* Bad Wine :wine:\n:PROPERTIES:"
+              "\n:ID: bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb\n:END:\n")
+    ;; the file-level note carries no wine tag, so no schema applies - it is kept
+    (should (vulpea-db-get-by-id "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"))
+    ;; the heading note is a wine without a name - validated per note and vetoed
+    (should-not (vulpea-db-get-by-id "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"))))
+
 (provide 'vulpea-db-schema-validation-test)
 ;;; vulpea-db-schema-validation-test.el ends here

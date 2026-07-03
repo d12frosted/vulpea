@@ -1530,21 +1530,24 @@ Signals an error if:
 ;;; Schema authoring
 
 (defun vulpea--schema-buffer-note (&optional schema)
-  "Build a synthetic `vulpea-note' from the current buffer.
+  "Build a synthetic `vulpea-note' from the note at point.
 
-The note always carries the buffer's title and tags.  When SCHEMA is
-given, it also carries the current values of that schema's field keys,
-so predicates and conditional :required / :one-of rules see in-buffer
-content while authoring."
+The note carries the title and tags of the note at point - the heading
+when point is inside one, otherwise the file.  When SCHEMA is given, it
+also carries the current values of that schema's field keys within the
+same scope, so predicates, conditional :required / :one-of rules and the
+missing-field computation see in-buffer content while authoring."
   (make-vulpea-note
-   :title (vulpea-buffer-title-get)
+   :title (if (org-before-first-heading-p)
+              (vulpea-buffer-title-get)
+            (substring-no-properties (org-get-heading t t t t)))
    :tags (vulpea-buffer-tags-get)
    :meta (when schema
            (delq nil
                  (mapcar
                   (lambda (field)
                     (let* ((key (plist-get field :key))
-                           (vals (vulpea-buffer-meta-get-list key 'string)))
+                           (vals (vulpea-buffer-meta-get-list key 'string 'heading)))
                       (when vals (cons key vals))))
                   (vulpea-schema-fields (vulpea-schema--resolve schema)))))))
 
@@ -1646,18 +1649,21 @@ For each field the note does not already carry, prompt for a value -
 offering :one-of values as completion and selecting a note for `note'
 fields - and insert it; required fields are handled first.  With a
 prefix argument (SKELETON non-nil), skip prompting and insert empty
-placeholders for every missing field instead."
+placeholders for every missing field instead.
+
+The fields are inserted into the note at point: the heading's subtree
+when point is inside one, otherwise the file-level metadata."
   (interactive (list nil current-prefix-arg))
   (let* ((schema (or schema-or-name
                      (vulpea--schema-read-schema (vulpea--schema-buffer-note))))
          (note (vulpea--schema-buffer-note schema))
          (fields (vulpea-schema-missing-fields note schema)))
     (if skeleton
-        (vulpea--schema-insert-field-values fields nil)
+        (vulpea--schema-insert-field-values fields nil 'heading)
       (let ((values (vulpea--schema-prompt-fields fields note)))
         (vulpea--schema-insert-field-values
          (cl-remove-if-not (lambda (f) (assoc (plist-get f :key) values)) fields)
-         values)))))
+         values 'heading)))))
 
 ;;;###autoload
 (defun vulpea-schema-fix-violation (violation &optional bound)
@@ -1668,8 +1674,14 @@ value the way `vulpea-schema-insert-fields' does - offering :one-of
 values as completion, selecting a note for `note' fields, restricting to
 :target-tags - then writes it, replacing the offending value or
 inserting the field when it was missing.  Returns the value written, or
-nil when the prompt is skipped.  BOUND limits the scope as in
-`vulpea-buffer-meta-set'.
+nil when the prompt is skipped.
+
+BOUND limits the scope as in `vulpea-buffer-meta-set' and defaults to
+\\='heading, so the fix is written into the note at point - the heading's
+subtree when point is inside one, otherwise the file-level metadata.
+This matches how the violating note is read, so a heading-level fix does
+not rewrite an unrelated file-level value; pass \\='buffer to force
+file-level scope.
 
 This is the headless building block UIs use to offer one-key fixes for a
 `vulpea-schema-validate' violation."
@@ -1683,7 +1695,7 @@ This is the headless building block UIs use to offer one-key fixes for a
          (value (vulpea--schema-prompt-field field note required))
          (value (if (listp value) (remove "" value) value)))
     (when (and field value (not (equal value "")))
-      (vulpea-buffer-meta-set (plist-get field :key) value 'append bound)
+      (vulpea-buffer-meta-set (plist-get field :key) value 'append (or bound 'heading))
       value)))
 
 (provide 'vulpea)

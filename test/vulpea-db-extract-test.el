@@ -1708,6 +1708,37 @@ See https://github.com/d12frosted/vulpea/issues/257."
               (should (member "book-rt" dests))))
         (delete-file path)))))
 
+(ert-deftest vulpea-db-extract-heading-title-link-pos-accounts-for-cookies ()
+  "A title link's stored :pos is exact regardless of TODO/priority cookies.
+
+The heading offset must count the trailing space after both the TODO
+keyword and the priority cookie; a priority cookie is written as \"[#X] \"
+\(five characters).  A stored position that is off by one lands on the
+space before the link and silently breaks `vulpea-propagate-title-change'."
+  (dolist (head '("* Review of [[id:bk][t]]"
+                  "* TODO Review of [[id:bk][t]]"
+                  "* [#A] Review of [[id:bk][t]]"
+                  "* TODO [#A] Review of [[id:bk][t]]"))
+    (vulpea-test--with-temp-db
+      (vulpea-db)
+      (let ((path (vulpea-test--create-temp-org-file
+                   (concat ":PROPERTIES:\n:ID: file-id\n:END:\n#+TITLE: File\n\n"
+                           head "\n:PROPERTIES:\n:ID: h-cookie-pos\n:END:\n"))))
+        (unwind-protect
+            (let ((vulpea-db-index-heading-level t))
+              (vulpea-db-update-file path)
+              (let* ((link (car (vulpea-db-query-links-to "bk")))
+                     (db-pos (plist-get link :pos))
+                     (actual (with-temp-buffer
+                               (insert-file-contents path)
+                               (goto-char (point-min))
+                               (search-forward "[[id:bk")
+                               (match-beginning 0))))
+                (should link)
+                ;; the stored position must land exactly on the link
+                (should (= db-pos actual))))
+          (delete-file path))))))
+
 ;;; Case-insensitive Property Key Tests
 
 (ert-deftest vulpea-db-extract-file-node-lowercase-id ()

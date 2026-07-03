@@ -655,7 +655,7 @@ Respects `vulpea-db-index-heading-level' setting."
                                    (org-element-property :raw-value headline)))
                        (title-start (+ pos level 1 ; stars + space
                                      (if todo (+ (length todo) 1) 0)
-                                     (if priority 4 0))) ; "[#X] "
+                                     (if priority 5 0))) ; "[#X] " incl. trailing space
                        (title-links (vulpea-db--extract-links-from-string
                                      raw-title title-start))
                        (links (append title-links

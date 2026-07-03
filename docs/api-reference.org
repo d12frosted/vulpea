@@ -1262,7 +1262,9 @@ Each violation carries =note-id=, =note-title=, =schema=, =field=,
 
 Where validation checks a note after the fact, authoring helps you write
 a conforming one. =vulpea-schema-insert-fields= is an interactive command
-that inserts the fields of an applicable schema into the current buffer:
+that inserts the fields of an applicable schema into the note at point -
+the heading's subtree when point is inside one, otherwise the file-level
+metadata:
 
 #+begin_src emacs-lisp
 ;; M-x vulpea-schema-insert-fields

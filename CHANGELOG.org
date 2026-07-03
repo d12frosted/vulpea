@@ -9,6 +9,13 @@
 
 ** Unreleased
 
+*Fixes*
+
+- [[https://github.com/d12frosted/vulpea/issues/356][vulpea#356]] Fix =vulpea-schema-insert-fields= inserting fields at the top of the file instead of into the note at point. With point inside a heading it now writes the fields into that heading's subtree (after the property drawer), and only falls back to file-level metadata when point is before the first heading. The synthetic note it builds while authoring is scoped the same way - it reads the note-at-point's title, tags, and existing field values from the heading rather than the file - so the missing-field computation no longer re-prompts for (and duplicate-inserts) a field the heading already carries. Thanks to =@alexjp= for the report.
+- [[https://github.com/d12frosted/vulpea/issues/356][vulpea#356]] Fix the same scope mismatch in =vulpea-schema-fix-violation=. It reads the violating note at point (heading-scoped) but wrote the correction with a file-level scope by default, so applying a one-key fix to a heading-level violation could rewrite an unrelated file-level value and leave the actual violation in place. Its =BOUND= now defaults to \\='heading (matching =vulpea-schema-insert-fields=), so the fix lands in the note it was read from; pass \\='buffer to force file-level scope.
+- Fix =vulpea-meta-batch-set= and =vulpea-meta-batch-remove= writing at file scope for heading-level notes. Both operated on whole-file metadata regardless of the note's level, so setting a field across a batch of heading notes inserted it at the top of each file, and removing a field could delete a same-named /file-level/ value while leaving the heading's in place - even though =vulpea-utils-process-notes= already parks point on the heading. They now scope to the heading's subtree for heading-level notes, matching the single-note =vulpea-meta-set= / =vulpea-meta-remove=. Surfaced by an audit of heading-level behaviour; the batch helpers had only ever been tested against file-level notes.
+- Fix the stored position of a link in a heading's title being off by one when the heading carries a priority cookie (=[#A]=). The extractor counted =[#X]= as four characters and dropped the trailing space, so every such title-link's =:pos= was one short - enough that =vulpea-propagate-title-change= silently skipped those links (it landed on the space before the link and the match failed). TODO keywords were already handled correctly; only the priority branch was off. =vulpea-db-parser-epoch= is bumped so existing databases re-extract and pick up the corrected positions on next access.
+
 ** v2.5.0 (2026-07-02)
 
 *Features*
