@@ -6,10 +6,8 @@
 <p align="center">
   <img width="256px" src="./images/logo.png" alt="Banner">
 </p>
-<p align="center">
-  <b>vulpea</b> /
-  <a href="https://github.com/d12frosted/vulpea-ui">vulpea-ui</a> /
-  <a href="https://github.com/d12frosted/vulpea-journal">vulpea-journal</a>
+<p>
+  <pre align="center"><b>vulpea</b> / <a href="https://github.com/d12frosted/vulpea-ui">vulpea-ui</a> / <a href="https://github.com/d12frosted/vulpea-journal">vulpea-journal</a></pre>
 </p>
 <p align="center">
   <a href="https://melpa.org/#/vulpea"><img alt="MELPA" src="https://melpa.org/packages/vulpea-badge.svg"/></a>
