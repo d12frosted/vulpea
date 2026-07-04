@@ -239,5 +239,92 @@ a final summary table."
                (plist-get row :notes)))
     summary))
 
+(defun vulpea-bench-file-async-run (&optional sizes)
+  "Benchmark worker-based extraction for each size in SIZES.
+
+For each size, measures the save path with `vulpea-db-async-extraction':
+- dispatch: main-thread time to notice the change and send the
+  request to the worker (mtime/size check + process send)
+- apply: main-thread time to write the arrived results to the
+  database (the only remaining blocking work)
+- wall: total time from save until the data is queryable
+
+Requires `vulpea-db-worker'.  SIZES defaults to 1MB and 10MB."
+  (require 'vulpea-db-worker)
+  (require 'vulpea-db-sync)
+  (let ((sizes (or sizes (list (* 1024 1024) (* 10 1024 1024))))
+        (summary nil))
+    (unless (file-directory-p vulpea-bench-output-dir)
+      (make-directory vulpea-bench-output-dir t))
+    (dolist (size sizes)
+      (let* ((label (vulpea-bench-file--format-size size))
+             (path (expand-file-name (format "bench-async-%s.org" label)
+                                     vulpea-bench-output-dir))
+             (db-file (expand-file-name (format "bench-async-%s.db" label)
+                                        vulpea-bench-output-dir))
+             (vulpea-db-location db-file)
+             (vulpea-db--connection nil)
+             (vulpea-db-async-extraction t))
+        (when (file-exists-p db-file) (delete-file db-file))
+        (message "\n=== Async, file size: %s ===" label)
+        (vulpea-bench-file-generate path size)
+        (unwind-protect
+            (progn
+              (vulpea-db)
+              ;; Initial index (sync), then simulate a save
+              (vulpea-db-update-file path)
+              (with-temp-buffer
+                (insert-file-contents path)
+                (goto-char (point-max))
+                (insert "\nedited after save\n")
+                (write-region (point-min) (point-max) path nil 'silent))
+              ;; Measure
+              (let* ((done nil)
+                     (apply-ms nil)
+                     (vulpea-db--timing-data '((db . 0)))
+                     (vulpea-db-worker-done-functions
+                      (list (lambda (_path status _count)
+                              (setq done status
+                                    apply-ms (cdr (assq 'db vulpea-db--timing-data))))))
+                     (t0 (current-time))
+                     (dispatch-ms
+                      (progn
+                        (when (vulpea-db-sync--changed-on-disk-p path)
+                          (vulpea-db-worker-request path))
+                        (* 1000 (float-time (time-subtract (current-time) t0))))))
+                (while (and (not done)
+                            (< (float-time (time-subtract (current-time) t0)) 300))
+                  (accept-process-output vulpea-db-worker--process 0.05))
+                (let ((wall (* 1000 (float-time (time-subtract (current-time) t0)))))
+                  (message "status: %s" done)
+                  (message "dispatch (main blocked): %s"
+                           (vulpea-bench--format-time (/ dispatch-ms 1000)))
+                  (message "apply    (main blocked): %s"
+                           (vulpea-bench--format-time (/ (or apply-ms 0) 1000)))
+                  (message "wall to queryable:       %s"
+                           (vulpea-bench--format-time (/ wall 1000)))
+                  (push (list :label label
+                              :dispatch dispatch-ms
+                              :apply (or apply-ms 0)
+                              :wall wall)
+                        summary))))
+          (vulpea-db-worker-stop)
+          (when vulpea-db--connection (vulpea-db-close))
+          (when (file-exists-p db-file) (delete-file db-file))
+          (delete-file path))))
+    (message "\n%-8s %14s %14s %14s %14s"
+             "size" "dispatch" "apply" "main-blocked" "wall")
+    (message "%s" (make-string 70 ?-))
+    (dolist (row (nreverse summary))
+      (message "%-8s %14s %14s %14s %14s"
+               (plist-get row :label)
+               (vulpea-bench--format-time (/ (plist-get row :dispatch) 1000))
+               (vulpea-bench--format-time (/ (plist-get row :apply) 1000))
+               (vulpea-bench--format-time (/ (+ (plist-get row :dispatch)
+                                                (plist-get row :apply))
+                                             1000))
+               (vulpea-bench--format-time (/ (plist-get row :wall) 1000))))
+    summary))
+
 (provide 'vulpea-bench-file)
 ;;; vulpea-bench-file.el ends here
