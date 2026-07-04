@@ -148,6 +148,29 @@ How Vulpea reads org files during sync:
 
 *Recommendation:* Use =single-temp-buffer= unless you need per-file hooks.
 
+** Parse Granularity
+
+How deep the org-element parse goes during extraction:
+
+#+begin_src emacs-lisp
+(setq vulpea-db-parse-granularity 'element)  ; Default, 2-3x faster on large files
+;; or
+(setq vulpea-db-parse-granularity 'object)   ; Full parse, historical behavior
+#+end_src
+
+At =element= granularity the parser skips inline objects (bold,
+timestamps, entities...) that extraction never reads; links are
+located afterwards with org's own link parser. Both modes are
+expected to produce identical results - =object= remains as an
+escape hatch, and if you ever observe a difference between the two,
+please report it. Known exception: radio links are only picked up in
+=object= mode. When extractor plugins are registered via
+=vulpea-db-register-extractor=, a full =object= parse is used
+regardless, since plugins may inspect inline objects.
+
+This matters most for large files: parsing a 10MB file drops from
+~3s to ~1.1s.
+
 ** Heading-Level Indexing
 
 Control whether headings with IDs are indexed:
