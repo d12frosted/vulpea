@@ -162,6 +162,101 @@ See https://github.com/d12frosted/vulpea/issues/271."
       (should (member (list "price" "25.50") meta))
       (should (member (list "region" "region-id") meta)))))
 
+(ert-deftest vulpea-db-insert-note-tricky-values-round-trip ()
+  "Values with quotes, unicode, and newlines survive insert and read.
+Characterization test for the insert path: whatever writes the rows,
+reading them back through emacsql must return the original values."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((title "He said \"hi\" — привіт, it's\na multi-line\ttitle")
+          (tag "böse-tag")
+          (meta-value "value with 'quotes' and \"doubles\"\nand a newline")
+          (desc "link description with ’unicode’ and \\backslash"))
+      (vulpea-db--insert-note
+       :id "tricky-id"
+       :path "/tmp/tricky's \"file\".org"
+       :level 3
+       :pos 1234
+       :title title
+       :properties `(("CUSTOM_PROP" . ,meta-value))
+       :tags (list tag "plain")
+       :aliases (list "alias one" title)
+       :meta `(("note" . (,meta-value)))
+       :links `((:dest "other-id" :type "id" :pos 100 :description ,desc))
+       :todo "TODO"
+       :priority 65
+       :scheduled "2026-01-01"
+       :modified-at "2025-11-16 10:00:00")
+
+      (let ((row (car (emacsql (vulpea-db)
+                               [:select [title path level pos todo priority
+                                         scheduled deadline]
+                                :from notes :where (= id $s1)]
+                               "tricky-id"))))
+        (should (equal (elt row 0) title))
+        (should (equal (elt row 1) "/tmp/tricky's \"file\".org"))
+        (should (equal (elt row 2) 3))
+        (should (equal (elt row 3) 1234))
+        (should (equal (elt row 4) "TODO"))
+        (should (equal (elt row 5) 65))
+        (should (equal (elt row 6) "2026-01-01"))
+        ;; nil scalar must come back as nil (stored as NULL)
+        (should (null (elt row 7))))
+      (should (equal (emacsql (vulpea-db)
+                              [:select [tag] :from tags
+                               :where (= note-id $s1) :order :by tag]
+                              "tricky-id")
+                     (list (list tag) (list "plain"))))
+      (should (equal (caar (emacsql (vulpea-db)
+                                    [:select [value] :from meta
+                                     :where (= note-id $s1)]
+                                    "tricky-id"))
+                     meta-value))
+      (should (equal (caar (emacsql (vulpea-db)
+                                    [:select [description] :from links
+                                     :where (= source $s1)]
+                                    "tricky-id"))
+                     desc))
+      (should (equal (caar (emacsql (vulpea-db)
+                                    [:select [value] :from properties
+                                     :where (= note-id $s1)]
+                                    "tricky-id"))
+                     meta-value)))))
+
+(ert-deftest vulpea-db-insert-note-storage-encoding ()
+  "Stored column text matches emacsql's readable-print encoding.
+Locks the on-disk format: rows written by `vulpea-db--insert-note'
+must be byte-identical to rows emacsql would write, so databases
+written before and after any insert-path change are interchangeable."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((title "line one\nline two with \"quotes\" and ’unicode’"))
+      (vulpea-db--insert-note
+       :id "enc-id"
+       :path "/tmp/enc.org"
+       :level 0
+       :pos 0
+       :title title
+       :properties nil
+       :modified-at "2025-11-16 10:00:00")
+      (let* ((handle (oref (vulpea-db) handle))
+             (row (car (sqlite-select
+                        handle
+                        "SELECT title, level, todo FROM notes WHERE id = ?"
+                        (list (let ((print-escape-newlines t)
+                                    (print-escape-control-characters t))
+                                (prin1-to-string "enc-id")))))))
+        (should row)
+        ;; Text scalars are stored as their readable-print form
+        (should (equal (elt row 0)
+                       (let ((print-escape-newlines t)
+                             (print-escape-control-characters t))
+                         (prin1-to-string title))))
+        ;; Numbers are stored as SQL numbers, not printed strings
+        (should (equal (elt row 1) 0))
+        ;; nil is stored as NULL
+        (should (null (elt row 2)))))))
+
 (ert-deftest vulpea-db-delete-note ()
   "Test note deletion."
   (vulpea-test--with-temp-db
