@@ -264,6 +264,48 @@ See README.org and bench/PERFORMANCE.md for guidance."
           (const :tag "Temp buffer (default, runs org-mode per file)" temp-buffer)
           (const :tag "Find file (slow, respects dir-locals)" find-file)))
 
+(defcustom vulpea-db-parse-granularity 'element
+  "Granularity of the org-element parse used during extraction.
+
+  \\='element (DEFAULT)
+    Parse down to elements only; links are located afterwards by
+    scanning the textual elements with org's own link parser.
+    2-3x faster on large files, since the bulk of a full parse is
+    spent recognizing inline objects (bold, timestamps, entities...)
+    that extraction never looks at.
+
+  \\='object
+    Full org-element parse including inline objects.  This is the
+    historical behavior; keep it as an escape hatch if you observe
+    any extraction difference and please report such cases.
+
+Both modes are expected to produce identical extraction results;
+the test suite locks their equivalence on an adversarial corpus.
+Known difference: radio links (<<<target>>> matches in plain text)
+are only picked up in \\='object mode.
+
+This setting only applies while no extractors are registered via
+`vulpea-db-register-extractor'.  Registered extractors receive the
+parse context including its AST and may inspect inline objects, so
+their presence forces a full \\='object parse (see
+`vulpea-db--effective-granularity')."
+  :group 'vulpea
+  :type '(choice (const :tag "Element granularity (fast)" element)
+          (const :tag "Object granularity (full parse)" object)))
+
+(defvar vulpea-db--extractors)
+
+(defun vulpea-db--effective-granularity ()
+  "Return the parse granularity to use for the current parse.
+
+Honors `vulpea-db-parse-granularity', except when extractor plugins
+are registered: their contract is a full AST (they may map inline
+objects like citations), so any registered extractor forces
+\\='object granularity."
+  (if vulpea-db--extractors
+      'object
+    vulpea-db-parse-granularity))
+
 (defvar vulpea-db--active-parse-method nil
   "Current `vulpea-db-parse-method' while parsing.
 
@@ -333,7 +375,7 @@ after loading PATH so file-local keywords and hooks are respected."
                       (let ((delay-mode-hooks nil))
                         (org-mode))))
                  (t2 (current-time))
-                 (ast (org-element-parse-buffer))
+                 (ast (org-element-parse-buffer (vulpea-db--effective-granularity)))
                  (t3 (current-time))
                  (attrs (file-attributes path))
                  (mtime (float-time (file-attribute-modification-time attrs)))
@@ -405,7 +447,7 @@ ensure decryption hooks run properly."
        (let ((buffer (find-file-noselect path t)))
          (unwind-protect
              (with-current-buffer buffer
-               (let* ((ast (org-element-parse-buffer))
+               (let* ((ast (org-element-parse-buffer (vulpea-db--effective-granularity)))
                       (attrs (file-attributes path))
                       (mtime (float-time (file-attribute-modification-time attrs)))
                       (size (file-attribute-size attrs))
@@ -852,11 +894,51 @@ inside non-note child headlines are included."
     (vulpea-db--walk-links-skipping-notes node (lambda (link) (push link result)))
     (nreverse result)))
 
+(defun vulpea-db--region-links (start end callback)
+  "Collect links between START and END in the current buffer.
+
+Used for element-granularity ASTs, where textual elements carry no
+parsed objects.  Candidates are located with `org-link-any-re' and
+parsed with `org-element-link-parser' - org's own parser - so type,
+path, and description semantics match a full object parse.
+
+CALLBACK is called with a plist (:dest :type :pos :description) for
+each link found."
+  (save-excursion
+    (goto-char start)
+    (while (re-search-forward org-link-any-re end t)
+      (goto-char (match-beginning 0))
+      (let ((link (org-element-link-parser)))
+        (if (not link)
+            (goto-char (match-end 0))
+          (let ((type (org-element-property :type link))
+                (path (org-element-property :path link))
+                (pos (org-element-property :begin link))
+                (cb (org-element-property :contents-begin link))
+                (ce (org-element-property :contents-end link)))
+            (when (and type path)
+              (funcall callback
+                       (list :dest path :type type :pos pos
+                             :description (when (and cb ce)
+                                            (buffer-substring-no-properties
+                                             cb ce)))))
+            ;; Jumping to the link's end also skips over any plain
+            ;; link inside this link's description, which a full
+            ;; object parse would not surface either
+            (goto-char (min end (org-element-property :end link)))))))))
+
 (defun vulpea-db--walk-links-skipping-notes (node callback)
   "Walk NODE collecting links via CALLBACK, skipping note headlines.
 
-CALLBACK is called with a plist (:dest :type :pos :description) for each link.
-Descends into child headlines only if they lack an ID property."
+CALLBACK is called with a plist (:dest :type :pos :description) for
+each link.  Descends into child headlines only if they lack an ID
+property.
+
+Works on both object- and element-granularity ASTs: parsed link
+objects are collected directly, while textual elements that carry no
+parsed objects (element granularity) are scanned in the buffer via
+`vulpea-db--region-links'.  For the latter the current buffer must be
+the buffer NODE was parsed from."
   (dolist (child (org-element-contents node))
     (let ((child-type (org-element-type child)))
       (cond
@@ -890,6 +972,15 @@ Descends into child headlines only if they lack an ID property."
                           raw-value title-start))
               (funcall callback link))))
         (vulpea-db--walk-links-skipping-notes child callback))
+       ;; Textual element without parsed objects (element
+       ;; granularity): scan its buffer region for links
+       ((and (memq child-type '(paragraph verse-block table-row))
+             (not (org-element-contents child))
+             (org-element-property :contents-begin child))
+        (vulpea-db--region-links
+         (org-element-property :contents-begin child)
+         (org-element-property :contents-end child)
+         callback))
        ;; Anything else (section, paragraph, etc.): recurse
        ((org-element-contents child)
         (vulpea-db--walk-links-skipping-notes child callback))))))
@@ -902,7 +993,13 @@ Metadata is defined by the first description list:
   - key :: value2
 
 Returns alist of (key . values) where values is list of strings.
-Link values are stored as interpreted strings."
+Link values are stored as interpreted strings.
+
+Works on both object- and element-granularity ASTs.  At element
+granularity the item tag is a raw string and the value element
+carries no parsed objects, so the value is read from the buffer
+directly; the current buffer must then be the buffer ELEMENT was
+parsed from."
   (let* ((pls (org-element-map element 'plain-list #'identity nil nil 'headline))
          (pl (seq-find
               (lambda (pl)
@@ -914,16 +1011,30 @@ Link values are stored as interpreted strings."
       (let ((items (org-element-map pl 'item #'identity)))
         (dolist (item items)
           (let* ((tag-contents (org-element-property :tag item))
-                 (key (when tag-contents
+                 (key (cond
+                       ;; Element granularity: tag is a raw string
+                       ((stringp tag-contents)
+                        (substring-no-properties (string-trim tag-contents)))
+                       (tag-contents
                         (substring-no-properties
                          (string-trim
                           (org-element-interpret-data
-                           (org-element-contents tag-contents))))))
+                           (org-element-contents tag-contents)))))))
                  (value-el (car (org-element-contents item)))
-                 (value (when value-el
+                 (value (cond
+                         ((and value-el (org-element-contents value-el))
                           (substring-no-properties
                            (string-trim
-                            (org-element-interpret-data value-el))))))
+                            (org-element-interpret-data value-el))))
+                         ;; Element granularity: no parsed objects,
+                         ;; read the raw buffer text
+                         (value-el
+                          (when-let* ((cb (org-element-property
+                                           :contents-begin value-el))
+                                      (ce (org-element-property
+                                           :contents-end value-el)))
+                            (string-trim
+                             (buffer-substring-no-properties cb ce)))))))
             (when (and key value)
               (let ((existing (assoc key meta-alist)))
                 (if existing

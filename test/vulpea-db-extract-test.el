@@ -1206,6 +1206,125 @@ Regression test for https://github.com/d12frosted/vulpea/issues/260."
               (should (equal (elt row 0) "Version 2"))))
         (delete-file path)))))
 
+;;; Parse Granularity Tests
+
+(defconst vulpea-db-extract-test--granularity-corpus
+  ":PROPERTIES:
+:ID: corpus-file-id
+:ROAM_REFS: [[https://drawer.example.com][drawer link]]
+:END:
+#+TITLE: Title with [[id:title-target][title link]]
+#+DESCRIPTION: keyword [[id:kw-target][kw link]]
+#+FILETAGS: :corpus:
+
+Paragraph with [[id:para-target][bracket]], plain https://plain.example.com
+and <https://angle.example.com> angle link.
+A fuzzy [[Some Heading]] and a [[file:other.org::*Section][file search link]].
+A nested description [[id:outer][desc with https://inner.example.com]].
+
+- category :: wine
+- link :: [[id:meta-target][meta desc]]
+- multi :: value one
+- multi :: *bold* value
+- [[id:tag-target][tagged key]] :: tagged value
+
+| cell | [[id:table-target][table link]] |
+
+#+begin_src org
+[[id:src-target][src link should NOT be indexed]]
+#+end_src
+
+#+begin_example
+[[id:example-target][example link should NOT be indexed]]
+#+end_example
+
+# comment [[id:comment-target][comment link should NOT be indexed]]
+
+#+begin_quote
+Quote with [[id:quote-target][quote link]].
+#+end_quote
+
+#+begin_verse
+Verse with [[id:verse-target][verse link]]
+#+end_verse
+
+: fixed-width [[id:fixed-target][fixed link NOT indexed]]
+
+* TODO [#A] Heading with [[id:h-title-target][h title link]] :htag:
+SCHEDULED: <2026-08-01 Sat> DEADLINE: <2026-09-01 Tue>
+:PROPERTIES:
+:ID: corpus-heading-id
+:CUSTOM: custom value
+:END:
+- rating :: 10
+
+Heading body [[id:h-body-target][h body link]].
+
+** Plain subheading without id
+Sub body [[id:sub-target][sub link]] belongs to parent note.
+
+* DONE Task heading
+CLOSED: [2026-06-01 Mon 10:00]
+:PROPERTIES:
+:ID: corpus-task-id
+:END:
+:LOGBOOK:
+- State \"DONE\"       from \"TODO\"       [2026-06-01 Mon 10:00]
+:END:
+
+Task body.
+"
+  "Adversarial org content exercising every extraction feature.")
+
+(ert-deftest vulpea-db-extract-corpus-is-adversarial ()
+  "Validate the corpus exercises what the equivalence test relies on.
+Uses the object-granularity pipeline as reference: links in
+paragraphs, tables, quotes, verses, and meta values are indexed;
+links in src/example blocks, comments, fixed-width areas, property
+drawers, and non-title keywords are not."
+  (let ((path (vulpea-test--create-temp-org-file
+               vulpea-db-extract-test--granularity-corpus)))
+    (unwind-protect
+        (let* ((vulpea-db-index-heading-level t)
+               (vulpea-db-parse-granularity 'object)
+               (ctx (vulpea-db--parse-file path))
+               (file-node (vulpea-parse-ctx-file-node ctx))
+               (dests (mapcar (lambda (l) (plist-get l :dest))
+                              (plist-get file-node :links))))
+          (dolist (dest '("para-target" "//plain.example.com"
+                          "//angle.example.com" "meta-target"
+                          "table-target" "quote-target" "verse-target"
+                          "title-target" "outer"))
+            (should (member dest dests)))
+          (dolist (dest '("src-target" "example-target" "comment-target"
+                          "fixed-target" "kw-target" "//drawer.example.com"
+                          "//inner.example.com"))
+            (should-not (member dest dests))))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-element-granularity-equivalence ()
+  "Element-granularity parsing produces identical extraction output.
+Parses the adversarial corpus with both granularities and requires
+the file node and every heading node to be plist-equal.  This is the
+contract that lets the cheaper element-granularity parse replace the
+full object parse without a behavior change."
+  (let ((path (vulpea-test--create-temp-org-file
+               vulpea-db-extract-test--granularity-corpus)))
+    (unwind-protect
+        (let* ((vulpea-db-index-heading-level t)
+               (ctx-object (let ((vulpea-db-parse-granularity 'object))
+                             (vulpea-db--parse-file path)))
+               (ctx-element (let ((vulpea-db-parse-granularity 'element))
+                              (vulpea-db--parse-file path))))
+          (should (equal (vulpea-parse-ctx-file-node ctx-object)
+                         (vulpea-parse-ctx-file-node ctx-element)))
+          (should (equal (length (vulpea-parse-ctx-heading-nodes ctx-object))
+                         (length (vulpea-parse-ctx-heading-nodes ctx-element))))
+          (cl-loop for obj-node in (vulpea-parse-ctx-heading-nodes ctx-object)
+                   for el-node in (vulpea-parse-ctx-heading-nodes ctx-element)
+                   do (should (equal obj-node el-node))))
+      (delete-file path))))
+
 ;;; Content Hash Tests
 
 (ert-deftest vulpea-db-extract-hash-matches-string-hash ()
