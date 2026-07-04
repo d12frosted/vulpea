@@ -1259,14 +1259,36 @@ Returns number of notes updated (file-level + headings)."
   (let* ((t0 (current-time))
          (ctx (vulpea-db--parse-file path))
          (t1 (current-time))
-         (parse-time (* 1000 (float-time (time-subtract t1 t0))))
+         (parse-time (* 1000 (float-time (time-subtract t1 t0)))))
+    ;; Accumulate parse timing
+    (when vulpea-db--timing-data
+      (let ((parse-entry (assoc 'parse vulpea-db--timing-data)))
+        (if parse-entry
+            (setcdr parse-entry (+ (cdr parse-entry) parse-time))
+          (push (cons 'parse parse-time) vulpea-db--timing-data))))
+    (vulpea-db--apply-parse-ctx ctx)))
+
+(defun vulpea-db--apply-parse-ctx (ctx)
+  "Write extraction results from CTX to the database.
+
+CTX is a `vulpea-parse-ctx'.  Only its extracted data is required -
+file node, heading nodes, hash, mtime, size, path; the AST may be
+nil (extractor plugins, which do need the AST, are run against
+whatever CTX carries).  This is the single write path shared by
+synchronous updates and results arriving from the extraction worker.
+
+Deletes the file's previous notes, inserts the new ones (honoring
+`vulpea-db-note-index-filter-functions'), updates the stored file
+hash, and registers note IDs with org-id.
+
+Returns number of notes written (file-level + headings)."
+  (let* ((path (vulpea-parse-ctx-path ctx))
          (db (vulpea-db))
          (count 0)
          (ids nil)  ; Track IDs to register with org-id
-         (t2 nil)
+         (t0 (current-time))
          (db-time 0))
 
-    (setq t2 (current-time))
     (emacsql-with-transaction db
       ;; Delete existing notes from this file
       (vulpea-db--delete-file-notes path)
@@ -1298,7 +1320,7 @@ Returns number of notes updated (file-level + headings)."
                                    (vulpea-parse-ctx-hash ctx)
                                    (vulpea-parse-ctx-mtime ctx)
                                    (vulpea-parse-ctx-size ctx)))
-    (setq db-time (* 1000 (float-time (time-subtract (current-time) t2))))
+    (setq db-time (* 1000 (float-time (time-subtract (current-time) t0))))
 
     ;; Register all IDs with org-id so links can be followed.
     ;; Batched instead of per-ID `org-id-add-location' calls, which
@@ -1318,13 +1340,9 @@ Returns number of notes updated (file-level + headings)."
         (unless (member afile org-id-files)
           (push afile org-id-files))))
 
-    ;; Accumulate timing data
+    ;; Accumulate db timing
     (when vulpea-db--timing-data
-      (let ((parse-entry (assoc 'parse vulpea-db--timing-data))
-            (db-entry (assoc 'db vulpea-db--timing-data)))
-        (if parse-entry
-            (setcdr parse-entry (+ (cdr parse-entry) parse-time))
-          (push (cons 'parse parse-time) vulpea-db--timing-data))
+      (let ((db-entry (assoc 'db vulpea-db--timing-data)))
         (if db-entry
             (setcdr db-entry (+ (cdr db-entry) db-time))
           (push (cons 'db db-time) vulpea-db--timing-data))))
