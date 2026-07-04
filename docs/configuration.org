@@ -193,6 +193,36 @@ disable this for a noticeably shorter save freeze on large files
 After changing it, run =vulpea-db-sync-full-scan= with a prefix
 argument to re-index existing files.
 
+** Async Extraction
+
+Whether changed files are parsed in a background Emacs process:
+
+#+begin_src emacs-lisp
+(setq vulpea-db-async-extraction t)  ; Off by default
+#+end_src
+
+With autosync enabled, saving a file normally parses it on the main
+thread - the UI freezes for as long as the file takes to index.
+With async extraction, reading, hashing, parsing, and extraction run
+in a persistent =emacs --batch= worker; the main thread only blocks
+for the database write of the results (a 1MB file: ~50ms instead of
+~360ms; a 10MB file: ~0.5s instead of ~3.5s).
+
+The worker mirrors vulpea and org settings from an allowlist
+(link types, tag inheritance, org-attach configuration, all
+=vulpea-db-*= extraction options) and, like
+=vulpea-db-parse-method= =single-temp-buffer=, does not run
+=org-mode-hook=. Files it cannot handle faithfully are processed
+synchronously as before: anything with extractor plugins registered,
+function-valued =vulpea-db-index-heading-level=, and non-=.org=
+files (decryption may require interaction).
+
+The worker starts lazily on the first changed file, restarts
+automatically if it dies (re-queueing in-flight files), and stops
+with =vulpea-db-autosync-mode=. Results for files that changed again
+while being parsed are discarded and re-queued, so the database
+never lags behind saved content.
+
 ** Heading-Level Indexing
 
 Control whether headings with IDs are indexed:
