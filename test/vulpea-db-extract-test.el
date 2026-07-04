@@ -1325,6 +1325,59 @@ full object parse without a behavior change."
                    do (should (equal obj-node el-node))))
       (delete-file path))))
 
+(ert-deftest vulpea-db-extract-element-granularity-equivalence-single-temp-buffer ()
+  "Granularity equivalence also holds under \\='single-temp-buffer.
+That parse method reuses one buffer and never re-runs `org-mode',
+so buffer-state assumptions of the element-granularity link scan and
+the attach-dir buffer scan get no per-file re-initialization to hide
+behind."
+  (let ((path (vulpea-test--create-temp-org-file
+               vulpea-db-extract-test--granularity-corpus))
+        (vulpea-db-parse-method 'single-temp-buffer))
+    (unwind-protect
+        (let* ((vulpea-db-index-heading-level t)
+               (ctx-object (let ((vulpea-db-parse-granularity 'object))
+                             (vulpea-db--parse-file path)))
+               (ctx-element (let ((vulpea-db-parse-granularity 'element))
+                              (vulpea-db--parse-file path))))
+          (should (equal (vulpea-parse-ctx-file-node ctx-object)
+                         (vulpea-parse-ctx-file-node ctx-element)))
+          (cl-loop for obj-node in (vulpea-parse-ctx-heading-nodes ctx-object)
+                   for el-node in (vulpea-parse-ctx-heading-nodes ctx-element)
+                   do (should (equal obj-node el-node))))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-single-temp-buffer-no-state-leak ()
+  "Reused parse buffer must not leak one file's state into the next.
+Parses a DIR- and link-heavy file, then a plain file, in
+\\='single-temp-buffer mode: the plain file must take the ID-derived
+attach-dir fast path (previous file's DIR property must not linger)
+and carry none of the previous file's links or meta."
+  (let ((rich (vulpea-test--create-temp-org-file
+               ":PROPERTIES:\n:ID: rich-id\n:DIR: /abs/rich/attachments\n:END:\n#+TITLE: Rich\n\nBody [[id:rich-target][rich link]].\n\n- key :: value\n"))
+        (plain (vulpea-test--create-temp-org-file
+                ":PROPERTIES:\n:ID: plain-id\n:END:\n#+TITLE: Plain\n\nNo links here.\n"))
+        (vulpea-db-parse-method 'single-temp-buffer))
+    (unwind-protect
+        (progn
+          ;; Parse the rich file first to poison the reused buffer
+          (let ((node (vulpea-parse-ctx-file-node (vulpea-db--parse-file rich))))
+            (should (equal (plist-get node :attach-dir) "/abs/rich/attachments"))
+            (should (equal (mapcar (lambda (l) (plist-get l :dest))
+                                   (plist-get node :links))
+                           '("rich-target")))
+            (should (equal (plist-get node :meta) '(("key" "value")))))
+          ;; The plain file parsed right after must be unaffected
+          (let ((node (vulpea-parse-ctx-file-node (vulpea-db--parse-file plain))))
+            (require 'org-attach)
+            (should (equal (plist-get node :attach-dir)
+                           (let ((default-directory (file-name-directory plain)))
+                             (org-attach-dir-from-id "plain-id" 'existing))))
+            (should (null (plist-get node :links)))
+            (should (null (plist-get node :meta)))))
+      (delete-file rich)
+      (delete-file plain))))
+
 ;;; Content Hash Tests
 
 (ert-deftest vulpea-db-extract-hash-matches-string-hash ()
