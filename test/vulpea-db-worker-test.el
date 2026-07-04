@@ -200,5 +200,22 @@ from worker-extracted results too."
   (let ((vulpea-db-index-heading-level (lambda (_) t)))
     (should-not (vulpea-db-worker-can-handle-p "/tmp/note.org"))))
 
+(ert-deftest vulpea-db-worker-threshold-routing ()
+  "The size threshold routes small files to the synchronous path."
+  (let ((path (vulpea-test--create-temp-org-file
+               ":PROPERTIES:\n:ID: tiny-id\n:END:\n#+TITLE: Tiny\n")))
+    (unwind-protect
+        (progn
+          ;; nil threshold: everything goes to the worker
+          (let ((vulpea-db-async-extraction-threshold nil))
+            (should (vulpea-db-worker-should-handle-p path)))
+          ;; Threshold above the file size: stays synchronous
+          (let ((vulpea-db-async-extraction-threshold (* 1024 1024)))
+            (should-not (vulpea-db-worker-should-handle-p path)))
+          ;; Threshold below the file size: goes to the worker
+          (let ((vulpea-db-async-extraction-threshold 1))
+            (should (vulpea-db-worker-should-handle-p path))))
+      (delete-file path))))
+
 (provide 'vulpea-db-worker-test)
 ;;; vulpea-db-worker-test.el ends here
