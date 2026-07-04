@@ -54,6 +54,11 @@
 (require 'vulpea-note)
 (require 'vulpea-buffer)
 
+(declare-function org-attach-dir "org-attach"
+                  (&optional create-if-not-exists-p no-fs-check))
+(declare-function org-attach-dir-from-id "org-attach"
+                  (id &optional existing))
+
 (defsubst vulpea-db--string-no-properties (value)
   "Return VALUE as a plain string without text properties."
   (when (and value (stringp value))
@@ -328,13 +333,14 @@ after loading PATH so file-local keywords and hooks are respected."
                       (let ((delay-mode-hooks nil))
                         (org-mode))))
                  (t2 (current-time))
-                 (content (buffer-string))
                  (ast (org-element-parse-buffer))
                  (t3 (current-time))
                  (attrs (file-attributes path))
                  (mtime (float-time (file-attribute-modification-time attrs)))
                  (size (file-attribute-size attrs))
-                 (hash (secure-hash 'sha256 content))
+                 ;; Hash the buffer directly - copying a large buffer
+                 ;; to a string first costs time and garbage
+                 (hash (secure-hash 'sha256 (current-buffer)))
                  (file-title (vulpea-db--extract-file-title ast path))
                  (file-node (vulpea-db--extract-file-node ast path (current-buffer) file-title))
                  (heading-nodes (vulpea-db--extract-heading-nodes ast path (current-buffer) file-title))
@@ -399,12 +405,11 @@ ensure decryption hooks run properly."
        (let ((buffer (find-file-noselect path t)))
          (unwind-protect
              (with-current-buffer buffer
-               (let* ((content (buffer-string))
-                      (ast (org-element-parse-buffer))
+               (let* ((ast (org-element-parse-buffer))
                       (attrs (file-attributes path))
                       (mtime (float-time (file-attribute-modification-time attrs)))
                       (size (file-attribute-size attrs))
-                      (hash (secure-hash 'sha256 content))
+                      (hash (secure-hash 'sha256 (current-buffer)))
                       (file-title (vulpea-db--extract-file-title ast path)))
 
                  (make-vulpea-parse-ctx
@@ -421,6 +426,39 @@ ensure decryption hooks run properly."
 
       (_
        (error "Unsupported vulpea-db-parse-method: %s" vulpea-db-parse-method)))))
+
+(defun vulpea-db--attach-dir-props-p (buffer)
+  "Return non-nil when BUFFER may set attach dirs through properties.
+
+Scans for DIR / ATTACH_DIR in property drawers or #+PROPERTY
+keywords.  When neither appears anywhere in the buffer,
+`org-attach-dir' can only ever derive the attachment directory from
+the node's own ID, so extraction may skip the per-node property
+lookups entirely (see `vulpea-db--attach-dir')."
+  (with-current-buffer buffer
+    (save-excursion
+      (goto-char (point-min))
+      (let ((case-fold-search t))
+        (re-search-forward
+         "^[ \t]*\\(?::\\(?:DIR\\|ATTACH_DIR\\)\\+?:\\|#\\+PROPERTY:[ \t]+\\(?:DIR\\|ATTACH_DIR\\)\\)"
+         nil t)))))
+
+(defun vulpea-db--attach-dir (buffer pos id props-p)
+  "Compute attachment directory for the note with ID at POS in BUFFER.
+
+When PROPS-P is nil the buffer contains no DIR/ATTACH_DIR properties
+\(per `vulpea-db--attach-dir-props-p'), so the result is derived from
+ID directly - the same value `org-attach-dir' would return, minus its
+three per-node `org-entry-get' tree walks, which dominate heading
+extraction cost on large files (issue #359).  Otherwise falls back to
+`org-attach-dir' at POS."
+  (with-current-buffer buffer
+    (require 'org-attach)
+    (if props-p
+        (save-excursion
+          (goto-char pos)
+          (org-attach-dir nil 'no-fs-check))
+      (org-attach-dir-from-id id 'existing))))
 
 (defun vulpea-db--extract-file-title (ast path)
   "Extract file title from AST at PATH.
@@ -496,11 +534,9 @@ Returns nil if:
              (links (append title-links
                             (vulpea-db--extract-links ast t)))  ; Don't recurse into headlines
              (aliases (vulpea-db--extract-aliases properties))
-             (attach-dir (with-current-buffer buffer
-                           (require 'org-attach)
-                           (save-excursion
-                             (goto-char (point-min))
-                             (org-attach-dir nil 'no-fs-check)))))
+             (attach-dir (vulpea-db--attach-dir
+                          buffer (point-min) id
+                          (vulpea-db--attach-dir-props-p buffer))))
         (list :id id
               :title file-title
               :aliases aliases
@@ -581,7 +617,10 @@ Respects `vulpea-db-index-heading-level' setting."
                                                (org-element-property :key kw))
                                   (split-string
                                    (org-element-property :value kw)
-                                   ":" t)))))))
+                                   ":" t))))))
+           ;; One scan for DIR/ATTACH_DIR properties gates the cheap
+           ;; ID-derived attach-dir path for every heading
+           (attach-props-p (vulpea-db--attach-dir-props-p buffer)))
       (org-element-map ast 'headline
         (lambda (headline)
           (when-let* ((id (org-element-property :ID headline)))
@@ -670,11 +709,8 @@ Respects `vulpea-db-index-heading-level' setting."
                                                     (org-element-property :raw-value current))))
                                                  path)))
                                        path))
-                       (attach-dir (with-current-buffer buffer
-                                     (require 'org-attach)
-                                     (save-excursion
-                                       (goto-char pos)
-                                       (org-attach-dir nil 'no-fs-check)))))
+                       (attach-dir (vulpea-db--attach-dir
+                                    buffer pos id attach-props-p)))
 
                   (list :id id
                         :level level

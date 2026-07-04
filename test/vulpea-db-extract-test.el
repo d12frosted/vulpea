@@ -1206,6 +1206,23 @@ Regression test for https://github.com/d12frosted/vulpea/issues/260."
               (should (equal (elt row 0) "Version 2"))))
         (delete-file path)))))
 
+;;; Content Hash Tests
+
+(ert-deftest vulpea-db-extract-hash-matches-string-hash ()
+  "Parse ctx hash equals the sha256 of the file content as a string.
+Locks compatibility with hashes stored in existing databases (computed
+via `buffer-string'), so a hash implementation change cannot silently
+force a full re-index or, worse, miss real changes."
+  (let ((path (vulpea-test--create-temp-org-file
+               ":PROPERTIES:\n:ID: hash-id\n:END:\n#+TITLE: Ünïcode — привіт 🦊\n\nBody with ünïcode and\ttabs.\n")))
+    (unwind-protect
+        (let ((ctx (vulpea-db--parse-file path)))
+          (should (equal (vulpea-parse-ctx-hash ctx)
+                         (with-temp-buffer
+                           (insert-file-contents path)
+                           (secure-hash 'sha256 (buffer-string))))))
+      (delete-file path))))
+
 ;;; Attachment Directory Tests
 
 (ert-deftest vulpea-db-extract-attach-dir-file-level ()
@@ -1228,6 +1245,64 @@ Regression test for https://github.com/d12frosted/vulpea/issues/260."
                (nodes (vulpea-parse-ctx-heading-nodes ctx))
                (node (car nodes)))
           (should (equal (plist-get node :attach-dir) "data/attachments/heading-id")))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-attach-dir-defaults-to-id-derived ()
+  "Without DIR/ATTACH_DIR properties, attach-dir derives from the ID.
+Locks equivalence with `org-attach-dir': for a note carrying only an
+ID, the attachment directory is what `org-attach-dir-from-id'
+computes for that ID relative to the note's file."
+  (let ((path (vulpea-test--create-temp-org-file
+               ":PROPERTIES:\n:ID: plain-file-id\n:END:\n#+TITLE: File\n\n* Heading\n:PROPERTIES:\n:ID: plain-heading-id\n:END:\n")))
+    (unwind-protect
+        (let* ((vulpea-db-index-heading-level t)
+               (ctx (vulpea-db--parse-file path))
+               (file-node (vulpea-parse-ctx-file-node ctx))
+               (heading-node (car (vulpea-parse-ctx-heading-nodes ctx)))
+               (default-directory (file-name-directory path)))
+          (require 'org-attach)
+          (should (equal (plist-get file-node :attach-dir)
+                         (org-attach-dir-from-id "plain-file-id" 'existing)))
+          (should (equal (plist-get heading-node :attach-dir)
+                         (org-attach-dir-from-id "plain-heading-id" 'existing))))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-attach-dir-dir-property ()
+  "The modern DIR property sets attach-dir, same as ATTACH_DIR."
+  (let ((path (vulpea-test--create-temp-org-file
+               "#+TITLE: File\n\n* Heading\n:PROPERTIES:\n:ID: dir-heading-id\n:DIR: /abs/attachments/dir\n:END:\n")))
+    (unwind-protect
+        (let* ((vulpea-db-index-heading-level t)
+               (ctx (vulpea-db--parse-file path))
+               (node (car (vulpea-parse-ctx-heading-nodes ctx))))
+          (should (equal (plist-get node :attach-dir)
+                         "/abs/attachments/dir")))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-attach-dir-inherited-dir ()
+  "A parent heading's DIR is inherited when property inheritance is on."
+  (let ((org-use-property-inheritance t)
+        (path (vulpea-test--create-temp-org-file
+               "#+TITLE: File\n\n* Parent\n:PROPERTIES:\n:DIR: /abs/parent/attachments\n:END:\n** Child\n:PROPERTIES:\n:ID: child-heading-id\n:END:\n")))
+    (unwind-protect
+        (let* ((vulpea-db-index-heading-level t)
+               (ctx (vulpea-db--parse-file path))
+               (node (car (vulpea-parse-ctx-heading-nodes ctx))))
+          (should (equal (plist-get node :attach-dir)
+                         "/abs/parent/attachments")))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-attach-dir-file-property-keyword ()
+  "A file-wide #+PROPERTY: DIR keyword sets attach-dir when inherited."
+  (let ((org-use-property-inheritance t)
+        (path (vulpea-test--create-temp-org-file
+               "#+PROPERTY: DIR /abs/keyword/attachments\n#+TITLE: File\n\n* Heading\n:PROPERTIES:\n:ID: kw-heading-id\n:END:\n")))
+    (unwind-protect
+        (let* ((vulpea-db-index-heading-level t)
+               (ctx (vulpea-db--parse-file path))
+               (node (car (vulpea-parse-ctx-heading-nodes ctx))))
+          (should (equal (plist-get node :attach-dir)
+                         "/abs/keyword/attachments")))
       (delete-file path))))
 
 (ert-deftest vulpea-db-extract-attach-dir-round-trip ()

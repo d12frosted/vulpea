@@ -777,7 +777,7 @@ no longer exists."
         ;; File changed, compute hash to verify
         (let ((current-hash (with-temp-buffer
                               (insert-file-contents path)
-                              (secure-hash 'sha256 (buffer-string)))))
+                              (secure-hash 'sha256 (current-buffer)))))
           (if (or (null stored-info)
                   (not (equal (plist-get stored-info :hash) current-hash)))
               ;; Hash differs, update database
