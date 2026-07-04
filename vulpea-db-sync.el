@@ -51,6 +51,7 @@
 (require 'vulpea-db)
 (require 'vulpea-db-extract)
 (require 'vulpea-db-query)
+(require 'vulpea-db-worker)
 
 ;;; Customization
 
@@ -427,6 +428,9 @@ a subprocess.  The `blocking' mode still scans synchronously."
   (when-let* ((proc (get-process "vulpea-scan")))
     (delete-process proc))
 
+  ;; Stop the extraction worker
+  (vulpea-db-worker-stop)
+
   ;; Stop external monitoring
   (vulpea-db-sync--stop-external-monitoring)
 
@@ -690,17 +694,38 @@ all files under that directory are removed."
                              :size (elt row 3))
                        hash-cache))
 
-            ;; Process in single transaction
-            (emacsql-with-transaction db
+            ;; Split off files the extraction worker will handle:
+            ;; for those, only a cheap mtime/size comparison happens
+            ;; here - reading, hashing, parsing and extraction all
+            ;; run in the worker subprocess.
+            (let (sync-paths)
               (dolist (path paths)
-                (condition-case err
-                    (when (file-exists-p path)
-                      (if (vulpea-db-sync--update-file-if-changed path hash-cache)
-                          (setq updated (1+ updated))
-                        (setq unchanged (1+ unchanged))))
-                  (error
-                   (message "Vulpea: Error updating %s: %s"
-                            path (error-message-string err)))))))
+                (if (and vulpea-db-async-extraction
+                         (vulpea-db-worker-can-handle-p path))
+                    (condition-case err
+                        (when (file-exists-p path)
+                          (if (vulpea-db-sync--changed-on-disk-p path hash-cache)
+                              (progn
+                                (vulpea-db-worker-request path)
+                                (setq updated (1+ updated)))
+                            (setq unchanged (1+ unchanged))))
+                      (error
+                       (message "Vulpea: Error dispatching %s: %s"
+                                path (error-message-string err))))
+                  (push path sync-paths)))
+
+              ;; Process the rest in a single transaction as before
+              (when sync-paths
+                (emacsql-with-transaction db
+                  (dolist (path (nreverse sync-paths))
+                    (condition-case err
+                        (when (file-exists-p path)
+                          (if (vulpea-db-sync--update-file-if-changed path hash-cache)
+                              (setq updated (1+ updated))
+                            (setq unchanged (1+ unchanged))))
+                      (error
+                       (message "Vulpea: Error updating %s: %s"
+                                path (error-message-string err)))))))))
 
           ;; Update totals
           (setq vulpea-db-sync--processed-total (+ vulpea-db-sync--processed-total updated unchanged)
@@ -751,6 +776,29 @@ all files under that directory are removed."
         (setq vulpea-db-sync--timer
               (run-with-timer vulpea-db-sync-batch-delay nil
                               #'vulpea-db-sync--process-queue))))))
+
+(defun vulpea-db-sync--changed-on-disk-p (path &optional hash-cache)
+  "Return non-nil when PATH's stamp differs from the stored one.
+
+Compares mtime and size only - no content hashing, so this never
+reads the file.  A file touched without a content change reports as
+changed here; the extraction worker disambiguates by comparing
+content hashes before rewriting anything.
+
+HASH-CACHE is an optional hash table mapping paths to stored info,
+as built by the queue processor; without it the database is queried
+directly."
+  (let ((attrs (file-attributes path)))
+    (and attrs
+         (let ((stored (if hash-cache
+                           (gethash path hash-cache)
+                         (vulpea-db--get-file-hash path))))
+           (or (null stored)
+               (not (equal (plist-get stored :mtime)
+                           (float-time
+                            (file-attribute-modification-time attrs))))
+               (not (equal (plist-get stored :size)
+                           (file-attribute-size attrs))))))))
 
 (cl-defun vulpea-db-sync--update-file-if-changed (path &optional hash-cache)
   "Update database for PATH only if file has changed.
