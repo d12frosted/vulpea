@@ -1301,14 +1301,22 @@ Returns number of notes updated (file-level + headings)."
     (setq db-time (* 1000 (float-time (time-subtract (current-time) t2))))
 
     ;; Register all IDs with org-id so links can be followed.
-    ;; Ensure org-id-locations is a hash table first — during
-    ;; org-id-update-id-locations it is temporarily an alist, and a
-    ;; vulpea timer firing in that window would hit puthash on the
-    ;; alist, causing "Wrong type argument: hash-table-p".
-    (when (and org-id-locations (not (hash-table-p org-id-locations)))
-      (setq org-id-locations (org-id-alist-to-hash org-id-locations)))
-    (dolist (id ids)
-      (org-id-add-location id path))
+    ;; Batched instead of per-ID `org-id-add-location' calls, which
+    ;; would abbreviate the same path and scan `org-id-files' once
+    ;; per note; semantics are otherwise identical.
+    (when (and ids org-id-track-globally)
+      (unless org-id-locations (org-id-locations-load))
+      ;; Ensure org-id-locations is a hash table first — during
+      ;; org-id-update-id-locations it is temporarily an alist, and a
+      ;; vulpea timer firing in that window would hit puthash on the
+      ;; alist, causing "Wrong type argument: hash-table-p".
+      (when (and org-id-locations (not (hash-table-p org-id-locations)))
+        (setq org-id-locations (org-id-alist-to-hash org-id-locations)))
+      (let ((afile (abbreviate-file-name path)))
+        (dolist (id ids)
+          (puthash id afile org-id-locations))
+        (unless (member afile org-id-files)
+          (push afile org-id-files))))
 
     ;; Accumulate timing data
     (when vulpea-db--timing-data

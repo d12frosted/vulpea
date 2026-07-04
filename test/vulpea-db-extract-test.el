@@ -1416,6 +1416,45 @@ and carry none of the previous file's links or meta."
       (delete-file rich)
       (delete-file plain))))
 
+;;; Org-id Registration Tests
+
+(ert-deftest vulpea-db-extract-registers-ids-with-org-id ()
+  "Indexing a file registers every note ID in `org-id-locations'.
+Locks the org-id contract: after an update, each ID maps to the
+file's abbreviated path and the file is listed in `org-id-files',
+exactly as per-ID `org-id-add-location' calls would have done."
+  (let ((org-id-track-globally t)
+        (org-id-locations (make-hash-table :test #'equal))
+        (org-id-files nil))
+    (vulpea-test--with-temp-db
+      (vulpea-db)
+      (let ((path (vulpea-test--create-temp-org-file
+                   ":PROPERTIES:\n:ID: org-id-file-id\n:END:\n#+TITLE: F\n\n* H\n:PROPERTIES:\n:ID: org-id-heading-id\n:END:\n")))
+        (unwind-protect
+            (let ((vulpea-db-index-heading-level t))
+              (vulpea-db-update-file path)
+              (let ((afile (abbreviate-file-name path)))
+                (should (equal (gethash "org-id-file-id" org-id-locations) afile))
+                (should (equal (gethash "org-id-heading-id" org-id-locations) afile))
+                (should (member afile org-id-files))))
+          (delete-file path))))))
+
+(ert-deftest vulpea-db-extract-no-org-id-registration-when-tracking-off ()
+  "With `org-id-track-globally' nil, indexing must not touch org-id."
+  (let ((org-id-track-globally nil)
+        (org-id-locations (make-hash-table :test #'equal))
+        (org-id-files nil))
+    (vulpea-test--with-temp-db
+      (vulpea-db)
+      (let ((path (vulpea-test--create-temp-org-file
+                   ":PROPERTIES:\n:ID: no-track-id\n:END:\n#+TITLE: F\n")))
+        (unwind-protect
+            (progn
+              (vulpea-db-update-file path)
+              (should (zerop (hash-table-count org-id-locations)))
+              (should (null org-id-files)))
+          (delete-file path))))))
+
 ;;; Content Hash Tests
 
 (ert-deftest vulpea-db-extract-hash-matches-string-hash ()
