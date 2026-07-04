@@ -171,6 +171,28 @@ regardless, since plugins may inspect inline objects.
 This matters most for large files: parsing a 10MB file drops from
 ~3s to ~1.1s.
 
+** Plain Link Indexing
+
+Whether unbracketed links in note bodies are indexed:
+
+#+begin_src emacs-lisp
+(setq vulpea-db-index-plain-links t)    ; Default: index every link org recognizes
+;; or
+(setq vulpea-db-index-plain-links nil)  ; Bracketed links only, much cheaper
+#+end_src
+
+Finding plain links (=https://...= or a bare =type:path= in running
+text) requires scanning all body text against a large regexp - the
+most expensive part of link extraction. Bracketed links
+(=[[id:...][desc]]=) are found with a cheap literal search. Since
+=id:= links - the ones that carry the note graph - are practically
+always bracketed, collections that do not query plain links can
+disable this for a noticeably shorter save freeze on large files
+(~20% faster re-index of a 10MB file).
+
+After changing it, run =vulpea-db-sync-full-scan= with a prefix
+argument to re-index existing files.
+
 ** Heading-Level Indexing
 
 Control whether headings with IDs are indexed:
