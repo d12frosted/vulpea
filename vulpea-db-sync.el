@@ -701,7 +701,7 @@ all files under that directory are removed."
             (let (sync-paths)
               (dolist (path paths)
                 (if (and vulpea-db-async-extraction
-                         (vulpea-db-worker-can-handle-p path))
+                         (vulpea-db-worker-should-handle-p path))
                     (condition-case err
                         (when (file-exists-p path)
                           (if (vulpea-db-sync--changed-on-disk-p path hash-cache)

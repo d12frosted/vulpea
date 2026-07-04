@@ -92,6 +92,24 @@ synchronously as before."
   :type 'boolean
   :group 'vulpea-db-sync)
 
+(defcustom vulpea-db-async-extraction-threshold nil
+  "Minimum file size in bytes for extraction in the worker.
+
+Files smaller than this are processed synchronously even when
+`vulpea-db-async-extraction' is enabled; nil sends files of any size
+to the worker.
+
+Measurements do not demand a threshold - the worker blocks the main
+thread less at every size, and bulk syncs complete faster through it
+\(worker parsing overlaps main-thread writes).  The reason to set one
+is consistency semantics: a synchronously indexed file is queryable
+the moment the sync queue has run, while a worker-extracted file
+becomes queryable a moment later.  If code queries small notes right
+after saving them, a threshold like 102400 keeps those synchronous."
+  :type '(choice (const :tag "All sizes through the worker" nil)
+          (integer :tag "Minimum size in bytes"))
+  :group 'vulpea-db-sync)
+
 (defvar vulpea-db-worker-done-functions nil
   "Abnormal hook run when the worker finishes a file.
 
@@ -171,6 +189,9 @@ cases."
 (defvar vulpea-db-worker--in-flight nil
   "Paths sent to the worker and not yet completed, oldest first.")
 
+(defvar vulpea-db-worker--in-flight-tail nil
+  "Tail cons of `vulpea-db-worker--in-flight' for O(1) appends.")
+
 (defvar vulpea-db-worker--current nil
   "Assembly state for the file currently streaming in.
 A plist with :path, :file-node and :heading-nodes (reversed).")
@@ -189,6 +210,7 @@ A plist with :path, :file-node and :heading-nodes (reversed).")
   (unless (process-live-p vulpea-db-worker--process)
     (setq vulpea-db-worker--output ""
           vulpea-db-worker--in-flight nil
+          vulpea-db-worker--in-flight-tail nil
           vulpea-db-worker--current nil)
     (setq vulpea-db-worker--process
           (make-process
@@ -218,6 +240,7 @@ A plist with :path, :file-node and :heading-nodes (reversed).")
   (setq vulpea-db-worker--process nil
         vulpea-db-worker--output ""
         vulpea-db-worker--in-flight nil
+        vulpea-db-worker--in-flight-tail nil
         vulpea-db-worker--current nil))
 
 (defun vulpea-db-worker-busy-p ()
@@ -236,6 +259,18 @@ file (decryption may require user interaction)."
        (booleanp vulpea-db-index-heading-level)
        (string-suffix-p ".org" path)))
 
+(defun vulpea-db-worker-should-handle-p (path)
+  "Return non-nil when PATH should be extracted in the worker.
+
+Combines `vulpea-db-worker-can-handle-p' (faithfulness) with
+`vulpea-db-async-extraction-threshold' (size routing policy)."
+  (and (vulpea-db-worker-can-handle-p path)
+       (or (null vulpea-db-async-extraction-threshold)
+           (let ((attrs (file-attributes path)))
+             (and attrs
+                  (>= (file-attribute-size attrs)
+                      vulpea-db-async-extraction-threshold))))))
+
 (defun vulpea-db-worker-request (path)
   "Ask the worker to extract PATH.
 
@@ -244,8 +279,11 @@ The result is applied to the database when it arrives; see
 `vulpea-db-worker-can-handle-p' first."
   (vulpea-db-worker--ensure)
   (vulpea-db-worker--send `(parse ,path))
-  (setq vulpea-db-worker--in-flight
-        (append vulpea-db-worker--in-flight (list path))))
+  (let ((node (list path)))
+    (if vulpea-db-worker--in-flight
+        (setcdr vulpea-db-worker--in-flight-tail node)
+      (setq vulpea-db-worker--in-flight node))
+    (setq vulpea-db-worker--in-flight-tail node)))
 
 ;;; Client: response handling
 
@@ -282,16 +320,25 @@ The result is applied to the database when it arrives; see
     (`(done ,path ,hash ,mtime ,size)
      (let ((current vulpea-db-worker--current))
        (setq vulpea-db-worker--current nil)
-       (setq vulpea-db-worker--in-flight
-             (delete path vulpea-db-worker--in-flight))
+       (vulpea-db-worker--forget path)
        (vulpea-db-worker--complete path hash mtime size current)))
     (`(error ,path ,message)
      (setq vulpea-db-worker--current nil)
-     (setq vulpea-db-worker--in-flight
-           (delete path vulpea-db-worker--in-flight))
+     (vulpea-db-worker--forget path)
      (message "Vulpea: worker failed on %s: %s" path message)
      (run-hook-with-args 'vulpea-db-worker-done-functions
                          path 'error nil))))
+
+(defun vulpea-db-worker--forget (path)
+  "Drop PATH from the in-flight list.
+The worker answers in request order, so PATH is almost always the
+head; falling back to a full scan keeps this correct either way."
+  (if (equal (car vulpea-db-worker--in-flight) path)
+      (pop vulpea-db-worker--in-flight)
+    (setq vulpea-db-worker--in-flight
+          (delete path vulpea-db-worker--in-flight)))
+  (setq vulpea-db-worker--in-flight-tail
+        (last vulpea-db-worker--in-flight)))
 
 (defun vulpea-db-worker--complete (path hash mtime size current)
   "Apply a completed extraction of PATH to the database.
@@ -344,6 +391,7 @@ and changed files are re-enqueued with the sync queue."
       (setq vulpea-db-worker--process nil
             vulpea-db-worker--output ""
             vulpea-db-worker--in-flight nil
+            vulpea-db-worker--in-flight-tail nil
             vulpea-db-worker--current nil)
       (when pending
         (message "Vulpea: extraction worker died, re-queueing %d file%s"
