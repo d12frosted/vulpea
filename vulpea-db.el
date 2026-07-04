@@ -462,6 +462,30 @@ LINKS is (plist1 plist2...).
 Converts plists to alists so `json-encode' creates objects."
   (mapcar #'vulpea-db--plist-to-alist links))
 
+(defun vulpea-db--bind-scalar (value)
+  "Encode VALUE for native parameter binding.
+
+Matches the storage format of `emacsql-escape-scalar' exactly: nil
+maps to NULL, numbers are stored as SQL numbers, and any other value
+is stored as its readable-print form so emacsql reads it back
+unchanged.  Keeping the format identical makes rows written through
+`sqlite-execute' byte-compatible with rows written through emacsql."
+  (cond ((null value) nil)
+        ((numberp value) value)
+        (t (let ((print-escape-newlines t)
+                 (print-escape-control-characters t))
+             (prin1-to-string value)))))
+
+(defun vulpea-db--insert-rows (handle sql rows)
+  "Execute insert SQL on HANDLE once per row in ROWS.
+
+Each row is a list of raw lisp values, encoded for binding via
+`vulpea-db--bind-scalar'.  Native parameter binding bypasses
+emacsql's statement compilation, which dominates insert cost when
+indexing files with many notes (issue #359)."
+  (dolist (row rows)
+    (sqlite-execute handle sql (mapcar #'vulpea-db--bind-scalar row))))
+
 (cl-defun vulpea-db--insert-note (&key id path level pos title
                                        properties tags aliases meta links
                                        todo priority scheduled deadline
@@ -493,51 +517,73 @@ Arguments:
   FILE-TITLE - title of the file containing this note
   CREATED-AT - creation timestamp
   MODIFIED-AT - modification timestamp"
-  (let ((db (vulpea-db)))
+  ;; All inserts use OR IGNORE: emacsql-sqlite-builtin silently
+  ;; dropped constraint-violating statements (sqlite-select swallows
+  ;; step errors), so messy data - duplicate IDs, duplicate property
+  ;; keys - never failed indexing.  OR IGNORE preserves that tolerance
+  ;; but at row granularity: a violating row is skipped instead of
+  ;; taking its sibling rows down with the whole statement.
+  (let* ((db (vulpea-db))
+         (handle (oref db handle)))
     (emacsql-with-transaction db
       ;; 1. Insert into materialized notes table
-      (emacsql db [:insert :into notes :values $v1]
-               (list
-                (vector id path level pos title
-                        (if properties (json-encode properties) "null")
-                        (if tags (json-encode tags) "null")
-                        (if aliases (json-encode aliases) "null")
-                        (if meta (json-encode (vulpea-db--meta-to-json meta)) "null")
-                        (if links (json-encode (vulpea-db--links-to-json links)) "null")
-                        todo priority scheduled deadline closed
-                        outline-path attach-dir file-title
-                        created-at modified-at)))
+      (vulpea-db--insert-rows
+       handle
+       "INSERT OR IGNORE INTO notes (id, path, level, pos, title, properties, tags,
+                           aliases, meta, links, todo, priority, scheduled,
+                           deadline, closed, outline_path, attach_dir,
+                           file_title, created_at, modified_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+       (list
+        (list id path level pos title
+              (if properties (json-encode properties) "null")
+              (if tags (json-encode tags) "null")
+              (if aliases (json-encode aliases) "null")
+              (if meta (json-encode (vulpea-db--meta-to-json meta)) "null")
+              (if links (json-encode (vulpea-db--links-to-json links)) "null")
+              todo priority scheduled deadline closed
+              outline-path attach-dir file-title
+              created-at modified-at)))
 
       ;; 2. Insert into normalized tags table
       (when tags
         (let ((unique-tags (delete-dups (copy-sequence tags))))
-          (emacsql db [:insert :into tags :values $v1]
-                   (mapcar (lambda (tag) (vector id tag)) unique-tags))))
+          (vulpea-db--insert-rows
+           handle
+           "INSERT OR IGNORE INTO tags (note_id, tag) VALUES (?,?)"
+           (mapcar (lambda (tag) (list id tag)) unique-tags))))
 
       ;; 3. Insert into normalized links table
       (when links
-        (emacsql db [:insert :into links :values $v1]
-                 (mapcar (lambda (link)
-                           (vector id
-                                   (plist-get link :dest)
-                                   (plist-get link :type)
-                                   (plist-get link :pos)
-                                   (plist-get link :description)))
-                         links)))
+        (vulpea-db--insert-rows
+         handle
+         "INSERT OR IGNORE INTO links (source, dest, type, pos, description)
+          VALUES (?,?,?,?,?)"
+         (mapcar (lambda (link)
+                   (list id
+                         (plist-get link :dest)
+                         (plist-get link :type)
+                         (plist-get link :pos)
+                         (plist-get link :description)))
+                 links)))
 
       ;; 4. Insert into normalized meta table
       (when meta
-        (emacsql db [:insert :into meta :values $v1]
-                 (cl-loop for (key . values) in meta
-                          append (mapcar (lambda (v)
-                                           (vector id key v))
-                                         values))))
+        (vulpea-db--insert-rows
+         handle
+         "INSERT OR IGNORE INTO meta (note_id, key, value) VALUES (?,?,?)"
+         (cl-loop for (key . values) in meta
+                  append (mapcar (lambda (v)
+                                   (list id key v))
+                                 values))))
 
       ;; 5. Insert into normalized properties table
       (when properties
-        (emacsql db [:insert :into properties :values $v1]
-                 (cl-loop for (key . value) in properties
-                          collect (vector id key value)))))))
+        (vulpea-db--insert-rows
+         handle
+         "INSERT OR IGNORE INTO properties (note_id, key, value) VALUES (?,?,?)"
+         (cl-loop for (key . value) in properties
+                  collect (list id key value)))))))
 
 (defun vulpea-db--delete-file-notes (path)
   "Delete all notes from PATH.
