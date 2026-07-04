@@ -1329,6 +1329,40 @@ full object parse without a behavior change."
                    do (should (equal obj-node el-node))))
       (delete-file path))))
 
+(ert-deftest vulpea-db-extract-bracket-only-links ()
+  "With `vulpea-db-index-plain-links' nil, only bracket links index.
+Plain (https://...) and angle (<https://...>) links disappear from
+the corpus output while every bracketed link stays, and both
+granularities agree on that reduced output."
+  (let ((path (vulpea-test--create-temp-org-file
+               vulpea-db-extract-test--granularity-corpus))
+        (vulpea-db-index-plain-links nil))
+    (unwind-protect
+        (let* ((vulpea-db-index-heading-level t)
+               (ctx-object (let ((vulpea-db-parse-granularity 'object))
+                             (vulpea-db--parse-file path)))
+               (ctx-element (let ((vulpea-db-parse-granularity 'element))
+                              (vulpea-db--parse-file path)))
+               (node (vulpea-parse-ctx-file-node ctx-element))
+               (dests (mapcar (lambda (l) (plist-get l :dest))
+                              (plist-get node :links))))
+          ;; Bracketed links stay
+          (dolist (dest '("title-target" "para-target" "meta-target"
+                          "table-target" "quote-target" "verse-target"
+                          "after-unbalanced" "outer" "Some Heading"
+                          "other.org"))
+            (should (member dest dests)))
+          ;; Plain and angle links are gone
+          (dolist (dest '("//plain.example.com" "//angle.example.com"))
+            (should-not (member dest dests)))
+          ;; Both granularities agree on the reduced output
+          (should (equal (vulpea-parse-ctx-file-node ctx-object)
+                         (vulpea-parse-ctx-file-node ctx-element)))
+          (cl-loop for obj-node in (vulpea-parse-ctx-heading-nodes ctx-object)
+                   for el-node in (vulpea-parse-ctx-heading-nodes ctx-element)
+                   do (should (equal obj-node el-node))))
+      (delete-file path))))
+
 (ert-deftest vulpea-db-extract-element-granularity-equivalence-single-temp-buffer ()
   "Granularity equivalence also holds under \\='single-temp-buffer.
 That parse method reuses one buffer and never re-runs `org-mode',
