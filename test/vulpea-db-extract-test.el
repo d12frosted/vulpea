@@ -1230,6 +1230,10 @@ A nested description [[id:outer][desc with https://inner.example.com]].
 
 | cell | [[id:table-target][table link]] |
 
+Unbalanced [[bracket text that never closes
+
+Followed by a real [[id:after-unbalanced][link after unbalanced]].
+
 #+begin_src org
 [[id:src-target][src link should NOT be indexed]]
 #+end_src
@@ -1294,7 +1298,7 @@ drawers, and non-title keywords are not."
           (dolist (dest '("para-target" "//plain.example.com"
                           "//angle.example.com" "meta-target"
                           "table-target" "quote-target" "verse-target"
-                          "title-target" "outer"))
+                          "title-target" "outer" "after-unbalanced"))
             (should (member dest dests)))
           (dolist (dest '("src-target" "example-target" "comment-target"
                           "fixed-target" "kw-target" "//drawer.example.com"
