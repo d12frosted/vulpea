@@ -239,8 +239,10 @@ a final summary table."
                (plist-get row :notes)))
     summary))
 
-(defun vulpea-bench-file-async-run (&optional sizes)
+(defun vulpea-bench-file-async-run (&optional sizes mode)
   "Benchmark worker-based extraction for each size in SIZES.
+
+MODE is a `vulpea-db-async-extraction' value (default t).
 
 For each size, measures the save path with `vulpea-db-async-extraction':
 - dispatch: main-thread time to notice the change and send the
@@ -264,7 +266,7 @@ Requires `vulpea-db-worker'.  SIZES defaults to 1MB and 10MB."
                                         vulpea-bench-output-dir))
              (vulpea-db-location db-file)
              (vulpea-db--connection nil)
-             (vulpea-db-async-extraction t))
+             (vulpea-db-async-extraction (or mode t)))
         (when (file-exists-p db-file) (delete-file db-file))
         (message "\n=== Async, file size: %s ===" label)
         (vulpea-bench-file-generate path size)

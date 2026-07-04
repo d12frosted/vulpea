@@ -198,15 +198,34 @@ argument to re-index existing files.
 Whether changed files are parsed in a background Emacs process:
 
 #+begin_src emacs-lisp
-(setq vulpea-db-async-extraction t)  ; Off by default
+(setq vulpea-db-async-extraction t)     ; Extract in worker, write in main
+;; or
+(setq vulpea-db-async-extraction 'full) ; Extract AND write in worker
 #+end_src
 
 With autosync enabled, saving a file normally parses it on the main
 thread - the UI freezes for as long as the file takes to index.
-With async extraction, reading, hashing, parsing, and extraction run
-in a persistent =emacs --batch= worker; the main thread only blocks
-for the database write of the results (a 1MB file: ~50ms instead of
-~360ms; a 10MB file: ~0.5s instead of ~3.5s).
+With async extraction (=t=), reading, hashing, parsing, and
+extraction run in a persistent =emacs --batch= worker; the main
+thread only blocks for the database write of the results (a 1MB
+file: ~50ms instead of ~360ms; a 10MB file: ~0.5s instead of ~3.5s).
+
+With ='full=, the worker also writes the results through its own
+database connection, and the main thread only registers note IDs
+with org-id - the freeze disappears at any file size. This switches
+the database to WAL journaling (persistent; =-wal=/=-shm= sidecar
+files appear next to it), which is not suitable for databases on
+network filesystems. While schemas are registered with a non-silent
+=vulpea-db-schema-validation-action=, ='full= behaves like =t= so
+validation keeps running in your session.
+
+A companion knob, =vulpea-db-async-extraction-threshold=, keeps
+files below a size on the synchronous path (nil, the default, sends
+everything to the worker). Measurements do not demand a threshold -
+the worker blocks less at every size and bulk syncs complete faster
+through it - but synchronously indexed files are queryable the
+moment the queue runs, so set e.g. =102400= if code queries small
+notes right after saving them.
 
 The worker mirrors vulpea and org settings from an allowlist
 (link types, tag inheritance, org-attach configuration, all
