@@ -907,25 +907,32 @@ each link found."
   (save-excursion
     (goto-char start)
     (while (re-search-forward org-link-any-re end t)
-      (goto-char (match-beginning 0))
-      (let ((link (org-element-link-parser)))
-        (if (not link)
-            (goto-char (match-end 0))
-          (let ((type (org-element-property :type link))
-                (path (org-element-property :path link))
-                (pos (org-element-property :begin link))
-                (cb (org-element-property :contents-begin link))
-                (ce (org-element-property :contents-end link)))
-            (when (and type path)
-              (funcall callback
-                       (list :dest path :type type :pos pos
-                             :description (when (and cb ce)
-                                            (buffer-substring-no-properties
-                                             cb ce)))))
-            ;; Jumping to the link's end also skips over any plain
-            ;; link inside this link's description, which a full
-            ;; object parse would not surface either
-            (goto-char (min end (org-element-property :end link)))))))))
+      ;; Capture the match bound before calling the parser:
+      ;; `org-element-link-parser' runs its own regexps and clobbers
+      ;; the global match data, so reading `match-end' after it can
+      ;; move point backwards and loop forever
+      (let ((candidate-end (match-end 0)))
+        (goto-char (match-beginning 0))
+        (let ((link (org-element-link-parser)))
+          (if (not link)
+              (goto-char candidate-end)
+            (let ((type (org-element-property :type link))
+                  (path (org-element-property :path link))
+                  (pos (org-element-property :begin link))
+                  (cb (org-element-property :contents-begin link))
+                  (ce (org-element-property :contents-end link)))
+              (when (and type path)
+                (funcall callback
+                         (list :dest path :type type :pos pos
+                               :description (when (and cb ce)
+                                              (buffer-substring-no-properties
+                                               cb ce)))))
+              ;; Jumping to the link's end also skips over any plain
+              ;; link inside this link's description, which a full
+              ;; object parse would not surface either.  The link end
+              ;; is strictly after the match beginning, so the loop
+              ;; always advances.
+              (goto-char (min end (org-element-property :end link))))))))))
 
 (defun vulpea-db--walk-links-skipping-notes (node callback)
   "Walk NODE collecting links via CALLBACK, skipping note headlines.
