@@ -1268,7 +1268,26 @@ Returns number of notes updated (file-level + headings)."
           (push (cons 'parse parse-time) vulpea-db--timing-data))))
     (vulpea-db--apply-parse-ctx ctx)))
 
-(defun vulpea-db--apply-parse-ctx (ctx)
+(defun vulpea-db--register-id-locations (ids path)
+  "Register note IDS at PATH with org-id, batched.
+
+Equivalent to calling `org-id-add-location' for each ID, minus the
+repeated path abbreviation and `org-id-files' scans that would do."
+  (when (and ids org-id-track-globally)
+    (unless org-id-locations (org-id-locations-load))
+    ;; Ensure org-id-locations is a hash table first — during
+    ;; org-id-update-id-locations it is temporarily an alist, and a
+    ;; vulpea timer firing in that window would hit puthash on the
+    ;; alist, causing "Wrong type argument: hash-table-p".
+    (when (and org-id-locations (not (hash-table-p org-id-locations)))
+      (setq org-id-locations (org-id-alist-to-hash org-id-locations)))
+    (let ((afile (abbreviate-file-name path)))
+      (dolist (id ids)
+        (puthash id afile org-id-locations))
+      (unless (member afile org-id-files)
+        (push afile org-id-files)))))
+
+(defun vulpea-db--apply-parse-ctx (ctx &optional skip-org-id)
   "Write extraction results from CTX to the database.
 
 CTX is a `vulpea-parse-ctx'.  Only its extracted data is required -
@@ -1279,7 +1298,9 @@ synchronous updates and results arriving from the extraction worker.
 
 Deletes the file's previous notes, inserts the new ones (honoring
 `vulpea-db-note-index-filter-functions'), updates the stored file
-hash, and registers note IDs with org-id.
+hash, and registers note IDs with org-id - unless SKIP-ORG-ID is
+non-nil, for callers that own no org-id state (the extraction
+worker registers IDs in the main process instead).
 
 Returns number of notes written (file-level + headings)."
   (let* ((path (vulpea-parse-ctx-path ctx))
@@ -1322,23 +1343,9 @@ Returns number of notes written (file-level + headings)."
                                    (vulpea-parse-ctx-size ctx)))
     (setq db-time (* 1000 (float-time (time-subtract (current-time) t0))))
 
-    ;; Register all IDs with org-id so links can be followed.
-    ;; Batched instead of per-ID `org-id-add-location' calls, which
-    ;; would abbreviate the same path and scan `org-id-files' once
-    ;; per note; semantics are otherwise identical.
-    (when (and ids org-id-track-globally)
-      (unless org-id-locations (org-id-locations-load))
-      ;; Ensure org-id-locations is a hash table first — during
-      ;; org-id-update-id-locations it is temporarily an alist, and a
-      ;; vulpea timer firing in that window would hit puthash on the
-      ;; alist, causing "Wrong type argument: hash-table-p".
-      (when (and org-id-locations (not (hash-table-p org-id-locations)))
-        (setq org-id-locations (org-id-alist-to-hash org-id-locations)))
-      (let ((afile (abbreviate-file-name path)))
-        (dolist (id ids)
-          (puthash id afile org-id-locations))
-        (unless (member afile org-id-files)
-          (push afile org-id-files))))
+    ;; Register all IDs with org-id so links can be followed
+    (unless skip-org-id
+      (vulpea-db--register-id-locations ids path))
 
     ;; Accumulate db timing
     (when vulpea-db--timing-data

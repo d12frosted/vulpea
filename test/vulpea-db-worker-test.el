@@ -200,6 +200,112 @@ from worker-extracted results too."
   (let ((vulpea-db-index-heading-level (lambda (_) t)))
     (should-not (vulpea-db-worker-can-handle-p "/tmp/note.org"))))
 
+(ert-deftest vulpea-db-worker-full-write-database-equals-sync ()
+  "Full-write mode produces the same database as synchronous indexing.
+The worker parses AND writes through its own connection (WAL); the
+tables must match the synchronous reference byte for byte, and the
+note IDs must still be registered with org-id in the main process."
+  (vulpea-db-worker-test--with-file
+      vulpea-db-extract-test--granularity-corpus
+    (let ((vulpea-db-index-heading-level t)
+          (org-id-track-globally t)
+          (org-id-locations (make-hash-table :test #'equal))
+          (org-id-files nil)
+          sync-dump full-dump)
+      (vulpea-test--with-temp-db
+        (vulpea-db)
+        (vulpea-db-update-file path)
+        (setq sync-dump (vulpea-db-worker-test--db-dump)))
+      (vulpea-test--with-temp-db
+        (vulpea-db)
+        (let ((vulpea-db-async-extraction 'full)
+              (vulpea-db-note-index-filter-functions nil)
+              statuses)
+          (let ((vulpea-db-worker-done-functions
+                 (list (lambda (_path status _count)
+                         (push status statuses)))))
+            (vulpea-db-worker-request path)
+            (vulpea-db-worker-test--wait))
+          (should (equal statuses '(applied)))
+          ;; WAL is active on this database
+          (should (equal "wal"
+                         (caar (sqlite-select
+                                (oref (vulpea-db) handle)
+                                "PRAGMA journal_mode"))))
+          (setq full-dump (vulpea-db-worker-test--db-dump))
+          ;; org-id registration happened in the main process
+          (should (equal (gethash "corpus-file-id" org-id-locations)
+                         (abbreviate-file-name path)))))
+      (dolist (table '(:notes :tags :links :meta :properties :files))
+        (should (equal (plist-get sync-dump table)
+                       (plist-get full-dump table)))))))
+
+(ert-deftest vulpea-db-worker-full-write-honors-main-process-filters ()
+  "Full-write degrades to extract-only while index filters exist.
+`vulpea-db-note-index-filter-functions' run in the main process, so
+with one registered the worker must not write directly - the filter
+still decides what is indexed."
+  (vulpea-db-worker-test--with-file
+      ":PROPERTIES:\n:ID: kept-note\n:END:\n#+TITLE: Kept\n\n* Rejected\n:PROPERTIES:\n:ID: rejected-note\n:END:\n"
+    (vulpea-test--with-temp-db
+      (vulpea-db)
+      (let ((vulpea-db-index-heading-level t)
+            (vulpea-db-async-extraction 'full)
+            (vulpea-db-note-index-filter-functions
+             (list (lambda (note)
+                     (not (equal (vulpea-note-id note) "rejected-note"))))))
+        (should-not (vulpea-db-worker--full-write-p))
+        (vulpea-db-worker-request path)
+        (vulpea-db-worker-test--wait)
+        (should (= 1 (caar (emacsql (vulpea-db)
+                                    [:select (funcall count *)
+                                     :from notes :where (= id $s1)]
+                                    "kept-note"))))
+        (should (= 0 (caar (emacsql (vulpea-db)
+                                    [:select (funcall count *)
+                                     :from notes :where (= id $s1)]
+                                    "rejected-note"))))))))
+
+(ert-deftest vulpea-db-worker-full-write-unchanged-content-stamps ()
+  "Full-write mode also short-circuits unchanged content."
+  (vulpea-db-worker-test--with-file
+      ":PROPERTIES:\n:ID: full-stamp-id\n:END:\n#+TITLE: Stamp\n"
+    (vulpea-test--with-temp-db
+      (vulpea-db)
+      (vulpea-db-update-file path)
+      (set-file-times path (time-add (current-time) 10))
+      (let ((vulpea-db-async-extraction 'full)
+            statuses)
+        (let ((vulpea-db-worker-done-functions
+               (list (lambda (_path status _count)
+                       (push status statuses)))))
+          (vulpea-db-worker-request path)
+          (vulpea-db-worker-test--wait))
+        (should (equal statuses '(unchanged)))))))
+
+(ert-deftest vulpea-db-worker-filters-inert-logic ()
+  "Full-write activates when index filters provably cannot matter.
+The schema-validation filter is installed unconditionally at load;
+it only counts as active when schemas are registered with a
+non-silent action."
+  (let ((vulpea-db-async-extraction 'full))
+    ;; No filters at all
+    (let ((vulpea-db-note-index-filter-functions nil))
+      (should (vulpea-db-worker--full-write-p)))
+    ;; Only the schema filter, no schemas registered: inert
+    (let ((vulpea-db-note-index-filter-functions
+           '(vulpea-db-schema-validation--filter))
+          (vulpea-schema--registry (make-hash-table :test 'eq)))
+      (should (vulpea-db-worker--full-write-p)))
+    ;; Only the schema filter, silent action: inert even with schemas
+    (let ((vulpea-db-note-index-filter-functions
+           '(vulpea-db-schema-validation--filter))
+          (vulpea-db-schema-validation-action 'silent))
+      (should (vulpea-db-worker--full-write-p)))
+    ;; A foreign filter: never inert
+    (let ((vulpea-db-note-index-filter-functions (list #'ignore)))
+      (should-not (vulpea-db-worker--full-write-p)))))
+
 (ert-deftest vulpea-db-worker-threshold-routing ()
   "The size threshold routes small files to the synchronous path."
   (let ((path (vulpea-test--create-temp-org-file
