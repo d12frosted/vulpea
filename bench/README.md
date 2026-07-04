@@ -297,10 +297,49 @@ Validation is linear, roughly 6us per note:
 The takeaway: schema validation is linear and cheap, so the validation
 pipeline itself is not a bottleneck at realistic collection sizes.
 
+## Single Large File Benchmark
+
+The benchmarks above measure throughput across many small files. This
+one measures **latency for one file as its size grows** — the setup
+from issue [#359](https://github.com/d12frosted/vulpea/issues/359),
+where a user keeps most content in a single ~1.2MB org file and every
+save freezes the UI.
+
+The freeze exists because sync is only *scheduled* asynchronously:
+the queue is driven by timers, but once a timer fires, hashing,
+`org-element-parse-buffer`, extraction, and the DB write all run on
+the main thread. For many small files batching hides this; for one
+big file the freeze lasts as long as that file takes to index.
+
+It lives in `vulpea-bench-file.el`. For each size it generates a
+realistic single org file (headings, ~30% with IDs, id-links, meta)
+and measures three things:
+
+1. **First index** — `vulpea-db-update-file` with per-phase breakdown
+   (io, org-mode init, AST parse, extract+hash, db write).
+2. **Save path** — `vulpea-db-sync--update-file-if-changed` on a
+   modified file: hash verification + full re-index. This is exactly
+   what autosync runs after a save; its wall time is the UI freeze.
+3. **Unchanged check** — same entry point when only mtime changed:
+   the cost of confirming there is nothing to do.
+
+### Running it
+
+```bash
+eldev -dtT exec "(progn \
+  (add-to-list 'load-path (expand-file-name \"bench\")) \
+  (require 'vulpea-bench-file) \
+  (vulpea-bench-file-run))"
+```
+
+`vulpea-bench-file-run` takes an optional SIZES list in bytes;
+it defaults to 100KB, 1MB, 10MB, and 100MB.
+
 ## Files
 
 - `vulpea-bench-generate.el` - Note generator (writes .org files)
 - `vulpea-bench.el` - Benchmark infrastructure (sync/query/extraction)
 - `vulpea-bench-schema.el` - Schema validation benchmark (in-memory notes)
+- `vulpea-bench-file.el` - Single large file latency benchmark (issue #359)
 - `run-benchmarks.sh` - Benchmark runner script
 - `bench-output/` - Generated notes and databases (gitignored)
