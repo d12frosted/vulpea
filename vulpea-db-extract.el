@@ -293,6 +293,35 @@ their presence forces a full \\='object parse (see
   :type '(choice (const :tag "Element granularity (fast)" element)
           (const :tag "Object granularity (full parse)" object)))
 
+(defcustom vulpea-db-index-plain-links t
+  "Whether to index plain and angle links in note bodies.
+
+When non-nil (default), every link org recognizes is indexed:
+bracketed ([[id:...][desc]]), angle (<https://...>), and plain
+\(https://... or a bare type:path in running text).
+
+When nil, only bracketed links are indexed.  Locating unbracketed
+links requires scanning all body text against `org-link-plain-re' -
+a large alternation over every registered link type - which is by
+far the most expensive part of link extraction (~600ms of a ~3.3s
+10MB re-index).  Bracketed links are found with a cheap literal
+search instead.  Since links that carry the note graph (id: links)
+are practically always bracketed, collections that do not query
+plain links can disable this for a noticeably shorter save freeze
+on large files.
+
+Applies to both parse granularities (see
+`vulpea-db-parse-granularity'), so extraction output stays
+identical between them either way.  Radio links count as
+unbracketed.  Links in note titles are unaffected - titles only
+ever carry bracketed links.
+
+Changing this affects what lands in the database on the next
+re-index of each file; run `vulpea-db-sync-full-scan' with FORCE to
+apply it everywhere at once."
+  :group 'vulpea
+  :type 'boolean)
+
 (defvar vulpea-db--extractors)
 
 (defun vulpea-db--effective-granularity ()
@@ -881,7 +910,9 @@ links from plain (non-note) subtrees."
               (desc (when-let* ((contents (org-element-contents link)))
                       (substring-no-properties
                        (org-element-interpret-data contents)))))
-          (when (and type path)
+          (when (and type path
+                     (or vulpea-db-index-plain-links
+                         (eq (org-element-property :format link) 'bracket)))
             (list :dest path :type type :pos pos :description desc)))))))
 
 (defun vulpea-db--extract-links-stopping-at-notes (node)
@@ -898,15 +929,19 @@ inside non-note child headlines are included."
   "Collect links between START and END in the current buffer.
 
 Used for element-granularity ASTs, where textual elements carry no
-parsed objects.  Candidates are located with `org-link-any-re' and
-parsed with `org-element-link-parser' - org's own parser - so type,
-path, and description semantics match a full object parse.
+parsed objects.  Candidates are located with `org-link-any-re' - or,
+when `vulpea-db-index-plain-links' is nil, with a much cheaper
+literal search for \"[[\" - and parsed with
+`org-element-link-parser', org's own parser, so type, path, and
+description semantics match a full object parse.
 
 CALLBACK is called with a plist (:dest :type :pos :description) for
 each link found."
   (save-excursion
     (goto-char start)
-    (while (re-search-forward org-link-any-re end t)
+    (while (if vulpea-db-index-plain-links
+               (re-search-forward org-link-any-re end t)
+             (search-forward "[[" end t))
       ;; Capture the match bound before calling the parser:
       ;; `org-element-link-parser' runs its own regexps and clobbers
       ;; the global match data, so reading `match-end' after it can
@@ -957,7 +992,9 @@ the buffer NODE was parsed from."
               (desc (when-let* ((contents (org-element-contents child)))
                       (substring-no-properties
                        (org-element-interpret-data contents)))))
-          (when (and type path)
+          (when (and type path
+                     (or vulpea-db-index-plain-links
+                         (eq (org-element-property :format child) 'bracket)))
             (funcall callback (list :dest path :type type :pos pos
                                     :description desc)))))
        ;; Headline with ID: skip (note boundary)
