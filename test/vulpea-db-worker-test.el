@@ -306,6 +306,80 @@ non-silent action."
     (let ((vulpea-db-note-index-filter-functions (list #'ignore)))
       (should-not (vulpea-db-worker--full-write-p)))))
 
+(ert-deftest vulpea-db-worker-guarded-apply-detects-conflict ()
+  "A worker result loses against a concurrent programmatic re-index.
+Deterministic replay of the full-write race: capture a parse result
+and the stored stamp, let a synchronous `vulpea-db-update-file' land
+newer content, then apply the old result through the guard - it must
+report a conflict and leave the newer data untouched."
+  (vulpea-db-worker-test--with-file
+      ":PROPERTIES:\n:ID: cas-id\n:END:\n#+TITLE: V1\n"
+    (vulpea-test--with-temp-db
+      (vulpea-db)
+      (vulpea-db-update-file path)
+      ;; The worker's view: stamp and parse result of V1
+      (let ((stored (vulpea-db--get-file-hash path))
+            (ctx (vulpea-db--parse-file path)))
+        ;; Programmatic update to V2 lands first (vino's pattern)
+        (with-temp-buffer
+          (insert ":PROPERTIES:\n:ID: cas-id\n:END:\n#+TITLE: V2\n")
+          (write-region (point-min) (point-max) path nil 'silent))
+        (vulpea-db-update-file path)
+        ;; The worker's late write must detect the moved stamp
+        (should (eq 'conflict (vulpea-db-worker--apply-guarded ctx stored)))
+        (should (equal "V2" (vulpea-note-title
+                             (vulpea-db-get-by-id "cas-id"))))
+        ;; And with an up-to-date stamp the guard applies normally
+        (let ((stored2 (vulpea-db--get-file-hash path))
+              (ctx2 (vulpea-db--parse-file path)))
+          (should (equal 1 (vulpea-db-worker--apply-guarded ctx2 stored2))))))))
+
+(ert-deftest vulpea-db-worker-programmatic-write-wins ()
+  "Read-your-writes survives an in-flight worker request (mode t).
+A file is sent to the worker, then rewritten and synchronously
+re-indexed before the worker answers.  The programmatic content must
+be readable immediately and still be there after the worker settles."
+  (vulpea-db-worker-test--with-file
+      ":PROPERTIES:\n:ID: race-id\n:END:\n#+TITLE: V1\n"
+    (vulpea-test--with-temp-db
+      (vulpea-db)
+      (vulpea-db-update-file path)
+      (vulpea-db-worker-request path)
+      ;; Programmatic rewrite while the request is in flight
+      (with-temp-buffer
+        (insert ":PROPERTIES:\n:ID: race-id\n:END:\n#+TITLE: V2\n")
+        (write-region (point-min) (point-max) path nil 'silent))
+      (vulpea-db-update-file path)
+      ;; Read-your-writes, right now
+      (should (equal "V2" (vulpea-note-title (vulpea-db-get-by-id "race-id"))))
+      (vulpea-db-worker-test--wait)
+      ;; And after the worker settled (stale results discarded)
+      (should (equal "V2" (vulpea-note-title
+                           (vulpea-db-get-by-id "race-id")))))))
+
+(ert-deftest vulpea-db-worker-programmatic-write-wins-full-mode ()
+  "Read-your-writes survives an in-flight full-write request.
+Same race as `vulpea-db-worker-programmatic-write-wins', but the
+worker owns the database write - the transaction guard must keep the
+programmatic content authoritative."
+  (vulpea-db-worker-test--with-file
+      ":PROPERTIES:\n:ID: race-full-id\n:END:\n#+TITLE: V1\n"
+    (vulpea-test--with-temp-db
+      (vulpea-db)
+      (let ((vulpea-db-async-extraction 'full)
+            (vulpea-db-note-index-filter-functions nil))
+        (vulpea-db-update-file path)
+        (vulpea-db-worker-request path)
+        (with-temp-buffer
+          (insert ":PROPERTIES:\n:ID: race-full-id\n:END:\n#+TITLE: V2\n")
+          (write-region (point-min) (point-max) path nil 'silent))
+        (vulpea-db-update-file path)
+        (should (equal "V2" (vulpea-note-title
+                             (vulpea-db-get-by-id "race-full-id"))))
+        (vulpea-db-worker-test--wait)
+        (should (equal "V2" (vulpea-note-title
+                             (vulpea-db-get-by-id "race-full-id"))))))))
+
 (ert-deftest vulpea-db-worker-threshold-routing ()
   "The size threshold routes small files to the synchronous path."
   (let ((path (vulpea-test--create-temp-org-file

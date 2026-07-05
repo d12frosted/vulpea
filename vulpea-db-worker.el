@@ -528,17 +528,42 @@ every extracted note is written."
         (push id ids)))
     (nreverse ids)))
 
+(defun vulpea-db-worker--apply-guarded (ctx stored)
+  "Apply CTX unless the stored file stamp moved from STORED.
+
+Compare-and-swap for full-write mode: the main process may have
+re-indexed the same file (a programmatic `vulpea-db-update-file',
+e.g. from `vulpea-meta-set') between this worker's checks and its
+write.  Re-reading the stored stamp inside the write transaction
+detects that; a moved stamp means our result is outdated and must
+not clobber the newer data.  A transaction that fails to commit
+under write contention counts as a conflict too - retrying via the
+queue is always safe.
+
+Returns the number of notes written, or `conflict'."
+  (condition-case nil
+      (emacsql-with-transaction (vulpea-db)
+        (if (not (equal (vulpea-db--get-file-hash
+                         (vulpea-parse-ctx-path ctx))
+                        stored))
+            'conflict
+          (vulpea-db--apply-parse-ctx ctx 'skip-org-id)))
+    (error 'conflict)))
+
 (defun vulpea-db-worker--handle-parse-and-write (path db)
   "Extract PATH and write the results to the database at DB.
 
 Full-write mode: this worker owns the database write; the reply
 tells the main process what happened so it can register org-ids
-\(`written'), note the no-op (`stamped'), or re-queue a file that
-changed mid-parse (`stale')."
+\(`written'), note the no-op (`stamped'), or re-queue a file whose
+result became outdated (`stale') - because the file changed
+mid-parse, or because the main process indexed newer content
+concurrently (see `vulpea-db-worker--apply-guarded')."
   (condition-case err
       (progn
         (vulpea-db-worker--ensure-db db)
-        (let* ((ctx (vulpea-db--parse-file path))
+        (let* ((stored (vulpea-db--get-file-hash path))
+               (ctx (vulpea-db--parse-file path))
                (attrs (file-attributes path)))
           (cond
            ;; File changed or vanished while parsing: the result
@@ -551,7 +576,7 @@ changed mid-parse (`stale')."
                             (vulpea-parse-ctx-size ctx))))
             (vulpea-db-worker--reply `(stale ,path)))
            ;; Content identical to what is indexed: refresh the stamp
-           ((equal (plist-get (vulpea-db--get-file-hash path) :hash)
+           ((equal (plist-get stored :hash)
                    (vulpea-parse-ctx-hash ctx))
             (vulpea-db--update-file-hash path
                                          (vulpea-parse-ctx-hash ctx)
@@ -559,14 +584,16 @@ changed mid-parse (`stale')."
                                          (vulpea-parse-ctx-size ctx))
             (vulpea-db-worker--reply `(stamped ,path)))
            (t
-            (let ((count (vulpea-db--apply-parse-ctx ctx 'skip-org-id)))
-              (vulpea-db-worker--reply
-               `(written ,path
-                         ,(vulpea-parse-ctx-hash ctx)
-                         ,(vulpea-parse-ctx-mtime ctx)
-                         ,(vulpea-parse-ctx-size ctx)
-                         ,count
-                         ,(vulpea-db-worker--ctx-ids ctx))))))))
+            (let ((count (vulpea-db-worker--apply-guarded ctx stored)))
+              (if (eq count 'conflict)
+                  (vulpea-db-worker--reply `(stale ,path))
+                (vulpea-db-worker--reply
+                 `(written ,path
+                           ,(vulpea-parse-ctx-hash ctx)
+                           ,(vulpea-parse-ctx-mtime ctx)
+                           ,(vulpea-parse-ctx-size ctx)
+                           ,count
+                           ,(vulpea-db-worker--ctx-ids ctx)))))))))
     (error
      (vulpea-db-worker--reply
       `(error ,path ,(error-message-string err))))))
