@@ -214,6 +214,18 @@ Slots:
   schema       - Database schema for plugin tables (optional)
   priority     - Execution priority, lower runs first (default: 100)
   extract-fn   - Function (ctx note-data) -> note-data (required)
+  worker-safe  - Whether extract-fn may run inside the extraction
+                 worker in full-write mode (default: nil).  Requires
+                 extract-fn to be a symbol the worker can resolve;
+                 see worker-lib.  The extractor then writes its
+                 tables through the worker's own database connection.
+  worker-lib   - Feature symbol or absolute file path the worker
+                 loads to make extract-fn available (optional; when
+                 nil the function must already be defined after
+                 loading vulpea).  If the worker cannot resolve the
+                 function, it transparently falls back to streaming
+                 results so the extractor runs in the main process -
+                 nothing is lost, only the zero-freeze write.
   requires-ast - Whether extract-fn reads the parse context's AST
                  (default: t).  Declaring nil unlocks two things:
                  extraction stays at the fast element granularity
@@ -239,7 +251,9 @@ Example:
   schema
   (priority 100)
   extract-fn
-  (requires-ast t))
+  (requires-ast t)
+  worker-safe
+  worker-lib)
 
 ;;; Core Parsing
 
@@ -1195,6 +1209,10 @@ FN should return updated note-data plist."
                 (lambda (a b)
                   (< (vulpea-extractor-priority a)
                      (vulpea-extractor-priority b)))))
+    ;; A running extraction worker mirrors the extractor registry;
+    ;; keep it in sync (fboundp: vulpea-db-worker requires this file)
+    (when (fboundp 'vulpea-db-worker-refresh-settings)
+      (vulpea-db-worker-refresh-settings))
     extractor))
 
 (defun vulpea-db-unregister-extractor (name)

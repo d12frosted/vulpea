@@ -222,7 +222,38 @@ cases."
         (let ((value (symbol-value sym)))
           (when (vulpea-db-worker--printable-p value)
             (push (cons sym value) vars)))))
-    `(settings ,(nreverse vars) ,(org-link-types))))
+    `(settings ,(nreverse vars) ,(org-link-types)
+               ,(vulpea-db-worker--extractor-specs))))
+
+(defun vulpea-db-worker--extractor-specs ()
+  "Build wire specs for worker-safe extractors.
+
+Only extractors declared :worker-safe with a symbol :extract-fn can
+cross the process boundary; the worker loads :worker-lib and
+registers them locally.  Anything it cannot resolve makes it fall
+back to streaming results, so the extractor runs in the main process
+instead."
+  (let (specs)
+    (dolist (extractor vulpea-db--extractors)
+      (when (vulpea-extractor-worker-safe extractor)
+        (push (list :name (vulpea-extractor-name extractor)
+                    :fn (let ((fn (vulpea-extractor-extract-fn extractor)))
+                          (and (symbolp fn) fn))
+                    :lib (vulpea-extractor-worker-lib extractor)
+                    :priority (vulpea-extractor-priority extractor)
+                    :requires-ast (vulpea-extractor-requires-ast extractor))
+              specs)))
+    (nreverse specs)))
+
+(defvar vulpea-db-worker--process)
+
+(defun vulpea-db-worker-refresh-settings ()
+  "Send current settings to a running worker, if any.
+Called by `vulpea-db-register-extractor' so a live worker mirrors
+the extractor registry."
+  (when (process-live-p vulpea-db-worker--process)
+    (vulpea-db-worker--log "settings refresh")
+    (vulpea-db-worker--send (vulpea-db-worker--settings-form))))
 
 ;;; Client: process management
 
@@ -255,6 +286,9 @@ shared-memory support (some network or FUSE mounts).")
 (defvar vulpea-db-worker--current nil
   "Assembly state for the file currently streaming in.
 A plist with :path, :file-node and :heading-nodes (reversed).")
+
+(defvar vulpea-db-worker--extractors-warned nil
+  "Non-nil after warning about worker-unresolvable extractors once.")
 
 (defvar vulpea-db-worker--spawn-time nil
   "Timestamp of the most recent worker spawn.")
@@ -419,9 +453,10 @@ Requires `vulpea-db-async-extraction' to be `full' and inert
 main process, so their presence degrades `full' to extract-only."
   (and (eq vulpea-db-async-extraction 'full)
        (not vulpea-db-worker--wal-failed)
-       ;; Any extractor - even an AST-free one - must run in the main
-       ;; process: its function is not defined in the worker
-       (null vulpea-db--extractors)
+       ;; Extractors run during apply; only ones declared :worker-safe
+       ;; can do that inside the worker.  If the worker turns out
+       ;; unable to resolve one, it falls back to streaming per file.
+       (seq-every-p #'vulpea-extractor-worker-safe vulpea-db--extractors)
        (vulpea-db-worker--filters-inert-p)))
 
 (defun vulpea-db-worker--enable-wal (connection)
@@ -566,6 +601,18 @@ settings changes)."
        (vulpea-db-worker--reenqueue path force))
      (run-hook-with-args 'vulpea-db-worker-done-functions
                          path 'stale nil))
+    (`(extractors ,resolved ,missing)
+     (vulpea-db-worker--log "worker extractors: resolved %S, missing %S"
+                            resolved missing)
+     (when (and missing (not vulpea-db-worker--extractors-warned))
+       (setq vulpea-db-worker--extractors-warned t)
+       (display-warning
+        'vulpea
+        (format (concat "Worker could not resolve extractor(s) %S; "
+                        "their files fall back to main-process apply.  "
+                        "Check :worker-lib on the extractor definition.")
+                missing)
+        :warning)))
     (`(error ,path ,message)
      (setq vulpea-db-worker--current nil)
      (vulpea-db-worker--forget path)
@@ -711,8 +758,20 @@ processing."
   (princ (vulpea-db-worker--print form))
   (princ "\n"))
 
-(defun vulpea-db-worker--apply-settings (vars link-types)
-  "Set allowlisted VARS and register LINK-TYPES in this worker."
+(defvar vulpea-db-worker--unresolved-extractors nil
+  "Names of declared worker-safe extractors this worker cannot run.
+Non-nil makes `parse-and-write' requests fall back to streaming, so
+those extractors run in the main process instead.")
+
+(defun vulpea-db-worker--apply-settings (vars link-types extractors)
+  "Set allowlisted VARS, register LINK-TYPES and EXTRACTORS here.
+
+EXTRACTORS are wire specs of worker-safe extractors (see
+`vulpea-db-worker--extractor-specs').  Each is resolved by loading
+its :lib and checking its :fn; resolved ones are installed in this
+worker's extractor registry (without schema - the main process owns
+DDL), unresolved ones are reported back and disable full-write for
+this worker."
   (pcase-dolist (`(,sym . ,value) vars)
     (set sym value))
   (require 'ol)
@@ -721,7 +780,37 @@ processing."
       (org-link-set-parameters type)))
   (org-link-make-regexps)
   (when (fboundp 'org-element-update-syntax)
-    (org-element-update-syntax)))
+    (org-element-update-syntax))
+  ;; Resolve worker-safe extractors
+  (let (resolved missing)
+    (dolist (spec extractors)
+      (let ((name (plist-get spec :name))
+            (fn (plist-get spec :fn))
+            (lib (plist-get spec :lib)))
+        (when lib
+          (condition-case nil
+              (if (stringp lib)
+                  (load lib nil t)
+                (require lib))
+            (error nil)))
+        (if (and fn (fboundp fn))
+            (push (make-vulpea-extractor
+                   :name name
+                   :priority (or (plist-get spec :priority) 100)
+                   :extract-fn fn
+                   :requires-ast (plist-get spec :requires-ast)
+                   :worker-safe t)
+                  resolved)
+          (push name missing))))
+    (setq vulpea-db--extractors
+          (sort (nreverse resolved)
+                (lambda (a b)
+                  (< (vulpea-extractor-priority a)
+                     (vulpea-extractor-priority b)))))
+    (setq vulpea-db-worker--unresolved-extractors (nreverse missing))
+    (vulpea-db-worker--reply
+     `(extractors ,(mapcar #'vulpea-extractor-name vulpea-db--extractors)
+                  ,vulpea-db-worker--unresolved-extractors))))
 
 (defvar vulpea-db-worker--db-location nil
   "Database location this worker currently has open, or nil.")
@@ -783,7 +872,11 @@ concurrently (see `vulpea-db-worker--apply-guarded').
 
 With FORCE non-nil the unchanged-content shortcut is skipped and the
 result is written even when the content hash matches."
-  (condition-case err
+  (if vulpea-db-worker--unresolved-extractors
+      ;; Some declared extractor cannot run here: stream the results
+      ;; instead, so the main process applies them with all extractors
+      (vulpea-db-worker--handle-parse path)
+    (condition-case err
       (progn
         (vulpea-db-worker--ensure-db db)
         (let* ((stored (vulpea-db--get-file-hash path))
@@ -821,9 +914,9 @@ result is written even when the content hash matches."
                            ,(vulpea-parse-ctx-size ctx)
                            ,count
                            ,(vulpea-db-worker--ctx-ids ctx)))))))))
-    (error
-     (vulpea-db-worker--reply
-      `(error ,path ,(error-message-string err))))))
+      (error
+       (vulpea-db-worker--reply
+        `(error ,path ,(error-message-string err)))))))
 
 (defun vulpea-db-worker--handle-parse (path)
   "Extract PATH and stream the results to stdout."
@@ -857,8 +950,8 @@ writes protocol lines to stdout.  Exits when stdin closes."
                     (car (read-from-string line))
                   (error nil))))
       (pcase msg
-        (`(settings ,vars ,link-types)
-         (vulpea-db-worker--apply-settings vars link-types))
+        (`(settings ,vars ,link-types ,extractors)
+         (vulpea-db-worker--apply-settings vars link-types extractors))
         (`(parse ,path)
          (vulpea-db-worker--handle-parse path))
         (`(parse-and-write ,path ,db ,force)

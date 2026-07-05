@@ -219,6 +219,41 @@ network filesystems. While schemas are registered with a non-silent
 =vulpea-db-schema-validation-action=, ='full= behaves like =t= so
 validation keeps running in your session.
 
+*Extractor plugins* interact with async extraction through two
+declarations on =make-vulpea-extractor=:
+
+- =:requires-ast nil= states that the extract function works purely
+  from note data (an attachment scanner reading =:attach-dir=, for
+  example) and never touches the parse context's AST. Without it,
+  a registered extractor conservatively disables async extraction
+  for every file /and/ forces the slower =object= parse granularity.
+  With it, extraction stays fast and the extractor runs in the main
+  process when worker results arrive.
+- =:worker-safe t= (plus =:worker-lib= naming a feature or file that
+  defines the function) additionally allows the extractor to run
+  /inside/ the worker in ='full= mode, writing its tables through the
+  worker's own database connection - keeping the zero-freeze write.
+  If the worker cannot resolve the function, it transparently falls
+  back to streaming results so the extractor runs in the main
+  process; nothing is lost.
+
+#+begin_src emacs-lisp
+(vulpea-db-register-extractor
+ (make-vulpea-extractor
+  :name 'my-attachments
+  :requires-ast nil
+  :worker-safe t
+  :worker-lib 'my-library   ; feature that defines the fn
+  :schema '((attachments [(note-id :not-null) (file :not-null)]))
+  :extract-fn #'my-attachments-fn))
+#+end_src
+
+Run =M-x vulpea-db-worker-diagnose= to verify what your configuration
+actually gets: it reports whether production files use the worker and
+why not, journal mode, round-trip timing, and the worker's stderr.
+=vulpea-db-worker-debug= enables a protocol log in
+=*vulpea-worker-log*=.
+
 Force re-indexing also flows through the worker: parser-epoch and
 settings migrations (the "re-indexing all files" pass on the first
 activation after an upgrade) no longer block the session when async
