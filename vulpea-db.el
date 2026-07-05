@@ -479,7 +479,7 @@ unchanged.  Keeping the format identical makes rows written through
 (defun vulpea-db--insert-rows (handle sql rows)
   "Execute insert SQL on HANDLE once per row in ROWS.
 
-Each row is a list of raw lisp values, encoded for binding via
+Each row is a list of raw Lisp values, encoded for binding via
 `vulpea-db--bind-scalar'.  Native parameter binding bypasses
 emacsql's statement compilation, which dominates insert cost when
 indexing files with many notes (issue #359)."
