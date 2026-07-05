@@ -193,8 +193,9 @@ from worker-extracted results too."
   (should (vulpea-db-worker-can-handle-p "/tmp/note.org"))
   ;; Encrypted files need interactive decryption
   (should-not (vulpea-db-worker-can-handle-p "/tmp/note.org.gpg"))
-  ;; Extractor plugins receive the AST, which never crosses processes
-  (let ((vulpea-db--extractors (list 'fake)))
+  ;; AST-reading extractor plugins never cross processes
+  (let ((vulpea-db--extractors
+         (list (make-vulpea-extractor :name 'fake :extract-fn #'ignore))))
     (should-not (vulpea-db-worker-can-handle-p "/tmp/note.org")))
   ;; Predicate-valued heading-level indexing is not serializable
   (let ((vulpea-db-index-heading-level (lambda (_) t)))
@@ -476,6 +477,58 @@ This is the parser-epoch migration path: it must re-apply every file
             (should (equal statuses '(applied applied applied))))
           (vulpea-db-worker-stop))
       (delete-directory dir t))))
+
+(ert-deftest vulpea-db-worker-ast-free-extractor-allows-async ()
+  "Extractors that declare no AST dependency do not disable async.
+An attachment-style extractor reads only note data and writes its own
+table; with :requires-ast nil the worker handles the file, extraction
+stays at element granularity, and the extractor still runs in the
+main process during apply."
+  (vulpea-db-worker-test--with-file
+      ":PROPERTIES:\n:ID: attach-note\n:END:\n#+TITLE: A\n"
+    (vulpea-test--with-temp-db
+      (vulpea-db)
+      (let ((vulpea-db--extractors nil)
+            (extractor-ran nil))
+        (vulpea-db-register-extractor
+         (make-vulpea-extractor
+          :name 'test-attachments
+          :version 1
+          :requires-ast nil
+          :schema '((test-attachments
+                     [(note-id :not-null) (file :not-null)]
+                     (:primary-key [note-id file])))
+          :extract-fn (lambda (ctx note-data)
+                        ;; AST-free contract: ctx may carry no AST
+                        (setq extractor-ran (null (vulpea-parse-ctx-ast ctx)))
+                        (emacsql (vulpea-db)
+                                 [:insert :into test-attachments :values $v1]
+                                 (vector (plist-get note-data :id) "file.png"))
+                        note-data)))
+        ;; Async is allowed, element granularity preserved
+        (should (vulpea-db-worker-can-handle-p path))
+        (should (eq 'element (vulpea-db--effective-granularity)))
+        ;; But full-write is not: the extractor function only exists here
+        (let ((vulpea-db-async-extraction 'full))
+          (should-not (vulpea-db-worker--full-write-p)))
+        ;; End to end through the worker: extractor ran on the main side
+        (vulpea-db-worker-request path)
+        (vulpea-db-worker-test--wait)
+        (should extractor-ran)
+        (should (equal '(("attach-note" "file.png"))
+                       (emacsql (vulpea-db)
+                                [:select [note-id file]
+                                 :from test-attachments])))))))
+
+(ert-deftest vulpea-db-worker-ast-extractor-still-disables-async ()
+  "Extractors without the declaration keep the conservative behavior."
+  (let ((vulpea-db--extractors
+         (list (make-vulpea-extractor
+                :name 'needs-ast
+                :version 1
+                :extract-fn #'ignore))))
+    (should-not (vulpea-db-worker-can-handle-p "/tmp/note.org"))
+    (should (eq 'object (vulpea-db--effective-granularity)))))
 
 (ert-deftest vulpea-db-worker-threshold-routing ()
   "The size threshold routes small files to the synchronous path."
