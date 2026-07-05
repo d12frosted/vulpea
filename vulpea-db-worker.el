@@ -113,7 +113,7 @@ to the worker.
 
 Measurements do not demand a threshold - the worker blocks the main
 thread less at every size, and bulk syncs complete faster through it
-\(worker parsing overlaps main-thread writes).  The reason to set one
+\(worker parsing overlaps writes in the main process).  The reason to set one
 is consistency semantics: a synchronously indexed file is queryable
 the moment the sync queue has run, while a worker-extracted file
 becomes queryable a moment later.  If code queries small notes right
