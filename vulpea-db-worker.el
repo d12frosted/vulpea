@@ -284,6 +284,30 @@ shared-memory support (some network or FUSE mounts).")
 (defvar vulpea-db-worker--in-flight-tail nil
   "Tail cons of `vulpea-db-worker--in-flight' for O(1) appends.")
 
+(defcustom vulpea-db-worker-max-in-flight 128
+  "Maximum requests in flight to the worker at once.
+
+Flow control for bulk syncs: without a window, the queue stuffs the
+worker's stdin pipe until `process-send-string' blocks the main
+thread waiting for the worker to drain it - measured as multi-hundred
+millisecond UI stalls during full rebuilds.  The sync queue keeps the
+overflow queued and retries as completions free the window."
+  :type 'integer
+  :group 'vulpea-db-sync)
+
+(defvar vulpea-db-worker--in-flight-count 0
+  "Length of `vulpea-db-worker--in-flight', maintained incrementally.")
+
+(defun vulpea-db-worker-in-flight-count ()
+  "Return the number of requests currently in flight."
+  vulpea-db-worker--in-flight-count)
+
+(defun vulpea-db-worker-saturated-p ()
+  "Return non-nil when the worker request window is full.
+Callers should keep their files queued and retry later instead of
+requesting more (see `vulpea-db-worker-max-in-flight')."
+  (>= vulpea-db-worker--in-flight-count vulpea-db-worker-max-in-flight))
+
 (defvar vulpea-db-worker--current nil
   "Assembly state for the file currently streaming in.
 A plist with :path, :file-node and :heading-nodes (reversed).")
@@ -337,6 +361,7 @@ output is not.")
           vulpea-db-worker--output-pending nil
           vulpea-db-worker--in-flight nil
           vulpea-db-worker--in-flight-tail nil
+          vulpea-db-worker--in-flight-count 0
           vulpea-db-worker--current nil)
     (clrhash vulpea-db-worker--force)
     (setq vulpea-db-worker--spawn-time (float-time))
@@ -379,6 +404,7 @@ output is not.")
         vulpea-db-worker--output-pending nil
         vulpea-db-worker--in-flight nil
         vulpea-db-worker--in-flight-tail nil
+        vulpea-db-worker--in-flight-count 0
         vulpea-db-worker--current nil)
   (clrhash vulpea-db-worker--force))
 
@@ -460,6 +486,22 @@ main process, so their presence degrades `full' to extract-only."
        (seq-every-p #'vulpea-extractor-worker-safe vulpea-db--extractors)
        (vulpea-db-worker--filters-inert-p)))
 
+(defvar vulpea-db-worker--wal-connection nil
+  "Connection object whose WAL pragmas were already applied.
+The pragmas contend with the worker's write transactions, so running
+them once per request stalls the main thread during bulk syncs; once
+per connection is enough (WAL persists in the database, the busy
+timeout persists on the connection).")
+
+(defun vulpea-db-worker--wal-ready-p ()
+  "Ensure WAL pragmas on the current connection, once."
+  (let ((connection (vulpea-db)))
+    (if (eq connection vulpea-db-worker--wal-connection)
+        t
+      (when (vulpea-db-worker--enable-wal connection)
+        (setq vulpea-db-worker--wal-connection connection)
+        t))))
+
 (defun vulpea-db-worker--enable-wal (connection)
   "Enable WAL journaling and a busy timeout on CONNECTION.
 
@@ -505,7 +547,7 @@ settings changes)."
            ;; WAL is a hard requirement for full-write: without it a
            ;; worker write transaction blocks main-process reads.
            ;; Failure degrades this and future requests to extract-only.
-           (vulpea-db-worker--enable-wal (vulpea-db)))
+           (vulpea-db-worker--wal-ready-p))
       (progn
         (vulpea-db-worker--log "request parse-and-write%s: %s"
                                (if force " (force)" "") path)
@@ -519,7 +561,9 @@ settings changes)."
     (if vulpea-db-worker--in-flight
         (setcdr vulpea-db-worker--in-flight-tail node)
       (setq vulpea-db-worker--in-flight node))
-    (setq vulpea-db-worker--in-flight-tail node)))
+    (setq vulpea-db-worker--in-flight-tail node)
+    (setq vulpea-db-worker--in-flight-count
+          (1+ vulpea-db-worker--in-flight-count))))
 
 ;;; Client: response handling
 
@@ -641,7 +685,9 @@ head; falling back to a full scan keeps this correct either way."
     (setq vulpea-db-worker--in-flight
           (delete path vulpea-db-worker--in-flight)))
   (setq vulpea-db-worker--in-flight-tail
-        (last vulpea-db-worker--in-flight)))
+        (last vulpea-db-worker--in-flight))
+  (setq vulpea-db-worker--in-flight-count
+        (length vulpea-db-worker--in-flight)))
 
 (defun vulpea-db-worker--complete (path hash mtime size current &optional force)
   "Apply a completed extraction of PATH to the database.
@@ -730,6 +776,7 @@ processing."
             vulpea-db-worker--output-pending nil
             vulpea-db-worker--in-flight nil
             vulpea-db-worker--in-flight-tail nil
+            vulpea-db-worker--in-flight-count 0
             vulpea-db-worker--current nil)
       (clrhash vulpea-db-worker--force)
       (vulpea-db-worker--log "worker died: %s; stderr tail: %s"
@@ -829,7 +876,7 @@ safely with the main process."
       (vulpea-db-close))
     (setq vulpea-db-location db
           vulpea-db-worker--db-location db))
-  (vulpea-db-worker--enable-wal (vulpea-db)))
+  (vulpea-db-worker--wal-ready-p))
 
 (defun vulpea-db-worker--ctx-ids (ctx)
   "Return the note IDs carried by CTX.

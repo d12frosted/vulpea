@@ -1296,6 +1296,15 @@ Returns number of notes updated (file-level + headings)."
           (push (cons 'parse parse-time) vulpea-db--timing-data))))
     (vulpea-db--apply-parse-ctx ctx)))
 
+(defvar vulpea-db--org-id-files-seen (make-hash-table :test 'equal)
+  "Session shadow of paths vulpea has pushed onto `org-id-files'.
+`org-id-files' is a list; a `member' scan per registered file is
+quadratic over a full rebuild.  The shadow makes the membership check
+O(1).  It is conservative: cleared whenever `org-id-files' is
+observed empty (e.g. after an external reset), and a stale positive
+merely leaves a path unlisted - id lookups go through
+`org-id-locations' regardless.")
+
 (defun vulpea-db--register-id-locations (ids path)
   "Register note IDS at PATH with org-id, batched.
 
@@ -1309,11 +1318,15 @@ repeated path abbreviation and `org-id-files' scans that would do."
     ;; alist, causing "Wrong type argument: hash-table-p".
     (when (and org-id-locations (not (hash-table-p org-id-locations)))
       (setq org-id-locations (org-id-alist-to-hash org-id-locations)))
+    (when (null org-id-files)
+      (clrhash vulpea-db--org-id-files-seen))
     (let ((afile (abbreviate-file-name path)))
       (dolist (id ids)
         (puthash id afile org-id-locations))
-      (unless (member afile org-id-files)
-        (push afile org-id-files)))))
+      (unless (gethash afile vulpea-db--org-id-files-seen)
+        (unless (member afile org-id-files)
+          (push afile org-id-files))
+        (puthash afile t vulpea-db--org-id-files-seen)))))
 
 (defun vulpea-db--apply-parse-ctx (ctx &optional skip-org-id)
   "Write extraction results from CTX to the database.

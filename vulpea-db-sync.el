@@ -686,6 +686,18 @@ upgrades an already-queued entry."
 
 (defun vulpea-db-sync--process-queue ()
   "Process queued file update."
+  ;; When the worker request window is full, leave the queue alone
+  ;; and retry shortly - pulling a batch only to re-enqueue it would
+  ;; churn the main thread for nothing during bulk syncs
+  (if (and vulpea-db-sync--queue
+           (not vulpea-db-sync--processing)
+           vulpea-db-async-extraction
+           (vulpea-db-worker-saturated-p))
+      (progn
+        (when vulpea-db-sync--timer
+          (cancel-timer vulpea-db-sync--timer))
+        (setq vulpea-db-sync--timer
+              (run-with-timer 0.05 nil #'vulpea-db-sync--process-queue)))
   (when (and vulpea-db-sync--queue
              (not vulpea-db-sync--processing))
     (setq vulpea-db-sync--processing t)
@@ -740,8 +752,15 @@ upgrades an already-queued entry."
               (dolist (path paths)
                 (let ((force (gethash path vulpea-db-sync--force-set)))
                   (remhash path vulpea-db-sync--force-set)
-                  (if (and vulpea-db-async-extraction
-                           (vulpea-db-worker-should-handle-p path))
+                  (cond
+                   ;; Worker window full: keep it queued, the timer
+                   ;; retries as completions free the window
+                   ((and vulpea-db-async-extraction
+                         (vulpea-db-worker-should-handle-p path)
+                         (vulpea-db-worker-saturated-p))
+                    (vulpea-db-sync--enqueue path force))
+                   ((and vulpea-db-async-extraction
+                         (vulpea-db-worker-should-handle-p path))
                       (condition-case err
                           (when (file-exists-p path)
                             (if (or force
@@ -760,8 +779,9 @@ upgrades an already-queued entry."
                               (setq unchanged (1+ unchanged))))
                         (error
                          (message "Vulpea: Error dispatching %s: %s"
-                                  path (error-message-string err))))
-                    (push (cons path force) sync-paths))))
+                                  path (error-message-string err)))))
+                   (t
+                    (push (cons path force) sync-paths)))))
 
               ;; Process the rest in a single transaction as before
               (when sync-paths
@@ -832,9 +852,11 @@ upgrades an already-queued entry."
 
       ;; If queue still has items, schedule another processing
       (when vulpea-db-sync--queue
+        (when vulpea-db-sync--timer
+          (cancel-timer vulpea-db-sync--timer))
         (setq vulpea-db-sync--timer
               (run-with-timer vulpea-db-sync-batch-delay nil
-                              #'vulpea-db-sync--process-queue))))))
+                              #'vulpea-db-sync--process-queue)))))))
 
 (defun vulpea-db-sync--worker-done (_path status count)
   "Track background extraction completions for progress reporting.
