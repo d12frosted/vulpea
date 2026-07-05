@@ -123,6 +123,39 @@ after saving them, a threshold like 102400 keeps those synchronous."
           (integer :tag "Minimum size in bytes"))
   :group 'vulpea-db-sync)
 
+(defcustom vulpea-db-worker-debug nil
+  "When non-nil, log worker lifecycle and protocol to a buffer.
+
+The log lands in `vulpea-db-worker-log-buffer' with millisecond
+timestamps: process spawns (including the full command), settings
+sent, every request and reply (truncated), completion outcomes with
+time spent in the main process, process deaths with the tail of the worker's
+stderr, and WAL negotiation results.  Enable it when async extraction
+misbehaves and attach the buffer to a bug report."
+  :type 'boolean
+  :group 'vulpea-db-sync)
+
+(defconst vulpea-db-worker-log-buffer "*vulpea-worker-log*"
+  "Name of the worker debug log buffer.")
+
+(defun vulpea-db-worker--log (format-string &rest args)
+  "Append a timestamped line to the worker log when debugging.
+FORMAT-STRING and ARGS are passed to `format'."
+  (when vulpea-db-worker-debug
+    (with-current-buffer (get-buffer-create vulpea-db-worker-log-buffer)
+      (goto-char (point-max))
+      (insert (format-time-string "%H:%M:%S.%3N ")
+              (apply #'format format-string args)
+              "\n"))))
+
+(defun vulpea-db-worker--log-truncate (string &optional limit)
+  "Return STRING truncated to LIMIT characters (default 180) for logs."
+  (let ((limit (or limit 180)))
+    (if (> (length string) limit)
+        (concat (substring string 0 limit)
+                (format "... [%d chars]" (length string)))
+      string)))
+
 (defvar vulpea-db-worker-done-functions nil
   "Abnormal hook run when the worker finishes a file.
 
@@ -199,6 +232,20 @@ cases."
 (defvar vulpea-db-worker--output ""
   "Buffered incomplete output line from the worker.")
 
+(defvar vulpea-db-worker--output-pending nil
+  "Reversed list of chunks of the current incomplete protocol line.
+Accumulated as a list instead of string concatenation: a single
+protocol line can be megabytes (a large file node), and re-concating
+it per 4KB process chunk would cost quadratic time in the main process.")
+
+(defvar vulpea-db-worker--wal-failed nil
+  "Non-nil when WAL journaling could not be enabled on the database.
+Without WAL, a worker write transaction blocks main-process reads -
+the exact freeze full-write mode exists to avoid - so full-write is
+refused and requests degrade to extract-only (see
+`vulpea-db-worker--full-write-p').  Happens on filesystems without
+shared-memory support (some network or FUSE mounts).")
+
 (defvar vulpea-db-worker--in-flight nil
   "Paths sent to the worker and not yet completed, oldest first.")
 
@@ -208,6 +255,29 @@ cases."
 (defvar vulpea-db-worker--current nil
   "Assembly state for the file currently streaming in.
 A plist with :path, :file-node and :heading-nodes (reversed).")
+
+(defvar vulpea-db-worker--spawn-time nil
+  "Timestamp of the most recent worker spawn.")
+
+(defvar vulpea-db-worker--crash-times nil
+  "Timestamps of recent early worker deaths (died within 10s of spawn).
+Used to detect crash loops: a worker that keeps dying right after
+spawning would otherwise be respawned in a tight loop that starves
+the UI.")
+
+(defvar vulpea-db-worker--broken nil
+  "Non-nil after a worker crash loop was detected.
+While set, `vulpea-db-worker-can-handle-p' refuses everything, so the
+sync queue falls back to synchronous processing.  Reset with
+`vulpea-db-worker-reset' (or by re-enabling `vulpea-db-autosync-mode',
+which stops the worker).")
+
+(defun vulpea-db-worker-reset ()
+  "Forget a detected crash loop and allow the worker again."
+  (interactive)
+  (setq vulpea-db-worker--broken nil
+        vulpea-db-worker--crash-times nil)
+  (message "Vulpea: extraction worker re-enabled"))
 
 (defvar vulpea-db-worker--force (make-hash-table :test 'equal)
   "In-flight paths requested with force re-indexing.
@@ -229,21 +299,32 @@ output is not.")
   "Return a live worker process, spawning one if needed."
   (unless (process-live-p vulpea-db-worker--process)
     (setq vulpea-db-worker--output ""
+          vulpea-db-worker--output-pending nil
           vulpea-db-worker--in-flight nil
           vulpea-db-worker--in-flight-tail nil
           vulpea-db-worker--current nil)
     (clrhash vulpea-db-worker--force)
-    (setq vulpea-db-worker--process
-          (make-process
-           :name "vulpea-worker"
-           :command (vulpea-db-worker--command)
-           :connection-type 'pipe
-           :noquery t
-           :coding 'utf-8-unix
-           :stderr (get-buffer-create " *vulpea-worker-stderr*")
-           :filter #'vulpea-db-worker--filter
-           :sentinel #'vulpea-db-worker--sentinel))
-    (vulpea-db-worker--send (vulpea-db-worker--settings-form)))
+    (setq vulpea-db-worker--spawn-time (float-time))
+    (let ((command (vulpea-db-worker--command)))
+      (vulpea-db-worker--log "spawn: %s ... (%d args)"
+                             (vulpea-db-worker--log-truncate
+                              (string-join (seq-take command 6) " "))
+                             (length command))
+      (setq vulpea-db-worker--process
+            (make-process
+             :name "vulpea-worker"
+             :command command
+             :connection-type 'pipe
+             :noquery t
+             :coding 'utf-8-unix
+             :stderr (get-buffer-create " *vulpea-worker-stderr*")
+             :filter #'vulpea-db-worker--filter
+             :sentinel #'vulpea-db-worker--sentinel)))
+    (let ((settings (vulpea-db-worker--settings-form)))
+      (vulpea-db-worker--log "settings: %d vars, %d link types"
+                             (length (nth 1 settings))
+                             (length (nth 2 settings)))
+      (vulpea-db-worker--send settings)))
   vulpea-db-worker--process)
 
 (defun vulpea-db-worker--send (form)
@@ -260,6 +341,7 @@ output is not.")
     (delete-process vulpea-db-worker--process))
   (setq vulpea-db-worker--process nil
         vulpea-db-worker--output ""
+        vulpea-db-worker--output-pending nil
         vulpea-db-worker--in-flight nil
         vulpea-db-worker--in-flight-tail nil
         vulpea-db-worker--current nil)
@@ -277,7 +359,8 @@ behavior: extractor plugins are registered (they receive the AST,
 which never crosses the process boundary), heading-level indexing is
 a predicate function (not serializable), or PATH is not a plain .org
 file (decryption may require user interaction)."
-  (and (null vulpea-db--extractors)
+  (and (not vulpea-db-worker--broken)
+       (null vulpea-db--extractors)
        (booleanp vulpea-db-index-heading-level)
        (string-suffix-p ".org" path)))
 
@@ -319,6 +402,7 @@ Requires `vulpea-db-async-extraction' to be `full' and inert
 `vulpea-db-worker--filters-inert-p'); active filters live in the
 main process, so their presence degrades `full' to extract-only."
   (and (eq vulpea-db-async-extraction 'full)
+       (not vulpea-db-worker--wal-failed)
        (vulpea-db-worker--filters-inert-p)))
 
 (defun vulpea-db-worker--enable-wal (connection)
@@ -326,10 +410,27 @@ main process, so their presence degrades `full' to extract-only."
 
 WAL lets the worker write while the main process reads (and vice
 versa); the busy timeout makes concurrent write transactions wait
-for each other instead of failing."
+for each other instead of failing.  Returns non-nil when the
+database is in WAL mode afterwards; a failure (filesystem without
+shared-memory support) marks `vulpea-db-worker--wal-failed'."
   (let ((handle (oref connection handle)))
     (sqlite-pragma handle "busy_timeout=5000")
-    (sqlite-pragma handle "journal_mode=WAL")))
+    (sqlite-pragma handle "journal_mode=WAL")
+    (let ((mode (caar (sqlite-select handle "PRAGMA journal_mode"))))
+      (if (equal mode "wal")
+          t
+        (unless vulpea-db-worker--wal-failed
+          (setq vulpea-db-worker--wal-failed t)
+          (vulpea-db-worker--log "WAL refused, journal_mode=%s" mode)
+          (display-warning
+           'vulpea
+           (format (concat "Could not enable WAL journaling "
+                           "(journal_mode stays %S); full-write mode "
+                           "degrades to extract-only so worker writes "
+                           "cannot block the UI.")
+                   mode)
+           :warning))
+        nil))))
 
 (defun vulpea-db-worker-request (path &optional force)
   "Ask the worker to extract PATH.
@@ -345,12 +446,19 @@ settings changes)."
   (vulpea-db-worker--ensure)
   (when force
     (puthash path t vulpea-db-worker--force))
-  (if (vulpea-db-worker--full-write-p)
+  (if (and (vulpea-db-worker--full-write-p)
+           ;; WAL is a hard requirement for full-write: without it a
+           ;; worker write transaction blocks main-process reads.
+           ;; Failure degrades this and future requests to extract-only.
+           (vulpea-db-worker--enable-wal (vulpea-db)))
       (progn
-        (vulpea-db-worker--enable-wal (vulpea-db))
+        (vulpea-db-worker--log "request parse-and-write%s: %s"
+                               (if force " (force)" "") path)
         (vulpea-db-worker--send
          `(parse-and-write ,path ,(expand-file-name vulpea-db-location)
                            ,(and force t))))
+    (vulpea-db-worker--log "request parse%s: %s"
+                           (if force " (force)" "") path)
     (vulpea-db-worker--send `(parse ,path)))
   (let ((node (list path)))
     (if vulpea-db-worker--in-flight
@@ -362,20 +470,31 @@ settings changes)."
 
 (defun vulpea-db-worker--filter (_proc output)
   "Process protocol OUTPUT lines from the worker."
-  (setq output (concat vulpea-db-worker--output output))
-  (let* ((ends-with-newline (string-suffix-p "\n" output))
-         (lines (split-string output "\n" t)))
-    (if ends-with-newline
-        (setq vulpea-db-worker--output "")
-      (setq vulpea-db-worker--output (or (car (last lines)) ""))
-      (setq lines (butlast lines)))
-    (dolist (line lines)
-      (when (string-prefix-p "(" line)
-        (let ((msg (condition-case nil
-                       (car (read-from-string line))
-                     (error nil))))
-          (when msg
-            (vulpea-db-worker--dispatch msg)))))))
+  (let ((start 0)
+        (t0 (current-time))
+        line-end)
+    (while (setq line-end (string-match "\n" output start))
+      (let* ((tail (substring output start line-end))
+             (line (if vulpea-db-worker--output-pending
+                       (apply #'concat
+                              (nreverse (cons tail
+                                              vulpea-db-worker--output-pending)))
+                     tail)))
+        (setq vulpea-db-worker--output-pending nil)
+        (setq start (1+ line-end))
+        (when (string-prefix-p "(" line)
+          (let ((msg (condition-case nil
+                         (car (read-from-string line))
+                       (error nil))))
+            (when msg
+              (vulpea-db-worker--dispatch msg))))))
+    (when (< start (length output))
+      (push (substring output start) vulpea-db-worker--output-pending))
+    (when vulpea-db-worker-debug
+      (let ((ms (* 1000 (float-time (time-subtract (current-time) t0)))))
+        (when (> ms 50)
+          (vulpea-db-worker--log "filter: %.0fms on %d bytes (slow)"
+                                 ms (length output)))))))
 
 (defun vulpea-db-worker--dispatch (msg)
   "Handle one protocol MSG from the worker."
@@ -392,13 +511,19 @@ settings changes)."
                                             :heading-nodes)))))
     (`(done ,path ,hash ,mtime ,size)
      (let ((current vulpea-db-worker--current)
-           (force (gethash path vulpea-db-worker--force)))
+           (force (gethash path vulpea-db-worker--force))
+           (t0 (current-time)))
        (setq vulpea-db-worker--current nil)
        (vulpea-db-worker--forget path)
-       (vulpea-db-worker--complete path hash mtime size current force)))
+       (vulpea-db-worker--complete path hash mtime size current force)
+       (vulpea-db-worker--log "done %s: applied in %.0fms (main)"
+                              path
+                              (* 1000 (float-time
+                                       (time-subtract (current-time) t0))))))
     ;; Full-write mode: the worker wrote the database itself; the
     ;; main process only registers org-ids and re-checks freshness.
     (`(written ,path ,_hash ,mtime ,size ,count ,ids)
+     (vulpea-db-worker--log "written %s: %s notes" path count)
      (vulpea-db-worker--forget path)
      (vulpea-db--register-id-locations ids path)
      (let ((attrs (file-attributes path)))
@@ -425,6 +550,7 @@ settings changes)."
     (`(error ,path ,message)
      (setq vulpea-db-worker--current nil)
      (vulpea-db-worker--forget path)
+     (vulpea-db-worker--log "error %s: %s" path message)
      (message "Vulpea: worker failed on %s: %s" path message)
      (run-hook-with-args 'vulpea-db-worker-done-functions
                          path 'error nil))))
@@ -498,17 +624,61 @@ result is applied even when the content hash matches what is stored
         (run-hook-with-args 'vulpea-db-worker-done-functions
                             path 'applied count))))))
 
-(defun vulpea-db-worker--sentinel (proc _event)
-  "Handle worker PROC death: re-enqueue in-flight work."
+(defun vulpea-db-worker--crash-loop-p ()
+  "Record the current death and detect a crash loop.
+A crash loop is three deaths within 10 seconds of their spawn,
+inside one minute.  Long-lived workers dying (or being killed) do
+not count."
+  (when (and vulpea-db-worker--spawn-time
+             (< (- (float-time) vulpea-db-worker--spawn-time) 10))
+    (push (float-time) vulpea-db-worker--crash-times))
+  (setq vulpea-db-worker--crash-times
+        (seq-filter (lambda (time) (< (- (float-time) time) 60))
+                    vulpea-db-worker--crash-times))
+  (>= (length vulpea-db-worker--crash-times) 3))
+
+(defun vulpea-db-worker--stderr-tail ()
+  "Return the last few lines of the worker's stderr, for diagnostics."
+  (if-let* ((buffer (get-buffer " *vulpea-worker-stderr*")))
+      (with-current-buffer buffer
+        (save-excursion
+          (goto-char (point-max))
+          (forward-line -10)
+          (string-trim (buffer-substring-no-properties
+                        (point) (point-max)))))
+    ""))
+
+(defun vulpea-db-worker--sentinel (proc event)
+  "Handle worker PROC death (EVENT): re-enqueue in-flight work.
+
+Detects crash loops: a worker that keeps dying right after spawning
+marks itself broken (see `vulpea-db-worker--broken') instead of
+respawning forever, and the sync queue falls back to synchronous
+processing."
   (unless (process-live-p proc)
     (let ((pending vulpea-db-worker--in-flight)
           (forced (copy-hash-table vulpea-db-worker--force)))
       (setq vulpea-db-worker--process nil
             vulpea-db-worker--output ""
+            vulpea-db-worker--output-pending nil
             vulpea-db-worker--in-flight nil
             vulpea-db-worker--in-flight-tail nil
             vulpea-db-worker--current nil)
       (clrhash vulpea-db-worker--force)
+      (vulpea-db-worker--log "worker died: %s; stderr tail: %s"
+                             (string-trim event)
+                             (vulpea-db-worker--log-truncate
+                              (vulpea-db-worker--stderr-tail) 500))
+      (when (vulpea-db-worker--crash-loop-p)
+        (setq vulpea-db-worker--broken t)
+        (display-warning
+         'vulpea
+         (format (concat "Extraction worker keeps dying; falling back to "
+                         "synchronous indexing.  Last stderr:\n%s\n"
+                         "Run M-x vulpea-db-worker-diagnose to investigate, "
+                         "M-x vulpea-db-worker-reset to retry.")
+                 (vulpea-db-worker--stderr-tail))
+         :error))
       (when pending
         (message "Vulpea: extraction worker died, re-queueing %d file%s"
                  (length pending) (if (= (length pending) 1) "" "s"))
@@ -675,6 +845,95 @@ writes protocol lines to stdout.  Exits when stdin closes."
         (`(parse-and-write ,path ,db ,force)
          (vulpea-db-worker--handle-parse-and-write path db force))
         (_ nil)))))
+
+;;; Diagnostics
+
+;;;###autoload
+(defun vulpea-db-worker-diagnose ()
+  "Run an end-to-end health check of async extraction and report.
+
+Spawns a fresh worker, round-trips a small file through the current
+`vulpea-db-async-extraction' mode against the real database location,
+and reports every stage - spawn time, journal mode, mode degradations
+and why, round-trip time, and the worker's stderr if anything went
+wrong - in a dedicated buffer.  Safe to run at any time; the check
+file is temporary and removed from the database afterwards."
+  (interactive)
+  (let ((report (get-buffer-create "*vulpea-worker-diagnose*"))
+        (vulpea-db-worker-debug t))
+    (with-current-buffer report
+      (erase-buffer)
+      (insert (format "vulpea async extraction diagnosis (%s)\n\n"
+                      (format-time-string "%F %T")))
+      (insert (format "emacs          : %s\n" emacs-version))
+      (insert (format "mode           : %S\n" vulpea-db-async-extraction))
+      (insert (format "threshold      : %S\n"
+                      vulpea-db-async-extraction-threshold))
+      (insert (format "db location    : %s\n" vulpea-db-location))
+      (insert (format "extractors     : %S\n" vulpea-db--extractors))
+      (insert (format "index filters  : %S\n"
+                      vulpea-db-note-index-filter-functions))
+      (insert (format "filters inert  : %S\n"
+                      (vulpea-db-worker--filters-inert-p)))
+      (insert (format "worker broken  : %S\n" vulpea-db-worker--broken)))
+    (vulpea-db-worker-stop)
+    (setq vulpea-db-worker--broken nil
+          vulpea-db-worker--crash-times nil
+          vulpea-db-worker--wal-failed nil)
+    ;; Journal mode of the real database
+    (let ((mode (caar (sqlite-select (oref (vulpea-db) handle)
+                                     "PRAGMA journal_mode"))))
+      (with-current-buffer report
+        (insert (format "journal mode   : %s\n" mode))))
+    ;; Round trip
+    (let* ((path (make-temp-file "vulpea-diagnose-" nil ".org"
+                                 ":PROPERTIES:\n:ID: vulpea-diagnose-id\n:END:\n#+TITLE: Diagnose\n"))
+           (t0 (current-time))
+           (status nil)
+           (vulpea-db-worker-done-functions
+            (list (lambda (_path s _count) (setq status s)))))
+      (unwind-protect
+          (progn
+            (condition-case err
+                (progn
+                  (vulpea-db-worker-request path)
+                  (with-current-buffer report
+                    (insert (format "spawn + request: ok (%.0fms)\n"
+                                    (* 1000 (float-time
+                                             (time-subtract (current-time) t0))))
+                            (format "full-write     : %S\n"
+                                    (vulpea-db-worker--full-write-p))
+                            (format "wal failed     : %S\n"
+                                    vulpea-db-worker--wal-failed)))
+                  (let ((deadline (+ (float-time) 30)))
+                    (while (and (not status) (< (float-time) deadline))
+                      (accept-process-output vulpea-db-worker--process 0.1)))
+                  (with-current-buffer report
+                    (insert (format "round trip     : %s in %.0fms\n"
+                                    (or status "TIMEOUT after 30s")
+                                    (* 1000 (float-time
+                                             (time-subtract (current-time) t0)))))))
+              (error
+               (with-current-buffer report
+                 (insert (format "FAILED         : %s\n"
+                                 (error-message-string err))))))
+            (with-current-buffer report
+              (insert (format "\nworker process : %S\n"
+                              vulpea-db-worker--process))
+              (let ((stderr (vulpea-db-worker--stderr-tail)))
+                (unless (string-empty-p stderr)
+                  (insert "\nworker stderr tail:\n" stderr "\n")))
+              (when-let* ((log (get-buffer vulpea-db-worker-log-buffer)))
+                (insert "\nprotocol log:\n"
+                        (with-current-buffer log (buffer-string))))))
+        ;; Cleanup: temp note out of the database, worker down
+        (ignore-errors (vulpea-db--delete-file-notes path))
+        (ignore-errors
+          (emacsql (vulpea-db) [:delete :from files :where (= path $s1)]
+                   path))
+        (delete-file path)
+        (vulpea-db-worker-stop)))
+    (pop-to-buffer report)))
 
 (provide 'vulpea-db-worker)
 ;;; vulpea-db-worker.el ends here
