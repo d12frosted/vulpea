@@ -209,11 +209,20 @@ Slots:
   "Definition of a plugin extractor.
 
 Slots:
-  name       - Symbol identifying the extractor (required, unique)
-  version    - Integer version number for migrations (default: 1)
-  schema     - Database schema for plugin tables (optional)
-  priority   - Execution priority, lower runs first (default: 100)
-  extract-fn - Function (ctx note-data) -> note-data (required)
+  name         - Symbol identifying the extractor (required, unique)
+  version      - Integer version number for migrations (default: 1)
+  schema       - Database schema for plugin tables (optional)
+  priority     - Execution priority, lower runs first (default: 100)
+  extract-fn   - Function (ctx note-data) -> note-data (required)
+  requires-ast - Whether extract-fn reads the parse context's AST
+                 (default: t).  Declaring nil unlocks two things:
+                 extraction stays at the fast element granularity
+                 (see `vulpea-db-parse-granularity'), and files stay
+                 eligible for the async extraction worker - the
+                 extractor then runs in the main process against a
+                 context whose AST slot may be nil.  Declare nil only
+                 when extract-fn works purely from NOTE-DATA (an
+                 attachment scanner reading :attach-dir, for example).
 
 Example:
   (make-vulpea-extractor
@@ -229,7 +238,8 @@ Example:
   (version 1)
   schema
   (priority 100)
-  extract-fn)
+  extract-fn
+  (requires-ast t))
 
 ;;; Core Parsing
 
@@ -328,10 +338,10 @@ apply it everywhere at once."
   "Return the parse granularity to use for the current parse.
 
 Honors `vulpea-db-parse-granularity', except when extractor plugins
-are registered: their contract is a full AST (they may map inline
-objects like citations), so any registered extractor forces
-\\='object granularity."
-  (if vulpea-db--extractors
+that read the AST are registered (they may map inline objects like
+citations): those force \\='object granularity.  Extractors declaring
+:requires-ast nil do not."
+  (if (seq-some #'vulpea-extractor-requires-ast vulpea-db--extractors)
       'object
     vulpea-db-parse-granularity))
 

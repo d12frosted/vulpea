@@ -351,18 +351,34 @@ output is not.")
   "Return non-nil while the worker has unfinished requests."
   (and vulpea-db-worker--in-flight t))
 
+(defun vulpea-db-worker-rejection-reasons (path)
+  "Return the reasons PATH cannot be extracted in the worker, if any.
+
+A list of symbols, nil when the worker can handle PATH faithfully:
+- `broken': the worker crash-looped (see `vulpea-db-worker-reset')
+- `ast-extractors': registered extractors read the AST, which never
+  crosses the process boundary (extractors declaring :requires-ast
+  nil are fine - they run in the main process during apply)
+- `heading-level-predicate': `vulpea-db-index-heading-level' is a
+  function, which is not serializable
+- `extension': PATH is not a plain .org file (decryption may require
+  user interaction)"
+  (let (reasons)
+    (when vulpea-db-worker--broken
+      (push 'broken reasons))
+    (when (seq-some #'vulpea-extractor-requires-ast vulpea-db--extractors)
+      (push 'ast-extractors reasons))
+    (unless (booleanp vulpea-db-index-heading-level)
+      (push 'heading-level-predicate reasons))
+    (unless (string-suffix-p ".org" path)
+      (push 'extension reasons))
+    (nreverse reasons)))
+
 (defun vulpea-db-worker-can-handle-p (path)
   "Return non-nil when PATH can be extracted in the worker faithfully.
-
-Rejects the cases where a subprocess cannot replicate in-process
-behavior: extractor plugins are registered (they receive the AST,
-which never crosses the process boundary), heading-level indexing is
-a predicate function (not serializable), or PATH is not a plain .org
-file (decryption may require user interaction)."
-  (and (not vulpea-db-worker--broken)
-       (null vulpea-db--extractors)
-       (booleanp vulpea-db-index-heading-level)
-       (string-suffix-p ".org" path)))
+See `vulpea-db-worker-rejection-reasons' for what disqualifies a
+file."
+  (null (vulpea-db-worker-rejection-reasons path)))
 
 (defun vulpea-db-worker-should-handle-p (path)
   "Return non-nil when PATH should be extracted in the worker.
@@ -403,6 +419,9 @@ Requires `vulpea-db-async-extraction' to be `full' and inert
 main process, so their presence degrades `full' to extract-only."
   (and (eq vulpea-db-async-extraction 'full)
        (not vulpea-db-worker--wal-failed)
+       ;; Any extractor - even an AST-free one - must run in the main
+       ;; process: its function is not defined in the worker
+       (null vulpea-db--extractors)
        (vulpea-db-worker--filters-inert-p)))
 
 (defun vulpea-db-worker--enable-wal (connection)
@@ -875,7 +894,13 @@ file is temporary and removed from the database afterwards."
                       vulpea-db-note-index-filter-functions))
       (insert (format "filters inert  : %S\n"
                       (vulpea-db-worker--filters-inert-p)))
-      (insert (format "worker broken  : %S\n" vulpea-db-worker--broken)))
+      (insert (format "worker broken  : %S\n" vulpea-db-worker--broken))
+      (let ((reasons (vulpea-db-worker-rejection-reasons "probe.org")))
+        (insert (format "can handle .org: %s\n"
+                        (if reasons
+                            (format "NO - %S - production files will use the SYNCHRONOUS path!"
+                                    reasons)
+                          "yes")))))
     (vulpea-db-worker-stop)
     (setq vulpea-db-worker--broken nil
           vulpea-db-worker--crash-times nil
