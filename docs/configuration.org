@@ -219,6 +219,11 @@ network filesystems. While schemas are registered with a non-silent
 =vulpea-db-schema-validation-action=, ='full= behaves like =t= so
 validation keeps running in your session.
 
+Force re-indexing also flows through the worker: parser-epoch and
+settings migrations (the "re-indexing all files" pass on the first
+activation after an upgrade) no longer block the session when async
+extraction is enabled.
+
 A companion knob, =vulpea-db-async-extraction-threshold=, keeps
 files below a size on the synchronous path (nil, the default, sends
 everything to the worker). Measurements do not demand a threshold -
