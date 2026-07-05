@@ -642,5 +642,32 @@ notes are lost, no extractor output is lost."
             (should (vulpea-db-worker-should-handle-p path))))
       (delete-file path))))
 
+(ert-deftest vulpea-db-sync-async-completion-message ()
+  "The background-sync summary fires when work actually lands.
+Dispatch bumps the in-flight counter; terminal statuses drain it;
+the summary is emitted exactly once, with honest numbers, when the
+last file completes.  A requeued file counts anew on re-dispatch."
+  (require 'vulpea-db-sync)
+  (let ((vulpea-db-sync--async-dispatched 3)
+        (vulpea-db-sync--async-applied 0)
+        (vulpea-db-sync--async-unchanged 0)
+        (vulpea-db-sync--async-start-time (current-time))
+        (vulpea-db-sync-verbose t)
+        (messages nil))
+    (cl-letf (((symbol-function 'vulpea-db-sync--message)
+               (lambda (format-string &rest args)
+                 (push (apply #'format format-string args) messages))))
+      (vulpea-db-sync--worker-done "/tmp/a.org" 'applied 5)
+      (vulpea-db-sync--worker-done "/tmp/b.org" 'unchanged nil)
+      (should (null messages))          ; nothing until the last one
+      (vulpea-db-sync--worker-done "/tmp/c.org" 'requeued nil)
+      ;; requeued is terminal for this burst: summary fires now
+      (should (= 1 (length messages)))
+      (should (string-match-p "background sync complete - 2 files (1 updated, 1 unchanged"
+                              (car messages)))
+      ;; counters reset for the next burst
+      (should (zerop vulpea-db-sync--async-dispatched))
+      (should (zerop vulpea-db-sync--async-applied)))))
+
 (provide 'vulpea-db-worker-test)
 ;;; vulpea-db-worker-test.el ends here
