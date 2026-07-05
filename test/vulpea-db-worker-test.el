@@ -520,6 +520,101 @@ main process during apply."
                                 [:select [note-id file]
                                  :from test-attachments])))))))
 
+(ert-deftest vulpea-db-worker-worker-safe-extractor-runs-in-worker ()
+  "A :worker-safe extractor runs inside the worker in full-write mode.
+The extractor function lives in a library the worker loads
+\(:worker-lib); it records the executing process id in its table, so
+the test can prove the work happened in the subprocess."
+  (let ((lib (make-temp-file "vulpea-worker-ext-" nil ".el"
+                             "(require 'vulpea-db)\n(require 'emacsql)\n(defun vulpea-test-worker-ext-fn (_ctx note-data)\n  (emacsql (vulpea-db)\n           [:insert :into worker-ext :values $v1]\n           (vector (plist-get note-data :id)\n                   (number-to-string (emacs-pid))))\n  note-data)\n")))
+    (vulpea-db-worker-test--with-file
+        ":PROPERTIES:\n:ID: worker-ext-note\n:END:\n#+TITLE: W\n"
+      (unwind-protect
+          (vulpea-test--with-temp-db
+            (vulpea-db)
+            (let ((vulpea-db--extractors nil)
+                  (vulpea-db-async-extraction 'full)
+                  (vulpea-db-note-index-filter-functions nil)
+                  statuses)
+              ;; Define the fn locally too (registration side)
+              (load lib nil t)
+              (vulpea-db-register-extractor
+               (make-vulpea-extractor
+                :name 'worker-ext
+                :version 1
+                :requires-ast nil
+                :worker-safe t
+                :worker-lib lib
+                :schema '((worker-ext
+                           [(note-id :not-null) (pid :not-null)]))
+                :extract-fn #'vulpea-test-worker-ext-fn))
+              (should (vulpea-db-worker--full-write-p))
+              (let ((vulpea-db-worker-done-functions
+                     (list (lambda (_path status _count)
+                             (push status statuses)))))
+                (vulpea-db-worker-request path)
+                (vulpea-db-worker-test--wait))
+              (should (equal statuses '(applied)))
+              (let ((row (car (emacsql (vulpea-db)
+                                       [:select [note-id pid]
+                                        :from worker-ext]))))
+                (should (equal (car row) "worker-ext-note"))
+                ;; Ran in the worker, not in this process
+                (should-not (equal (cadr row)
+                                   (number-to-string (emacs-pid)))))))
+        (delete-file lib)))))
+
+(ert-deftest vulpea-db-worker-worker-safe-unresolved-degrades ()
+  "A worker-safe extractor the worker cannot resolve degrades safely.
+Without a loadable :worker-lib the worker falls back to streaming the
+results, and the extractor runs in the main process instead - no
+notes are lost, no extractor output is lost."
+  (vulpea-db-worker-test--with-file
+      ":PROPERTIES:\n:ID: unresolved-note\n:END:\n#+TITLE: U\n"
+    (vulpea-test--with-temp-db
+      (vulpea-db)
+      (let ((vulpea-db--extractors nil)
+            (vulpea-db-async-extraction 'full)
+            (vulpea-db-note-index-filter-functions nil)
+            (ran-in-main nil)
+            statuses)
+        (fset 'vulpea-test-unresolved-fn
+              (lambda (_ctx note-data)
+                (setq ran-in-main t)
+                note-data))
+        (vulpea-db-register-extractor
+         (make-vulpea-extractor
+          :name 'unresolved-ext
+          :version 1
+          :requires-ast nil
+          :worker-safe t
+          ;; No :worker-lib and the fn is not defined in the worker
+          :extract-fn 'vulpea-test-unresolved-fn))
+        (let ((vulpea-db-worker-done-functions
+               (list (lambda (_path status _count)
+                       (push status statuses)))))
+          (vulpea-db-worker-request path)
+          (vulpea-db-worker-test--wait))
+        (should (equal statuses '(applied)))
+        (should ran-in-main)
+        (should (= 1 (caar (emacsql (vulpea-db)
+                                    [:select (funcall count *)
+                                     :from notes :where (= id $s1)]
+                                    "unresolved-note"))))))))
+
+(ert-deftest vulpea-db-worker-mixed-extractors-block-full-write ()
+  "One non-worker-safe extractor is enough to block full-write."
+  (let ((vulpea-db-async-extraction 'full)
+        (vulpea-db-note-index-filter-functions nil)
+        (vulpea-db--extractors
+         (list (make-vulpea-extractor
+                :name 'safe :requires-ast nil :worker-safe t
+                :extract-fn #'ignore)
+               (make-vulpea-extractor
+                :name 'unsafe :requires-ast nil
+                :extract-fn #'ignore))))
+    (should-not (vulpea-db-worker--full-write-p))))
+
 (ert-deftest vulpea-db-worker-ast-extractor-still-disables-async ()
   "Extractors without the declaration keep the conservative behavior."
   (let ((vulpea-db--extractors
