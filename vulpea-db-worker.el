@@ -162,8 +162,9 @@ FORMAT-STRING and ARGS are passed to `format'."
 Each function is called with (PATH STATUS COUNT) where STATUS is one
 of `applied' (notes written), `unchanged' (content hash matched, only
 the file stamp was refreshed), `stale' (file changed while parsing;
-result discarded and the file re-enqueued), `missing' (file deleted
-while parsing), or `error'.  COUNT is the number of notes written for
+result discarded and the file re-enqueued), `requeued' (worker died
+with the file in flight; re-enqueued), `missing' (file deleted while
+parsing), or `error'.  COUNT is the number of notes written for
 `applied', nil otherwise.")
 
 ;;; Wire format
@@ -749,7 +750,11 @@ processing."
         (message "Vulpea: extraction worker died, re-queueing %d file%s"
                  (length pending) (if (= (length pending) 1) "" "s"))
         (dolist (path pending)
-          (vulpea-db-worker--reenqueue path (gethash path forced)))))))
+          (vulpea-db-worker--reenqueue path (gethash path forced))
+          ;; Terminal for this dispatch: the re-enqueued entry counts
+          ;; anew when the queue dispatches it again
+          (run-hook-with-args 'vulpea-db-worker-done-functions
+                              path 'requeued nil))))))
 
 ;;; Worker side (runs in emacs --batch)
 
