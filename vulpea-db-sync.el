@@ -190,6 +190,13 @@ Each entry is (path . timestamp).")
 (defvar vulpea-db-sync--queue-set (make-hash-table :test 'equal)
   "Hash table tracking files already queued.")
 
+(defvar vulpea-db-sync--force-set (make-hash-table :test 'equal)
+  "Queued paths marked for forced re-indexing.
+
+Forced entries bypass change detection and the unchanged-content
+shortcuts: they exist for parser or settings changes, where file
+content is identical but extraction output is not.")
+
 (defvar vulpea-db-sync--timer nil
   "Timer for processing batched updates.")
 
@@ -445,7 +452,8 @@ a subprocess.  The `blocking' mode still scans synchronously."
   ;; Clear queue
   (setq vulpea-db-sync--queue nil
         vulpea-db-sync--queue-tail nil)
-  (clrhash vulpea-db-sync--queue-set))
+  (clrhash vulpea-db-sync--queue-set)
+  (clrhash vulpea-db-sync--force-set))
 
 (defun vulpea-db-sync--watch-directory (dir)
   "Watch DIR and all subdirectories for org file change."
@@ -623,9 +631,15 @@ all files under that directory are removed."
             (vulpea-db-sync--enqueue new-path))))))
     nil))
 
-(defun vulpea-db-sync--enqueue (path)
-  "Add PATH to update queue."
+(defun vulpea-db-sync--enqueue (path &optional force)
+  "Add PATH to update queue.
+
+With FORCE non-nil, PATH is re-indexed even if its content is
+unchanged (see `vulpea-db-sync--force-set').  A force mark also
+upgrades an already-queued entry."
   (let ((timestamp (float-time)))
+    (when force
+      (puthash path t vulpea-db-sync--force-set))
     (unless (gethash path vulpea-db-sync--queue-set)
       (puthash path t vulpea-db-sync--queue-set)
 
@@ -697,32 +711,42 @@ all files under that directory are removed."
             ;; Split off files the extraction worker will handle:
             ;; for those, only a cheap mtime/size comparison happens
             ;; here - reading, hashing, parsing and extraction all
-            ;; run in the worker subprocess.
+            ;; run in the worker subprocess.  Forced entries (parser
+            ;; or settings changed) skip change detection entirely.
             (let (sync-paths)
               (dolist (path paths)
-                (if (and vulpea-db-async-extraction
-                         (vulpea-db-worker-should-handle-p path))
-                    (condition-case err
-                        (when (file-exists-p path)
-                          (if (vulpea-db-sync--changed-on-disk-p path hash-cache)
-                              (progn
-                                (vulpea-db-worker-request path)
-                                (setq updated (1+ updated)))
-                            (setq unchanged (1+ unchanged))))
-                      (error
-                       (message "Vulpea: Error dispatching %s: %s"
-                                path (error-message-string err))))
-                  (push path sync-paths)))
+                (let ((force (gethash path vulpea-db-sync--force-set)))
+                  (remhash path vulpea-db-sync--force-set)
+                  (if (and vulpea-db-async-extraction
+                           (vulpea-db-worker-should-handle-p path))
+                      (condition-case err
+                          (when (file-exists-p path)
+                            (if (or force
+                                    (vulpea-db-sync--changed-on-disk-p
+                                     path hash-cache))
+                                (progn
+                                  (vulpea-db-worker-request path force)
+                                  (setq updated (1+ updated)))
+                              (setq unchanged (1+ unchanged))))
+                        (error
+                         (message "Vulpea: Error dispatching %s: %s"
+                                  path (error-message-string err))))
+                    (push (cons path force) sync-paths))))
 
               ;; Process the rest in a single transaction as before
               (when sync-paths
                 (emacsql-with-transaction db
-                  (dolist (path (nreverse sync-paths))
+                  (pcase-dolist (`(,path . ,force) (nreverse sync-paths))
                     (condition-case err
                         (when (file-exists-p path)
-                          (if (vulpea-db-sync--update-file-if-changed path hash-cache)
-                              (setq updated (1+ updated))
-                            (setq unchanged (1+ unchanged))))
+                          (cond
+                           (force
+                            (vulpea-db-update-file path)
+                            (setq updated (1+ updated)))
+                           ((vulpea-db-sync--update-file-if-changed path hash-cache)
+                            (setq updated (1+ updated)))
+                           (t
+                            (setq unchanged (1+ unchanged)))))
                       (error
                        (message "Vulpea: Error updating %s: %s"
                                 path (error-message-string err)))))))))
@@ -983,19 +1007,24 @@ Files in hidden directories (paths containing /.) are excluded.
 With optional FORCE argument, bypass change detection and re-index all files.
 This is useful when changing configuration like `vulpea-db-index-heading-level'.
 
-FORCE mode is always synchronous/blocking, even when `vulpea-db-autosync-mode'
-is enabled."
+FORCE processing is synchronous/blocking, unless both
+`vulpea-db-autosync-mode' and `vulpea-db-async-extraction' are
+enabled - then forced files flow through the queue and the
+extraction worker like any other change, keeping parser-epoch and
+settings migrations from freezing the session."
   (interactive "DDirectory: ")
   (let ((files (vulpea-db-sync--list-org-files dir)))
-    (if (and vulpea-db-autosync-mode (not force))
-        ;; Async mode: queue all files (smart detection in queue processing)
+    (if (and vulpea-db-autosync-mode
+             (or (not force) vulpea-db-async-extraction))
+        ;; Async mode: queue all files (smart detection in queue
+        ;; processing; forced entries carry their mark)
         (progn
           ;; Reset counters for fresh sync
           (setq vulpea-db-sync--queue-total 0
                 vulpea-db-sync--processed-total 0
                 vulpea-db-sync--updated-total 0)
           (dolist (file files)
-            (vulpea-db-sync--enqueue file)))
+            (vulpea-db-sync--enqueue file force)))
       ;; Sync mode: use smart detection or force
       (let ((db (vulpea-db))
             (updated 0)

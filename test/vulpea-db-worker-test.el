@@ -380,6 +380,103 @@ programmatic content authoritative."
         (should (equal "V2" (vulpea-note-title
                              (vulpea-db-get-by-id "race-full-id"))))))))
 
+(ert-deftest vulpea-db-worker-force-reapplies-unchanged-content ()
+  "A forced request re-applies even when the content hash matches.
+Force re-index exists for parser or settings changes: content is
+identical, but extraction output is not, so the unchanged-content
+shortcut must be skipped.  Covers mode t."
+  (vulpea-db-worker-test--with-file
+      ":PROPERTIES:\n:ID: force-id\n:END:\n#+TITLE: Force\n"
+    (vulpea-test--with-temp-db
+      (vulpea-db)
+      (vulpea-db-update-file path)
+      (let (statuses)
+        (let ((vulpea-db-worker-done-functions
+               (list (lambda (_path status _count)
+                       (push status statuses)))))
+          ;; Non-force on unchanged content: stamps only
+          (vulpea-db-worker-request path)
+          (vulpea-db-worker-test--wait)
+          ;; Forced: must re-apply
+          (vulpea-db-worker-request path 'force)
+          (vulpea-db-worker-test--wait))
+        (should (equal (nreverse statuses) '(unchanged applied)))))))
+
+(ert-deftest vulpea-db-worker-force-reapplies-unchanged-content-full-mode ()
+  "Forced requests re-apply in full-write mode too."
+  (vulpea-db-worker-test--with-file
+      ":PROPERTIES:\n:ID: force-full-id\n:END:\n#+TITLE: ForceFull\n"
+    (vulpea-test--with-temp-db
+      (vulpea-db)
+      (let ((vulpea-db-async-extraction 'full)
+            (vulpea-db-note-index-filter-functions nil)
+            statuses)
+        (vulpea-db-update-file path)
+        (let ((vulpea-db-worker-done-functions
+               (list (lambda (_path status _count)
+                       (push status statuses)))))
+          (vulpea-db-worker-request path)
+          (vulpea-db-worker-test--wait)
+          (vulpea-db-worker-request path 'force)
+          (vulpea-db-worker-test--wait))
+        (should (equal (nreverse statuses) '(unchanged applied)))))))
+
+(ert-deftest vulpea-db-worker-force-survives-crash-requeue ()
+  "Force marks are preserved when a dead worker's files are re-queued."
+  (vulpea-db-worker-test--with-file
+      ":PROPERTIES:\n:ID: force-crash-id\n:END:\n#+TITLE: FC\n"
+    (vulpea-test--with-temp-db
+      (vulpea-db)
+      (vulpea-db-update-file path)
+      (let (statuses)
+        (let ((vulpea-db-worker-done-functions
+               (list (lambda (_path status _count)
+                       (push status statuses)))))
+          (vulpea-db-worker-request path 'force)
+          ;; Kill the worker before it can answer
+          (let ((proc vulpea-db-worker--process))
+            (delete-process proc)
+            (while (process-live-p proc)
+              (accept-process-output nil 0.05)))
+          ;; The sentinel re-queues; without autosync it goes straight
+          ;; back to a fresh worker, force mark intact
+          (vulpea-db-worker-test--wait))
+        ;; Content unchanged, so only a preserved force mark explains
+        ;; an `applied' result
+        (should (memq 'applied statuses))))))
+
+(ert-deftest vulpea-db-sync-force-scan-routes-through-worker ()
+  "A force directory scan dispatches to the worker when async is on.
+This is the parser-epoch migration path: it must re-apply every file
+\(not stamp them as unchanged) without the blocking loop."
+  (let* ((dir (make-temp-file "vulpea-force-scan" t))
+         (vulpea-db-async-extraction t))
+    (unwind-protect
+        (vulpea-test--with-temp-db
+          (vulpea-db)
+          (dotimes (i 3)
+            (with-temp-file (expand-file-name (format "note-%d.org" i) dir)
+              (insert (format ":PROPERTIES:\n:ID: scan-%d\n:END:\n#+TITLE: N%d\n" i i))))
+          ;; Everything indexed and up to date
+          (dolist (f (directory-files dir t "\\.org\\'"))
+            (vulpea-db-update-file f))
+          ;; Force scan with autosync-like async processing
+          (let (statuses)
+            (let ((vulpea-db-worker-done-functions
+                   (list (lambda (_path status _count)
+                           (push status statuses))))
+                  (vulpea-db-autosync-mode t)
+                  (vulpea-db-sync-verbose nil))
+              (vulpea-db-sync-update-directory dir 'force)
+              ;; Drain the queue manually (no timers in batch tests)
+              (while vulpea-db-sync--queue
+                (vulpea-db-sync--process-queue))
+              (vulpea-db-worker-test--wait))
+            ;; Every file re-applied despite unchanged content
+            (should (equal statuses '(applied applied applied))))
+          (vulpea-db-worker-stop))
+      (delete-directory dir t))))
+
 (ert-deftest vulpea-db-worker-threshold-routing ()
   "The size threshold routes small files to the synchronous path."
   (let ((path (vulpea-test--create-temp-org-file

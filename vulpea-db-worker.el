@@ -70,7 +70,8 @@
 (require 'vulpea-db)
 (require 'vulpea-db-extract)
 
-(declare-function vulpea-db-sync--enqueue "vulpea-db-sync" (path))
+(declare-function vulpea-db-sync--enqueue "vulpea-db-sync"
+                  (path &optional force))
 
 ;;; Customization
 
@@ -208,6 +209,13 @@ cases."
   "Assembly state for the file currently streaming in.
 A plist with :path, :file-node and :heading-nodes (reversed).")
 
+(defvar vulpea-db-worker--force (make-hash-table :test 'equal)
+  "In-flight paths requested with force re-indexing.
+
+Forced results skip the unchanged-content shortcut: force exists for
+parser or settings changes, where content is identical but extraction
+output is not.")
+
 (defun vulpea-db-worker--command ()
   "Build the worker process command line."
   (let ((emacs (expand-file-name invocation-name invocation-directory))
@@ -224,6 +232,7 @@ A plist with :path, :file-node and :heading-nodes (reversed).")
           vulpea-db-worker--in-flight nil
           vulpea-db-worker--in-flight-tail nil
           vulpea-db-worker--current nil)
+    (clrhash vulpea-db-worker--force)
     (setq vulpea-db-worker--process
           (make-process
            :name "vulpea-worker"
@@ -253,7 +262,8 @@ A plist with :path, :file-node and :heading-nodes (reversed).")
         vulpea-db-worker--output ""
         vulpea-db-worker--in-flight nil
         vulpea-db-worker--in-flight-tail nil
-        vulpea-db-worker--current nil))
+        vulpea-db-worker--current nil)
+  (clrhash vulpea-db-worker--force))
 
 (defun vulpea-db-worker-busy-p ()
   "Return non-nil while the worker has unfinished requests."
@@ -321,18 +331,26 @@ for each other instead of failing."
     (sqlite-pragma handle "busy_timeout=5000")
     (sqlite-pragma handle "journal_mode=WAL")))
 
-(defun vulpea-db-worker-request (path)
+(defun vulpea-db-worker-request (path &optional force)
   "Ask the worker to extract PATH.
 
 The result is applied to the database when it arrives; see
 `vulpea-db-worker-done-functions'.  Callers should check
-`vulpea-db-worker-can-handle-p' first."
+`vulpea-db-worker-can-handle-p' first.
+
+With FORCE non-nil the unchanged-content shortcut is skipped and the
+result is applied even when the content hash matches - required when
+extraction output changed while content did not (parser epoch or
+settings changes)."
   (vulpea-db-worker--ensure)
+  (when force
+    (puthash path t vulpea-db-worker--force))
   (if (vulpea-db-worker--full-write-p)
       (progn
         (vulpea-db-worker--enable-wal (vulpea-db))
         (vulpea-db-worker--send
-         `(parse-and-write ,path ,(expand-file-name vulpea-db-location))))
+         `(parse-and-write ,path ,(expand-file-name vulpea-db-location)
+                           ,(and force t))))
     (vulpea-db-worker--send `(parse ,path)))
   (let ((node (list path)))
     (if vulpea-db-worker--in-flight
@@ -373,10 +391,11 @@ The result is applied to the database when it arrives; see
                       (cons data (plist-get vulpea-db-worker--current
                                             :heading-nodes)))))
     (`(done ,path ,hash ,mtime ,size)
-     (let ((current vulpea-db-worker--current))
+     (let ((current vulpea-db-worker--current)
+           (force (gethash path vulpea-db-worker--force)))
        (setq vulpea-db-worker--current nil)
        (vulpea-db-worker--forget path)
-       (vulpea-db-worker--complete path hash mtime size current)))
+       (vulpea-db-worker--complete path hash mtime size current force)))
     ;; Full-write mode: the worker wrote the database itself; the
     ;; main process only registers org-ids and re-checks freshness.
     (`(written ,path ,_hash ,mtime ,size ,count ,ids)
@@ -398,8 +417,9 @@ The result is applied to the database when it arrives; see
      (run-hook-with-args 'vulpea-db-worker-done-functions
                          path 'unchanged nil))
     (`(stale ,path)
-     (vulpea-db-worker--forget path)
-     (vulpea-db-worker--reenqueue path)
+     (let ((force (gethash path vulpea-db-worker--force)))
+       (vulpea-db-worker--forget path)
+       (vulpea-db-worker--reenqueue path force))
      (run-hook-with-args 'vulpea-db-worker-done-functions
                          path 'stale nil))
     (`(error ,path ,message)
@@ -409,17 +429,20 @@ The result is applied to the database when it arrives; see
      (run-hook-with-args 'vulpea-db-worker-done-functions
                          path 'error nil))))
 
-(defun vulpea-db-worker--reenqueue (path)
-  "Schedule PATH for another pass, via the sync queue when active."
+(defun vulpea-db-worker--reenqueue (path &optional force)
+  "Schedule PATH for another pass, via the sync queue when active.
+FORCE is carried along so a forced re-index cannot be lost to the
+unchanged-content shortcut on the retry."
   (if (and (bound-and-true-p vulpea-db-autosync-mode)
            (fboundp 'vulpea-db-sync--enqueue))
-      (vulpea-db-sync--enqueue path)
-    (vulpea-db-worker-request path)))
+      (vulpea-db-sync--enqueue path force)
+    (vulpea-db-worker-request path force)))
 
 (defun vulpea-db-worker--forget (path)
   "Drop PATH from the in-flight list.
 The worker answers in request order, so PATH is almost always the
 head; falling back to a full scan keeps this correct either way."
+  (remhash path vulpea-db-worker--force)
   (if (equal (car vulpea-db-worker--in-flight) path)
       (pop vulpea-db-worker--in-flight)
     (setq vulpea-db-worker--in-flight
@@ -427,13 +450,17 @@ head; falling back to a full scan keeps this correct either way."
   (setq vulpea-db-worker--in-flight-tail
         (last vulpea-db-worker--in-flight)))
 
-(defun vulpea-db-worker--complete (path hash mtime size current)
+(defun vulpea-db-worker--complete (path hash mtime size current &optional force)
   "Apply a completed extraction of PATH to the database.
 
 HASH, MTIME and SIZE describe the file as the worker read it;
 CURRENT carries the extracted nodes.  Stale results - the file
 changed or disappeared while the worker was parsing - are discarded,
-and changed files are re-enqueued with the sync queue."
+and changed files are re-enqueued with the sync queue.
+
+With FORCE non-nil the unchanged-content shortcut is skipped: the
+result is applied even when the content hash matches what is stored
+\(parser or settings changed, content did not)."
   (let ((attrs (file-attributes path)))
     (cond
      ;; File vanished while parsing: the deletion event handles the
@@ -445,12 +472,15 @@ and changed files are re-enqueued with the sync queue."
      ((or (not (equal (float-time (file-attribute-modification-time attrs))
                       mtime))
           (not (equal (file-attribute-size attrs) size)))
-      (vulpea-db-worker--reenqueue path)
+      (vulpea-db-worker--reenqueue path force)
       (run-hook-with-args 'vulpea-db-worker-done-functions
                           path 'stale nil))
      ;; Content identical to what is already indexed: refresh the
      ;; stored stamp so the cheap mtime/size check passes next time.
-     ((equal (plist-get (vulpea-db--get-file-hash path) :hash) hash)
+     ;; Skipped for forced results - extraction output changed even
+     ;; though content did not.
+     ((and (not force)
+           (equal (plist-get (vulpea-db--get-file-hash path) :hash) hash))
       (vulpea-db--update-file-hash path hash mtime size)
       (run-hook-with-args 'vulpea-db-worker-done-functions
                           path 'unchanged nil))
@@ -471,17 +501,19 @@ and changed files are re-enqueued with the sync queue."
 (defun vulpea-db-worker--sentinel (proc _event)
   "Handle worker PROC death: re-enqueue in-flight work."
   (unless (process-live-p proc)
-    (let ((pending vulpea-db-worker--in-flight))
+    (let ((pending vulpea-db-worker--in-flight)
+          (forced (copy-hash-table vulpea-db-worker--force)))
       (setq vulpea-db-worker--process nil
             vulpea-db-worker--output ""
             vulpea-db-worker--in-flight nil
             vulpea-db-worker--in-flight-tail nil
             vulpea-db-worker--current nil)
+      (clrhash vulpea-db-worker--force)
       (when pending
         (message "Vulpea: extraction worker died, re-queueing %d file%s"
                  (length pending) (if (= (length pending) 1) "" "s"))
         (dolist (path pending)
-          (vulpea-db-worker--reenqueue path))))))
+          (vulpea-db-worker--reenqueue path (gethash path forced)))))))
 
 ;;; Worker side (runs in emacs --batch)
 
@@ -550,7 +582,7 @@ Returns the number of notes written, or `conflict'."
           (vulpea-db--apply-parse-ctx ctx 'skip-org-id)))
     (error 'conflict)))
 
-(defun vulpea-db-worker--handle-parse-and-write (path db)
+(defun vulpea-db-worker--handle-parse-and-write (path db &optional force)
   "Extract PATH and write the results to the database at DB.
 
 Full-write mode: this worker owns the database write; the reply
@@ -558,7 +590,10 @@ tells the main process what happened so it can register org-ids
 \(`written'), note the no-op (`stamped'), or re-queue a file whose
 result became outdated (`stale') - because the file changed
 mid-parse, or because the main process indexed newer content
-concurrently (see `vulpea-db-worker--apply-guarded')."
+concurrently (see `vulpea-db-worker--apply-guarded').
+
+With FORCE non-nil the unchanged-content shortcut is skipped and the
+result is written even when the content hash matches."
   (condition-case err
       (progn
         (vulpea-db-worker--ensure-db db)
@@ -575,9 +610,12 @@ concurrently (see `vulpea-db-worker--apply-guarded')."
                 (not (equal (file-attribute-size attrs)
                             (vulpea-parse-ctx-size ctx))))
             (vulpea-db-worker--reply `(stale ,path)))
-           ;; Content identical to what is indexed: refresh the stamp
-           ((equal (plist-get stored :hash)
-                   (vulpea-parse-ctx-hash ctx))
+           ;; Content identical to what is indexed: refresh the stamp.
+           ;; Skipped when forced - extraction output changed even
+           ;; though content did not.
+           ((and (not force)
+                 (equal (plist-get stored :hash)
+                        (vulpea-parse-ctx-hash ctx)))
             (vulpea-db--update-file-hash path
                                          (vulpea-parse-ctx-hash ctx)
                                          (vulpea-parse-ctx-mtime ctx)
@@ -634,8 +672,8 @@ writes protocol lines to stdout.  Exits when stdin closes."
          (vulpea-db-worker--apply-settings vars link-types))
         (`(parse ,path)
          (vulpea-db-worker--handle-parse path))
-        (`(parse-and-write ,path ,db)
-         (vulpea-db-worker--handle-parse-and-write path db))
+        (`(parse-and-write ,path ,db ,force)
+         (vulpea-db-worker--handle-parse-and-write path db force))
         (_ nil)))))
 
 (provide 'vulpea-db-worker)
