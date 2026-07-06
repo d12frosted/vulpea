@@ -823,5 +823,29 @@ worker committed."
                                    :from files :where (= path $s1)]
                                   path)))))))
 
+(ert-deftest vulpea-db-worker-version-mismatch-degrades-to-streaming ()
+  "A worker seeing foreign db constants must not open the database.
+Simulated on the worker side: apply-settings with a mismatched
+db-version sets the guard, and parse-and-write streams results
+instead of writing (no written reply, a done reply instead)."
+  (vulpea-db-worker-test--with-file
+      ":PROPERTIES:\n:ID: vmismatch-note\n:END:\n#+TITLE: V\n"
+    (vulpea-test--with-temp-db
+      (vulpea-db)
+      (vulpea-db-update-file path)
+      ;; Run the worker-side handlers in-process with fake constants
+      (let ((vulpea-db-worker--version-mismatch nil)
+            (replies nil))
+        (cl-letf (((symbol-function 'vulpea-db-worker--reply)
+                   (lambda (form) (push (car form) replies))))
+          (vulpea-db-worker--apply-settings
+           nil (org-link-types) nil
+           (list :db-version -1 :parser-epoch -1))
+          (should vulpea-db-worker--version-mismatch)
+          (vulpea-db-worker--handle-parse-and-write path "/tmp/other.db")
+          ;; Streaming replies, never a written (no db was opened)
+          (should (equal (nreverse replies) '(extractors begin file-node done)))
+          (should-not (member 'written replies)))))))
+
 (provide 'vulpea-db-worker-test)
 ;;; vulpea-db-worker-test.el ends here

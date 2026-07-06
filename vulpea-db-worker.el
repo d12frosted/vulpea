@@ -224,7 +224,9 @@ cases."
           (when (vulpea-db-worker--printable-p value)
             (push (cons sym value) vars)))))
     `(settings ,(nreverse vars) ,(org-link-types)
-               ,(vulpea-db-worker--extractor-specs))))
+               ,(vulpea-db-worker--extractor-specs)
+               (:db-version ,vulpea-db-version
+                :parser-epoch ,vulpea-db-parser-epoch))))
 
 (defun vulpea-db-worker--extractor-specs ()
   "Build wire specs for worker-safe extractors.
@@ -891,7 +893,17 @@ processing."
 Non-nil makes `parse-and-write' requests fall back to streaming, so
 those extractors run in the main process instead.")
 
-(defun vulpea-db-worker--apply-settings (vars link-types extractors)
+(defvar vulpea-db-worker--version-mismatch nil
+  "Non-nil when this worker's vulpea differs from the main process's.
+
+Set from the db constants in the settings message.  A worker running
+different code must never open the database: `vulpea-db--init' deletes
+and rebuilds the database file on a schema version mismatch, which
+would destroy the main process's data from underneath it.  While set,
+`parse-and-write' requests fall back to streaming results.")
+
+(defun vulpea-db-worker--apply-settings (vars link-types extractors
+                                              &optional db-constants)
   "Set allowlisted VARS, register LINK-TYPES and EXTRACTORS here.
 
 EXTRACTORS are wire specs of worker-safe extractors (see
@@ -902,6 +914,19 @@ DDL), unresolved ones are reported back and disable full-write for
 this worker."
   (pcase-dolist (`(,sym . ,value) vars)
     (set sym value))
+  ;; A code-version mismatch (main upgraded vulpea while running, or
+  ;; stale byte-code) forbids opening the database from this worker:
+  ;; vulpea-db--init would delete and rebuild it on a schema mismatch
+  (setq vulpea-db-worker--version-mismatch
+        (not (and (equal (plist-get db-constants :db-version)
+                         vulpea-db-version)
+                  (equal (plist-get db-constants :parser-epoch)
+                         vulpea-db-parser-epoch))))
+  (when vulpea-db-worker--version-mismatch
+    (message "vulpea worker: version mismatch (main %S/%S, worker %S/%S), full-write disabled"
+             (plist-get db-constants :db-version)
+             (plist-get db-constants :parser-epoch)
+             vulpea-db-version vulpea-db-parser-epoch))
   (require 'ol)
   (dolist (type link-types)
     (unless (assoc type org-link-parameters)
@@ -1010,9 +1035,11 @@ concurrently (see `vulpea-db-worker--apply-guarded').
 
 With FORCE non-nil the unchanged-content shortcut is skipped and the
 result is written even when the content hash matches."
-  (if vulpea-db-worker--unresolved-extractors
-      ;; Some declared extractor cannot run here: stream the results
-      ;; instead, so the main process applies them with all extractors
+  (if (or vulpea-db-worker--unresolved-extractors
+          ;; Version mismatch: opening the db from here could destroy
+          ;; it (vulpea-db--init rebuilds on schema mismatch)
+          vulpea-db-worker--version-mismatch)
+      ;; Stream the results instead; the main process applies them
       (vulpea-db-worker--handle-parse path)
     (condition-case err
       (progn
@@ -1092,8 +1119,9 @@ writes protocol lines to stdout.  Exits when stdin closes."
                     (car (read-from-string line))
                   (error nil))))
       (pcase msg
-        (`(settings ,vars ,link-types ,extractors)
-         (vulpea-db-worker--apply-settings vars link-types extractors))
+        (`(settings ,vars ,link-types ,extractors ,db-constants)
+         (vulpea-db-worker--apply-settings vars link-types extractors
+                                           db-constants))
         (`(parse ,path)
          (vulpea-db-worker--handle-parse path))
         (`(parse-and-write ,path ,db ,force)
