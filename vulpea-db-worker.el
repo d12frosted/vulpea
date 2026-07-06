@@ -965,15 +965,25 @@ not clobber the newer data.  A transaction that fails to commit
 under write contention counts as a conflict too - retrying via the
 queue is always safe.
 
-Returns the number of notes written, or `conflict'."
-  (condition-case nil
+Returns the number of notes written, `conflict', or (error . MSG)
+for a deterministic failure - only lock contention retries; anything
+else must surface instead of looping through silent retries forever."
+  (condition-case err
       (emacsql-with-transaction (vulpea-db)
         (if (not (equal (vulpea-db--get-file-hash
                          (vulpea-parse-ctx-path ctx))
                         stored))
             'conflict
           (vulpea-db--apply-parse-ctx ctx 'skip-org-id)))
-    (error 'conflict)))
+    ((emacsql-locked sqlite-locked-error) 'conflict)
+    (sqlite-error
+     ;; SQLITE_BUSY surfaces as a generic sqlite-error whose message
+     ;; mentions locking; treat those as contention, the rest as real
+     (if (string-match-p "locked\\|busy"
+                         (downcase (error-message-string err)))
+         'conflict
+       (cons 'error (error-message-string err))))
+    (error (cons 'error (error-message-string err)))))
 
 (defun vulpea-db-worker--handle-parse-and-write (path db &optional force)
   "Extract PATH and write the results to the database at DB.
@@ -1020,15 +1030,19 @@ result is written even when the content hash matches."
             (vulpea-db-worker--reply `(stamped ,path)))
            (t
             (let ((count (vulpea-db-worker--apply-guarded ctx stored)))
-              (if (eq count 'conflict)
-                  (vulpea-db-worker--reply `(stale ,path))
+              (cond
+               ((eq count 'conflict)
+                (vulpea-db-worker--reply `(stale ,path)))
+               ((eq (car-safe count) 'error)
+                (vulpea-db-worker--reply `(error ,path ,(cdr count))))
+               (t
                 (vulpea-db-worker--reply
                  `(written ,path
                            ,(vulpea-parse-ctx-hash ctx)
                            ,(vulpea-parse-ctx-mtime ctx)
                            ,(vulpea-parse-ctx-size ctx)
                            ,count
-                           ,(vulpea-db-worker--ctx-ids ctx)))))))))
+                           ,(vulpea-db-worker--ctx-ids ctx))))))))))
       (error
        (vulpea-db-worker--reply
         `(error ,path ,(error-message-string err)))))))
