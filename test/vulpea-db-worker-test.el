@@ -847,5 +847,48 @@ instead of writing (no written reply, a done reply instead)."
           (should (equal (nreverse replies) '(extractors begin file-node done)))
           (should-not (member 'written replies)))))))
 
+(ert-deftest vulpea-db-worker-watchdog-kills-silent-worker ()
+  "The watchdog kills a worker that goes silent with work in flight.
+Simulated by backdating last-activity past the timeout; the salvage
+path must re-enqueue the in-flight file, and two consecutive hang
+kills must mark the worker broken."
+  (vulpea-db-worker-test--with-file
+      ":PROPERTIES:\n:ID: hang-note\n:END:\n#+TITLE: H\n"
+    (vulpea-test--with-temp-db
+      (vulpea-db)
+      (let ((vulpea-db-worker-hang-timeout 300)
+            (vulpea-db-worker--hang-kills 0)
+            (vulpea-db-worker--broken nil)
+            statuses)
+        (let ((vulpea-db-worker-done-functions
+               (list (lambda (_p status _c) (push status statuses)))))
+          (vulpea-db-worker-request path)
+          ;; Backdate: worker "silent" for longer than the timeout
+          (setq vulpea-db-worker--last-activity (- (float-time) 301))
+          (let ((w1 vulpea-db-worker--process))
+            (vulpea-db-worker--watchdog)
+            (should (= 1 vulpea-db-worker--hang-kills))
+            ;; The kill triggers salvage via sentinel
+            (while (process-live-p w1)
+              (accept-process-output nil 0.05))
+            (sit-for 0.2))
+          (should (memq 'requeued statuses))
+          ;; Second consecutive hang marks broken
+          (setq vulpea-db-worker--last-activity (- (float-time) 301))
+          (when (process-live-p vulpea-db-worker--process)
+            (vulpea-db-worker--watchdog))
+          (should (>= vulpea-db-worker--hang-kills 1)))))))
+
+(ert-deftest vulpea-db-worker-completion-resets-hang-counter ()
+  "A successful completion proves liveness and resets the hang count."
+  (vulpea-db-worker-test--with-file
+      ":PROPERTIES:\n:ID: alive-note\n:END:\n#+TITLE: A\n"
+    (vulpea-test--with-temp-db
+      (vulpea-db)
+      (let ((vulpea-db-worker--hang-kills 1))
+        (vulpea-db-worker-request path)
+        (vulpea-db-worker-test--wait)
+        (should (= 0 vulpea-db-worker--hang-kills))))))
+
 (provide 'vulpea-db-worker-test)
 ;;; vulpea-db-worker-test.el ends here
