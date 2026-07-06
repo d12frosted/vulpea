@@ -1226,7 +1226,11 @@ A nested description [[id:outer][desc with https://inner.example.com]].
 - link :: [[id:meta-target][meta desc]]
 - multi :: value one
 - multi :: *bold* value
+- when :: <2026-08-01 sat 10:00>
 - [[id:tag-target][tagged key]] :: tagged value
+
+Inline markup hides links from org: ~[[id:in-code][code]]~ and
+=[[id:in-verbatim][verb]]= and {{{m([[id:in-macro][arg]])}}} stay out.
 
 | cell | [[id:table-target][table link]] |
 
@@ -1302,8 +1306,12 @@ drawers, and non-title keywords are not."
             (should (member dest dests)))
           (dolist (dest '("src-target" "example-target" "comment-target"
                           "fixed-target" "kw-target" "//drawer.example.com"
-                          "//inner.example.com"))
-            (should-not (member dest dests))))
+                          "//inner.example.com"
+                          "in-code" "in-verbatim" "in-macro"))
+            (should-not (member dest dests)))
+          ;; Timestamp day names are normalized, as org interprets them
+          (should (equal (cdr (assoc "when" (plist-get file-node :meta)))
+                         '("<2026-08-01 Sat 10:00>"))))
       (delete-file path))))
 
 (ert-deftest vulpea-db-extract-element-granularity-equivalence ()
