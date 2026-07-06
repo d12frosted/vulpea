@@ -1210,9 +1210,16 @@ Spawns a fresh worker, round-trips a small file through the current
 `vulpea-db-async-extraction' mode against the real database location,
 and reports every stage - spawn time, journal mode, mode degradations
 and why, round-trip time, and the worker's stderr if anything went
-wrong - in a dedicated buffer.  Safe to run at any time; the check
-file is temporary and removed from the database afterwards."
+wrong - in a dedicated buffer.  Refuses to run while background
+extraction is in flight (it restarts the worker, which would discard
+that work); the check file is temporary and removed from the
+database afterwards."
   (interactive)
+  (when (vulpea-db-worker-busy-p)
+    (user-error
+     "Vulpea: %d file%s still extracting in background; run the diagnosis once the worker is idle"
+     vulpea-db-worker--in-flight-count
+     (if (= vulpea-db-worker--in-flight-count 1) "" "s")))
   (let ((report (get-buffer-create "*vulpea-worker-diagnose*"))
         (vulpea-db-worker-debug t))
     (with-current-buffer report
