@@ -349,21 +349,59 @@ output is not.")
   "Build the worker process command line."
   (let ((emacs (expand-file-name invocation-name invocation-directory))
         (lib (locate-library "vulpea-db-worker")))
+    (unless lib
+      (error "Cannot locate vulpea-db-worker library for the worker process"))
     (append (list emacs "--batch" "-Q")
             (mapcan (lambda (dir) (list "-L" dir))
                     (seq-filter #'stringp load-path))
             (list "-l" lib "-f" "vulpea-db-worker-batch-main"))))
 
-(defun vulpea-db-worker--ensure ()
-  "Return a live worker process, spawning one if needed."
-  (unless (process-live-p vulpea-db-worker--process)
-    (setq vulpea-db-worker--output ""
+(defun vulpea-db-worker--salvage ()
+  "Re-enqueue in-flight work of a dead worker and reset client state.
+
+Emacs reports a child's death through `process-live-p' immediately,
+but runs its sentinel only at the next wait point - and timers run
+first.  Any code that observes a dead worker before its sentinel has
+run must salvage through this function; the sentinel itself also
+lands here.  Idempotent: the second caller finds no pending work."
+  (let ((pending vulpea-db-worker--in-flight)
+        (forced (copy-hash-table vulpea-db-worker--force)))
+    (when vulpea-db-worker--process
+      ;; The deferred sentinel of this process must not run its own
+      ;; salvage against the replacement's state later
+      (set-process-sentinel vulpea-db-worker--process #'ignore))
+    (setq vulpea-db-worker--process nil
+          vulpea-db-worker--output ""
           vulpea-db-worker--output-pending nil
           vulpea-db-worker--in-flight nil
           vulpea-db-worker--in-flight-tail nil
           vulpea-db-worker--in-flight-count 0
           vulpea-db-worker--current nil)
     (clrhash vulpea-db-worker--force)
+    (when pending
+      (message "Vulpea: extraction worker died, re-queueing %d file%s"
+               (length pending) (if (= (length pending) 1) "" "s"))
+      ;; Deferred: salvage may run inside vulpea-db-worker--ensure,
+      ;; and re-requesting synchronously would recurse into the spawn
+      ;; path and orphan the process being created
+      (run-at-time 0 nil #'vulpea-db-worker--salvage-requeue
+                   pending forced))))
+
+(defun vulpea-db-worker--salvage-requeue (pending forced)
+  "Re-enqueue salvaged PENDING paths with their FORCED marks."
+  (dolist (path pending)
+    (vulpea-db-worker--reenqueue path (gethash path forced))
+    ;; Terminal for this dispatch: the re-enqueued entry counts
+    ;; anew when the queue dispatches it again
+    (run-hook-with-args 'vulpea-db-worker-done-functions
+                        path 'requeued nil)))
+
+(defun vulpea-db-worker--ensure ()
+  "Return a live worker process, spawning one if needed."
+  (unless (process-live-p vulpea-db-worker--process)
+    ;; A dead-but-not-yet-sentineled worker still owns in-flight work;
+    ;; salvage it instead of silently discarding it
+    (vulpea-db-worker--salvage)
     (setq vulpea-db-worker--spawn-time (float-time))
     (let ((command (vulpea-db-worker--command)))
       (vulpea-db-worker--log "spawn: %s ... (%d args)"
@@ -543,57 +581,81 @@ settings changes)."
   (vulpea-db-worker--ensure)
   (when force
     (puthash path t vulpea-db-worker--force))
-  (if (and (vulpea-db-worker--full-write-p)
-           ;; WAL is a hard requirement for full-write: without it a
-           ;; worker write transaction blocks main-process reads.
-           ;; Failure degrades this and future requests to extract-only.
-           (vulpea-db-worker--wal-ready-p))
-      (progn
-        (vulpea-db-worker--log "request parse-and-write%s: %s"
-                               (if force " (force)" "") path)
-        (vulpea-db-worker--send
-         `(parse-and-write ,path ,(expand-file-name vulpea-db-location)
-                           ,(and force t))))
-    (vulpea-db-worker--log "request parse%s: %s"
-                           (if force " (force)" "") path)
-    (vulpea-db-worker--send `(parse ,path)))
+  ;; Track the path BEFORE sending: a send that errors on a dying
+  ;; worker must leave the path recorded so the salvage path (or the
+  ;; caller's fallback) recovers it instead of silently losing it
   (let ((node (list path)))
     (if vulpea-db-worker--in-flight
         (setcdr vulpea-db-worker--in-flight-tail node)
       (setq vulpea-db-worker--in-flight node))
     (setq vulpea-db-worker--in-flight-tail node)
     (setq vulpea-db-worker--in-flight-count
-          (1+ vulpea-db-worker--in-flight-count))))
+          (1+ vulpea-db-worker--in-flight-count)))
+  (condition-case err
+      (if (and (vulpea-db-worker--full-write-p)
+               ;; WAL is a hard requirement for full-write: without it a
+               ;; worker write transaction blocks main-process reads.
+               ;; Failure degrades this and future requests to extract-only.
+               (vulpea-db-worker--wal-ready-p))
+          (progn
+            (vulpea-db-worker--log "request parse-and-write%s: %s"
+                                   (if force " (force)" "") path)
+            (vulpea-db-worker--send
+             `(parse-and-write ,path ,(expand-file-name vulpea-db-location)
+                               ,(and force t))))
+        (vulpea-db-worker--log "request parse%s: %s"
+                               (if force " (force)" "") path)
+        (vulpea-db-worker--send `(parse ,path)))
+    (error
+     ;; The send failed (worker died mid-send); un-track and re-raise
+     ;; so the caller can fall back
+     (vulpea-db-worker--forget path)
+     (signal (car err) (cdr err)))))
 
 ;;; Client: response handling
 
-(defun vulpea-db-worker--filter (_proc output)
-  "Process protocol OUTPUT lines from the worker."
-  (let ((start 0)
-        (t0 (current-time))
-        line-end)
-    (while (setq line-end (string-match "\n" output start))
-      (let* ((tail (substring output start line-end))
-             (line (if vulpea-db-worker--output-pending
-                       (apply #'concat
-                              (nreverse (cons tail
-                                              vulpea-db-worker--output-pending)))
-                     tail)))
-        (setq vulpea-db-worker--output-pending nil)
-        (setq start (1+ line-end))
-        (when (string-prefix-p "(" line)
-          (let ((msg (condition-case nil
-                         (car (read-from-string line))
-                       (error nil))))
-            (when msg
-              (vulpea-db-worker--dispatch msg))))))
-    (when (< start (length output))
-      (push (substring output start) vulpea-db-worker--output-pending))
-    (when vulpea-db-worker-debug
-      (let ((ms (* 1000 (float-time (time-subtract (current-time) t0)))))
-        (when (> ms 50)
-          (vulpea-db-worker--log "filter: %.0fms on %d bytes (slow)"
-                                 ms (length output)))))))
+(defun vulpea-db-worker--filter (proc output)
+  "Process protocol OUTPUT lines from the worker PROC.
+
+Output from a process that is no longer the current worker (a
+replaced worker still draining its pipe) is discarded - the shared
+assembly state belongs to the current worker only.  A dispatch error
+on one line is confined to that line: later lines in the same chunk
+still dispatch, so one failing apply cannot wedge every in-flight
+file behind it."
+  (when (eq proc vulpea-db-worker--process)
+    (let ((start 0)
+          (t0 (current-time))
+          line-end)
+      (while (setq line-end (string-match "\n" output start))
+        (let* ((tail (substring output start line-end))
+               (line (if vulpea-db-worker--output-pending
+                         (apply #'concat
+                                (nreverse (cons tail
+                                                vulpea-db-worker--output-pending)))
+                       tail)))
+          (setq vulpea-db-worker--output-pending nil)
+          (setq start (1+ line-end))
+          (when (string-prefix-p "(" line)
+            (let ((msg (condition-case nil
+                           (car (read-from-string line))
+                         (error nil))))
+              (when msg
+                (condition-case err
+                    (vulpea-db-worker--dispatch msg)
+                  (error
+                   (vulpea-db-worker--log "dispatch error on %S: %s"
+                                          (car-safe msg)
+                                          (error-message-string err))
+                   (message "Vulpea: error handling worker reply: %s"
+                            (error-message-string err)))))))))
+      (when (< start (length output))
+        (push (substring output start) vulpea-db-worker--output-pending))
+      (when vulpea-db-worker-debug
+        (let ((ms (* 1000 (float-time (time-subtract (current-time) t0)))))
+          (when (> ms 50)
+            (vulpea-db-worker--log "filter: %.0fms on %d bytes (slow)"
+                                   ms (length output))))))))
 
 (defun vulpea-db-worker--dispatch (msg)
   "Handle one protocol MSG from the worker."
@@ -669,11 +731,24 @@ settings changes)."
 (defun vulpea-db-worker--reenqueue (path &optional force)
   "Schedule PATH for another pass, via the sync queue when active.
 FORCE is carried along so a forced re-index cannot be lost to the
-unchanged-content shortcut on the retry."
-  (if (and (bound-and-true-p vulpea-db-autosync-mode)
-           (fboundp 'vulpea-db-sync--enqueue))
-      (vulpea-db-sync--enqueue path force)
-    (vulpea-db-worker-request path force)))
+unchanged-content shortcut on the retry.
+
+Without the sync queue, falls back to a direct worker request - or,
+when the worker cannot take it (crash-looped and marked broken), a
+synchronous `vulpea-db-update-file', so the file is never dropped."
+  (cond
+   ((and (bound-and-true-p vulpea-db-autosync-mode)
+         (fboundp 'vulpea-db-sync--enqueue))
+    (vulpea-db-sync--enqueue path force))
+   ((vulpea-db-worker-can-handle-p path)
+    (vulpea-db-worker-request path force))
+   (t
+    (condition-case err
+        (when (file-exists-p path)
+          (vulpea-db-update-file path))
+      (error
+       (message "Vulpea: failed to re-index %s: %s"
+                path (error-message-string err)))))))
 
 (defun vulpea-db-worker--forget (path)
   "Drop PATH from the in-flight list.
@@ -764,44 +839,32 @@ not count."
 (defun vulpea-db-worker--sentinel (proc event)
   "Handle worker PROC death (EVENT): re-enqueue in-flight work.
 
+Only acts while PROC is still the current worker: a deferred
+sentinel firing after `vulpea-db-worker--ensure' already salvaged
+and replaced the process must not clobber the replacement's state
+\(orphaning the live process, double re-enqueueing its files).
+
 Detects crash loops: a worker that keeps dying right after spawning
 marks itself broken (see `vulpea-db-worker--broken') instead of
 respawning forever, and the sync queue falls back to synchronous
 processing."
-  (unless (process-live-p proc)
-    (let ((pending vulpea-db-worker--in-flight)
-          (forced (copy-hash-table vulpea-db-worker--force)))
-      (setq vulpea-db-worker--process nil
-            vulpea-db-worker--output ""
-            vulpea-db-worker--output-pending nil
-            vulpea-db-worker--in-flight nil
-            vulpea-db-worker--in-flight-tail nil
-            vulpea-db-worker--in-flight-count 0
-            vulpea-db-worker--current nil)
-      (clrhash vulpea-db-worker--force)
-      (vulpea-db-worker--log "worker died: %s; stderr tail: %s"
-                             (string-trim event)
-                             (vulpea-db-worker--log-truncate
-                              (vulpea-db-worker--stderr-tail) 500))
-      (when (vulpea-db-worker--crash-loop-p)
-        (setq vulpea-db-worker--broken t)
-        (display-warning
-         'vulpea
-         (format (concat "Extraction worker keeps dying; falling back to "
-                         "synchronous indexing.  Last stderr:\n%s\n"
-                         "Run M-x vulpea-db-worker-diagnose to investigate, "
-                         "M-x vulpea-db-worker-reset to retry.")
-                 (vulpea-db-worker--stderr-tail))
-         :error))
-      (when pending
-        (message "Vulpea: extraction worker died, re-queueing %d file%s"
-                 (length pending) (if (= (length pending) 1) "" "s"))
-        (dolist (path pending)
-          (vulpea-db-worker--reenqueue path (gethash path forced))
-          ;; Terminal for this dispatch: the re-enqueued entry counts
-          ;; anew when the queue dispatches it again
-          (run-hook-with-args 'vulpea-db-worker-done-functions
-                              path 'requeued nil))))))
+  (when (and (not (process-live-p proc))
+             (eq proc vulpea-db-worker--process))
+    (vulpea-db-worker--log "worker died: %s; stderr tail: %s"
+                           (string-trim event)
+                           (vulpea-db-worker--log-truncate
+                            (vulpea-db-worker--stderr-tail) 500))
+    (when (vulpea-db-worker--crash-loop-p)
+      (setq vulpea-db-worker--broken t)
+      (display-warning
+       'vulpea
+       (format (concat "Extraction worker keeps dying; falling back to "
+                       "synchronous indexing.  Last stderr:\n%s\n"
+                       "Run M-x vulpea-db-worker-diagnose to investigate, "
+                       "M-x vulpea-db-worker-reset to retry.")
+               (vulpea-db-worker--stderr-tail))
+       :error))
+    (vulpea-db-worker--salvage)))
 
 ;;; Worker side (runs in emacs --batch)
 
