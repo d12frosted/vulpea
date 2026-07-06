@@ -793,5 +793,35 @@ signals); the second file must still complete."
                            (file-attribute-size (file-attributes path))))))
         (should (eq completed 'applied))))))
 
+(ert-deftest vulpea-db-worker-written-for-vanished-file-removes-ghosts ()
+  "A written reply for a file that no longer exists removes its rows.
+Reproduces the ghost-note race: a never-indexed file is deleted after
+the worker's stat but before its commit; the removal event deleted
+nothing (no rows yet), so the written handler must clean up what the
+worker committed."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((path "/tmp/vulpea-ghost-note-test.org")
+          statuses)
+      ;; Simulate the worker's commit for a path that does not exist
+      (vulpea-db--insert-note
+       :id "ghost-id" :path path :level 0 :pos 0 :title "Ghost"
+       :properties nil :modified-at "2026-07-06 10:00:00")
+      (vulpea-db--update-file-hash path "somehash" 1.0 10)
+      ;; The written reply arrives; file-attributes is nil
+      (let ((vulpea-db-worker-done-functions
+             (list (lambda (_p status _c) (push status statuses)))))
+        (vulpea-db-worker--dispatch
+         (list 'written path "somehash" 1.0 10 1 (list "ghost-id"))))
+      (should (equal statuses '(missing)))
+      (should (= 0 (caar (emacsql (vulpea-db)
+                                  [:select (funcall count *)
+                                   :from notes :where (= id $s1)]
+                                  "ghost-id"))))
+      (should (= 0 (caar (emacsql (vulpea-db)
+                                  [:select (funcall count *)
+                                   :from files :where (= path $s1)]
+                                  path)))))))
+
 (provide 'vulpea-db-worker-test)
 ;;; vulpea-db-worker-test.el ends here
