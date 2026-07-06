@@ -82,6 +82,27 @@ Vulpea originally started as a layer over org-roam, but v2 is a complete rewrite
 
 *Note:* A note is any org node with an =ID= - a whole file /or/ a single heading. One file can hold many notes: keep every swim session as a heading in =swimming.org= and each one is a first-class, queryable note. Vulpea indexes exactly these ID-carrying entries; use =M-x org-id-get-create= to add one to the entry at point.
 
+*** Best performance
+
+Optional, but recommended once the basics work:
+
+#+begin_src emacs-lisp
+;; Parse and write in a background process: saving a note - even a
+;; 100MB one - blocks Emacs for about a millisecond.
+(setq vulpea-db-async-extraction 'full)
+
+;; Skip org-mode-hook during indexing (fine unless you rely on
+;; hook-based per-file setup).
+(setq vulpea-db-parse-method 'single-temp-buffer)
+
+;; Index only [[bracketed]] links. id: links are always bracketed,
+;; so the note graph is unaffected; skips the expensive scan for
+;; plain https://... links in prose.
+(setq vulpea-db-index-plain-links nil)
+#+end_src
+
+Also install [[https://github.com/sharkdp/fd][fd]] and [[https://github.com/emcrisostomo/fswatch][fswatch]] - vulpea uses them for fast directory scans and external change detection. Then run =M-x vulpea-doctor=: it verifies the setup end to end and flags anything that quietly degrades performance (including extractor plugins that bypass the background worker). Details and trade-offs in [[file:docs/configuration.org][configuration]].
+
 → [[file:docs/getting-started.org][Full Getting Started Guide]]
 
 ** Installation
