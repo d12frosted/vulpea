@@ -106,11 +106,14 @@ Elpaca (without symlinks) copies files into its build directory, so
 neither the library path nor its truename leads to .git; the source
 directory from elpaca's API does."
   (skip-unless (executable-find "git"))
-  (let ((copy-dir (make-temp-file "vulpea-copy-build" t)))
+  (let ((copy-dir (make-temp-file "vulpea-copy-build" t))
+        ;; Resolve the checkout BEFORE mocking locate-library: the
+        ;; helper resolves through it too
+        (checkout (file-name-directory (vulpea-version-test--source-file))))
     (unwind-protect
         (progn
           ;; A plain copy: truename reveals nothing
-          (copy-file (vulpea-version-test--source-file)
+          (copy-file (expand-file-name "vulpea.el" checkout)
                      (expand-file-name "vulpea.el" copy-dir))
           (cl-letf (((symbol-function 'locate-library)
                      (lambda (&rest _)
@@ -118,10 +121,7 @@ directory from elpaca's API does."
                     ((symbol-function 'elpaca-get)
                      (lambda (_) 'fake-record))
                     ((symbol-function 'elpaca-source-dir)
-                     (lambda (_)
-                       ;; The real checkout: this repo
-                       (file-name-directory
-                        (vulpea-version-test--source-file)))))
+                     (lambda (_) checkout)))
             (should (vulpea-version--git))))
       (delete-directory copy-dir t))))
 
