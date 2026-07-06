@@ -89,9 +89,14 @@ release, use the function `vulpea-version' instead.")
 Works when vulpea is loaded from a git checkout and git is
 available. The result looks like \"v2.2.0\" exactly on a release
 tag, \"v2.2.0-15-g2938416\" when 15 commits past it, with a
-\"-dirty\" suffix when there are uncommitted changes."
+\"-dirty\" suffix when there are uncommitted changes.
+
+Symlinks are resolved first: package managers like elpaca or
+straight load vulpea from a build directory of symlinks into the
+git checkout, and the .git directory is only findable from the
+symlink target."
   (when-let* ((file (locate-library "vulpea"))
-              (dir (locate-dominating-file file ".git"))
+              (dir (locate-dominating-file (file-truename file) ".git"))
               ((executable-find "git")))
     (with-temp-buffer
       (let ((default-directory dir))

@@ -81,5 +81,24 @@
       (vulpea-version))
     (should (null captured))))
 
+(ert-deftest vulpea-version-git-resolves-symlinked-library ()
+  "Git version detection must follow symlinks to the checkout.
+Package managers like elpaca load libraries from a build directory
+of symlinks into the git checkout; locating .git from the symlink
+path fails, from the truename it succeeds."
+  (skip-unless (executable-find "git"))
+  (let* ((build-dir (make-temp-file "vulpea-build" t))
+         (real (vulpea-version-test--source-file))
+         (link (expand-file-name "vulpea.el" build-dir)))
+    (unwind-protect
+        (progn
+          (make-symbolic-link real link)
+          (cl-letf (((symbol-function 'locate-library)
+                     (lambda (&rest _) link)))
+            ;; The real file lives in this git checkout, so following
+            ;; the symlink must yield a git-described version
+            (should (vulpea-version--git))))
+      (delete-directory build-dir t))))
+
 (provide 'vulpea-version-test)
 ;;; vulpea-version-test.el ends here
