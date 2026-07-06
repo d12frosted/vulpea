@@ -1006,6 +1006,10 @@ would destroy the main process's data from underneath it.  While set,
                                               &optional db-constants)
   "Set allowlisted VARS, register LINK-TYPES and EXTRACTORS here.
 
+DB-CONSTANTS is a plist with the main process's :db-version and
+:parser-epoch; a mismatch against this worker's constants disables
+full-write mode (see `vulpea-db-worker--version-mismatch').
+
 EXTRACTORS are wire specs of worker-safe extractors (see
 `vulpea-db-worker--extractor-specs').  Each is resolved by loading
 its :lib and checking its :fn; resolved ones are installed in this

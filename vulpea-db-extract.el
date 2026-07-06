@@ -526,17 +526,21 @@ ensure decryption hooks run properly."
   "Return non-nil when BUFFER may set attach dirs through properties.
 
 Scans for DIR / ATTACH_DIR in property drawers or #+PROPERTY
-keywords.  When neither appears anywhere in the buffer,
-`org-attach-dir' can only ever derive the attachment directory from
-the node's own ID, so extraction may skip the per-node property
-lookups entirely (see `vulpea-db--attach-dir')."
+keywords, and consults `org-keyword-properties' - a #+SETUPFILE can
+deliver a DIR property that never appears in the buffer text but
+that `org-attach-dir' would honor through inheritance.  When none
+are present, `org-attach-dir' can only ever derive the attachment
+directory from the node's own ID, so extraction may skip the
+per-node property lookups entirely (see `vulpea-db--attach-dir')."
   (with-current-buffer buffer
-    (save-excursion
-      (goto-char (point-min))
-      (let ((case-fold-search t))
-        (re-search-forward
-         "^[ \t]*\\(?::\\(?:DIR\\|ATTACH_DIR\\)\\+?:\\|#\\+PROPERTY:[ \t]+\\(?:DIR\\|ATTACH_DIR\\)\\)"
-         nil t)))))
+    (or (assoc-string "DIR" (bound-and-true-p org-keyword-properties) t)
+        (assoc-string "ATTACH_DIR" (bound-and-true-p org-keyword-properties) t)
+        (save-excursion
+          (goto-char (point-min))
+          (let ((case-fold-search t))
+            (re-search-forward
+             "^[ \t]*\\(?::\\(?:DIR\\|ATTACH_DIR\\)\\+?:\\|#\\+PROPERTY:[ \t]*\\(?:DIR\\|ATTACH_DIR\\)\\)"
+             nil t))))))
 
 (defun vulpea-db--attach-dir (buffer pos id props-p)
   "Compute attachment directory for the note with ID at POS in BUFFER.
@@ -960,38 +964,68 @@ literal search for \"[[\" - and parsed with
 description semantics match a full object parse.
 
 CALLBACK is called with a plist (:dest :type :pos :description) for
-each link found."
-  (save-excursion
-    (goto-char start)
-    (while (if vulpea-db-index-plain-links
-               (re-search-forward org-link-any-re end t)
-             (search-forward "[[" end t))
-      ;; Capture the match bound before calling the parser:
-      ;; `org-element-link-parser' runs its own regexps and clobbers
-      ;; the global match data, so reading `match-end' after it can
-      ;; move point backwards and loop forever
-      (let ((candidate-end (match-end 0)))
-        (goto-char (match-beginning 0))
-        (let ((link (org-element-link-parser)))
-          (if (not link)
+each link found.
+
+Links inside inline verbatim/code markup (=...= and ~...~) or macro
+calls ({{{...}}}) are excluded, matching the full object parse:
+those objects hide their contents from org's link recognition."
+  (let ((exclusions (vulpea-db--region-link-exclusions start end)))
+    (save-excursion
+      (goto-char start)
+      (while (if vulpea-db-index-plain-links
+                 (re-search-forward org-link-any-re end t)
+               (search-forward "[[" end t))
+        ;; Capture the match bound before calling the parser:
+        ;; `org-element-link-parser' runs its own regexps and clobbers
+        ;; the global match data, so reading `match-end' after it can
+        ;; move point backwards and loop forever
+        (let ((candidate-end (match-end 0)))
+          (if (vulpea-db--pos-excluded-p (match-beginning 0) exclusions)
               (goto-char candidate-end)
-            (let ((type (org-element-property :type link))
-                  (path (org-element-property :path link))
-                  (pos (org-element-property :begin link))
-                  (cb (org-element-property :contents-begin link))
-                  (ce (org-element-property :contents-end link)))
-              (when (and type path)
-                (funcall callback
-                         (list :dest path :type type :pos pos
-                               :description (when (and cb ce)
-                                              (buffer-substring-no-properties
-                                               cb ce)))))
-              ;; Jumping to the link's end also skips over any plain
-              ;; link inside this link's description, which a full
-              ;; object parse would not surface either.  The link end
-              ;; is strictly after the match beginning, so the loop
-              ;; always advances.
-              (goto-char (min end (org-element-property :end link))))))))))
+            (goto-char (match-beginning 0))
+            (let ((link (org-element-link-parser)))
+              (if (not link)
+                  (goto-char candidate-end)
+                (let ((type (org-element-property :type link))
+                      (path (org-element-property :path link))
+                      (pos (org-element-property :begin link))
+                      (cb (org-element-property :contents-begin link))
+                      (ce (org-element-property :contents-end link)))
+                  (when (and type path)
+                    (funcall callback
+                             (list :dest path :type type :pos pos
+                                   :description (when (and cb ce)
+                                                  (buffer-substring-no-properties
+                                                   cb ce)))))
+                  ;; Jumping to the link's end also skips over any plain
+                  ;; link inside this link's description, which a full
+                  ;; object parse would not surface either.  The link end
+                  ;; is strictly after the match beginning, so the loop
+                  ;; always advances.
+                  (goto-char (min end (org-element-property :end link))))))))))))
+
+(defun vulpea-db--region-link-exclusions (start end)
+  "Return spans in [START, END) whose contents hide links from org.
+Covers inline verbatim/code markup (`org-verbatim-re') and macro
+calls; a full object parse never surfaces links inside either."
+  (let (spans)
+    (save-excursion
+      (goto-char start)
+      (while (re-search-forward org-verbatim-re end t)
+        (push (cons (match-beginning 2) (match-end 2)) spans)
+        ;; Overlapping emphasis: resume inside the match so adjacent
+        ;; spans are still found, but always advance
+        (goto-char (max (1+ (match-beginning 2)) (match-end 2))))
+      (goto-char start)
+      (while (re-search-forward "{{{[^}\n]*}}}" end t)
+        (push (cons (match-beginning 0) (match-end 0)) spans)))
+    spans))
+
+(defun vulpea-db--pos-excluded-p (pos exclusions)
+  "Return non-nil when POS falls inside one of EXCLUSIONS."
+  (seq-some (lambda (span)
+              (and (>= pos (car span)) (< pos (cdr span))))
+            exclusions))
 
 (defun vulpea-db--walk-links-skipping-notes (node callback)
   "Walk NODE collecting links via CALLBACK, skipping note headlines.
@@ -1053,6 +1087,23 @@ the buffer NODE was parsed from."
        ((org-element-contents child)
         (vulpea-db--walk-links-skipping-notes child callback))))))
 
+(defun vulpea-db--normalize-timestamps (string)
+  "Normalize org timestamps in STRING as an object parse prints them.
+Day names are canonicalized (sat becomes Sat); anything
+`org-timestamp-from-string' cannot parse is left untouched."
+  (if (not (string-match-p org-ts-regexp-both string))
+      string
+    (replace-regexp-in-string
+     org-ts-regexp-both
+     (lambda (match)
+       ;; The parser runs its own regexps; protect the match data
+       ;; replace-regexp-in-string is iterating with
+       (save-match-data
+         (if-let* ((ts (org-timestamp-from-string match)))
+             (org-element-interpret-data ts)
+           match)))
+     string t t)))
+
 (defun vulpea-db--extract-meta (element)
   "Extract metadata from ELEMENT (AST or headline element).
 
@@ -1095,14 +1146,17 @@ parsed from."
                            (string-trim
                             (org-element-interpret-data value-el))))
                          ;; Element granularity: no parsed objects,
-                         ;; read the raw buffer text
+                         ;; read the raw buffer text.  Timestamps are
+                         ;; re-interpreted so day names normalize the
+                         ;; way a full object parse would print them.
                          (value-el
                           (when-let* ((cb (org-element-property
                                            :contents-begin value-el))
                                       (ce (org-element-property
                                            :contents-end value-el)))
-                            (string-trim
-                             (buffer-substring-no-properties cb ce)))))))
+                            (vulpea-db--normalize-timestamps
+                             (string-trim
+                              (buffer-substring-no-properties cb ce))))))))
             (when (and key value)
               (let ((existing (assoc key meta-alist)))
                 (if existing
