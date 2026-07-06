@@ -286,6 +286,23 @@ shared-memory support (some network or FUSE mounts).")
 (defvar vulpea-db-worker--in-flight-tail nil
   "Tail cons of `vulpea-db-worker--in-flight' for O(1) appends.")
 
+(defcustom vulpea-db-worker-hang-timeout 300
+  "Seconds of worker silence with work in flight before it is killed.
+
+A hung parse (pathological file, wedged subprocess) would otherwise
+stall all background indexing forever while the queue waits on the
+flow-control window.  When the worker produces no output for this
+long despite having requests in flight, it is killed; the salvage
+path re-enqueues its files.  Two consecutive hang kills without a
+successful completion in between mark the worker broken (see
+`vulpea-db-worker-reset'), so a file that reliably hangs the parser
+cannot loop forever.
+
+The default is generous: a 100MB file parses in under a minute on
+2020s hardware.  Set to nil to disable the watchdog."
+  :type '(choice (const :tag "Disabled" nil) (integer :tag "Seconds"))
+  :group 'vulpea-db-sync)
+
 (defcustom vulpea-db-worker-max-in-flight 128
   "Maximum requests in flight to the worker at once.
 
@@ -313,6 +330,15 @@ requesting more (see `vulpea-db-worker-max-in-flight')."
 (defvar vulpea-db-worker--current nil
   "Assembly state for the file currently streaming in.
 A plist with :path, :file-node and :heading-nodes (reversed).")
+
+(defvar vulpea-db-worker--last-activity nil
+  "Timestamp of the last output received from the worker.")
+
+(defvar vulpea-db-worker--watchdog-timer nil
+  "Repeating timer that detects a hung worker.")
+
+(defvar vulpea-db-worker--hang-kills 0
+  "Consecutive watchdog kills without a successful completion.")
 
 (defvar vulpea-db-worker--extractors-warned nil
   "Non-nil after warning about worker-unresolvable extractors once.")
@@ -398,6 +424,31 @@ lands here.  Idempotent: the second caller finds no pending work."
     (run-hook-with-args 'vulpea-db-worker-done-functions
                         path 'requeued nil)))
 
+(defun vulpea-db-worker--watchdog ()
+  "Kill the worker when it has been silent too long with work pending."
+  (when (and vulpea-db-worker-hang-timeout
+             vulpea-db-worker--in-flight
+             (process-live-p vulpea-db-worker--process)
+             vulpea-db-worker--last-activity
+             (> (- (float-time) vulpea-db-worker--last-activity)
+                vulpea-db-worker-hang-timeout))
+    (setq vulpea-db-worker--hang-kills (1+ vulpea-db-worker--hang-kills))
+    (vulpea-db-worker--log "watchdog: killing silent worker (%d in flight, hang #%d)"
+                           vulpea-db-worker--in-flight-count
+                           vulpea-db-worker--hang-kills)
+    (message "Vulpea: extraction worker unresponsive for %ss, restarting"
+             vulpea-db-worker-hang-timeout)
+    (when (>= vulpea-db-worker--hang-kills 2)
+      ;; The retry hung too: something reliably wedges the parser.
+      ;; Stop feeding it; the sync queue falls back to synchronous.
+      (setq vulpea-db-worker--broken t)
+      (display-warning
+       'vulpea
+       "Extraction worker hangs repeatedly; falling back to synchronous indexing.  Run M-x vulpea-db-worker-reset to retry."
+       :error))
+    ;; delete-process triggers the sentinel -> salvage re-enqueues
+    (delete-process vulpea-db-worker--process)))
+
 (defun vulpea-db-worker--ensure ()
   "Return a live worker process, spawning one if needed."
   (unless (process-live-p vulpea-db-worker--process)
@@ -405,6 +456,10 @@ lands here.  Idempotent: the second caller finds no pending work."
     ;; salvage it instead of silently discarding it
     (vulpea-db-worker--salvage)
     (setq vulpea-db-worker--spawn-time (float-time))
+    (setq vulpea-db-worker--last-activity (float-time))
+    (unless vulpea-db-worker--watchdog-timer
+      (setq vulpea-db-worker--watchdog-timer
+            (run-with-timer 30 30 #'vulpea-db-worker--watchdog)))
     (let ((command (vulpea-db-worker--command)))
       (vulpea-db-worker--log "spawn: %s ... (%d args)"
                              (vulpea-db-worker--log-truncate
@@ -439,6 +494,9 @@ lands here.  Idempotent: the second caller finds no pending work."
     ;; means the caller does not want the work back.
     (set-process-sentinel vulpea-db-worker--process #'ignore)
     (delete-process vulpea-db-worker--process))
+  (when vulpea-db-worker--watchdog-timer
+    (cancel-timer vulpea-db-worker--watchdog-timer)
+    (setq vulpea-db-worker--watchdog-timer nil))
   (setq vulpea-db-worker--process nil
         vulpea-db-worker--output ""
         vulpea-db-worker--output-pending nil
@@ -626,6 +684,7 @@ on one line is confined to that line: later lines in the same chunk
 still dispatch, so one failing apply cannot wedge every in-flight
 file behind it."
   (when (eq proc vulpea-db-worker--process)
+    (setq vulpea-db-worker--last-activity (float-time))
     (let ((start 0)
           (t0 (current-time))
           line-end)
@@ -673,6 +732,7 @@ file behind it."
                       (cons data (plist-get vulpea-db-worker--current
                                             :heading-nodes)))))
     (`(done ,path ,hash ,mtime ,size)
+     (vulpea-db-worker--note-success)
      (let ((current vulpea-db-worker--current)
            (force (gethash path vulpea-db-worker--force))
            (t0 (current-time)))
@@ -686,6 +746,7 @@ file behind it."
     ;; Full-write mode: the worker wrote the database itself; the
     ;; main process only registers org-ids and re-checks freshness.
     (`(written ,path ,_hash ,mtime ,size ,count ,ids)
+     (vulpea-db-worker--note-success)
      (vulpea-db-worker--log "written %s: %s notes" path count)
      (vulpea-db-worker--forget path)
      (let ((attrs (file-attributes path)))
@@ -714,6 +775,7 @@ file behind it."
          (run-hook-with-args 'vulpea-db-worker-done-functions
                              path 'applied count)))))
     (`(stamped ,path ,ids)
+     (vulpea-db-worker--note-success)
      (vulpea-db-worker--forget path)
      ;; Repair org-id registrations a lost written reply never made
      (vulpea-db--register-id-locations ids path)
@@ -766,6 +828,10 @@ synchronous `vulpea-db-update-file', so the file is never dropped."
       (error
        (message "Vulpea: failed to re-index %s: %s"
                 path (error-message-string err)))))))
+
+(defun vulpea-db-worker--note-success ()
+  "Record a successful completion: the worker is demonstrably alive."
+  (setq vulpea-db-worker--hang-kills 0))
 
 (defun vulpea-db-worker--forget (path)
   "Drop PATH from the in-flight list.
