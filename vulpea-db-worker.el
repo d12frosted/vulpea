@@ -686,18 +686,31 @@ file behind it."
     (`(written ,path ,_hash ,mtime ,size ,count ,ids)
      (vulpea-db-worker--log "written %s: %s notes" path count)
      (vulpea-db-worker--forget path)
-     (vulpea-db--register-id-locations ids path)
      (let ((attrs (file-attributes path)))
-       (when (and attrs
-                  (or (not (equal (float-time
-                                   (file-attribute-modification-time attrs))
-                                  mtime))
-                      (not (equal (file-attribute-size attrs) size))))
-         ;; Changed again while the worker was writing: what landed
-         ;; reflects older content, re-parse to catch up.
-         (vulpea-db-worker--reenqueue path)))
-     (run-hook-with-args 'vulpea-db-worker-done-functions
-                         path 'applied count))
+       (cond
+        ;; File vanished while the worker was writing (deleted or
+        ;; renamed after the worker's stat, before its commit): what
+        ;; just landed are ghost notes for a nonexistent path - remove
+        ;; them.  The removal event handler was a no-op if it ran
+        ;; before the commit.
+        ((null attrs)
+         (let ((db (vulpea-db)))
+           (emacsql-with-transaction db
+             (vulpea-db--delete-file-notes path)
+             (emacsql db [:delete :from files :where (= path $s1)] path)))
+         (run-hook-with-args 'vulpea-db-worker-done-functions
+                             path 'missing nil))
+        (t
+         (vulpea-db--register-id-locations ids path)
+         (when (or (not (equal (float-time
+                                (file-attribute-modification-time attrs))
+                               mtime))
+                   (not (equal (file-attribute-size attrs) size)))
+           ;; Changed again while the worker was writing: what landed
+           ;; reflects older content, re-parse to catch up.
+           (vulpea-db-worker--reenqueue path))
+         (run-hook-with-args 'vulpea-db-worker-done-functions
+                             path 'applied count)))))
     (`(stamped ,path)
      (vulpea-db-worker--forget path)
      (run-hook-with-args 'vulpea-db-worker-done-functions
