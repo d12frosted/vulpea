@@ -261,6 +261,15 @@ Reset when async processing completes.")
 (defvar vulpea-db-sync--async-start-time nil
   "Start time of the current background extraction burst.")
 
+(defvar vulpea-db-sync--async-completed 0
+  "Total completions (any terminal status) in the current burst.")
+
+(defvar vulpea-db-sync--announced nil
+  "Non-nil after the sync-start message was shown for this burst.
+Prevents the Syncing-N-files announcement from re-firing on
+every batch while all work is dispatched to the worker (the legacy
+processed counter only moves for synchronously processed files).")
+
 (defvar vulpea-db-sync-debug nil
   "When non-nil, log timing information for sync operations.")
 
@@ -457,7 +466,9 @@ a subprocess.  The `blocking' mode still scans synchronously."
   (setq vulpea-db-sync--async-dispatched 0
         vulpea-db-sync--async-applied 0
         vulpea-db-sync--async-unchanged 0
-        vulpea-db-sync--async-start-time nil)
+        vulpea-db-sync--async-completed 0
+        vulpea-db-sync--async-start-time nil
+        vulpea-db-sync--announced nil)
   (vulpea-db-worker-stop)
 
   ;; Stop external monitoring
@@ -717,7 +728,9 @@ upgrades an already-queued entry."
             (setq vulpea-db-sync--queue-total (length vulpea-db-sync--queue)
                   vulpea-db-sync--updated-total 0
                   vulpea-db-sync--sync-start-time (current-time))
-            (when (> vulpea-db-sync--queue-total 1)
+            (when (and (> vulpea-db-sync--queue-total 1)
+                       (not vulpea-db-sync--announced))
+              (setq vulpea-db-sync--announced t)
               (vulpea-db-sync--message "Vulpea: Syncing %d file%s..."
                                        vulpea-db-sync--queue-total
                                        (if (= vulpea-db-sync--queue-total 1) "" "s"))))
@@ -805,18 +818,15 @@ upgrades an already-queued entry."
           (setq vulpea-db-sync--processed-total (+ vulpea-db-sync--processed-total updated unchanged)
                 vulpea-db-sync--updated-total (+ vulpea-db-sync--updated-total updated))
 
-          (when (> dispatched 0)
-            (vulpea-db-sync--message
-             "Vulpea: %d file%s extracting in background..."
-             dispatched (if (= dispatched 1) "" "s")))
-
           (when vulpea-db-sync-debug
             (message "[vulpea-sync] batch: %.0fms (%d files, %d updated, %d unchanged, %d dispatched)"
                      (* 1000 (float-time (time-subtract (current-time) vulpea-db-sync--batch-start-time)))
                      batch-size updated unchanged dispatched))
 
-          ;; Report progress
+          ;; Report progress (synchronous processing only; background
+          ;; extraction reports through the worker done hook)
           (when (and vulpea-db-sync-progress-interval
+                     (> vulpea-db-sync--processed-total 0)
                      (> vulpea-db-sync--queue-total vulpea-db-sync-progress-interval)
                      (or (zerop (mod vulpea-db-sync--processed-total
                                      vulpea-db-sync-progress-interval))
@@ -841,11 +851,15 @@ upgrades an already-queued entry."
                                          (if duration
                                              (format ", %.2fs" duration)
                                            ""))))
-            ;; Reset counters
+            ;; Reset counters (the announce flag stays while
+            ;; background work is still in flight; the worker done
+            ;; handler clears it with its completion summary)
             (setq vulpea-db-sync--queue-total 0
                   vulpea-db-sync--processed-total 0
                   vulpea-db-sync--updated-total 0
                   vulpea-db-sync--sync-start-time nil)
+            (when (zerop vulpea-db-sync--async-dispatched)
+              (setq vulpea-db-sync--announced nil))
             (clrhash vulpea-db-sync--queue-set)))
 
       (setq vulpea-db-sync--processing nil)
@@ -879,6 +893,18 @@ database, not when it was dispatched."
       (_ nil))
     (setq vulpea-db-sync--async-dispatched
           (1- vulpea-db-sync--async-dispatched))
+    (setq vulpea-db-sync--async-completed
+          (1+ vulpea-db-sync--async-completed))
+    ;; Periodic progress: one line per interval, with the full picture
+    (when (and vulpea-db-sync-progress-interval
+               (> vulpea-db-sync--async-dispatched 0)
+               (zerop (mod vulpea-db-sync--async-completed
+                           vulpea-db-sync-progress-interval)))
+      (vulpea-db-sync--message
+       "Vulpea: background sync: %d done, %d in flight, %d queued"
+       vulpea-db-sync--async-completed
+       vulpea-db-sync--async-dispatched
+       (hash-table-count vulpea-db-sync--queue-set)))
     (when (zerop vulpea-db-sync--async-dispatched)
       (let ((total (+ vulpea-db-sync--async-applied
                       vulpea-db-sync--async-unchanged))
@@ -895,7 +921,9 @@ database, not when it was dispatched."
            (if duration (format ", %.2fs" duration) "")))
         (setq vulpea-db-sync--async-applied 0
               vulpea-db-sync--async-unchanged 0
-              vulpea-db-sync--async-start-time nil)))))
+              vulpea-db-sync--async-completed 0
+              vulpea-db-sync--async-start-time nil
+              vulpea-db-sync--announced nil)))))
 
 (defun vulpea-db-sync--changed-on-disk-p (path &optional hash-cache)
   "Return non-nil when PATH's stamp differs from the stored one.
