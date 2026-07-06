@@ -273,6 +273,40 @@ Returns nil when the database file is absent; does not create it."
                     " check that your notes have ID properties and live"
                     " under `vulpea-db-sync-directories'.")
             issues)))
+    ;; Async extraction
+    (when vulpea-db-async-extraction
+      (when-let* ((reasons (vulpea-db-worker-rejection-reasons "probe.org")))
+        (push (format
+               (concat "`vulpea-db-async-extraction' is enabled but your"
+                       " .org files will NOT use the worker (%s) - every"
+                       " file takes the synchronous path. %s")
+               (mapconcat #'symbol-name reasons ", ")
+               (cond
+                ((memq 'ast-extractors reasons)
+                 (concat "An extractor plugin reads the AST (or does not"
+                         " declare otherwise); add :requires-ast nil to its"
+                         " definition if it works purely from note data."))
+                ((memq 'broken reasons)
+                 (concat "The worker crash-looped; see *Warnings*, then"
+                         " M-x vulpea-db-worker-reset to retry."))
+                (t "Run M-x vulpea-db-worker-diagnose for details.")))
+              issues))
+      (when (and (eq vulpea-db-async-extraction 'full)
+                 (bound-and-true-p vulpea-db-worker--wal-failed))
+        (push (concat "Full-write mode is configured but WAL journaling"
+                      " could not be enabled on the database (filesystem"
+                      " without shared-memory support?) - degraded to"
+                      " extract-only. The database write runs on the main"
+                      " thread.")
+              issues))
+      (when (and (eq vulpea-db-async-extraction 'full)
+                 (not (vulpea-db-worker--filters-inert-p)))
+        (push (concat "Full-write mode is configured but note index"
+                      " filters are active (schema validation with a"
+                      " non-silent action, or a custom filter) - degraded"
+                      " to extract-only so the filters keep running in"
+                      " your session.")
+              issues)))
     (nreverse issues)))
 
 (defun vulpea-doctor--report ()
@@ -321,6 +355,27 @@ Returns nil when the database file is absent; does not create it."
        (funcall line "external monitoring" (vulpea-doctor--monitoring-status))
        (funcall line "pending queue"
                 (format "%d" (length vulpea-db-sync--queue)))
+       ""
+       "Async Extraction"
+       (funcall line "mode" (format "%s" vulpea-db-async-extraction))
+       (funcall line "worker"
+                (cond
+                 ((not vulpea-db-async-extraction) "n/a")
+                 ((bound-and-true-p vulpea-db-worker--broken)
+                  "BROKEN (crash loop; M-x vulpea-db-worker-reset)")
+                 ((process-live-p
+                   (bound-and-true-p vulpea-db-worker--process))
+                  (format "running (%d in flight)"
+                          (vulpea-db-worker-in-flight-count)))
+                 (t "not running (spawns on first change)")))
+       (funcall line "handles .org files"
+                (if vulpea-db-async-extraction
+                    (if-let* ((reasons (vulpea-db-worker-rejection-reasons
+                                        "probe.org")))
+                        (format "NO: %s"
+                                (mapconcat #'symbol-name reasons ", "))
+                      "yes")
+                  "n/a"))
        ""
        "External Tools"
        (funcall line "fd" (or (executable-find "fd") "not found"))

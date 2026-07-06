@@ -183,6 +183,46 @@ Example:
 :priority 900
 #+end_src
 
+* Extractors and Async Extraction
+
+With =vulpea-db-async-extraction= enabled, parsing happens in a
+worker subprocess - and the org-element AST never crosses the
+process boundary. This matters for extractors, because their
+contract includes the AST. Two declarations on =make-vulpea-extractor=
+control the interaction:
+
+#+begin_src emacs-lisp
+(vulpea-db-register-extractor
+ (make-vulpea-extractor
+  :name 'my-attachments
+  :requires-ast nil    ; works purely from NOTE-DATA
+  :worker-safe t       ; may run inside the worker (full mode)
+  :worker-lib 'my-lib  ; feature/file the worker loads for the fn
+  :schema '((attachments [(note-id :not-null) (file :not-null)]))
+  :extract-fn #'my-attachments-fn))
+#+end_src
+
+- Without any declaration (the default), a registered extractor
+  conservatively disables async extraction for *every* file and
+  forces the slower ='object= parse granularity. Correct, but you
+  lose both performance features.
+- =:requires-ast nil= declares that your function never touches
+  =(vulpea-parse-ctx-ast ctx)= - it works from the NOTE-DATA plist
+  \(=:id=, =:attach-dir=, =:meta=, ...). Extraction stays at
+  ='element= granularity and files stay worker-eligible; your
+  extractor runs in the main process when results arrive, against a
+  context whose AST slot may be nil.
+- =:worker-safe t= (requires =:requires-ast nil= in practice, and a
+  symbol =:extract-fn=) additionally lets the extractor run *inside*
+  the worker in ='full= mode, writing its tables through the
+  worker's connection - preserving the zero-freeze write. The worker
+  loads =:worker-lib= to resolve the function; if it cannot, it
+  transparently falls back to streaming results and your extractor
+  runs in the main process. Nothing is lost either way.
+
+Declare honestly: =:requires-ast nil= on a function that does read
+the AST will find that AST nil at apply time.
+
 * Version Tracking and Migrations
 
 ** Schema Versioning

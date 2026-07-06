@@ -99,7 +99,14 @@ Based on existing =vulpea-sync.el= prototype (PR #194):
 - Process updates in idle timer bursts
 
 *** Status
-IMPLEMENTED - vulpea-db-sync.el provides autosync-mode with file-notify, fswatch, and polling support
+IMPLEMENTED - vulpea-db-sync.el provides autosync-mode with file-notify, fswatch, and polling support.
+
+For a long time "non-blocking" only covered scheduling: once a queue
+timer fired, parsing and writing still ran on the main thread. This
+was completed in v2.6 with =vulpea-db-async-extraction=, which moves
+parsing (and optionally the database write) into a persistent
+=emacs --batch= worker process. See [[file:sync-architecture.org][sync-architecture]] for the full
+design: modes, flow control, freshness guards, and fallbacks.
 
 ** DECISION 4: Plugin/Extractor System
 *** Decision
