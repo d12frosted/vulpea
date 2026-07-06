@@ -76,6 +76,11 @@
 
 ;;; Version
 
+(declare-function elpaca-get "ext:elpaca" (id))
+(declare-function elpaca-source-dir "ext:elpaca" (e))
+(declare-function elpaca<-repo-dir "ext:elpaca" (e))
+(declare-function straight--repos-dir "ext:straight" (&rest segments))
+
 (defconst vulpea-version "2.5.0"
   "Version of the vulpea package.
 
@@ -91,12 +96,29 @@ available. The result looks like \"v2.2.0\" exactly on a release
 tag, \"v2.2.0-15-g2938416\" when 15 commits past it, with a
 \"-dirty\" suffix when there are uncommitted changes.
 
-Symlinks are resolved first: package managers like elpaca or
-straight load vulpea from a build directory of symlinks into the
-git checkout, and the .git directory is only findable from the
-symlink target."
-  (when-let* ((file (locate-library "vulpea"))
-              (dir (locate-dominating-file (file-truename file) ".git"))
+The checkout is searched in several places, because package
+managers separate the loaded build from the git source: the
+resolved truename of the loaded library (plain checkouts, and
+managers that symlink their build directory), then elpaca's and
+straight's source directories when those managers are present
+\(their builds are plain copies, revealing nothing about the
+checkout)."
+  (when-let* ((dir (seq-some
+                    (lambda (candidate)
+                      (and candidate
+                           (locate-dominating-file candidate ".git")))
+                    (list
+                     (when-let* ((file (locate-library "vulpea")))
+                       (file-truename file))
+                     (when (fboundp 'elpaca-get)
+                       (when-let* ((e (elpaca-get 'vulpea)))
+                         (cond
+                          ((fboundp 'elpaca-source-dir)
+                           (elpaca-source-dir e))
+                          ((fboundp 'elpaca<-repo-dir)
+                           (elpaca<-repo-dir e)))))
+                     (when (fboundp 'straight--repos-dir)
+                       (straight--repos-dir "vulpea")))))
               ((executable-find "git")))
     (with-temp-buffer
       (let ((default-directory dir))
