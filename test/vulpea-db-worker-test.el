@@ -890,5 +890,33 @@ kills must mark the worker broken."
         (vulpea-db-worker-test--wait)
         (should (= 0 vulpea-db-worker--hang-kills))))))
 
+(ert-deftest vulpea-db-worker-live-settings-refresh ()
+  "A settings variable changed mid-session reaches the live worker.
+The variable watcher schedules a debounced refresh; a file extracted
+afterwards must honor the new value (plain links dropped)."
+  (vulpea-db-worker-test--with-file
+      ":PROPERTIES:\n:ID: live-settings-note\n:END:\n#+TITLE: L\n\nSee [[id:bt][b]] and https://plain.example.com here.\n"
+    (vulpea-test--with-temp-db
+      (vulpea-db)
+      ;; Spawn with plain links ON (dynamic binding so the watcher
+      ;; fires on setq below without leaking globally)
+      (let ((vulpea-db-index-plain-links t))
+        (vulpea-db-worker--ensure)
+        ;; Change mid-session; watcher schedules the refresh
+        (setq vulpea-db-index-plain-links nil)
+        (let ((deadline (+ (float-time) 5)))
+          (while (and vulpea-db-worker--refresh-timer
+                      (< (float-time) deadline))
+            (sit-for 0.1)))
+        (vulpea-db-worker-request path)
+        (vulpea-db-worker-test--wait)
+        (let ((dests (mapcar #'car
+                             (emacsql (vulpea-db)
+                                      [:select [dest] :from links
+                                       :where (= source $s1)]
+                                      "live-settings-note"))))
+          (should (member "bt" dests))
+          (should-not (member "//plain.example.com" dests)))))))
+
 (provide 'vulpea-db-worker-test)
 ;;; vulpea-db-worker-test.el ends here

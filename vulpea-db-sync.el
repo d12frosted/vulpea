@@ -1150,6 +1150,10 @@ enabled - then forced files flow through the queue and the
 extraction worker like any other change, keeping parser-epoch and
 settings migrations from freezing the session."
   (interactive "DDirectory: ")
+  ;; A force scan usually follows a settings change; make sure a live
+  ;; worker extracts with the new values, not the ones it saw at spawn
+  (when force
+    (vulpea-db-worker-refresh-settings))
   (let ((files (vulpea-db-sync--list-org-files dir)))
     (if (and vulpea-db-autosync-mode
              (or (not force) vulpea-db-async-extraction))
