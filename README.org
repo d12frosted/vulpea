@@ -57,7 +57,7 @@ Vulpea originally started as a layer over org-roam, but v2 is a complete rewrite
 ** Key Features
 
 - 🌳 *Files or headings* - A note is any org node with an =ID=: a whole file, or a single heading inside a larger file
-- 🚀 *Async-first* - File watchers + background processing, no save hooks blocking you
+- 🚀 *Actually async* - File watchers, background processing, and an opt-in worker process (=vulpea-db-async-extraction=) that parses and writes off the main thread - saving a 100MB file blocks Emacs for about a millisecond
 - 📊 *Optimized queries* - Hybrid database schema for fast reads
 - 🔌 *Extensible* - Plugin system for custom extractors and tables
 - 🏷️ *Rich metadata* - Type-aware metadata with automatic coercion

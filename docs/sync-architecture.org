@@ -364,6 +364,62 @@ M-x vulpea-db-sync-update-directory
 #+end_example
 
 
+* Async Extraction (the worker process)
+
+Everything above describes scheduling: queues, timers, batching. By
+default the *work* - reading, hashing, parsing, extraction, database
+write - still runs on the main thread when a timer fires. Async
+extraction moves it into a persistent =emacs --batch= subprocess.
+
+** Modes
+
+| =vulpea-db-async-extraction= | parse    | db write | main thread blocks for       |
+|------------------------------+----------+----------+------------------------------|
+| =nil= (default)              | main     | main     | everything                   |
+| =t=                          | worker   | main     | db write of results          |
+| ='full=                      | worker   | worker   | org-id registration (~1ms)   |
+
+** How a file flows through the worker
+
+1. The queue does a cheap mtime/size comparison on the main thread -
+   no file reading, no hashing.
+2. Changed files are sent to the worker over a pipe, at most
+   =vulpea-db-worker-max-in-flight= (128) in flight - flow control,
+   so the pipe never blocks the main thread.
+3. The worker parses and extracts, then either streams results back
+   as printable plists (mode =t=; the main thread applies them
+   through the same write path as synchronous updates) or writes the
+   database itself through its own WAL connection (mode ='full=).
+4. Every result carries the file stamp as the worker read it. A file
+   that changed mid-parse is stale: discarded and re-queued. In
+   ='full= mode a compare-and-swap inside the write transaction also
+   protects against concurrent main-process writes (programmatic
+   APIs stay synchronous and always win).
+
+** Fidelity and fallbacks
+
+The worker mirrors an allowlist of settings (kept current through
+variable watchers) and does not run =org-mode-hook= - the same
+trade-off as =vulpea-db-parse-method= ='single-temp-buffer=. Files it
+cannot handle faithfully take the synchronous path automatically:
+non-.org files, function-valued =vulpea-db-index-heading-level=, and
+extractor plugins that read the AST (see the plugin guide for the
+=:requires-ast= and =:worker-safe= declarations).
+
+='full= degrades to =t= when WAL journaling cannot be enabled, when
+note index filters are active, or when the worker runs different
+vulpea code than the main session (it then refuses to open the
+database at all - the schema migration logic could rebuild it).
+
+** Self-healing
+
+The worker respawns after crashes with in-flight files re-queued; a
+crash loop (three quick deaths) or repeated hangs
+\(=vulpea-db-worker-hang-timeout=) mark it broken and fall back to
+synchronous indexing with a warning. =M-x vulpea-db-worker-reset=
+re-arms it, =M-x vulpea-db-worker-diagnose= explains the current
+state end to end, and =vulpea-db-worker-debug= logs the protocol.
+
 * Key Insights
 
 1. *Single entry point*: All updates go through ~vulpea-db-update-file~

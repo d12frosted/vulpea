@@ -204,5 +204,40 @@ creating it as a side effect."
       (should (string-match-p "cached files +2\\b" report))
       (should (string-match-p "files without notes +1\\b" report)))))
 
+(ert-deftest vulpea-doctor-flags-async-disabled-by-extractors ()
+  "Doctor must expose async extraction being silently bypassed.
+The trap: async is enabled, but a registered AST-reading extractor
+makes every file take the synchronous path with no visible sign."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((vulpea-db-async-extraction t)
+          (vulpea-db--extractors
+           (list (make-vulpea-extractor :name 'legacy :extract-fn #'ignore))))
+      (let ((report (vulpea-doctor)))
+        (should (string-match-p "will NOT use the worker" report))
+        (should (string-match-p ":requires-ast nil" report))))))
+
+(ert-deftest vulpea-doctor-reports-async-state ()
+  "The report carries an async extraction section."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((vulpea-db-async-extraction 'full)
+          (vulpea-db--extractors nil)
+          (vulpea-db-note-index-filter-functions nil))
+      (let ((report (vulpea-doctor)))
+        (should (string-match-p "Async Extraction" report))
+        (should (string-match-p "mode.*full" report))
+        (should (string-match-p "handles .org files.*yes" report))))))
+
+(ert-deftest vulpea-doctor-no-async-issues-when-disabled ()
+  "With async off, no async issues appear no matter the extractors."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((vulpea-db-async-extraction nil)
+          (vulpea-db--extractors
+           (list (make-vulpea-extractor :name 'legacy :extract-fn #'ignore))))
+      (should-not (string-match-p "will NOT use the worker"
+                                  (vulpea-doctor))))))
+
 (provide 'vulpea-doctor-test)
 ;;; vulpea-doctor-test.el ends here

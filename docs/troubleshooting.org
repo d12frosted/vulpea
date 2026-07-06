@@ -408,6 +408,56 @@ If conflicts occur with other org-mode packages:
    (setq vulpea-db-parse-method 'find-file)  ; Most compatible
    #+end_src
 
+* Async Extraction Issues
+
+First stop: =M-x vulpea-db-worker-diagnose=. It runs an end-to-end
+health check and tells you whether your files actually use the
+worker, why not if they don't, the database journal mode, round-trip
+timing, and the worker's stderr.
+
+** Async is enabled but saves still block
+
+Almost always: a registered extractor plugin. Extractors receive the
+parse context including the AST, which cannot cross the process
+boundary, so any extractor without a =:requires-ast nil= declaration
+routes *every* file to the synchronous path - silently. Both
+=vulpea-doctor= and =vulpea-db-worker-diagnose= flag this. Fix: add
+=:requires-ast nil= to extractors that work purely from note data
+\(see the plugin guide).
+
+** Full mode configured, but writes happen on the main thread
+
+='full= degrades to =t= in three cases, all reported by the doctor:
+WAL journaling failed (network/FUSE filesystems), note index filters
+are active (schema validation with a non-silent action), or the
+worker's vulpea version differs from the session's (upgrade Emacs's
+load path and restart).
+
+** Worker marked broken
+
+After a crash loop or repeated hangs, vulpea stops respawning the
+worker and falls back to synchronous indexing. The warning includes
+the worker's stderr tail. Investigate with
+=M-x vulpea-db-worker-diagnose=, then =M-x vulpea-db-worker-reset=
+to re-arm. For a full protocol trace, =(setq vulpea-db-worker-debug
+t)= and read =*vulpea-worker-log*=.
+
+** Data seems stale right after saving
+
+Worker-extracted files become queryable when the background sync
+completes (watch for the "background sync complete" message), a
+moment after the save. Programmatic APIs (=vulpea-create=,
+=vulpea-meta-set=) are unaffected - they are synchronous and
+read-your-writes. If code queries small files right after saving
+them, set =vulpea-db-async-extraction-threshold= to keep small files
+synchronous.
+
+** WAL sidecar files appeared next to my database
+
+Expected in ='full= mode: SQLite's write-ahead log creates =-wal=
+and =-shm= files. They are part of the database - include them in
+backups, and do not delete them while Emacs runs.
+
 * Getting Help
 
 If none of these solutions work:
