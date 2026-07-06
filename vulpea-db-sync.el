@@ -609,7 +609,8 @@ CALLBACK receives a list of absolute file paths."
         (push entry result)))
     (setq vulpea-db-sync--queue (nreverse result))
     (setq vulpea-db-sync--queue-tail (last vulpea-db-sync--queue))
-    (remhash path vulpea-db-sync--queue-set)))
+    (remhash path vulpea-db-sync--queue-set)
+    (remhash path vulpea-db-sync--force-set)))
 
 (defun vulpea-db-sync--handle-removed-file (path)
   "Permanently remove PATH from database tracking.
@@ -664,12 +665,17 @@ all files under that directory are removed."
             (vulpea-db-sync--enqueue new-path))))))
     nil))
 
-(defun vulpea-db-sync--enqueue (path &optional force)
+(defun vulpea-db-sync--enqueue (path &optional force no-count)
   "Add PATH to update queue.
 
 With FORCE non-nil, PATH is re-indexed even if its content is
 unchanged (see `vulpea-db-sync--force-set').  A force mark also
-upgrades an already-queued entry."
+upgrades an already-queued entry.
+
+With NO-COUNT non-nil the entry does not increment the progress
+total: used when re-queueing an entry that was already counted
+\(flow-control saturation retries), which would otherwise inflate
+the reported total on every retry."
   (let ((timestamp (float-time)))
     (when force
       (puthash path t vulpea-db-sync--force-set))
@@ -691,7 +697,8 @@ upgrades an already-queued entry."
                             #'vulpea-db-sync--process-queue))
 
       ;; When a sync is already in progress, account for newly discovered files
-      (when (> vulpea-db-sync--queue-total 0)
+      (when (and (not no-count)
+                 (> vulpea-db-sync--queue-total 0))
         (setq vulpea-db-sync--queue-total
               (1+ vulpea-db-sync--queue-total))))))
 
@@ -771,7 +778,8 @@ upgrades an already-queued entry."
                    ((and vulpea-db-async-extraction
                          (vulpea-db-worker-should-handle-p path)
                          (vulpea-db-worker-saturated-p))
-                    (vulpea-db-sync--enqueue path force))
+                    ;; Already counted when first enqueued
+                    (vulpea-db-sync--enqueue path force 'no-count))
                    ((and vulpea-db-async-extraction
                          (vulpea-db-worker-should-handle-p path))
                       (condition-case err
