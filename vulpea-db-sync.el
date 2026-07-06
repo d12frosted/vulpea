@@ -791,8 +791,13 @@ upgrades an already-queued entry."
                                   (setq dispatched (1+ dispatched)))
                               (setq unchanged (1+ unchanged))))
                         (error
-                         (message "Vulpea: Error dispatching %s: %s"
-                                  path (error-message-string err)))))
+                         ;; Worker spawn/send failure: fall back to
+                         ;; synchronous processing in this batch so an
+                         ;; environmental failure cannot silently drop
+                         ;; the file
+                         (message "Vulpea: Error dispatching %s (falling back to sync): %s"
+                                  path (error-message-string err))
+                         (push (cons path force) sync-paths))))
                    (t
                     (push (cons path force) sync-paths)))))
 

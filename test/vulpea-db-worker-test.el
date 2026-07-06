@@ -31,11 +31,18 @@
                             (or load-file-name buffer-file-name))))
 
 (defun vulpea-db-worker-test--wait (&optional seconds)
-  "Wait up to SECONDS (default 60) until the worker is idle."
-  (let ((deadline (+ (float-time) (or seconds 60))))
-    (while (and (vulpea-db-worker-busy-p)
-                (< (float-time) deadline))
-      (accept-process-output vulpea-db-worker--process 0.05))
+  "Wait up to SECONDS (default 60) until the worker is stably idle.
+Idle must survive a timer drain: crash salvage re-enqueues in-flight
+work through a deferred timer, so an empty in-flight list can become
+busy again a moment later."
+  (let ((deadline (+ (float-time) (or seconds 60)))
+        (stable nil))
+    (while (and (not stable) (< (float-time) deadline))
+      (if (vulpea-db-worker-busy-p)
+          (accept-process-output vulpea-db-worker--process 0.05)
+        ;; Drain deferred timers (salvage re-enqueue), then re-check
+        (sit-for 0.1)
+        (setq stable (not (vulpea-db-worker-busy-p)))))
     (should-not (vulpea-db-worker-busy-p))))
 
 (defun vulpea-db-worker-test--db-dump ()
@@ -668,6 +675,123 @@ last file completes.  A requeued file counts anew on re-dispatch."
       ;; counters reset for the next burst
       (should (zerop vulpea-db-sync--async-dispatched))
       (should (zerop vulpea-db-sync--async-applied)))))
+
+(ert-deftest vulpea-db-worker-respawn-before-sentinel-salvages ()
+  "A request racing a dead worker's deferred sentinel loses no files.
+Reproduces the timer-before-sentinel window: the worker dies with a
+file in flight, its sentinel is prevented from running (as Emacs
+defers it), and a new request arrives.  --ensure must salvage the
+dead worker's in-flight file - both files end up indexed."
+  (let ((file-a (vulpea-test--create-temp-org-file
+                 ":PROPERTIES:\n:ID: salvage-a\n:END:\n#+TITLE: A\n"))
+        (file-b (vulpea-test--create-temp-org-file
+                 ":PROPERTIES:\n:ID: salvage-b\n:END:\n#+TITLE: B\n")))
+    (unwind-protect
+        (vulpea-test--with-temp-db
+          (vulpea-db)
+          ;; Dispatch A, then simulate death-without-sentinel: kill the
+          ;; process with its sentinel neutralized, exactly the state
+          ;; --ensure observes when a timer beats the sentinel
+          (vulpea-db-worker-request file-a)
+          (let ((w1 vulpea-db-worker--process))
+            (set-process-sentinel w1 #'ignore)
+            (delete-process w1)
+            (while (process-live-p w1)
+              (accept-process-output nil 0.05)))
+          (should (equal vulpea-db-worker--in-flight (list file-a)))
+          ;; The next request must salvage A before spawning W2
+          (vulpea-db-worker-request file-b)
+          (vulpea-db-worker-test--wait)
+          (dolist (id '("salvage-a" "salvage-b"))
+            (should (= 1 (caar (emacsql (vulpea-db)
+                                        [:select (funcall count *)
+                                         :from notes :where (= id $s1)]
+                                        id))))))
+      (vulpea-db-worker-stop)
+      (delete-file file-a)
+      (delete-file file-b))))
+
+(ert-deftest vulpea-db-worker-stale-sentinel-ignored ()
+  "A dead worker's deferred sentinel must not clobber its replacement.
+After the replacement worker W2 is live with work in flight, firing
+W1's sentinel by hand (as Emacs eventually does) must not reset the
+process, the in-flight list, or re-enqueue W2's files."
+  (vulpea-db-worker-test--with-file
+      ":PROPERTIES:\n:ID: stale-sentinel-note\n:END:\n#+TITLE: S\n"
+    (vulpea-test--with-temp-db
+      (vulpea-db)
+      (vulpea-db-worker--ensure)
+      (let ((w1 vulpea-db-worker--process))
+        ;; Replace W1 the way the salvage path does
+        (set-process-sentinel w1 #'ignore)
+        (delete-process w1)
+        (while (process-live-p w1)
+          (accept-process-output nil 0.05))
+        (vulpea-db-worker-request path)
+        (let ((w2 vulpea-db-worker--process)
+              (in-flight (copy-sequence vulpea-db-worker--in-flight))
+              (requeued nil))
+          (should-not (eq w1 w2))
+          ;; Fire W1's stale sentinel by hand against the guard
+          (let ((vulpea-db-worker-done-functions
+                 (list (lambda (_p status _c)
+                         (when (eq status 'requeued)
+                           (setq requeued t))))))
+            (vulpea-db-worker--sentinel w1 "killed\n"))
+          ;; W2 and its state must be untouched
+          (should (eq vulpea-db-worker--process w2))
+          (should (equal vulpea-db-worker--in-flight in-flight))
+          (should-not requeued)
+          (vulpea-db-worker-test--wait))))))
+
+(ert-deftest vulpea-db-worker-stale-filter-output-discarded ()
+  "Output from a replaced worker process must not reach dispatch.
+A stale process draining its pipe into the shared assembly state
+would corrupt the current worker's stream."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (unwind-protect
+        (progn
+          (vulpea-db-worker--ensure)
+          (let ((current vulpea-db-worker--current))
+            ;; A begin line from a non-current process is ignored
+            (vulpea-db-worker--filter
+             'not-the-current-process "(begin \"/tmp/ghost.org\")\n")
+            (should (equal vulpea-db-worker--current current))))
+      (vulpea-db-worker-stop))))
+
+(ert-deftest vulpea-db-worker-dispatch-error-does-not-drop-later-lines ()
+  "An error handling one protocol line must not swallow the rest.
+Two done messages arrive in one chunk; the first apply errors (hook
+signals); the second file must still complete."
+  (vulpea-db-worker-test--with-file
+      ":PROPERTIES:\n:ID: after-error-note\n:END:\n#+TITLE: AE\n"
+    (vulpea-test--with-temp-db
+      (vulpea-db)
+      (vulpea-db-worker--ensure)
+      (let ((proc vulpea-db-worker--process)
+            (completed nil))
+        ;; Fake two in-flight entries
+        (vulpea-db-worker--forget "/tmp/nonexistent-a.org") ; no-op, keeps state sane
+        (let ((vulpea-db-worker-done-functions
+               (list (lambda (p status _c)
+                       (when (equal p path)
+                         (setq completed status))
+                       (when (equal p "/tmp/error-note.org")
+                         (error "boom"))))))
+          ;; First line errors in the hook, second must still apply.
+          ;; missing file -> 'missing status for the first
+          (vulpea-db-worker--filter
+           proc
+           (concat "(done \"/tmp/error-note.org\" \"h\" 1.0 10)\n"
+                   (format "(begin %S)\n" path)
+                   (format "(file-node (:id \"after-error-note\" :title \"AE\"))\n")
+                   (format "(done %S \"hash\" %s %d)\n"
+                           path
+                           (float-time (file-attribute-modification-time
+                                        (file-attributes path)))
+                           (file-attribute-size (file-attributes path))))))
+        (should (eq completed 'applied))))))
 
 (provide 'vulpea-db-worker-test)
 ;;; vulpea-db-worker-test.el ends here
