@@ -279,7 +279,7 @@ in a row; one refresh after the dust settles is enough."
   "Non-nil once variable watchers for the settings allowlist exist.")
 
 (defun vulpea-db-worker--install-watchers ()
-  "Watch the settings allowlist so a live worker never runs stale.
+  "Watch the settings allowlist to keep a live worker current.
 Without this, a setting changed mid-session (for example
 `vulpea-db-index-plain-links') applied only to files parsed in the
 main process; the worker kept extracting with the values it saw at
@@ -447,7 +447,7 @@ lands here.  Idempotent: the second caller finds no pending work."
                    pending forced))))
 
 (defun vulpea-db-worker--salvage-requeue (pending forced)
-  "Re-enqueue salvaged PENDING paths with their FORCED marks."
+  "Re-enqueue salvaged PENDING paths, restoring their FORCED flags."
   (dolist (path pending)
     (vulpea-db-worker--reenqueue path (gethash path forced))
     ;; Terminal for this dispatch: the re-enqueued entry counts
