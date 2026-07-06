@@ -250,13 +250,44 @@ instead."
 
 (defvar vulpea-db-worker--process)
 
+(defvar vulpea-db-worker--refresh-timer nil
+  "Debounce timer for pushing settings to a live worker.")
+
 (defun vulpea-db-worker-refresh-settings ()
   "Send current settings to a running worker, if any.
-Called by `vulpea-db-register-extractor' so a live worker mirrors
-the extractor registry."
+Called by `vulpea-db-register-extractor' and by the variable
+watchers on the settings allowlist, so a live worker mirrors
+setting changes made mid-session."
   (when (process-live-p vulpea-db-worker--process)
     (vulpea-db-worker--log "settings refresh")
     (vulpea-db-worker--send (vulpea-db-worker--settings-form))))
+
+(defun vulpea-db-worker--schedule-refresh (&rest _)
+  "Debounced settings refresh, triggered by a watched variable change.
+Debounced because a user init file may set several watched variables
+in a row; one refresh after the dust settles is enough."
+  (when (process-live-p vulpea-db-worker--process)
+    (when vulpea-db-worker--refresh-timer
+      (cancel-timer vulpea-db-worker--refresh-timer))
+    (setq vulpea-db-worker--refresh-timer
+          (run-with-timer 0.5 nil
+                          (lambda ()
+                            (setq vulpea-db-worker--refresh-timer nil)
+                            (vulpea-db-worker-refresh-settings))))))
+
+(defvar vulpea-db-worker--watchers-installed nil
+  "Non-nil once variable watchers for the settings allowlist exist.")
+
+(defun vulpea-db-worker--install-watchers ()
+  "Watch the settings allowlist so a live worker never runs stale.
+Without this, a setting changed mid-session (for example
+`vulpea-db-index-plain-links') applied only to files parsed in the
+main process; the worker kept extracting with the values it saw at
+spawn, silently splitting behavior between the two paths."
+  (unless vulpea-db-worker--watchers-installed
+    (setq vulpea-db-worker--watchers-installed t)
+    (dolist (sym vulpea-db-worker--settings-vars)
+      (add-variable-watcher sym #'vulpea-db-worker--schedule-refresh))))
 
 ;;; Client: process management
 
@@ -457,6 +488,7 @@ lands here.  Idempotent: the second caller finds no pending work."
     (vulpea-db-worker--salvage)
     (setq vulpea-db-worker--spawn-time (float-time))
     (setq vulpea-db-worker--last-activity (float-time))
+    (vulpea-db-worker--install-watchers)
     (unless vulpea-db-worker--watchdog-timer
       (setq vulpea-db-worker--watchdog-timer
             (run-with-timer 30 30 #'vulpea-db-worker--watchdog)))
