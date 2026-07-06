@@ -713,8 +713,10 @@ file behind it."
            (vulpea-db-worker--reenqueue path))
          (run-hook-with-args 'vulpea-db-worker-done-functions
                              path 'applied count)))))
-    (`(stamped ,path)
+    (`(stamped ,path ,ids)
      (vulpea-db-worker--forget path)
+     ;; Repair org-id registrations a lost written reply never made
+     (vulpea-db--register-id-locations ids path)
      (run-hook-with-args 'vulpea-db-worker-done-functions
                          path 'unchanged nil))
     (`(stale ,path)
@@ -1067,7 +1069,11 @@ result is written even when the content hash matches."
                                          (vulpea-parse-ctx-hash ctx)
                                          (vulpea-parse-ctx-mtime ctx)
                                          (vulpea-parse-ctx-size ctx))
-            (vulpea-db-worker--reply `(stamped ,path)))
+            ;; Carry the note IDs: if a previous written reply was
+            ;; lost (worker crash after commit), the retry lands here
+            ;; and the main process can still register org-ids
+            (vulpea-db-worker--reply
+             `(stamped ,path ,(vulpea-db-worker--ctx-ids ctx))))
            (t
             (let ((count (vulpea-db-worker--apply-guarded ctx stored)))
               (cond
