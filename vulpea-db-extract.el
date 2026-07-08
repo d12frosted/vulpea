@@ -218,7 +218,8 @@ Slots:
                  :links, :meta, ...) are persisted after all
                  extractors have run - both the materialized notes
                  row and the normalized tables are updated.  A nil
-                 return counts as returning note-data unchanged.
+                 return means \"use note-data as it now stands\" -
+                 in-place plist-put mutations included.
   worker-safe  - Whether extract-fn may run inside the extraction
                  worker in full-write mode (default: nil).  Requires
                  extract-fn to be a symbol the worker can resolve;
@@ -1237,8 +1238,8 @@ FN should be a function taking (ctx note-data) where:
 FN should return updated note-data plist.  Changes it makes to core
 note-data fields (:tags, :links, :meta, ...) are persisted: the
 materialized notes row is updated and the normalized tables
-re-synced after all extractors have run.  Returning nil counts as
-returning note-data unchanged."
+re-synced after all extractors have run.  Returning nil means \"use
+note-data as it now stands\" - in-place mutations included."
   (let ((extractor
          (cond
           ;; New struct form
@@ -1298,9 +1299,10 @@ Extractors are run in priority order (lower priority first).
 Returns updated note-data after all extractors have run; the caller
 persists changes to core fields (see
 `vulpea-db--insert-note-from-plist').  An extractor that returns nil
-is treated as returning its input unchanged - the historical
-contract discarded return values entirely, so plugins ending in a
-`when'-guarded insert must stay harmless."
+is treated as returning note-data as it now stands - in-place
+mutations included.  The historical contract discarded return
+values entirely, so plugins ending in a `when'-guarded insert must
+stay harmless."
   (cl-reduce (lambda (data extractor)
                (or (funcall (vulpea-extractor-extract-fn extractor) ctx data)
                    data))
@@ -1518,8 +1520,11 @@ registered."
     ;; Then run extractors that may insert into foreign-keyed tables
     (when vulpea-db--extractors
       ;; Snapshot core fields first: extractors mutate DATA in place
-      ;; via plist-put, so the diff must compare against copies
-      (let* ((before (mapcar (lambda (field)
+      ;; via plist-put, so the diff must compare against copies.  The
+      ;; id is snapshotted too - the writeback must target the note
+      ;; as inserted even if an extractor rewrites :id in place
+      (let* ((id (plist-get data :id))
+             (before (mapcar (lambda (field)
                                (copy-tree (plist-get data field)))
                              vulpea-db--extractor-persisted-fields))
              (updated (vulpea-db--run-extractors ctx data))
@@ -1536,7 +1541,7 @@ registered."
             (unless (equal new-created-at created-at)
               (push (cons :created-at new-created-at) changes))))
         (when changes
-          (vulpea-db--update-note-fields (plist-get data :id) changes))))))
+          (vulpea-db--update-note-fields id changes))))))
 
 ;;; Provide
 

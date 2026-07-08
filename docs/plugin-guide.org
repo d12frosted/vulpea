@@ -210,8 +210,13 @@ A few rules:
   ignored - plugin tables hold foreign keys against them.
 - *Removal works too.* Deleting an entry from a field removes it from
   both storage forms.
-- *Returning nil means "unchanged".* An extractor that returns nil is
-  treated as returning its input as is.
+- *Return the plist you received.* Mutate it in place (or =append= to a
+  field and =plist-put= the result) and return it. Do not build a fresh
+  plist with only the fields you touched - a missing field reads as "the
+  extractor removed this" and is wiped from both storage forms.
+- *Returning nil means "use =note-data= as it now stands".* In-place
+  mutations made before the nil return are still persisted; nil only
+  says "nothing further to contribute".
 
 * Priorities and Execution Order
 

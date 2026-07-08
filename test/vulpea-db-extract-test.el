@@ -1124,6 +1124,63 @@ every core field."
                 (should (equal (vulpea-note-tags note) '("tag1")))))
           (delete-file path))))))
 
+(ert-deftest vulpea-db-extract-extractor-created-at-recomputed ()
+  "A :properties change recomputes the derived created_at column."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((vulpea-db--extractors nil))
+      (vulpea-db-register-extractor
+       'contribute-created
+       (lambda (_ctx data)
+         (plist-put data :properties
+                    (append (plist-get data :properties)
+                            (list (cons "CREATED" "[2020-01-02 Thu]"))))
+         data))
+      (let ((path (vulpea-test--create-temp-org-file
+                   ":PROPERTIES:\n:ID: created-id\n:END:\n#+TITLE: Created\n")))
+        (unwind-protect
+            (progn
+              (vulpea-db-update-file path)
+              (should (equal '(("2020-01-02"))
+                             (emacsql (vulpea-db)
+                                      [:select [created-at] :from notes
+                                       :where (= id $s1)]
+                                      "created-id"))))
+          (delete-file path))))))
+
+(ert-deftest vulpea-db-extract-extractor-id-change-ignored ()
+  "Identity stays fixed even when an extractor rewrites :id in place.
+The persistence writeback must target the note as inserted; a
+misbehaving extractor changing :id must neither redirect the
+writeback to a phantom row nor lose sibling contributions."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((vulpea-db--extractors nil))
+      (vulpea-db-register-extractor
+       'rogue-id
+       (lambda (_ctx data)
+         (plist-put data :tags
+                    (append (plist-get data :tags) (list "contributed")))
+         (plist-put data :id "phantom-id")
+         data))
+      (let ((path (vulpea-test--create-temp-org-file
+                   ":PROPERTIES:\n:ID: real-id\n:END:\n#+TITLE: Rogue\n")))
+        (unwind-protect
+            (progn
+              (vulpea-db-update-file path)
+              ;; The contribution lands on the real note...
+              (should (equal '(("contributed"))
+                             (emacsql (vulpea-db)
+                                      [:select [tag] :from tags
+                                       :where (= note-id $s1)]
+                                      "real-id")))
+              ;; ...and no phantom rows appear anywhere
+              (should-not (emacsql (vulpea-db)
+                                   [:select [tag] :from tags
+                                    :where (= note-id $s1)]
+                                   "phantom-id")))
+          (delete-file path))))))
+
 (ert-deftest vulpea-db-extract-schema-registration ()
   "Test plugin schema is applied when extractor is registered."
   (vulpea-test--with-temp-db
