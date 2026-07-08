@@ -577,6 +577,48 @@ the test can prove the work happened in the subprocess."
                                    (number-to-string (emacs-pid)))))))
         (delete-file lib)))))
 
+(ert-deftest vulpea-db-worker-worker-safe-extractor-sees-nil-ast ()
+  "The nil-AST guarantee holds inside the worker too.
+A worker-safe extractor without :requires-ast t runs in the worker
+process, where a parsed tree actually exists - the stripping in
+`vulpea-db--run-extractors' must hide it there as well, so the
+guarantee stays deterministic in every mode."
+  (let ((lib (make-temp-file "vulpea-worker-nilast-" nil ".el"
+                             "(require 'vulpea-db)\n(require 'emacsql)\n(defun vulpea-test-worker-nilast-fn (ctx note-data)\n  (emacsql (vulpea-db)\n           [:insert :into worker-nilast :values $v1]\n           (vector (plist-get note-data :id)\n                   (if (vulpea-parse-ctx-ast ctx) \"ast\" \"nil\")))\n  note-data)\n")))
+    (vulpea-db-worker-test--with-file
+        ":PROPERTIES:\n:ID: nilast-note\n:END:\n#+TITLE: N\n"
+      (unwind-protect
+          (vulpea-test--with-temp-db
+            (vulpea-db)
+            (let ((vulpea-db--extractors nil)
+                  (vulpea-db-async-extraction 'full)
+                  (vulpea-db-note-index-filter-functions nil)
+                  statuses)
+              ;; Define the fn locally too (registration side)
+              (load lib nil t)
+              (vulpea-db-register-extractor
+               (make-vulpea-extractor
+                :name 'worker-nilast
+                :version 1
+                :requires-ast nil
+                :worker-safe t
+                :worker-lib lib
+                :schema '((worker-nilast
+                           [(note-id :not-null) (ast :not-null)]))
+                :extract-fn #'vulpea-test-worker-nilast-fn))
+              (should (vulpea-db-worker--full-write-p))
+              (let ((vulpea-db-worker-done-functions
+                     (list (lambda (_path status _count)
+                             (push status statuses)))))
+                (vulpea-db-worker-request path)
+                (vulpea-db-worker-test--wait))
+              (should (equal statuses '(applied)))
+              (should (equal '(("nilast-note" "nil"))
+                             (emacsql (vulpea-db)
+                                      [:select [note-id ast]
+                                       :from worker-nilast])))))
+        (delete-file lib)))))
+
 (ert-deftest vulpea-db-worker-worker-safe-unresolved-degrades ()
   "A worker-safe extractor the worker cannot resolve degrades safely.
 Without a loadable :worker-lib the worker falls back to streaming the
