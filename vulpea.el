@@ -273,6 +273,26 @@ Returns nil when the database file is absent; does not create it."
                     " check that your notes have ID properties and live"
                     " under `vulpea-db-sync-directories'.")
             issues)))
+    ;; Extractor plugins
+    (when-let* ((undeclared
+                 (seq-filter
+                  (lambda (extractor)
+                    (eq (vulpea-extractor-requires-ast extractor) 'unset))
+                  vulpea-db--extractors)))
+      (push (format
+             (concat "Extractor%s %s do%s not declare :requires-ast."
+                     " Undeclared extractors receive a parse context whose"
+                     " AST slot is always nil. Add :requires-ast t to the"
+                     " definition if its extract-fn reads"
+                     " (vulpea-parse-ctx-ast ctx), or :requires-ast nil to"
+                     " confirm it works purely from note data (and keep"
+                     " extraction fast and worker-eligible).")
+             (if (cdr undeclared) "s" "")
+             (mapconcat (lambda (extractor)
+                          (format "`%s'" (vulpea-extractor-name extractor)))
+                        undeclared ", ")
+             (if (cdr undeclared) "" "es"))
+            issues))
     ;; Async extraction
     (when vulpea-db-async-extraction
       (when-let* ((reasons (vulpea-db-worker-rejection-reasons "probe.org")))
@@ -283,9 +303,10 @@ Returns nil when the database file is absent; does not create it."
                (mapconcat #'symbol-name reasons ", ")
                (cond
                 ((memq 'ast-extractors reasons)
-                 (concat "An extractor plugin reads the AST (or does not"
-                         " declare otherwise); add :requires-ast nil to its"
-                         " definition if it works purely from note data."))
+                 (concat "An extractor plugin declares :requires-ast t;"
+                         " the AST cannot cross the process boundary, so"
+                         " AST-reading extractors and async extraction"
+                         " do not combine."))
                 ((memq 'broken reasons)
                  (concat "The worker crash-looped; see *Warnings*, then"
                          " M-x vulpea-db-worker-reset to retry."))

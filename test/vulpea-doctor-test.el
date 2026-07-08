@@ -212,10 +212,43 @@ makes every file take the synchronous path with no visible sign."
     (vulpea-db)
     (let ((vulpea-db-async-extraction t)
           (vulpea-db--extractors
-           (list (make-vulpea-extractor :name 'legacy :extract-fn #'ignore))))
+           (list (make-vulpea-extractor :name 'reader :requires-ast t
+                                        :extract-fn #'ignore))))
       (let ((report (vulpea-doctor)))
         (should (string-match-p "will NOT use the worker" report))
-        (should (string-match-p ":requires-ast nil" report))))))
+        (should (string-match-p ":requires-ast t" report))))))
+
+(ert-deftest vulpea-doctor-nudges-undeclared-requires-ast ()
+  "An extractor without an explicit :requires-ast declaration is flagged.
+Since the default flipped to fast-by-default (nil AST), authors should
+declare their intent; the doctor names the extractor and both options."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((vulpea-db--extractors
+            (list (make-vulpea-extractor :name 'legacy
+                                         :extract-fn #'ignore)))
+           (issues (vulpea-doctor--issues)))
+      (should (seq-some
+               (lambda (i)
+                 (and (string-match-p "legacy" i)
+                      (string-match-p ":requires-ast t" i)
+                      (string-match-p ":requires-ast nil" i)))
+               issues)))))
+
+(ert-deftest vulpea-doctor-no-nudge-when-requires-ast-declared ()
+  "Extractors that declare :requires-ast explicitly are not flagged."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((vulpea-db-async-extraction nil)
+           (vulpea-db--extractors
+            (list (make-vulpea-extractor :name 'reader :requires-ast t
+                                         :extract-fn #'ignore)
+                  (make-vulpea-extractor :name 'scanner :requires-ast nil
+                                         :extract-fn #'ignore)))
+           (issues (vulpea-doctor--issues)))
+      (should-not (seq-some
+                   (lambda (i) (string-match-p "declare :requires-ast" i))
+                   issues)))))
 
 (ert-deftest vulpea-doctor-reports-async-state ()
   "The report carries an async extraction section."

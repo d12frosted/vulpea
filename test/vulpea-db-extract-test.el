@@ -928,6 +928,133 @@ https://github.com/d12frosted/vulpea/issues/277."
                    (list :id "test"))))
       (should (equal (plist-get result :custom) "enriched")))))
 
+;;; Requires-AST Default and Determinism
+;; https://github.com/d12frosted/vulpea/issues/362
+
+(ert-deftest vulpea-db-extract-requires-ast-defaults-to-unset ()
+  "The :requires-ast default is the `unset' sentinel, not t.
+Fast by default: a plugin author who forgets the declaration must not
+silently degrade parsing for every user.  The sentinel (rather than
+plain nil) lets `vulpea-doctor' nudge authors to declare explicitly."
+  (let ((extractor (make-vulpea-extractor :name 'x :extract-fn #'ignore)))
+    (should (eq 'unset (vulpea-extractor-requires-ast extractor)))
+    (should-not (vulpea-extractor-requires-ast-p extractor))))
+
+(ert-deftest vulpea-db-extract-requires-ast-p-only-on-explicit-t ()
+  "Only an explicit :requires-ast t counts as an AST reader."
+  (should (vulpea-extractor-requires-ast-p
+           (make-vulpea-extractor
+            :name 'x :extract-fn #'ignore :requires-ast t)))
+  (should-not (vulpea-extractor-requires-ast-p
+               (make-vulpea-extractor
+                :name 'x :extract-fn #'ignore :requires-ast nil))))
+
+(ert-deftest vulpea-db-extract-undeclared-extractor-keeps-element-granularity ()
+  "An extractor without a :requires-ast declaration keeps 'element parsing."
+  (let ((vulpea-db-parse-granularity 'element)
+        (vulpea-db--extractors
+         (list (make-vulpea-extractor :name 'undeclared
+                                      :extract-fn #'ignore))))
+    (should (eq 'element (vulpea-db--effective-granularity)))))
+
+(ert-deftest vulpea-db-extract-declared-ast-extractor-forces-object ()
+  "An extractor declaring :requires-ast t forces the full 'object parse."
+  (let ((vulpea-db-parse-granularity 'element)
+        (vulpea-db--extractors
+         (list (make-vulpea-extractor :name 'reader
+                                      :requires-ast t
+                                      :extract-fn #'ignore))))
+    (should (eq 'object (vulpea-db--effective-granularity)))))
+
+(ert-deftest vulpea-db-extract-undeclared-extractor-receives-nil-ast ()
+  "Extractors that do not declare :requires-ast t always get a nil AST.
+Deterministic failure: an AST-reading extractor missing the
+declaration visibly extracts nothing on first test, instead of
+subtly missing inline objects in the sometimes-degraded
+element-granularity tree."
+  (let ((vulpea-db--extractors nil)
+        (seen-undeclared 'not-called)
+        (seen-nil 'not-called))
+    (vulpea-db-register-extractor
+     (make-vulpea-extractor
+      :name 'undeclared
+      :extract-fn (lambda (ctx data)
+                    (setq seen-undeclared (vulpea-parse-ctx-ast ctx))
+                    data)))
+    (vulpea-db-register-extractor
+     (make-vulpea-extractor
+      :name 'declared-nil
+      :requires-ast nil
+      :extract-fn (lambda (ctx data)
+                    (setq seen-nil (vulpea-parse-ctx-ast ctx))
+                    data)))
+    (vulpea-db--run-extractors
+     (make-vulpea-parse-ctx :path "/tmp/x.org" :ast '(org-data nil))
+     (list :id "test"))
+    (should (null seen-undeclared))
+    (should (null seen-nil))))
+
+(ert-deftest vulpea-db-extract-mixed-extractors-ast-isolation ()
+  "Stripping the AST for one extractor must not affect the others.
+A declared AST reader still receives the full tree even when it runs
+after an AST-free extractor, and the original context is untouched."
+  (let ((vulpea-db--extractors nil)
+        (ast '(org-data nil))
+        (seen-free 'not-called)
+        (seen-reader 'not-called))
+    (vulpea-db-register-extractor
+     (make-vulpea-extractor
+      :name 'ast-free
+      :priority 10
+      :requires-ast nil
+      :extract-fn (lambda (ctx data)
+                    (setq seen-free (vulpea-parse-ctx-ast ctx))
+                    data)))
+    (vulpea-db-register-extractor
+     (make-vulpea-extractor
+      :name 'ast-reader
+      :priority 20
+      :requires-ast t
+      :extract-fn (lambda (ctx data)
+                    (setq seen-reader (vulpea-parse-ctx-ast ctx))
+                    data)))
+    (let ((ctx (make-vulpea-parse-ctx :path "/tmp/x.org" :ast ast)))
+      (vulpea-db--run-extractors ctx (list :id "test"))
+      (should (null seen-free))
+      (should (eq ast seen-reader))
+      (should (eq ast (vulpea-parse-ctx-ast ctx))))))
+
+(ert-deftest vulpea-db-extract-nil-ast-end-to-end ()
+  "Through a real file index, an undeclared extractor sees a nil AST
+while a declared one still receives the parsed tree."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((path (vulpea-test--create-temp-org-file
+                 ":PROPERTIES:\n:ID: nil-ast-e2e\n:END:\n#+TITLE: X\n"))
+          (vulpea-db--extractors nil)
+          (seen-undeclared 'not-called)
+          (seen-reader 'not-called))
+      (unwind-protect
+          (progn
+            (vulpea-db-register-extractor
+             (make-vulpea-extractor
+              :name 'undeclared
+              :extract-fn (lambda (ctx data)
+                            (setq seen-undeclared (vulpea-parse-ctx-ast ctx))
+                            data)))
+            (vulpea-db-register-extractor
+             (make-vulpea-extractor
+              :name 'reader
+              :requires-ast t
+              :extract-fn (lambda (ctx data)
+                            (setq seen-reader (vulpea-parse-ctx-ast ctx))
+                            data)))
+            (vulpea-db-update-file path)
+            (should (null seen-undeclared))
+            (should seen-reader)
+            (should (eq 'org-data (org-element-type seen-reader))))
+        (delete-file path)))))
+
 (ert-deftest vulpea-db-extract-schema-registration ()
   "Test plugin schema is applied when extractor is registered."
   (vulpea-test--with-temp-db
@@ -1059,6 +1186,9 @@ This serves as documentation for plugin authors."
         :name 'citations
         :version 1
         :priority 50
+        ;; The extract-fn reads (vulpea-parse-ctx-ast ctx), so it
+        ;; must declare it - undeclared extractors get a nil AST
+        :requires-ast t
         :schema '((citations
                    [(note-id :not-null)
                     (citekey :not-null)]

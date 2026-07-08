@@ -202,8 +202,14 @@ from worker-extracted results too."
   (should-not (vulpea-db-worker-can-handle-p "/tmp/note.org.gpg"))
   ;; AST-reading extractor plugins never cross processes
   (let ((vulpea-db--extractors
-         (list (make-vulpea-extractor :name 'fake :extract-fn #'ignore))))
+         (list (make-vulpea-extractor :name 'fake :requires-ast t
+                                      :extract-fn #'ignore))))
     (should-not (vulpea-db-worker-can-handle-p "/tmp/note.org")))
+  ;; ...but only when declared: undeclared extractors run against a
+  ;; nil-AST context in the main process, so the worker stays usable
+  (let ((vulpea-db--extractors
+         (list (make-vulpea-extractor :name 'fake :extract-fn #'ignore))))
+    (should (vulpea-db-worker-can-handle-p "/tmp/note.org")))
   ;; Predicate-valued heading-level indexing is not serializable
   (let ((vulpea-db-index-heading-level (lambda (_) t)))
     (should-not (vulpea-db-worker-can-handle-p "/tmp/note.org"))))
@@ -623,14 +629,29 @@ notes are lost, no extractor output is lost."
     (should-not (vulpea-db-worker--full-write-p))))
 
 (ert-deftest vulpea-db-worker-ast-extractor-still-disables-async ()
-  "Extractors without the declaration keep the conservative behavior."
-  (let ((vulpea-db--extractors
+  "Extractors declaring :requires-ast t keep the conservative behavior."
+  (let ((vulpea-db-parse-granularity 'element)
+        (vulpea-db--extractors
          (list (make-vulpea-extractor
                 :name 'needs-ast
                 :version 1
+                :requires-ast t
                 :extract-fn #'ignore))))
     (should-not (vulpea-db-worker-can-handle-p "/tmp/note.org"))
     (should (eq 'object (vulpea-db--effective-granularity)))))
+
+(ert-deftest vulpea-db-worker-undeclared-extractor-stays-async ()
+  "An extractor without a :requires-ast declaration keeps async alive.
+Fast by default: it runs in the main process against a nil-AST
+context, and extraction stays at element granularity."
+  (let ((vulpea-db-parse-granularity 'element)
+        (vulpea-db--extractors
+         (list (make-vulpea-extractor
+                :name 'undeclared
+                :version 1
+                :extract-fn #'ignore))))
+    (should (vulpea-db-worker-can-handle-p "/tmp/note.org"))
+    (should (eq 'element (vulpea-db--effective-granularity)))))
 
 (ert-deftest vulpea-db-worker-threshold-routing ()
   "The size threshold routes small files to the synchronous path."
