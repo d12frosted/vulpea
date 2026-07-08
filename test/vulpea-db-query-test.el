@@ -400,6 +400,24 @@ from being inserted into the normalized tags table."
     ;; only id links when filtered
     (should (= (gethash "target" (vulpea-db-query-backlink-counts "id")) 1))))
 
+(ert-deftest vulpea-db-query-backlink-counts-with-type-list ()
+  "Test backlink counts can be restricted to a set of link types."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "target" "Target")
+    (vulpea-test--insert-test-note "src1" "Source 1"
+                                   :links '((:dest "target" :type "id" :pos 100)
+                                            (:dest "target" :type "denote" :pos 200)
+                                            (:dest "target" :type "file" :pos 300)))
+
+    ;; id + denote counted, file excluded
+    (should (= (gethash "target"
+                        (vulpea-db-query-backlink-counts '("id" "denote")))
+               2))
+    ;; single-element list behaves like the string form
+    (should (= (gethash "target" (vulpea-db-query-backlink-counts '("id")))
+               1))))
+
 ;;; Attachment Query Tests
 
 (ert-deftest vulpea-db-query-attachments-by-path-basic ()

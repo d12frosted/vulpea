@@ -810,18 +810,28 @@ cheaper than calling `vulpea-db-query-links-to' once per note when you
 need counts for many notes (for example to display a backlink count in a
 completion UI).
 
-When LINK-TYPE is non-nil (e.g. \"id\"), only links of that type are
-counted; otherwise links of every type are included."
+When LINK-TYPE is non-nil, only links of that type are counted;
+otherwise links of every type are included.  It is either a single
+type (e.g. \"id\") or a list of types (e.g. (\"id\" \"denote\")), in
+which case links of any listed type are counted."
   (let ((counts (make-hash-table :test 'equal))
-        (rows (if link-type
-                  (emacsql (vulpea-db)
-                           [:select [dest (funcall count *)] :from links
-                            :where (= type $s1)
-                            :group-by dest]
-                           link-type)
+        (rows (cond
+               ((null link-type)
                 (emacsql (vulpea-db)
                          [:select [dest (funcall count *)] :from links
-                          :group-by dest]))))
+                          :group-by dest]))
+               ((listp link-type)
+                (emacsql (vulpea-db)
+                         [:select [dest (funcall count *)] :from links
+                          :where (in type $v1)
+                          :group-by dest]
+                         (vconcat link-type)))
+               (t
+                (emacsql (vulpea-db)
+                         [:select [dest (funcall count *)] :from links
+                          :where (= type $s1)
+                          :group-by dest]
+                         link-type)))))
     (dolist (row rows counts)
       (puthash (nth 0 row) (nth 1 row) counts))))
 
