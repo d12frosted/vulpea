@@ -879,7 +879,12 @@ for the original title and once for each alias."
 
 ;;;###autoload
 (defun vulpea-find-backlink ()
-  "Select and find a note linked to current note."
+  "Select and find a note linked to current note.
+
+Point lands on the first link pointing back to the current note,
+so you see the mention itself instead of the beginning of the
+selected note. When the link cannot be found in the buffer (e.g.
+the file changed since the last sync), point stays at the note."
   (interactive)
   (let* ((id (or (org-entry-get nil "ID" t)
                  (user-error "Current location has no ID property")))
@@ -890,11 +895,28 @@ for the original title and once for each alias."
                      (list (cons "id" id)))))
     (unless backlinks
       (user-error "There are no backlinks to the current note"))
-    (vulpea-find
-     :candidates-fn (lambda (_) backlinks)
-     :require-match t)))
+    (let ((note (vulpea-select-from "Note" backlinks
+                                    :require-match t
+                                    :expand-aliases t)))
+      (when (vulpea-note-id note)
+        (vulpea-visit note)
+        ;; Land on the link itself rather than the beginning of the note
+        (when (re-search-forward
+               (format "\\[\\[id:%s[]\\[]" (regexp-quote id))
+               nil t)
+          (goto-char (match-beginning 0))
+          (vulpea--show-context))))))
 
 
+
+(defun vulpea--show-context ()
+  "Reveal the org context around point."
+  (if (fboundp 'org-fold-show-context)
+      (org-fold-show-context)
+    ;; Fallback for Org < 9.6; the function is obsolete there but
+    ;; still the correct entry point, so silence the warning.
+    (with-suppressed-warnings ((obsolete org-show-context))
+      (org-show-context))))
 
 ;;;###autoload
 (defun vulpea-visit (note-or-id &optional other-window)
@@ -927,12 +949,7 @@ If OTHER-WINDOW, visit the NOTE in another window."
           (user-error "Could not find heading with ID: %s" id))
         ;; Move to the heading
         (org-back-to-heading t))
-      (if (fboundp 'org-fold-show-context)
-          (org-fold-show-context)
-        ;; Fallback for Org < 9.6; the function is obsolete there but
-        ;; still the correct entry point, so silence the warning.
-        (with-suppressed-warnings ((obsolete org-show-context))
-          (org-show-context))))))
+      (vulpea--show-context))))
 
 
 

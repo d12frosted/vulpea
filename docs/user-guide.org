@@ -28,7 +28,7 @@ Find notes that link to the current note:
 M-x vulpea-find-backlink
 #+end_example
 
-This is useful for discovering connections - seeing what other notes reference the one you're viewing.
+This is useful for discovering connections - seeing what other notes reference the one you're viewing. After you select a note, point lands on the link pointing back to the current note, so you see the mention in its context instead of the beginning of the note.
 
 ** Customizing How Notes Are Displayed
 
