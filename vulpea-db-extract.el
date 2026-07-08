@@ -264,7 +264,7 @@ Example:
   worker-lib)
 
 (defun vulpea-extractor-requires-ast-p (extractor)
-  "Return non-nil when EXTRACTOR declares that it reads the AST.
+  "Return non-nil when EXTRACTOR is a declared AST reader.
 Only an explicit :requires-ast t counts; nil and the default `unset'
 sentinel both mean the extractor works purely from note data and
 receives a parse context whose AST slot is nil."
