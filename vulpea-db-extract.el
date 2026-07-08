@@ -232,21 +232,29 @@ Slots:
                  function, it transparently falls back to streaming
                  results so the extractor runs in the main process -
                  nothing is lost, only the zero-freeze write.
-  requires-ast - Whether extract-fn reads the parse context's AST
-                 (default: t).  Declaring nil unlocks two things:
-                 extraction stays at the fast element granularity
-                 (see `vulpea-db-parse-granularity'), and files stay
-                 eligible for the async extraction worker - the
-                 extractor then runs in the main process against a
-                 context whose AST slot may be nil.  Declare nil only
-                 when extract-fn works purely from NOTE-DATA (an
-                 attachment scanner reading :attach-dir, for example).
+  requires-ast - Whether extract-fn reads the parse context's AST.
+                 Declare t when extract-fn calls
+                 `vulpea-parse-ctx-ast': the file is then parsed at
+                 the full object granularity regardless of
+                 `vulpea-db-parse-granularity', and extraction never
+                 runs in the async worker (the AST cannot cross the
+                 process boundary).  Any other value means extract-fn
+                 works purely from NOTE-DATA (an attachment scanner
+                 reading :attach-dir, for example): extraction stays
+                 fast and worker-eligible, and the extractor always
+                 receives a context whose AST slot is nil - so an
+                 undeclared AST reader visibly extracts nothing
+                 instead of subtly missing inline objects.  The
+                 default is the symbol `unset', which behaves like
+                 nil but lets `vulpea-doctor' nudge authors to
+                 declare their intent explicitly.
 
 Example:
   (make-vulpea-extractor
    :name 'citations
    :version 1
    :priority 50
+   :requires-ast t  ; my-extract-citations maps the AST
    :schema '((citations [(note-id :not-null)
                          (citekey :not-null)]
               (:foreign-key [note-id] :references notes [id]
@@ -257,9 +265,16 @@ Example:
   schema
   (priority 100)
   extract-fn
-  (requires-ast t)
+  (requires-ast 'unset)
   worker-safe
   worker-lib)
+
+(defun vulpea-extractor-requires-ast-p (extractor)
+  "Return non-nil when EXTRACTOR is a declared AST reader.
+Only an explicit :requires-ast t counts; nil and the default `unset'
+sentinel both mean the extractor works purely from note data and
+receives a parse context whose AST slot is nil."
+  (eq (vulpea-extractor-requires-ast extractor) t))
 
 ;;; Core Parsing
 
@@ -314,11 +329,11 @@ the test suite locks their equivalence on an adversarial corpus.
 Known difference: radio links (<<<target>>> matches in plain text)
 are only picked up in \\='object mode.
 
-This setting only applies while no extractors are registered via
-`vulpea-db-register-extractor'.  Registered extractors receive the
-parse context including its AST and may inspect inline objects, so
+Extractors registered via `vulpea-db-register-extractor' with an
+explicit :requires-ast t declaration may inspect inline objects, so
 their presence forces a full \\='object parse (see
-`vulpea-db--effective-granularity')."
+`vulpea-db--effective-granularity').  Other extractors do not affect
+this setting - they receive a parse context whose AST slot is nil."
   :group 'vulpea
   :type '(choice (const :tag "Element granularity (fast)" element)
           (const :tag "Object granularity (full parse)" object)))
@@ -358,10 +373,11 @@ apply it everywhere at once."
   "Return the parse granularity to use for the current parse.
 
 Honors `vulpea-db-parse-granularity', except when extractor plugins
-that read the AST are registered (they may map inline objects like
-citations): those force \\='object granularity.  Extractors declaring
-:requires-ast nil do not."
-  (if (seq-some #'vulpea-extractor-requires-ast vulpea-db--extractors)
+declaring :requires-ast t are registered (they may map inline
+objects like citations): those force \\='object granularity.
+Extractors without that declaration do not - they receive a parse
+context whose AST slot is nil."
+  (if (seq-some #'vulpea-extractor-requires-ast-p vulpea-db--extractors)
       'object
     vulpea-db-parse-granularity))
 
@@ -1232,7 +1248,9 @@ When using the simple form (backward compatible):
   (vulpea-db-register-extractor \\='my-extractor #\\='my-extract-fn)
 
 FN should be a function taking (ctx note-data) where:
-- ctx is a `vulpea-parse-ctx' structure
+- ctx is a `vulpea-parse-ctx' structure; its AST slot is nil unless
+  the extractor declares :requires-ast t (the simple form cannot,
+  so AST readers must use the struct form)
 - note-data is the plist being built for the note
 
 FN should return updated note-data plist.  Changes it makes to core
@@ -1302,12 +1320,32 @@ persists changes to core fields (see
 is treated as returning note-data as it now stands - in-place
 mutations included.  The historical contract discarded return
 values entirely, so plugins ending in a `when'-guarded insert must
-stay harmless."
-  (cl-reduce (lambda (data extractor)
-               (or (funcall (vulpea-extractor-extract-fn extractor) ctx data)
-                   data))
-             vulpea-db--extractors
-             :initial-value note-data))
+stay harmless.
+
+Only extractors declaring :requires-ast t see the AST slot of CTX;
+every other extractor receives a copy whose AST is nil.  Handing
+them whatever tree the core parse happened to produce would be
+non-deterministic - sometimes the full object tree, sometimes the
+degraded element-granularity one, and nil when results arrive from
+the async worker.  An AST reader that forgot the declaration then
+fails visibly on first test instead of subtly missing inline
+objects."
+  (let (ast-free-ctx)
+    (cl-reduce
+     (lambda (data extractor)
+       (or (funcall (vulpea-extractor-extract-fn extractor)
+                    (cond
+                     ((vulpea-extractor-requires-ast-p extractor) ctx)
+                     ((null (vulpea-parse-ctx-ast ctx)) ctx)
+                     (t (or ast-free-ctx
+                            (setq ast-free-ctx
+                                  (let ((copy (copy-vulpea-parse-ctx ctx)))
+                                    (setf (vulpea-parse-ctx-ast copy) nil)
+                                    copy)))))
+                    data)
+           data))
+     vulpea-db--extractors
+     :initial-value note-data)))
 
 ;;; Update File
 

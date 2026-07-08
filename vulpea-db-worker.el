@@ -547,9 +547,10 @@ lands here.  Idempotent: the second caller finds no pending work."
 
 A list of symbols, nil when the worker can handle PATH faithfully:
 - `broken': the worker crash-looped (see `vulpea-db-worker-reset')
-- `ast-extractors': registered extractors read the AST, which never
-  crosses the process boundary (extractors declaring :requires-ast
-  nil are fine - they run in the main process during apply)
+- `ast-extractors': registered extractors declare :requires-ast t
+  and read the AST, which never crosses the process boundary (all
+  other extractors are fine - they run in the main process during
+  apply, against a context whose AST slot is nil)
 - `heading-level-predicate': `vulpea-db-index-heading-level' is a
   function, which is not serializable
 - `extension': PATH is not a plain .org file (decryption may require
@@ -557,7 +558,7 @@ A list of symbols, nil when the worker can handle PATH faithfully:
   (let (reasons)
     (when vulpea-db-worker--broken
       (push 'broken reasons))
-    (when (seq-some #'vulpea-extractor-requires-ast vulpea-db--extractors)
+    (when (seq-some #'vulpea-extractor-requires-ast-p vulpea-db--extractors)
       (push 'ast-extractors reasons))
     (unless (booleanp vulpea-db-index-heading-level)
       (push 'heading-level-predicate reasons))

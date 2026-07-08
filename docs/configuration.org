@@ -222,13 +222,16 @@ validation keeps running in your session.
 *Extractor plugins* interact with async extraction through two
 declarations on =make-vulpea-extractor=:
 
-- =:requires-ast nil= states that the extract function works purely
-  from note data (an attachment scanner reading =:attach-dir=, for
-  example) and never touches the parse context's AST. Without it,
-  a registered extractor conservatively disables async extraction
-  for every file /and/ forces the slower =object= parse granularity.
-  With it, extraction stays fast and the extractor runs in the main
-  process when worker results arrive.
+- =:requires-ast t= states that the extract function reads the parse
+  context's AST. It is the only way to receive one - extractors
+  without the declaration always get a nil AST slot - and it
+  disables async extraction for every file /and/ forces the slower
+  =object= parse granularity, since the AST cannot cross the process
+  boundary. Extractors that work purely from note data (an
+  attachment scanner reading =:attach-dir=, for example) should
+  declare =:requires-ast nil=: extraction stays fast, files stay
+  worker-eligible, and the extractor runs in the main process when
+  worker results arrive.
 - =:worker-safe t= (plus =:worker-lib= naming a feature or file that
   defines the function) additionally allows the extractor to run
   /inside/ the worker in ='full= mode, writing its tables through the

@@ -403,8 +403,10 @@ variable watchers) and does not run =org-mode-hook= - the same
 trade-off as =vulpea-db-parse-method= ='single-temp-buffer=. Files it
 cannot handle faithfully take the synchronous path automatically:
 non-.org files, function-valued =vulpea-db-index-heading-level=, and
-extractor plugins that read the AST (see the plugin guide for the
-=:requires-ast= and =:worker-safe= declarations).
+extractor plugins declaring =:requires-ast t= (see the plugin guide
+for the =:requires-ast= and =:worker-safe= declarations; extractors
+without that declaration receive a nil-AST context and stay
+worker-compatible).
 
 ='full= degrades to =t= when WAL journaling cannot be enabled, when
 note index filters are active, or when the worker runs different

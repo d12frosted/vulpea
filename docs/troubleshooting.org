@@ -417,13 +417,18 @@ timing, and the worker's stderr.
 
 ** Async is enabled but saves still block
 
-Almost always: a registered extractor plugin. Extractors receive the
-parse context including the AST, which cannot cross the process
-boundary, so any extractor without a =:requires-ast nil= declaration
-routes *every* file to the synchronous path - silently. Both
-=vulpea-doctor= and =vulpea-db-worker-diagnose= flag this. Fix: add
-=:requires-ast nil= to extractors that work purely from note data
-\(see the plugin guide).
+Almost always: a registered extractor plugin declaring
+=:requires-ast t=. The AST cannot cross the process boundary, so an
+AST-reading extractor routes *every* file to the synchronous path.
+Both =vulpea-doctor= and =vulpea-db-worker-diagnose= report this.
+Extractors without that declaration are harmless here - they run
+against a nil-AST context in the main process (see the plugin
+guide).
+
+The related trap points the other way: an extractor that reads the
+AST but /forgot/ to declare =:requires-ast t= extracts nothing,
+because undeclared extractors always receive a nil AST. If a plugin's
+table stays empty, check its declaration first.
 
 ** Full mode configured, but writes happen on the main thread
 

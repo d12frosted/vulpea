@@ -40,17 +40,26 @@ Every extractor receives a parse context with:
 - =:file-hash= - content hash for change detection
 - =:file-mtime= - modification time
 - =:file-size= - file size in bytes
-- =:ast= - complete org-element AST for the file
+- =:ast= - complete org-element AST for the file (only for
+  extractors declaring =:requires-ast t=; nil for everyone else)
 - =:file-node= - parsed file-level note data
 - =:heading-nodes= - list of parsed heading-level notes
 
 Access context data using:
 
 #+begin_src emacs-lisp
-(vulpea-parse-ctx-ast ctx)          ; Get the AST
+(vulpea-parse-ctx-ast ctx)          ; Get the AST (requires-ast t only)
 (vulpea-parse-ctx-file-node ctx)    ; Get file-level note
 (vulpea-parse-ctx-heading-nodes ctx) ; Get all headings
 #+end_src
+
+*The AST is opt-in.* An extractor only receives the AST when its
+definition declares =:requires-ast t= - every other extractor gets a
+context whose =:ast= slot is nil, deterministically. This is because
+a full AST parse is 2-3x slower than what vulpea needs for its own
+extraction, and the AST cannot cross the async worker's process
+boundary; the declaration is how you consciously pay that cost. See
+[[*Extractors and Async Extraction]] for the full picture.
 
 ** Note Data (=note-data=)
 
@@ -92,9 +101,22 @@ Use =make-vulpea-extractor= to create an extractor:
  :name 'my-extractor          ; Symbol identifying the extractor
  :version 1                   ; Schema version for migrations
  :priority 50                 ; Execution order (lower = earlier)
+ :requires-ast t              ; Declare when extract-fn reads the AST
  :schema '(...)               ; Database schema definition
  :extract-fn #'my-extract-fn) ; Extraction function
 #+end_src
+
+Declare =:requires-ast= explicitly, one way or the other:
+
+- =:requires-ast t= if your function calls =(vulpea-parse-ctx-ast ctx)=.
+  Without this declaration the AST slot is always nil and your
+  extractor will extract nothing.
+- =:requires-ast nil= if it works purely from =note-data= (and the
+  non-AST context slots). This keeps extraction fast and files
+  eligible for async extraction.
+
+Leaving it undeclared behaves like nil, but =M-x vulpea-doctor= will
+nag about it.
 
 ** Step 2: Define the Schema
 
@@ -126,6 +148,7 @@ NOTE-DATA is the plist of note data being processed.
 
 Returns NOTE-DATA, possibly with additional keys added."
   ;; 1. Extract data from the AST
+  ;;    (only available when the extractor declares :requires-ast t)
   (let* ((ast (vulpea-parse-ctx-ast ctx))
          (note-id (plist-get note-data :id))
          (my-data (extract-my-data ast)))
@@ -156,6 +179,7 @@ Register your extractor during initialization:
   :name 'my-extractor
   :version 1
   :priority 50
+  :requires-ast t  ; my-extractor-fn reads the AST
   :schema '((my_table [...]))
   :extract-fn #'my-extractor-fn))
 #+end_src
@@ -252,9 +276,8 @@ Example:
 
 With =vulpea-db-async-extraction= enabled, parsing happens in a
 worker subprocess - and the org-element AST never crosses the
-process boundary. This matters for extractors, because their
-contract includes the AST. Two declarations on =make-vulpea-extractor=
-control the interaction:
+process boundary. This is why the AST is opt-in for extractors. Two
+declarations on =make-vulpea-extractor= control the interaction:
 
 #+begin_src emacs-lisp
 (vulpea-db-register-extractor
@@ -267,17 +290,20 @@ control the interaction:
   :extract-fn #'my-attachments-fn))
 #+end_src
 
-- Without any declaration (the default), a registered extractor
-  conservatively disables async extraction for *every* file and
-  forces the slower ='object= parse granularity. Correct, but you
-  lose both performance features.
-- =:requires-ast nil= declares that your function never touches
-  =(vulpea-parse-ctx-ast ctx)= - it works from the NOTE-DATA plist
-  \(=:id=, =:attach-dir=, =:meta=, ...). Extraction stays at
-  ='element= granularity and files stay worker-eligible; your
-  extractor runs in the main process when results arrive, against a
-  context whose AST slot may be nil.
-- =:worker-safe t= (requires =:requires-ast nil= in practice, and a
+- =:requires-ast t= declares that your function reads
+  =(vulpea-parse-ctx-ast ctx)=. It is the only way to receive the
+  AST, and it has a price: every file is parsed at the slower
+  ='object= granularity, and async extraction is disabled for
+  *every* file (the AST cannot cross the process boundary).
+- Anything else - =:requires-ast nil= or no declaration at all (the
+  default) - means your function works from the NOTE-DATA plist
+  \(=:id=, =:attach-dir=, =:meta=, ...) and the non-AST context
+  slots. Extraction stays at ='element= granularity and files stay
+  worker-eligible; your extractor runs in the main process when
+  results arrive, against a context whose AST slot is *always* nil.
+  Prefer the explicit =:requires-ast nil= - it states intent, and
+  =M-x vulpea-doctor= nudges about undeclared extractors.
+- =:worker-safe t= (requires a non-AST extractor in practice, and a
   symbol =:extract-fn=) additionally lets the extractor run *inside*
   the worker in ='full= mode, writing its tables through the
   worker's connection - preserving the zero-freeze write. The worker
@@ -285,8 +311,12 @@ control the interaction:
   transparently falls back to streaming results and your extractor
   runs in the main process. Nothing is lost either way.
 
-Declare honestly: =:requires-ast nil= on a function that does read
-the AST will find that AST nil at apply time.
+Declare honestly: an AST reader without =:requires-ast t= finds the
+AST nil every single time - it extracts nothing, and you notice on
+first test. This is deliberate. The alternative (handing over
+whatever tree the core parse happened to build) would sometimes be
+the full object tree and sometimes a degraded element-granularity
+one that silently lacks inline objects like citations.
 
 Contributions to core =note-data= fields (see [[*Contributing to Core
 Data][Contributing to Core Data]]) work identically in every mode:
@@ -378,6 +408,7 @@ stores them in a custom table.
   :name 'citations
   :version 1
   :priority 50
+  :requires-ast t  ; my-extract-citations maps the AST
   :schema '((citations
              [(note-id :not-null)
               (citekey :not-null)]
@@ -435,11 +466,13 @@ See =test/vulpea-db-extract-test.el= for the complete test:
 
 ** Extraction Logic
 
-1. *Use =org-element-map=*: Efficient AST traversal
-2. *Handle missing data gracefully*: Check for nil before inserting
-3. *Use =delete-dups=*: Remove duplicate entries before insertion
-4. *Batch inserts*: Use =:values $v1= with vector list
-5. *Keep extractors focused*: One table/concept per extractor
+1. *Declare =:requires-ast= explicitly*: =t= if you read the AST
+   (without it the AST is nil), =nil= if you work from note data
+2. *Use =org-element-map=*: Efficient AST traversal
+3. *Handle missing data gracefully*: Check for nil before inserting
+4. *Use =delete-dups=*: Remove duplicate entries before insertion
+5. *Batch inserts*: Use =:values $v1= with vector list
+6. *Keep extractors focused*: One table/concept per extractor
 
 ** Performance
 
@@ -565,7 +598,7 @@ Fetch data from external sources:
   (message "Note ID: %s" (plist-get note-data :id))
   (message "Note title: %s" (plist-get note-data :title))
 
-  ;; Inspect AST structure
+  ;; Inspect AST structure (nil unless registered with :requires-ast t)
   (let ((ast (vulpea-parse-ctx-ast ctx)))
     (message "AST type: %s" (org-element-type ast)))
 
@@ -619,7 +652,8 @@ Fetch data from external sources:
 - =(vulpea-parse-ctx-file-hash CTX)= :: Get file hash
 - =(vulpea-parse-ctx-file-mtime CTX)= :: Get modification time
 - =(vulpea-parse-ctx-file-size CTX)= :: Get file size
-- =(vulpea-parse-ctx-ast CTX)= :: Get org-element AST
+- =(vulpea-parse-ctx-ast CTX)= :: Get org-element AST (nil unless the
+  extractor declares =:requires-ast t=)
 - =(vulpea-parse-ctx-file-node CTX)= :: Get file-level note data
 - =(vulpea-parse-ctx-heading-nodes CTX)= :: Get heading-level notes
 

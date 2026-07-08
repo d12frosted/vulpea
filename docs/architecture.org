@@ -117,6 +117,7 @@ Current vulpea requires repeating org-roam parsing operations because parsed dat
   (make-vulpea-extractor
    :name 'citations
    :version 1
+   :requires-ast t  ; reads the AST, which is opt-in
    :schema '((citations [(note-id :not-null) (citekey :not-null)]))
    :extract-fn #'my-extract-citations
    :priority 100))

@@ -202,8 +202,14 @@ from worker-extracted results too."
   (should-not (vulpea-db-worker-can-handle-p "/tmp/note.org.gpg"))
   ;; AST-reading extractor plugins never cross processes
   (let ((vulpea-db--extractors
-         (list (make-vulpea-extractor :name 'fake :extract-fn #'ignore))))
+         (list (make-vulpea-extractor :name 'fake :requires-ast t
+                                      :extract-fn #'ignore))))
     (should-not (vulpea-db-worker-can-handle-p "/tmp/note.org")))
+  ;; ...but only when declared: undeclared extractors run against a
+  ;; nil-AST context in the main process, so the worker stays usable
+  (let ((vulpea-db--extractors
+         (list (make-vulpea-extractor :name 'fake :extract-fn #'ignore))))
+    (should (vulpea-db-worker-can-handle-p "/tmp/note.org")))
   ;; Predicate-valued heading-level indexing is not serializable
   (let ((vulpea-db-index-heading-level (lambda (_) t)))
     (should-not (vulpea-db-worker-can-handle-p "/tmp/note.org"))))
@@ -621,6 +627,48 @@ connection."
                 (should (string-match-p "worker-dest" links-json)))))
         (delete-file lib)))))
 
+(ert-deftest vulpea-db-worker-worker-safe-extractor-sees-nil-ast ()
+  "The nil-AST guarantee holds inside the worker too.
+A worker-safe extractor without :requires-ast t runs in the worker
+process, where a parsed tree actually exists - the stripping in
+`vulpea-db--run-extractors' must hide it there as well, so the
+guarantee stays deterministic in every mode."
+  (let ((lib (make-temp-file "vulpea-worker-nilast-" nil ".el"
+                             "(require 'vulpea-db)\n(require 'emacsql)\n(defun vulpea-test-worker-nilast-fn (ctx note-data)\n  (emacsql (vulpea-db)\n           [:insert :into worker-nilast :values $v1]\n           (vector (plist-get note-data :id)\n                   (if (vulpea-parse-ctx-ast ctx) \"ast\" \"nil\")))\n  note-data)\n")))
+    (vulpea-db-worker-test--with-file
+        ":PROPERTIES:\n:ID: nilast-note\n:END:\n#+TITLE: N\n"
+      (unwind-protect
+          (vulpea-test--with-temp-db
+            (vulpea-db)
+            (let ((vulpea-db--extractors nil)
+                  (vulpea-db-async-extraction 'full)
+                  (vulpea-db-note-index-filter-functions nil)
+                  statuses)
+              ;; Define the fn locally too (registration side)
+              (load lib nil t)
+              (vulpea-db-register-extractor
+               (make-vulpea-extractor
+                :name 'worker-nilast
+                :version 1
+                :requires-ast nil
+                :worker-safe t
+                :worker-lib lib
+                :schema '((worker-nilast
+                           [(note-id :not-null) (ast :not-null)]))
+                :extract-fn #'vulpea-test-worker-nilast-fn))
+              (should (vulpea-db-worker--full-write-p))
+              (let ((vulpea-db-worker-done-functions
+                     (list (lambda (_path status _count)
+                             (push status statuses)))))
+                (vulpea-db-worker-request path)
+                (vulpea-db-worker-test--wait))
+              (should (equal statuses '(applied)))
+              (should (equal '(("nilast-note" "nil"))
+                             (emacsql (vulpea-db)
+                                      [:select [note-id ast]
+                                       :from worker-nilast])))))
+        (delete-file lib)))))
+
 (ert-deftest vulpea-db-worker-worker-safe-unresolved-degrades ()
   "A worker-safe extractor the worker cannot resolve degrades safely.
 Without a loadable :worker-lib the worker falls back to streaming the
@@ -673,14 +721,29 @@ notes are lost, no extractor output is lost."
     (should-not (vulpea-db-worker--full-write-p))))
 
 (ert-deftest vulpea-db-worker-ast-extractor-still-disables-async ()
-  "Extractors without the declaration keep the conservative behavior."
-  (let ((vulpea-db--extractors
+  "Extractors declaring :requires-ast t keep the conservative behavior."
+  (let ((vulpea-db-parse-granularity 'element)
+        (vulpea-db--extractors
          (list (make-vulpea-extractor
                 :name 'needs-ast
                 :version 1
+                :requires-ast t
                 :extract-fn #'ignore))))
     (should-not (vulpea-db-worker-can-handle-p "/tmp/note.org"))
     (should (eq 'object (vulpea-db--effective-granularity)))))
+
+(ert-deftest vulpea-db-worker-undeclared-extractor-stays-async ()
+  "An extractor without a :requires-ast declaration keeps async alive.
+Fast by default: it runs in the main process against a nil-AST
+context, and extraction stays at element granularity."
+  (let ((vulpea-db-parse-granularity 'element)
+        (vulpea-db--extractors
+         (list (make-vulpea-extractor
+                :name 'undeclared
+                :version 1
+                :extract-fn #'ignore))))
+    (should (vulpea-db-worker-can-handle-p "/tmp/note.org"))
+    (should (eq 'element (vulpea-db--effective-granularity)))))
 
 (ert-deftest vulpea-db-worker-threshold-routing ()
   "The size threshold routes small files to the synchronous path."
