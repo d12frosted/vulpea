@@ -628,12 +628,12 @@ Identity fields (:id, :path, :level, :pos) are deliberately absent -
 they anchor foreign keys and the file association and must not be
 rewritten after insertion.")
 
-(defun vulpea-db--update-note-fields (id changes)
-  "Persist CHANGES to the note ID across both storage forms.
+(defun vulpea-db--update-note-fields (id fields)
+  "Persist FIELDS of the note ID across both storage forms.
 
-CHANGES is an alist of (FIELD . VALUE) where FIELD is a note-data
-keyword listed in `vulpea-db--note-field-columns'.  Each change
-updates the materialized notes column; fields with a normalized
+FIELDS is an alist of (FIELD . VALUE) where FIELD is a note-data
+keyword listed in `vulpea-db--note-field-columns'.  Each entry
+rewrites the materialized notes column; fields with a normalized
 table (:tags, :links, :meta, :properties) additionally have their
 rows replaced with rows built from VALUE.  Fields not in the mapping
 are ignored.
@@ -642,11 +642,11 @@ This is how extractor-plugin contributions to core fields reach the
 database: the note row is inserted before extractors run (their
 tables hold foreign keys into it), so whatever they change in
 note-data is written as an update afterwards."
-  (when changes
+  (when fields
     (let* ((db (vulpea-db))
            (handle (oref db handle)))
       (emacsql-with-transaction db
-        (pcase-dolist (`(,field . ,value) changes)
+        (pcase-dolist (`(,field . ,value) fields)
           (when-let* ((column (cdr (assq field vulpea-db--note-field-columns))))
             (sqlite-execute
              handle
