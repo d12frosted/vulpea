@@ -2447,5 +2447,72 @@ heading-level fix silently rewrites an unrelated file-level value."
     (should (funcall captured-filter (make-vulpea-note :tags '("producer"))))
     (should-not (funcall captured-filter (make-vulpea-note :tags '("other"))))))
 
+;;; vulpea-find-backlink Tests
+
+(ert-deftest vulpea-find-backlink-jumps-to-link ()
+  "Selecting a backlink lands point on the link itself.
+Not on the beginning of the selected note (vulpea#370)."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((target-id "backlink-target-id")
+           (source-id "backlink-source-id")
+           (target-path (vulpea-test--create-temp-org-file
+                         (format ":PROPERTIES:\n:ID: %s\n:END:\n#+TITLE: Target\n\nContent.\n"
+                                 target-id)))
+           (source-path (vulpea-test--create-temp-org-file
+                         (format ":PROPERTIES:\n:ID: %s\n:END:\n#+TITLE: Source\n\nSome text before the [[id:%s][link to target]] and after.\n"
+                                 source-id target-id))))
+      (unwind-protect
+          (progn
+            (vulpea-db-update-file target-path)
+            (vulpea-db-update-file source-path)
+            (find-file target-path)
+            ;; Mock selection to return the source note
+            (cl-letf (((symbol-function 'vulpea-select-from)
+                       (lambda (&rest _) (vulpea-db-get-by-id source-id))))
+              (vulpea-find-backlink))
+            (should (equal (buffer-file-name) source-path))
+            (should (looking-at (regexp-quote
+                                 (format "[[id:%s]" target-id)))))
+        (dolist (path (list target-path source-path))
+          (when (file-exists-p path)
+            (when-let* ((buf (get-file-buffer path)))
+              (kill-buffer buf))
+            (delete-file path)))))))
+
+(ert-deftest vulpea-find-backlink-link-missing-in-buffer ()
+  "When the link is not in the buffer anymore, point stays at the note.
+The database may be ahead of the file (or vice versa), so a missing
+link must not signal an error."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((target-id "backlink-target-id-2")
+           (source-id "backlink-source-id-2")
+           (target-path (vulpea-test--create-temp-org-file
+                         (format ":PROPERTIES:\n:ID: %s\n:END:\n#+TITLE: Target\n\nContent.\n"
+                                 target-id)))
+           (source-path (vulpea-test--create-temp-org-file
+                         (format ":PROPERTIES:\n:ID: %s\n:END:\n#+TITLE: Source\n\nA [[id:%s][link]] here.\n"
+                                 source-id target-id))))
+      (unwind-protect
+          (progn
+            (vulpea-db-update-file target-path)
+            (vulpea-db-update-file source-path)
+            ;; The file loses the link after the sync
+            (with-temp-file source-path
+              (insert (format ":PROPERTIES:\n:ID: %s\n:END:\n#+TITLE: Source\n\nNo link anymore.\n"
+                              source-id)))
+            (find-file target-path)
+            (cl-letf (((symbol-function 'vulpea-select-from)
+                       (lambda (&rest _) (vulpea-db-get-by-id source-id))))
+              (vulpea-find-backlink))
+            (should (equal (buffer-file-name) source-path))
+            (should (= (point) (point-min))))
+        (dolist (path (list target-path source-path))
+          (when (file-exists-p path)
+            (when-let* ((buf (get-file-buffer path)))
+              (kill-buffer buf))
+            (delete-file path)))))))
+
 (provide 'vulpea-test)
 ;;; vulpea-test.el ends here
