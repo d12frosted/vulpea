@@ -7,7 +7,7 @@ This document compares Vulpea with other Org-mode note management libraries, spe
 
 The author of this document has not used org-node personally; the analysis is based on reading its README and source code. If you notice any inaccuracies, please open an issue or pull request.
 
-Last updated: 2026-06-28
+Last updated: 2026-07-08
 
 * Overview
 
@@ -20,7 +20,7 @@ The key differences lie in their design goals, architecture, and what they enabl
 | Primary goal        | Roam Research for Emacs | Fast org-roam replacement   | Foundation (+ replacement with vulpea-ui/journal) |
 | Storage             | SQLite (persisted)      | Hash tables (+ opt. SQLite) | SQLite (persisted)                                |
 | Parser              | Org's native parser     | Custom regex parser         | Org's native parser                               |
-| Sync model          | Save hooks              | Save hooks + periodic reset | File watchers + async                             |
+| Sync model          | Save hooks              | Save hooks + periodic reset | File watchers + background worker                 |
 | Multi-Emacs support | Problematic             | Per-process (DB caveat)     | Designed for it                                   |
 | Encrypted files     | Yes (.gpg, .age)        | Yes (.gpg/.age, config)     | Yes (.gpg/.age, opt-in)                           |
 | =roam:= links       | Yes                     | No                          | No                                                |
@@ -68,7 +68,7 @@ Vulpea is a *foundation* for building note-based applications. It provides:
 - A stable API layer (=vulpea-note= struct, query functions)
 - Rich structured data extraction
 - Plugin system for custom extractors
-- Async-first architecture - works with multiple Emacs sessions in parallel, and detects external file changes (git, Syncthing, Dropbox, manual edits)
+- Async-first architecture - works with multiple Emacs sessions in parallel, detects external file changes (git, Syncthing, Dropbox, manual edits), and can extract files in a background process so indexing stays off the UI thread
 
 You can use it as an org-roam replacement - combined with [[https://github.com/d12frosted/vulpea-ui][vulpea-ui]] and [[https://github.com/d12frosted/vulpea-journal][vulpea-journal]], it forms a complete note-taking ecosystem. But the core goal is being a stable, tested foundation for building workflows and applications. [[https://github.com/d12frosted/vino][vino]] (wine cellar management) is a good example - it's not a complex application, it just uses the foundation well.
 
@@ -83,6 +83,8 @@ Both use Org's native =org-element= parser. This means:
 - *Accurate* - Sees exactly what Org sees
 - *Complete* - Handles all Org syntax correctly
 - *Slower* - Full parse is more expensive
+
+vulpea softens the cost in two ways: by default it parses at =element= granularity, skipping inline objects that extraction never reads (~2.6x faster than a full parse, with links located by org's own link parser so link semantics are unchanged), and it can run the whole parse in a background Emacs process (see Sync Architecture below), so the remaining cost doesn't block the UI.
 
 *** org-node: Custom regex parser
 
@@ -154,10 +156,14 @@ Uses save hooks plus periodic full cache rebuild. The "rebuild is fast enough" p
 
 Uses file watchers and async background processing:
 
-- Non-blocking - updates never interrupt your typing
 - Detects external changes immediately (git pull, Syncthing, etc.)
 - Multiple Emacs sessions stay in sync
 - Works across machines with live file syncing
+- Saves never block on indexing - changed files go into an async queue
+
+The queue alone doesn't make indexing free: by default its parsing still runs on the main thread, so a large file freezes Emacs for as long as it takes to index. That's what async extraction removes. With =vulpea-db-async-extraction= (opt-in), changed files are read, hashed, parsed, and extracted in a persistent background =emacs --batch= worker - only the database write of the results stays on the main thread. In =full= mode even that moves out: the worker writes the database through its own connection (WAL journaling), and saving a file of /any/ size blocks Emacs for about a millisecond.
+
+The worker is transparent: results flow through the same write path as synchronous updates (tests lock both to byte-identical database content), files the worker can't replicate faithfully fall back to the synchronous path automatically, it restarts after crashes with in-flight files re-queued, and =M-x vulpea-db-worker-diagnose= reports its health end-to-end. See [[file:sync-architecture.org][Sync Architecture]] for the full picture.
 
 * Feature Comparison
 
@@ -309,6 +315,7 @@ Benefits of the clean API:
 - You want a replacement for org-roam (with vulpea-ui and vulpea-journal)
 - You want to use it alongside org-roam - they coexist without problems
 - You run multiple Emacs instances or sync files across machines
+- You have large files or a large collection and want indexing off the UI thread
 - You like the ecosystem (growing steadily, not chasing hype)
 - You want programmatic usage with confidence (stable API, clean abstractions)
 - You want to build applications on top of your notes
@@ -335,6 +342,15 @@ Benchmarks vary by hardware and collection size. Representative numbers:
 
 org-node's speed comes from the regex parser and in-memory storage. vulpea's async architecture means the initial index time doesn't block your workflow - it happens in the background.
 
+With async extraction enabled, vulpea gets the property that used to be unique to org-node - parsing happens outside the main Emacs process - while keeping the native parser. The numbers for a single large save (the freeze you actually feel with autosync on):
+
+| Save-path freeze  | sync path | worker (=t=) | worker (=full=) |
+|-------------------+-----------+--------------+-----------------|
+| 1MB file          | ~360ms    | ~50ms        | ~1ms            |
+| 10MB file         | ~3.5s     | ~0.5s        | ~1ms            |
+
+In =full= mode the worker writes the database itself, so the freeze is flat (~1ms measured from 1MB through 100MB). The worker also wins bulk syncs - 5000 small files complete faster through it than synchronously, with half the main-thread CPU - because parsing in the worker overlaps writes in the main process.
+
 vulpea is designed with large collections in mind (100k+ files as the target):
 
 - *Instant queries* - Hybrid database schema with indices for fast filtering by tags, links, metadata
@@ -356,6 +372,6 @@ Choose based on what you're building. For simple note-taking, any will work. For
 
 ** Encrypted files
 
-All three can index encrypted files. org-roam handles =.gpg= and =.age=; org-node/org-mem support whole-file =.gpg=/=.age= with extra config (org-crypt-encrypted entry bodies stay opaque to the parser). vulpea supports them opt-in: set =vulpea-db-extra-extensions= to e.g. =(".org.age" ".org.gpg")= and install the matching decryption package (=age.el=, or the built-in =epa-file=); those files are parsed via the slower =find-file= method so the hooks can decrypt them.
+All three can index encrypted files. org-roam handles =.gpg= and =.age=; org-node/org-mem support whole-file =.gpg=/=.age= with extra config (org-crypt-encrypted entry bodies stay opaque to the parser). vulpea supports them opt-in: set =vulpea-db-extra-extensions= to e.g. =(".org.age" ".org.gpg")= and install the matching decryption package (=age.el=, or the built-in =epa-file=); those files are parsed via the slower =find-file= method so the hooks can decrypt them (and always on the synchronous path - the background extraction worker does not decrypt).
 
 The same caveat applies to all three: the extracted metadata (titles, tags, links) is stored in an *unencrypted* database. If a file's contents are secret, its title and tags usually are too, so indexing them partially defeats the purpose. That is a real trade-off to weigh, not a blocker - and in vulpea, change detection runs on the raw (still-encrypted) bytes.
