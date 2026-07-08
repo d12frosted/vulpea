@@ -571,6 +571,56 @@ the test can prove the work happened in the subprocess."
                                    (number-to-string (emacs-pid)))))))
         (delete-file lib)))))
 
+(ert-deftest vulpea-db-worker-worker-safe-extractor-note-data-persisted ()
+  "Core-field contributions persist when the extractor runs in the worker.
+A :worker-safe extractor that adds a link to note-data in full-write
+mode must land it in both the normalized links table and the
+materialized notes.links column, written through the worker's own
+connection."
+  (let ((lib (make-temp-file "vulpea-worker-linkext-" nil ".el"
+                             "(defun vulpea-test-worker-linkext-fn (_ctx note-data)\n  (plist-put note-data :links\n             (append (plist-get note-data :links)\n                     (list (list :dest \"worker-dest\" :type \"id\"\n                                 :pos 1 :description \"W\"))))\n  note-data)\n")))
+    (vulpea-db-worker-test--with-file
+        ":PROPERTIES:\n:ID: worker-link-note\n:END:\n#+TITLE: WL\n"
+      (unwind-protect
+          (vulpea-test--with-temp-db
+            (vulpea-db)
+            (let ((vulpea-db--extractors nil)
+                  (vulpea-db-async-extraction 'full)
+                  (vulpea-db-note-index-filter-functions nil)
+                  statuses)
+              (load lib nil t)
+              (vulpea-db-register-extractor
+               (make-vulpea-extractor
+                :name 'worker-linkext
+                :version 1
+                :requires-ast nil
+                :worker-safe t
+                :worker-lib lib
+                :extract-fn #'vulpea-test-worker-linkext-fn))
+              (should (vulpea-db-worker--full-write-p))
+              (let ((vulpea-db-worker-done-functions
+                     (list (lambda (_path status _count)
+                             (push status statuses)))))
+                (vulpea-db-worker-request path)
+                (vulpea-db-worker-test--wait))
+              (should (equal statuses '(applied)))
+              ;; Normalized links table
+              (should (equal '(("worker-link-note" "worker-dest" "id"))
+                             (emacsql (vulpea-db)
+                                      [:select [source dest type]
+                                       :from links
+                                       :where (= source $s1)]
+                                      "worker-link-note")))
+              ;; Materialized notes.links column
+              (let ((links-json
+                     (caar (emacsql (vulpea-db)
+                                    [:select [links] :from notes
+                                     :where (= id $s1)]
+                                    "worker-link-note"))))
+                (should (stringp links-json))
+                (should (string-match-p "worker-dest" links-json)))))
+        (delete-file lib)))))
+
 (ert-deftest vulpea-db-worker-worker-safe-unresolved-degrades ()
   "A worker-safe extractor the worker cannot resolve degrades safely.
 Without a loadable :worker-lib the worker falls back to streaming the

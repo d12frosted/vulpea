@@ -536,54 +536,141 @@ Arguments:
         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
        (list
         (list id path level pos title
-              (if properties (json-encode properties) "null")
-              (if tags (json-encode tags) "null")
-              (if aliases (json-encode aliases) "null")
-              (if meta (json-encode (vulpea-db--meta-to-json meta)) "null")
-              (if links (json-encode (vulpea-db--links-to-json links)) "null")
+              (vulpea-db--encode-note-column :properties properties)
+              (vulpea-db--encode-note-column :tags tags)
+              (vulpea-db--encode-note-column :aliases aliases)
+              (vulpea-db--encode-note-column :meta meta)
+              (vulpea-db--encode-note-column :links links)
               todo priority scheduled deadline closed
               outline-path attach-dir file-title
               created-at modified-at)))
 
-      ;; 2. Insert into normalized tags table
-      (when tags
-        (let ((unique-tags (delete-dups (copy-sequence tags))))
-          (vulpea-db--insert-rows
-           handle
-           "INSERT OR IGNORE INTO tags (note_id, tag) VALUES (?,?)"
-           (mapcar (lambda (tag) (list id tag)) unique-tags))))
+      ;; 2-5. Insert into normalized tables
+      (vulpea-db--insert-tag-rows handle id tags)
+      (vulpea-db--insert-link-rows handle id links)
+      (vulpea-db--insert-meta-rows handle id meta)
+      (vulpea-db--insert-property-rows handle id properties))))
 
-      ;; 3. Insert into normalized links table
-      (when links
-        (vulpea-db--insert-rows
-         handle
-         "INSERT OR IGNORE INTO links (source, dest, type, pos, description)
-          VALUES (?,?,?,?,?)"
-         (mapcar (lambda (link)
-                   (list id
-                         (plist-get link :dest)
-                         (plist-get link :type)
-                         (plist-get link :pos)
-                         (plist-get link :description)))
-                 links)))
+(defun vulpea-db--encode-note-column (field value)
+  "Encode VALUE of FIELD for its materialized notes column.
+JSON-blob fields (:properties, :tags, :aliases, :meta, :links) are
+encoded to their JSON string; any other field is stored as is."
+  (pcase field
+    (:properties (if value (json-encode value) "null"))
+    (:tags (if value (json-encode value) "null"))
+    (:aliases (if value (json-encode value) "null"))
+    (:meta (if value (json-encode (vulpea-db--meta-to-json value)) "null"))
+    (:links (if value (json-encode (vulpea-db--links-to-json value)) "null"))
+    (_ value)))
 
-      ;; 4. Insert into normalized meta table
-      (when meta
-        (vulpea-db--insert-rows
-         handle
-         "INSERT OR IGNORE INTO meta (note_id, key, value) VALUES (?,?,?)"
-         (cl-loop for (key . values) in meta
-                  append (mapcar (lambda (v)
-                                   (list id key v))
-                                 values))))
+(defun vulpea-db--insert-tag-rows (handle id tags)
+  "Insert TAGS of note ID into the normalized tags table via HANDLE."
+  (when tags
+    (let ((unique-tags (delete-dups (copy-sequence tags))))
+      (vulpea-db--insert-rows
+       handle
+       "INSERT OR IGNORE INTO tags (note_id, tag) VALUES (?,?)"
+       (mapcar (lambda (tag) (list id tag)) unique-tags)))))
 
-      ;; 5. Insert into normalized properties table
-      (when properties
-        (vulpea-db--insert-rows
-         handle
-         "INSERT OR IGNORE INTO properties (note_id, key, value) VALUES (?,?,?)"
-         (cl-loop for (key . value) in properties
-                  collect (list id key value)))))))
+(defun vulpea-db--insert-link-rows (handle id links)
+  "Insert LINKS of note ID into the normalized links table via HANDLE."
+  (when links
+    (vulpea-db--insert-rows
+     handle
+     "INSERT OR IGNORE INTO links (source, dest, type, pos, description)
+      VALUES (?,?,?,?,?)"
+     (mapcar (lambda (link)
+               (list id
+                     (plist-get link :dest)
+                     (plist-get link :type)
+                     (plist-get link :pos)
+                     (plist-get link :description)))
+             links))))
+
+(defun vulpea-db--insert-meta-rows (handle id meta)
+  "Insert META of note ID into the normalized meta table via HANDLE."
+  (when meta
+    (vulpea-db--insert-rows
+     handle
+     "INSERT OR IGNORE INTO meta (note_id, key, value) VALUES (?,?,?)"
+     (cl-loop for (key . values) in meta
+              append (mapcar (lambda (v)
+                               (list id key v))
+                             values)))))
+
+(defun vulpea-db--insert-property-rows (handle id properties)
+  "Insert PROPERTIES of note ID into the normalized table via HANDLE."
+  (when properties
+    (vulpea-db--insert-rows
+     handle
+     "INSERT OR IGNORE INTO properties (note_id, key, value) VALUES (?,?,?)"
+     (cl-loop for (key . value) in properties
+              collect (list id key value)))))
+
+(defconst vulpea-db--note-field-columns
+  '((:title . "title")
+    (:properties . "properties")
+    (:tags . "tags")
+    (:aliases . "aliases")
+    (:meta . "meta")
+    (:links . "links")
+    (:todo . "todo")
+    (:priority . "priority")
+    (:scheduled . "scheduled")
+    (:deadline . "deadline")
+    (:closed . "closed")
+    (:outline-path . "outline_path")
+    (:attach-dir . "attach_dir")
+    (:file-title . "file_title")
+    (:created-at . "created_at"))
+  "Mapping of updatable note-data fields to notes table columns.
+Identity fields (:id, :path, :level, :pos) are deliberately absent -
+they anchor foreign keys and the file association and must not be
+rewritten after insertion.")
+
+(defun vulpea-db--update-note-fields (id fields)
+  "Persist FIELDS of the note ID across both storage forms.
+
+FIELDS is an alist of (FIELD . VALUE) where FIELD is a note-data
+keyword listed in `vulpea-db--note-field-columns'.  Each entry
+rewrites the materialized notes column; fields with a normalized
+table (:tags, :links, :meta, :properties) additionally have their
+rows replaced with rows built from VALUE.  Fields not in the mapping
+are ignored.
+
+This is how extractor-plugin contributions to core fields reach the
+database: the note row is inserted before extractors run (their
+tables hold foreign keys into it), so whatever they change in
+note-data is written as an update afterwards."
+  (when fields
+    (let* ((db (vulpea-db))
+           (handle (oref db handle)))
+      (emacsql-with-transaction db
+        (pcase-dolist (`(,field . ,value) fields)
+          (when-let* ((column (cdr (assq field vulpea-db--note-field-columns))))
+            (sqlite-execute
+             handle
+             (format "UPDATE notes SET %s = ? WHERE id = ?" column)
+             (list (vulpea-db--bind-scalar
+                    (vulpea-db--encode-note-column field value))
+                   (vulpea-db--bind-scalar id)))
+            (pcase field
+              (:tags
+               (sqlite-execute handle "DELETE FROM tags WHERE note_id = ?"
+                               (list (vulpea-db--bind-scalar id)))
+               (vulpea-db--insert-tag-rows handle id value))
+              (:links
+               (sqlite-execute handle "DELETE FROM links WHERE source = ?"
+                               (list (vulpea-db--bind-scalar id)))
+               (vulpea-db--insert-link-rows handle id value))
+              (:meta
+               (sqlite-execute handle "DELETE FROM meta WHERE note_id = ?"
+                               (list (vulpea-db--bind-scalar id)))
+               (vulpea-db--insert-meta-rows handle id value))
+              (:properties
+               (sqlite-execute handle "DELETE FROM properties WHERE note_id = ?"
+                               (list (vulpea-db--bind-scalar id)))
+               (vulpea-db--insert-property-rows handle id value)))))))))
 
 (defun vulpea-db--delete-file-notes (path)
   "Delete all notes from PATH.
