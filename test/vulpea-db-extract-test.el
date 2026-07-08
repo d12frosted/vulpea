@@ -928,6 +928,202 @@ https://github.com/d12frosted/vulpea/issues/277."
                    (list :id "test"))))
       (should (equal (plist-get result :custom) "enriched")))))
 
+(ert-deftest vulpea-db-extract-extractor-links-persisted ()
+  "Links an extractor adds to note-data reach both storage forms.
+An extractor contributing to :links through the documented
+contract (plist-put + return note-data) must land in the
+normalized links table and the materialized notes.links column;
+previously the returned note-data was discarded."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((vulpea-db--extractors nil))
+      (vulpea-db-register-extractor
+       'contribute-link
+       (lambda (_ctx data)
+         (plist-put data :links
+                    (append (plist-get data :links)
+                            (list (list :dest "target-id"
+                                        :type "id"
+                                        :pos 1
+                                        :description "Target"))))
+         data))
+      (let ((path (vulpea-test--create-temp-org-file
+                   ":PROPERTIES:\n:ID: source-id\n:END:\n#+TITLE: Source\n")))
+        (unwind-protect
+            (progn
+              (vulpea-db-update-file path)
+              ;; Normalized links table
+              (should (equal '(("source-id" "target-id" "id"))
+                             (emacsql (vulpea-db)
+                                      [:select [source dest type] :from links
+                                       :where (= source $s1)]
+                                      "source-id")))
+              ;; Materialized notes.links column, via the note struct
+              (let* ((note (vulpea-db-get-by-id "source-id"))
+                     (link (car (vulpea-note-links note))))
+                (should (= 1 (length (vulpea-note-links note))))
+                (should (equal (plist-get link :dest) "target-id"))
+                (should (equal (plist-get link :type) "id"))))
+          (delete-file path))))))
+
+(ert-deftest vulpea-db-extract-extractor-links-merge-with-extracted ()
+  "Extractor-contributed links coexist with links parsed from content."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((vulpea-db--extractors nil))
+      (vulpea-db-register-extractor
+       'contribute-link
+       (lambda (_ctx data)
+         (plist-put data :links
+                    (append (plist-get data :links)
+                            (list (list :dest "plugin-dest"
+                                        :type "id"
+                                        :pos 1
+                                        :description nil))))
+         data))
+      (let ((path (vulpea-test--create-temp-org-file
+                   (concat ":PROPERTIES:\n:ID: merge-id\n:END:\n"
+                           "#+TITLE: Merge\n\n"
+                           "A [[id:organic-dest][real link]].\n"))))
+        (unwind-protect
+            (progn
+              (vulpea-db-update-file path)
+              (let ((dests (mapcar #'car
+                                   (emacsql (vulpea-db)
+                                            [:select [dest] :from links
+                                             :where (= source $s1)
+                                             :order-by [(asc dest)]]
+                                            "merge-id"))))
+                (should (equal dests '("organic-dest" "plugin-dest"))))
+              (let ((note (vulpea-db-get-by-id "merge-id")))
+                (should (= 2 (length (vulpea-note-links note))))))
+          (delete-file path))))))
+
+(ert-deftest vulpea-db-extract-extractor-tags-persisted ()
+  "Tags an extractor adds to note-data reach both storage forms."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((vulpea-db--extractors nil))
+      (vulpea-db-register-extractor
+       'contribute-tag
+       (lambda (_ctx data)
+         (plist-put data :tags
+                    (append (plist-get data :tags) (list "plugin-tag")))
+         data))
+      (let ((path (vulpea-test--create-temp-org-file
+                   (concat ":PROPERTIES:\n:ID: tagged-id\n:END:\n"
+                           "#+TITLE: Tagged\n#+FILETAGS: :organic:\n"))))
+        (unwind-protect
+            (progn
+              (vulpea-db-update-file path)
+              ;; Normalized tags table (drives tag queries)
+              (let ((notes (vulpea-db-query-by-tags-some '("plugin-tag"))))
+                (should (= 1 (length notes)))
+                (should (equal (vulpea-note-id (car notes)) "tagged-id")))
+              ;; Materialized column keeps organic and contributed tags
+              (let ((note (vulpea-db-get-by-id "tagged-id")))
+                (should (member "organic" (vulpea-note-tags note)))
+                (should (member "plugin-tag" (vulpea-note-tags note)))))
+          (delete-file path))))))
+
+(ert-deftest vulpea-db-extract-extractor-meta-persisted ()
+  "Meta an extractor adds to note-data reaches both storage forms."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((vulpea-db--extractors nil))
+      (vulpea-db-register-extractor
+       'contribute-meta
+       (lambda (_ctx data)
+         (plist-put data :meta
+                    (append (plist-get data :meta)
+                            (list (cons "kind" (list "plugin")))))
+         data))
+      (let ((path (vulpea-test--create-temp-org-file
+                   ":PROPERTIES:\n:ID: meta-id\n:END:\n#+TITLE: Meta\n")))
+        (unwind-protect
+            (progn
+              (vulpea-db-update-file path)
+              ;; Normalized meta table
+              (should (equal '(("kind" "plugin"))
+                             (emacsql (vulpea-db)
+                                      [:select [key value] :from meta
+                                       :where (= note-id $s1)]
+                                      "meta-id")))
+              ;; Materialized column
+              (let ((note (vulpea-db-get-by-id "meta-id")))
+                (should (equal (cdr (assoc "kind" (vulpea-note-meta note)))
+                               '("plugin")))))
+          (delete-file path))))))
+
+(ert-deftest vulpea-db-extract-extractor-scalar-field-persisted ()
+  "A scalar note-data field changed by an extractor is persisted."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((vulpea-db--extractors nil))
+      (vulpea-db-register-extractor
+       'contribute-todo
+       (lambda (_ctx data)
+         (plist-put data :todo "TODO")
+         data))
+      (let ((path (vulpea-test--create-temp-org-file
+                   ":PROPERTIES:\n:ID: scalar-id\n:END:\n#+TITLE: Scalar\n")))
+        (unwind-protect
+            (progn
+              (vulpea-db-update-file path)
+              (should (equal (vulpea-note-todo
+                              (vulpea-db-get-by-id "scalar-id"))
+                             "TODO")))
+          (delete-file path))))))
+
+(ert-deftest vulpea-db-extract-extractor-removal-persisted ()
+  "An extractor removing a core value removes it from both forms."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((vulpea-db--extractors nil))
+      (vulpea-db-register-extractor
+       'drop-tag
+       (lambda (_ctx data)
+         (plist-put data :tags (remove "secret" (plist-get data :tags)))
+         data))
+      (let ((path (vulpea-test--create-temp-org-file
+                   (concat ":PROPERTIES:\n:ID: removal-id\n:END:\n"
+                           "#+TITLE: Removal\n#+FILETAGS: :keep:secret:\n"))))
+        (unwind-protect
+            (progn
+              (vulpea-db-update-file path)
+              ;; Normalized tags table
+              (should (equal '(("keep"))
+                             (emacsql (vulpea-db)
+                                      [:select [tag] :from tags
+                                       :where (= note-id $s1)]
+                                      "removal-id")))
+              ;; Materialized column
+              (should (equal (vulpea-note-tags
+                              (vulpea-db-get-by-id "removal-id"))
+                             '("keep"))))
+          (delete-file path))))))
+
+(ert-deftest vulpea-db-extract-extractor-nil-return-tolerated ()
+  "An extractor returning nil leaves note-data unchanged.
+Before extractor results were persisted, a nil return was silently
+discarded; plugins ending in a `when'-guarded insert relied on that.
+A nil return must keep behaving as \"no contribution\", not wipe
+every core field."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((vulpea-db--extractors nil))
+      (vulpea-db-register-extractor 'returns-nil (lambda (_ctx _data) nil))
+      (let ((path (vulpea-test--create-temp-org-file
+                   (concat ":PROPERTIES:\n:ID: nil-return-id\n:END:\n"
+                           "#+TITLE: Untouched\n#+FILETAGS: :tag1:\n"))))
+        (unwind-protect
+            (progn
+              (vulpea-db-update-file path)
+              (let ((note (vulpea-db-get-by-id "nil-return-id")))
+                (should (equal (vulpea-note-title note) "Untouched"))
+                (should (equal (vulpea-note-tags note) '("tag1")))))
+          (delete-file path))))))
+
 (ert-deftest vulpea-db-extract-schema-registration ()
   "Test plugin schema is applied when extractor is registered."
   (vulpea-test--with-temp-db

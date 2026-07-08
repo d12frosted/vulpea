@@ -74,6 +74,13 @@ Each extractor receives and returns =note-data=, a plist containing:
 
 Extractors can add custom keys to =note-data= for other extractors to use.
 
+Changes to the core fields are persisted: after all extractors have run,
+any field an extractor changed is written back to the note's row in the
+=notes= table, and the normalized tables (=tags=, =links=, =meta=,
+=properties=) are re-synced to match. Adding a link to =:links= makes it a
+first-class link - it shows up in backlink queries exactly like a link
+parsed from the file. See [[*Contributing to Core Data][Contributing to Core Data]].
+
 * Creating a Plugin
 
 ** Step 1: Define the Extractor Struct
@@ -153,6 +160,59 @@ Register your extractor during initialization:
   :extract-fn #'my-extractor-fn))
 #+end_src
 
+* Contributing to Core Data
+
+An extractor is not limited to its own tables - it can contribute to the
+note's core data by changing the corresponding =note-data= field and
+returning the plist. Whatever changed after all extractors have run is
+persisted to both storage forms: the materialized =notes= row and the
+normalized table behind the field.
+
+For example, an extractor that promotes links found in metadata to
+first-class links:
+
+#+begin_src emacs-lisp
+(defun my-promote-meta-links (_ctx note-data)
+  "Turn id: links in metadata into real note links."
+  (let ((meta-links
+         (cl-loop for (_key . values) in (plist-get note-data :meta)
+                  append (cl-loop for value in values
+                                  when (string-match
+                                        "\\[\\[id:\\([^]]+\\)\\]" value)
+                                  collect (list :dest (match-string 1 value)
+                                                :type "id"
+                                                :pos 0
+                                                :description nil)))))
+    (when meta-links
+      (plist-put note-data :links
+                 (append (plist-get note-data :links) meta-links))))
+  note-data)
+
+(vulpea-db-register-extractor
+ (make-vulpea-extractor
+  :name 'promote-meta-links
+  :requires-ast nil
+  :extract-fn #'my-promote-meta-links))
+#+end_src
+
+The contributed links now appear in =vulpea-db-query-links-to=, backlink
+counts, and =vulpea-note-links= - indistinguishable from links parsed out
+of the file body.
+
+A few rules:
+
+- *Mutate =note-data=, not core tables.* Do not =INSERT= into =notes=,
+  =tags=, =links=, =meta= or =properties= yourself - the materialized
+  =notes= row and the normalized tables must stay consistent, and raw
+  inserts update only one side. Change the field in =note-data= and let
+  vulpea write both.
+- *Identity is fixed.* Changes to =:id=, =:path=, =:level= and =:pos= are
+  ignored - plugin tables hold foreign keys against them.
+- *Removal works too.* Deleting an entry from a field removes it from
+  both storage forms.
+- *Returning nil means "unchanged".* An extractor that returns nil is
+  treated as returning its input as is.
+
 * Priorities and Execution Order
 
 Extractors run in priority order (lower numbers first):
@@ -222,6 +282,12 @@ control the interaction:
 
 Declare honestly: =:requires-ast nil= on a function that does read
 the AST will find that AST nil at apply time.
+
+Contributions to core =note-data= fields (see [[*Contributing to Core
+Data][Contributing to Core Data]]) work identically in every mode:
+whichever process runs the extractor also persists its changes, so a
+worker-safe extractor adding a link in =full= mode writes it through
+the worker's own connection.
 
 * Version Tracking and Migrations
 
