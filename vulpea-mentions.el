@@ -216,6 +216,16 @@ the same reasoning as skipping the searched note's own file."
         (lc-terms (mapcar #'downcase terms)))
     (seq-intersection names lc-terms #'string=)))
 
+(defun vulpea-mentions--ids-link-to-note (note cache)
+  "Return a hash table of note ids whose matching note links to NOTE."
+  (let* ((result (make-hash-table :test 'equal))
+         (links (vulpea-db-query-links-to (vulpea-note-id note)))
+         (ids (mapcar (lambda (link) (plist-get link :source)) links))
+         (notes (vulpea-db-query-by-ids ids))
+         (paths (mapcar (lambda (note) (vulpea-note-path note)) notes)))
+    (mapc (lambda (path) (puthash (vulpea-note-id (vulpea-mentions--file-note path cache)) t result)) paths)
+    result))
+
 (defun vulpea-mentions--collect (output note own-path)
   "Collect unlinked mentions of NOTE from ripgrep OUTPUT.
 
@@ -223,10 +233,12 @@ OWN-PATH is NOTE's own expanded file path, whose hits are skipped.
 Hits whose mentioning note shares a name with NOTE (a title collision)
 are skipped too.  Returns a list of plists with :note (the mentioning
 note), :path, :line, and :context."
-  (let ((terms (vulpea-mentions--note-terms note))
-        (path->note (make-hash-table :test 'equal))
-        (result nil))
-    (dolist (hit (vulpea-mentions--parse-rg-json output))
+  (let* ((terms (vulpea-mentions--note-terms note))
+         (path->note (make-hash-table :test 'equal))
+         (hits (vulpea-mentions--parse-rg-json output))
+         (ids-link-to-note (if hits (vulpea-mentions--ids-link-to-note note path->note)))
+         (result nil))
+    (dolist (hit hits)
       (let ((path (plist-get hit :path))
             (line-text (plist-get hit :line-text)))
         (when (and (not (equal (expand-file-name path) own-path))
@@ -234,7 +246,8 @@ note), :path, :line, and :context."
                    (vulpea-mentions--line-unlinked-p line-text terms))
           (let ((mentioning (vulpea-mentions--file-note path path->note)))
             (when (and mentioning
-                       (not (vulpea-mentions--shares-name-p mentioning terms)))
+                       (not (vulpea-mentions--shares-name-p mentioning terms))
+                       (not (gethash (vulpea-note-id mentioning) ids-link-to-note)))
               (push (list :note mentioning
                           :path path
                           :line (plist-get hit :line)
