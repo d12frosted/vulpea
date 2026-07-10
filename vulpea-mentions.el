@@ -90,6 +90,17 @@ or to `always' to consider every note."
   :type 'function
   :group 'vulpea-mentions)
 
+(defcustom vulpea-mentions-exclude-linked t
+  "Exclude mentions from/to linked notes.
+
+If set to non-nil value, then mentions from/to linked notes will be
+excluded. That is, if a note has a link to the current note, then any
+other mentions from that note to the current one is excluded. On the
+other hand, if the current note contains a link to another note, then
+any mentions from the current one to the other one will be excluded."
+  :type 'boolean
+  :group 'vulpea-mentions)
+
 ;;; Pure helpers
 
 (defun vulpea-mentions--note-terms (note)
@@ -216,14 +227,14 @@ the same reasoning as skipping the searched note's own file."
         (lc-terms (mapcar #'downcase terms)))
     (seq-intersection names lc-terms #'string=)))
 
-(defun vulpea-mentions--ids-link-to-note (note cache)
+(defun vulpea-mentions--paths-link-to-note (note)
   "Return a hash table of note ids whose matching note links to NOTE."
   (let* ((result (make-hash-table :test 'equal))
          (links (vulpea-db-query-links-to (vulpea-note-id note)))
          (ids (mapcar (lambda (link) (plist-get link :source)) links))
          (notes (vulpea-db-query-by-ids ids))
          (paths (mapcar (lambda (note) (vulpea-note-path note)) notes)))
-    (mapc (lambda (path) (puthash (vulpea-note-id (vulpea-mentions--file-note path cache)) t result)) paths)
+    (mapc (lambda (path) (puthash (expand-file-name path) t result)) paths)
     result))
 
 (defun vulpea-mentions--collect (output note own-path)
@@ -236,18 +247,22 @@ note), :path, :line, and :context."
   (let* ((terms (vulpea-mentions--note-terms note))
          (path->note (make-hash-table :test 'equal))
          (hits (vulpea-mentions--parse-rg-json output))
-         (ids-link-to-note (if hits (vulpea-mentions--ids-link-to-note note path->note)))
+         (paths-link-to-note
+          (when (and vulpea-mentions-exclude-linked hits)
+            (vulpea-mentions--paths-link-to-note note)))
          (result nil))
     (dolist (hit hits)
-      (let ((path (plist-get hit :path))
-            (line-text (plist-get hit :line-text)))
-        (when (and (not (equal (expand-file-name path) own-path))
+      (let* ((path (plist-get hit :path))
+             (line-text (plist-get hit :line-text))
+             (expanded-path (expand-file-name path)))
+        (when (and (not (equal expanded-path own-path))
+                   (not (and vulpea-mentions-exclude-linked
+                             (gethash expanded-path paths-link-to-note)))
                    (not (vulpea-mentions--metadata-line-p line-text))
                    (vulpea-mentions--line-unlinked-p line-text terms))
           (let ((mentioning (vulpea-mentions--file-note path path->note)))
             (when (and mentioning
-                       (not (vulpea-mentions--shares-name-p mentioning terms))
-                       (not (gethash (vulpea-note-id mentioning) ids-link-to-note)))
+                       (not (vulpea-mentions--shares-name-p mentioning terms)))
               (push (list :note mentioning
                           :path path
                           :line (plist-get hit :line)
