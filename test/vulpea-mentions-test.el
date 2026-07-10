@@ -158,7 +158,8 @@
   (skip-unless (executable-find "rg"))
   (let* ((dir (make-temp-file "vulpea-mentions-" t))
          (target (expand-file-name "target.org" dir))
-         (other (expand-file-name "other.org" dir))
+         (link-and-mention (expand-file-name "link-and-mention.org" dir))
+         (mention-only (expand-file-name "mention-only.org" dir))
          (vulpea-db-location (make-temp-file "vulpea-mentions-" nil ".db"))
          (vulpea-db--connection nil)
          (vulpea-db-sync-directories (list dir)))
@@ -166,13 +167,19 @@
         (progn
           (with-temp-file target
             (insert ":PROPERTIES:\n:ID: target\n:END:\n#+title: Cabernet\n"))
-          (with-temp-file other
-            (insert ":PROPERTIES:\n:ID: other\n:END:\n#+title: Other\n\n"
-                    "A bare Cabernet mention.\n"
+          (with-temp-file link-and-mention
+            (insert ":PROPERTIES:\n:ID: link-and-mention\n:END:\n#+title: Link and Mention\n\n"
+                    "A bare Cabernet mention, but there is another link in the buffer.\n"
+                    "* Heading\n"
+                    ":PROPERTIES:\n:ID: heading\n:END:\n"
                     "A linked [[id:target][Cabernet]] mention.\n"))
+          (with-temp-file mention-only
+            (insert ":PROPERTIES:\n:ID: mention-only\n:END:\n#+title: Mention Only\n\n"
+                    "A bare Cabernet mention without other links.\n"))
           (vulpea-db)
           (vulpea-db-update-file target)
-          (vulpea-db-update-file other)
+          (vulpea-db-update-file link-and-mention)
+          (vulpea-db-update-file mention-only)
           (let* ((note (vulpea-db-get-by-id "target"))
                  (cmd (vulpea-mentions--rg-command
                        (executable-find "rg")
@@ -184,9 +191,14 @@
                  (mentions (vulpea-mentions--collect
                             output note (expand-file-name target))))
             (should (= (length mentions) 1))
-            (should (equal (vulpea-note-id (plist-get (car mentions) :note)) "other"))
-            (should (string-match-p "bare Cabernet"
-                                    (plist-get (car mentions) :context)))))
+            (should (equal (vulpea-note-id (plist-get (car mentions) :note)) "mention-only"))
+            (should (string-match-p "bare Cabernet mention without other links"
+                                    (plist-get (car mentions) :context)))
+            ;; test for the original behavior
+            (let ((vulpea-mentions-exclude-linked nil))
+              (setq mentions (vulpea-mentions--collect
+                              output note (expand-file-name target)))
+              (should (= (length mentions) 2)))))
       (when vulpea-db--connection (vulpea-db-close))
       (when (file-exists-p vulpea-db-location) (delete-file vulpea-db-location))
       (delete-directory dir t))))
