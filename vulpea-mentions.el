@@ -292,6 +292,15 @@ alias strings to search for."
                 (push id (gethash (downcase trimmed) dict))))))))
     (cons dict (delete-dups terms))))
 
+(defun vulpea-mentions--self-ids-to-linked-ids (self-ids)
+  "Return ids of note linked by notes designated by SELF-IDS."
+  (let ((result (make-hash-table :test 'equal)))
+    (dolist (id self-ids)
+      (let ((links (vulpea-db-query-links-from id)))
+        (dolist (link links)
+          (puthash (plist-get link :dest) t result))))
+    result))
+
 (defun vulpea-mentions--collect-outgoing (output dict self-ids)
   "Collect outgoing unlinked mentions from ripgrep OUTPUT over one buffer.
 
@@ -307,20 +316,25 @@ Returns a list of plists with :note (a candidate note to link to),
                 (let ((cached (gethash id id->note 'miss)))
                   (if (not (eq cached 'miss)) cached
                     (puthash id (vulpea-db-get-by-id id) id->note)))))
-      (dolist (hit (vulpea-mentions--parse-rg-json output))
-        (let ((line-text (plist-get hit :line-text))
-              (line-no (plist-get hit :line)))
-          (unless (vulpea-mentions--metadata-line-p line-text)
-            (dolist (term (seq-uniq (plist-get hit :matched)))
-              (when (vulpea-mentions--line-unlinked-p line-text (list term))
-                (dolist (id (gethash (downcase term) dict))
-                  (unless (member id self-ids)
-                    (when-let* ((cand (resolve-note id)))
-                      (push (list :note cand :line line-no
-                                  :context (string-trim line-text)
-                                  :matched term)
-                            result))))))))))
-    (nreverse result)))
+      (let* ((hits (vulpea-mentions--parse-rg-json output))
+             (linked-ids
+              (when (and vulpea-mentions-exclude-linked hits)
+                (vulpea-mentions--self-ids-to-linked-ids self-ids))))
+        (dolist (hit hits)
+          (let ((line-text (plist-get hit :line-text))
+                (line-no (plist-get hit :line)))
+            (unless (vulpea-mentions--metadata-line-p line-text)
+              (dolist (term (seq-uniq (plist-get hit :matched)))
+                (when (vulpea-mentions--line-unlinked-p line-text (list term))
+                  (dolist (id (gethash (downcase term) dict))
+                    (unless (or (member id self-ids)
+                                (gethash id linked-ids))
+                      (when-let* ((cand (resolve-note id)))
+                        (push (list :note cand :line line-no
+                                    :context (string-trim line-text)
+                                    :matched term)
+                              result))))))))))
+      (nreverse result))))
 
 ;;; Async entry point
 
