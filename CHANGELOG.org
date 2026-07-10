@@ -9,6 +9,8 @@
 
 ** Unreleased
 
+** v2.6.0 (2026-07-10)
+
 *Breaking changes*
 
 - [[https://github.com/d12frosted/vulpea/issues/362][vulpea#362]] The org-element AST is now opt-in for extractor plugins. An extractor that reads =(vulpea-parse-ctx-ast ctx)= must declare =:requires-ast t= in its =make-vulpea-extractor= definition; without the declaration the parse context's AST slot is always nil, so a forgotten declaration fails visibly on first test (the extractor extracts nothing) instead of subtly missing inline objects in a degraded tree. Previously the conservative default meant a single registered extractor - including one that never touched the AST - forced the 2-3x slower ='object= parse for every file and disqualified every file from async extraction, and users could do nothing about a plugin that simply forgot to declare =:requires-ast nil=. Extractors that work purely from note data need no change; an explicit =:requires-ast nil= declares the intent and silences the new =vulpea-doctor= nudge about undeclared extractors. The fix is one line per AST-reading extractor. One more subtlety for code that inspects extractor structs: the =requires-ast= slot now defaults to the truthy sentinel symbol =unset=, so read it through =vulpea-extractor-requires-ast-p= (t only on an explicit declaration) instead of accessing the slot directly.
