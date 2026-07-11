@@ -470,7 +470,11 @@ The function allows dynamic parameter computation based on context:
                 :properties (list (cons \"SOURCE\"
                                         (buffer-name))))))
 
-Parameters explicitly passed to `vulpea-create' override these defaults.
+Parameters explicitly passed to `vulpea-create' override these defaults,
+except for the title. If the template returned by this function includes
+`:title', it will take precedence over the title passed to
+`vulpea-create' in order to allow for this function to modify the note
+title.
 
 These defaults seed file-level note creation only.  When
 `vulpea-create' is called with a non-nil `:parent' (a heading-level
@@ -521,6 +525,10 @@ Available parameters:
   :properties  - Alist of (key . value) for property drawer
   :meta        - Alist of (key . value) for metadata
   :context     - Plist of custom template variables
+  :title       - Note title. Takes precedence over the title passed to
+                 `vulpea-create'. Mainly used to allow
+                 `vulpea-create-default-function' to modify the note
+                 title.
 
 Template variables for :file-name:
   ${title}     - Note title
@@ -1219,6 +1227,11 @@ file-level note (PARENT is nil).  When PARENT is provided no
 defaults are consulted; the heading is built solely from the
 arguments passed here.
 
+If `:title' is present in the template, it takes precedence over the
+TITLE argument. This allows the function set in
+`vulpea-create-default-function' to override the title based on the
+template or other logic.
+
 Returns the created `vulpea-note' object.
 
 ID is automatically generated unless explicitly passed.
@@ -1299,6 +1312,7 @@ are as documented in `vulpea-create'."
                      vulpea-create-default-template)
                     (t nil)))
          ;; Merge explicit parameters with defaults (explicit takes precedence)
+         (title (or (plist-get defaults :title) title))
          (file-name (or file-name (plist-get defaults :file-name)))
          (head (or head (plist-get defaults :head)))
          (body (or body (plist-get defaults :body)))

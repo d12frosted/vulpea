@@ -31,6 +31,8 @@
 
 - [[https://github.com/d12frosted/vulpea/issues/382][vulpea#382]] The plugin guide no longer implies that custom =note-data= keys end up in the database. They are transient: a way to pass data between extractors within a single extraction run, dropped once the run is over - only the documented core fields are persisted, and unknown keys are silently ignored. The guide now says so explicitly and gains a "Storing Per-Note Data" section with the recipes for data that should survive: a 1:1 side table keyed by =note-id=, a generic =(note-id, axis, value)= table when there are several axes, or a property/metadata entry in the file itself. Thanks to @edenworky for pointing out the misleading wording.
 
+- [[https://github.com/d12frosted/vulpea/issues/375][vulpea#375]] If =:title "Note title"= is present in the template returned by =vulpea-create-default-function= (or in =vulpea-create-default-template=), it overrides the note title passed to =vulpea-create=. This allows =vulpea-create-default-function= to modify the note title.
+
 ** v2.6.0 (2026-07-10)
 
 *Breaking changes*
