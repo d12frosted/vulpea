@@ -104,6 +104,22 @@ For context-aware defaults:
                       '("note")))))
 #+end_src
 
+In the example above, if the word "TODO" appears in the note title, the template automatically adds the "task" tag; otherwise, it assigns the "note" tag. If you prefer not to include the word "TODO" in the final note title, you can customize the title in the returned template as below.
+
+#+begin_src emacs-lisp
+(setq vulpea-create-default-function
+      (lambda (title)
+        (let* ((has-todo? (string-match-p "TODO" title))
+               (title (if has-todo? (string-replace "TODO " "" title) title))
+               (file-name
+                (format "%s_%s.org"
+                        (format-time-string "%Y%m%d%H%M%S")
+                        (vulpea-title-to-slug title))))
+          (if has-todo?
+              (list :file-name file-name :tags '("task") :title title)
+            (list :file-name file-name :tags '("note"))))))
+#+end_src
+
 ** Template Parameters
 
 | Parameter     | Description                             | Example                      |
