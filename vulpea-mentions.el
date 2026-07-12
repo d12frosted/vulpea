@@ -92,13 +92,14 @@ or to `always' to consider every note."
   :group 'vulpea-mentions)
 
 (defcustom vulpea-mentions-exclude-linked t
-  "Exclude mentions from/to linked notes.
+  "Exclude mentions to and from notes that are already linked.
 
-If set to non-nil value, then mentions from/to linked notes will be
-excluded.  That is, if a note has a link to the current note, then any
-other mentions from that note to the current one is excluded.  On the
-other hand, if the current note contains a link to another note, then
-any mentions from the current one to the other one will be excluded."
+When non-nil, a note that links to the target no longer shows up
+among the target's incoming unlinked mentions, and notes already
+linked from a buffer are dropped from that buffer's outgoing
+mentions.  The reasoning: once a link exists, further plain-text
+occurrences are prose, not a missing connection.  Set to nil to see
+every occurrence regardless of existing links."
   :type 'boolean
   :group 'vulpea-mentions)
 
@@ -296,10 +297,12 @@ alias strings to search for."
     (cons dict (delete-dups terms))))
 
 (defun vulpea-mentions--buffer-link-ids ()
-  "Return a hash table of ids in bracket links in the current buffer.
+  "Return a hash table keyed by the ids of `id:' links in the current buffer.
 
-The hash table will be empty if `vulpea-mentions-exclude-linked' is nil."
-  ;; only scans for bracket id links
+Only bracket links are considered: `vulpea-mentions--line-unlinked-p'
+recognizes bracket links alone when deciding whether an occurrence is
+already linked, so the exclusion set must match, and the literal
+search for \"[[\" is also much cheaper than the plain-link regexp."
   (let ((result (make-hash-table :test 'equal))
         (vulpea-db-index-plain-links nil))
     (vulpea-db--region-links
@@ -316,8 +319,9 @@ The hash table will be empty if `vulpea-mentions-exclude-linked' is nil."
 DICT maps a downcased title/alias to candidate note ids (see
 `vulpea-mentions--title-dictionary').  SELF-IDS are the note ids in the
 buffer's own file, excluded as candidates.  LINKED-IDS is a hash table
-of note ids that appears in the links in the buffer.  It would be empty
-if `vulpea-mentions-exclude-linked' is nil.
+keyed by the note ids the buffer already links to (see
+`vulpea-mentions--buffer-link-ids'); candidates found in it are
+dropped.  Pass an empty table to keep them all.
 
 Returns a list of plists with :note (a candidate note to link to),
 :line, :context, and :matched (the text that matched)."
@@ -354,10 +358,9 @@ Searches the files under `vulpea-db-sync-directories' with ripgrep for
 NOTE's title and aliases, drops occurrences that are already inside an
 Org link, that live in NOTE's own file or in the file of a note sharing
 NOTE's title (a title collision), or that fall on an Org metadata
-line (a keyword or property-drawer line), or that belong to file already
-containing a link to NOTE (if `vulpea-mentions-exclude-linked' is
-non-nil, which is the default) and maps each remaining hit to the
-mentioning note.
+line (a keyword or property-drawer line), or that live in a file
+already linking to NOTE (unless `vulpea-mentions-exclude-linked' is
+nil), and maps each remaining hit to the mentioning note.
 
 This is asynchronous and promise-style: exactly one of RESOLVE or
 REJECT is called.
@@ -417,16 +420,13 @@ Returns the ripgrep process, so the caller can wait on or
 Scans the current buffer's content with ripgrep for the titles and
 aliases of the candidate notes (those kept by
 `vulpea-mentions-note-filter', file-level notes by default), drops
-occurrences inside an Org link or on an Org metadata line, ignores:
-
-1. Notes in the buffer's own file
-
-2. Notes that are already linked by this buffer if
-`vulpea-mentions-exclude-linked' is non-nil.
-
-Maps each remaining match to the candidate note(s) it could link to.
-The buffer's live content is searched (via the process's standard
-input), so unsaved edits are included.
+occurrences inside an Org link or on an Org metadata line, ignores
+notes in the buffer's own file and notes the buffer already links
+to (unless `vulpea-mentions-exclude-linked' is nil), and maps each
+remaining match to the candidate note(s) it could link to.  The
+buffer's live content is searched (via the process's standard input),
+so unsaved edits are included - both for the mentions and for the
+links that exclude them.
 
 Asynchronous and promise-style: exactly one of RESOLVE or REJECT is
 called.  RESOLVE receives a list of plists with :note (a candidate note
