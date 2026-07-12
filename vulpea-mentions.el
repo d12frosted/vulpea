@@ -55,6 +55,7 @@
 (require 'ol)
 (require 'vulpea-note)
 (require 'vulpea-db-query)
+(require 'vulpea-db-extract)
 
 (defvar vulpea-db-sync-directories)     ; defined in vulpea-db-sync
 
@@ -88,6 +89,17 @@ heading-level notes.  Set it to your own predicate to, say, exclude a
 journal: (lambda (note) (not (member \"journal\" (vulpea-note-tags note)))),
 or to `always' to consider every note."
   :type 'function
+  :group 'vulpea-mentions)
+
+(defcustom vulpea-mentions-exclude-linked t
+  "Exclude mentions from/to linked notes.
+
+If set to non-nil value, then mentions from/to linked notes will be
+excluded.  That is, if a note has a link to the current note, then any
+other mentions from that note to the current one is excluded.  On the
+other hand, if the current note contains a link to another note, then
+any mentions from the current one to the other one will be excluded."
+  :type 'boolean
   :group 'vulpea-mentions)
 
 ;;; Pure helpers
@@ -216,20 +228,39 @@ the same reasoning as skipping the searched note's own file."
         (lc-terms (mapcar #'downcase terms)))
     (seq-intersection names lc-terms #'string=)))
 
+(defun vulpea-mentions--paths-link-to-note (note)
+  "Return a hash table of note paths that contain links to NOTE."
+  (let* ((result (make-hash-table :test 'equal))
+         (links (vulpea-db-query-links-to (vulpea-note-id note)))
+         (ids (mapcar (lambda (link) (plist-get link :source)) links))
+         (notes (vulpea-db-query-by-ids ids))
+         (paths (mapcar #'vulpea-note-path notes)))
+    (mapc (lambda (path) (puthash (expand-file-name path) t result)) paths)
+    result))
+
 (defun vulpea-mentions--collect (output note own-path)
   "Collect unlinked mentions of NOTE from ripgrep OUTPUT.
 
-OWN-PATH is NOTE's own expanded file path, whose hits are skipped.
-Hits whose mentioning note shares a name with NOTE (a title collision)
-are skipped too.  Returns a list of plists with :note (the mentioning
-note), :path, :line, and :context."
-  (let ((terms (vulpea-mentions--note-terms note))
-        (path->note (make-hash-table :test 'equal))
-        (result nil))
-    (dolist (hit (vulpea-mentions--parse-rg-json output))
-      (let ((path (plist-get hit :path))
-            (line-text (plist-get hit :line-text)))
-        (when (and (not (equal (expand-file-name path) own-path))
+OWN-PATH is NOTE's own expanded file path, whose hits are skipped.  Hits
+whose mentioning note shares a name with NOTE (a title collision) are
+skipped too.  Hits whose mentioning note contains at least one explicit
+link to NOTE are skipped as well.  Set `vulpea-mentions-exclude-linked'
+to nil to disable this behavior.  Returns a list of plists with
+:note (the mentioning note), :path, :line, and :context."
+  (let* ((terms (vulpea-mentions--note-terms note))
+         (path->note (make-hash-table :test 'equal))
+         (hits (vulpea-mentions--parse-rg-json output))
+         (paths-link-to-note
+          (when (and vulpea-mentions-exclude-linked hits)
+            (vulpea-mentions--paths-link-to-note note)))
+         (result nil))
+    (dolist (hit hits)
+      (let* ((path (plist-get hit :path))
+             (line-text (plist-get hit :line-text))
+             (expanded-path (expand-file-name path)))
+        (when (and (not (equal expanded-path own-path))
+                   (not (and vulpea-mentions-exclude-linked
+                             (gethash expanded-path paths-link-to-note)))
                    (not (vulpea-mentions--metadata-line-p line-text))
                    (vulpea-mentions--line-unlinked-p line-text terms))
           (let ((mentioning (vulpea-mentions--file-note path path->note)))
@@ -264,12 +295,29 @@ alias strings to search for."
                 (push id (gethash (downcase trimmed) dict))))))))
     (cons dict (delete-dups terms))))
 
-(defun vulpea-mentions--collect-outgoing (output dict self-ids)
+(defun vulpea-mentions--buffer-link-ids ()
+  "Return a hash table of ids in bracket links in the current buffer.
+
+The hash table will be empty if `vulpea-mentions-exclude-linked' is nil."
+  ;; only scans for bracket id links
+  (let ((result (make-hash-table :test 'equal))
+        (vulpea-db-index-plain-links nil))
+    (vulpea-db--region-links
+     (point-min)
+     (point-max)
+     (lambda (link)
+       (when (equal (plist-get link :type) "id")
+         (puthash (plist-get link :dest) t result))))
+    result))
+
+(defun vulpea-mentions--collect-outgoing (output dict self-ids linked-ids)
   "Collect outgoing unlinked mentions from ripgrep OUTPUT over one buffer.
 
 DICT maps a downcased title/alias to candidate note ids (see
 `vulpea-mentions--title-dictionary').  SELF-IDS are the note ids in the
-buffer's own file, excluded as candidates.
+buffer's own file, excluded as candidates.  LINKED-IDS is a hash table
+of note ids that appears in the links in the buffer.  It would be empty
+if `vulpea-mentions-exclude-linked' is nil.
 
 Returns a list of plists with :note (a candidate note to link to),
 :line, :context, and :matched (the text that matched)."
@@ -279,20 +327,22 @@ Returns a list of plists with :note (a candidate note to link to),
                 (let ((cached (gethash id id->note 'miss)))
                   (if (not (eq cached 'miss)) cached
                     (puthash id (vulpea-db-get-by-id id) id->note)))))
-      (dolist (hit (vulpea-mentions--parse-rg-json output))
-        (let ((line-text (plist-get hit :line-text))
-              (line-no (plist-get hit :line)))
-          (unless (vulpea-mentions--metadata-line-p line-text)
-            (dolist (term (seq-uniq (plist-get hit :matched)))
-              (when (vulpea-mentions--line-unlinked-p line-text (list term))
-                (dolist (id (gethash (downcase term) dict))
-                  (unless (member id self-ids)
-                    (when-let* ((cand (resolve-note id)))
-                      (push (list :note cand :line line-no
-                                  :context (string-trim line-text)
-                                  :matched term)
-                            result))))))))))
-    (nreverse result)))
+      (let ((hits (vulpea-mentions--parse-rg-json output)))
+        (dolist (hit hits)
+          (let ((line-text (plist-get hit :line-text))
+                (line-no (plist-get hit :line)))
+            (unless (vulpea-mentions--metadata-line-p line-text)
+              (dolist (term (seq-uniq (plist-get hit :matched)))
+                (when (vulpea-mentions--line-unlinked-p line-text (list term))
+                  (dolist (id (gethash (downcase term) dict))
+                    (unless (or (member id self-ids)
+                                (gethash id linked-ids))
+                      (when-let* ((cand (resolve-note id)))
+                        (push (list :note cand :line line-no
+                                    :context (string-trim line-text)
+                                    :matched term)
+                              result))))))))))
+      (nreverse result))))
 
 ;;; Async entry point
 
@@ -303,8 +353,10 @@ Returns a list of plists with :note (a candidate note to link to),
 Searches the files under `vulpea-db-sync-directories' with ripgrep for
 NOTE's title and aliases, drops occurrences that are already inside an
 Org link, that live in NOTE's own file or in the file of a note sharing
-NOTE's title (a title collision), or that fall on an Org metadata line (a
-keyword or property-drawer line), and maps each remaining hit to the
+NOTE's title (a title collision), or that fall on an Org metadata
+line (a keyword or property-drawer line), or that belong to file already
+containing a link to NOTE (if `vulpea-mentions-exclude-linked' is
+non-nil, which is the default) and maps each remaining hit to the
 mentioning note.
 
 This is asynchronous and promise-style: exactly one of RESOLVE or
@@ -365,10 +417,16 @@ Returns the ripgrep process, so the caller can wait on or
 Scans the current buffer's content with ripgrep for the titles and
 aliases of the candidate notes (those kept by
 `vulpea-mentions-note-filter', file-level notes by default), drops
-occurrences inside an Org link or on an Org metadata line, ignores notes
-in the buffer's own file, and maps each remaining match to the candidate
-note(s) it could link to.  The buffer's live content is searched (via the
-process's standard input), so unsaved edits are included.
+occurrences inside an Org link or on an Org metadata line, ignores:
+
+1. Notes in the buffer's own file
+
+2. Notes that are already linked by this buffer if
+`vulpea-mentions-exclude-linked' is non-nil.
+
+Maps each remaining match to the candidate note(s) it could link to.
+The buffer's live content is searched (via the process's standard
+input), so unsaved edits are included.
 
 Asynchronous and promise-style: exactly one of RESOLVE or REJECT is
 called.  RESOLVE receives a list of plists with :note (a candidate note
@@ -392,7 +450,10 @@ target a specific buffer."
                                  (vulpea-db-query-by-file-path file))))
              (dict-terms (vulpea-mentions--title-dictionary))
              (dict (car dict-terms))
-             (terms (cdr dict-terms)))
+             (terms (cdr dict-terms))
+             (linked-ids (if vulpea-mentions-exclude-linked
+                             (vulpea-mentions--buffer-link-ids)
+                           (make-hash-table :test 'equal))))
         (if (null terms)
             (progn (funcall resolve nil) nil)
           (let ((patterns-file (make-temp-file "vulpea-mentions-pat-"))
@@ -417,7 +478,7 @@ target a specific buffer."
                                    (condition-case err
                                        (funcall resolve
                                                 (vulpea-mentions--collect-outgoing
-                                                 output dict self-ids))
+                                                 output dict self-ids linked-ids))
                                      (error (funcall reject (error-message-string err))))
                                  (funcall reject
                                           (format "ripgrep failed (exit %s)" code)))))))))

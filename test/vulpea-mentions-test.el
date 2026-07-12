@@ -158,7 +158,8 @@
   (skip-unless (executable-find "rg"))
   (let* ((dir (make-temp-file "vulpea-mentions-" t))
          (target (expand-file-name "target.org" dir))
-         (other (expand-file-name "other.org" dir))
+         (link-and-mention (expand-file-name "link-and-mention.org" dir))
+         (mention-only (expand-file-name "mention-only.org" dir))
          (vulpea-db-location (make-temp-file "vulpea-mentions-" nil ".db"))
          (vulpea-db--connection nil)
          (vulpea-db-sync-directories (list dir)))
@@ -166,13 +167,19 @@
         (progn
           (with-temp-file target
             (insert ":PROPERTIES:\n:ID: target\n:END:\n#+title: Cabernet\n"))
-          (with-temp-file other
-            (insert ":PROPERTIES:\n:ID: other\n:END:\n#+title: Other\n\n"
-                    "A bare Cabernet mention.\n"
+          (with-temp-file link-and-mention
+            (insert ":PROPERTIES:\n:ID: link-and-mention\n:END:\n#+title: Link and Mention\n\n"
+                    "A bare Cabernet mention, but there is another link in the buffer.\n"
+                    "* Heading\n"
+                    ":PROPERTIES:\n:ID: heading\n:END:\n"
                     "A linked [[id:target][Cabernet]] mention.\n"))
+          (with-temp-file mention-only
+            (insert ":PROPERTIES:\n:ID: mention-only\n:END:\n#+title: Mention Only\n\n"
+                    "A bare Cabernet mention without other links.\n"))
           (vulpea-db)
           (vulpea-db-update-file target)
-          (vulpea-db-update-file other)
+          (vulpea-db-update-file link-and-mention)
+          (vulpea-db-update-file mention-only)
           (let* ((note (vulpea-db-get-by-id "target"))
                  (cmd (vulpea-mentions--rg-command
                        (executable-find "rg")
@@ -184,9 +191,14 @@
                  (mentions (vulpea-mentions--collect
                             output note (expand-file-name target))))
             (should (= (length mentions) 1))
-            (should (equal (vulpea-note-id (plist-get (car mentions) :note)) "other"))
-            (should (string-match-p "bare Cabernet"
-                                    (plist-get (car mentions) :context)))))
+            (should (equal (vulpea-note-id (plist-get (car mentions) :note)) "mention-only"))
+            (should (string-match-p "bare Cabernet mention without other links"
+                                    (plist-get (car mentions) :context)))
+            ;; test for the original behavior
+            (let ((vulpea-mentions-exclude-linked nil))
+              (setq mentions (vulpea-mentions--collect
+                              output note (expand-file-name target)))
+              (should (= (length mentions) 2)))))
       (when vulpea-db--connection (vulpea-db-close))
       (when (file-exists-p vulpea-db-location) (delete-file vulpea-db-location))
       (delete-directory dir t))))
@@ -258,11 +270,20 @@
                     (funcall mk "#+title: Merlot" 1 "Merlot")
                     ;; mention of the buffer's own note -> excluded via self-ids
                     (funcall mk "my Diary entry" 4 "Diary")))
-           (mentions (vulpea-mentions--collect-outgoing output dict self-ids)))
-      (should (= (length mentions) 1))
-      (should (equal (vulpea-note-id (plist-get (car mentions) :note)) "cab"))
-      (should (equal (plist-get (car mentions) :matched) "Cabernet"))
-      (should (equal (plist-get (car mentions) :line) 2)))))
+           (build-linked-ids (lambda ()
+                               (let ((result (make-hash-table :test 'equal)))
+                                 (puthash "cab" t result)
+                                 result)))
+           (linked-ids (funcall build-linked-ids)))
+      (let ((mentions (vulpea-mentions--collect-outgoing
+                       output dict self-ids linked-ids)))
+        (should (= (length mentions) 0)))
+      (let ((mentions (vulpea-mentions--collect-outgoing
+                       output dict self-ids (make-hash-table :test 'equal))))
+        (should (= (length mentions) 1))
+        (should (equal (vulpea-note-id (plist-get (car mentions) :note)) "cab"))
+        (should (equal (plist-get (car mentions) :matched) "Cabernet"))
+        (should (equal (plist-get (car mentions) :line) 2))))))
 
 (ert-deftest vulpea-mentions-outgoing-with-real-rg ()
   "Real ripgrep over buffer content (stdin) yields candidate notes; links excluded."
@@ -279,28 +300,47 @@
       (unwind-protect
           (progn
             (with-temp-file patterns (insert (mapconcat #'identity terms "\n") "\n"))
-            (let* ((output (with-temp-buffer
+            (let* (linked-ids-exclude-linked
+                   (linked-ids-no-exclude-linked (make-hash-table :test 'equal))
+                   (output (with-temp-buffer
                              (insert content)
+                             (setq linked-ids-exclude-linked
+                                   (vulpea-mentions--buffer-link-ids))
                              (let ((out (generate-new-buffer " *rg*")))
                                (call-process-region
                                 (point-min) (point-max) (executable-find "rg")
                                 nil out nil "--json" "--fixed-strings" "--ignore-case"
                                 "--word-regexp" "-f" patterns "-")
                                (prog1 (with-current-buffer out (buffer-string))
-                                 (kill-buffer out)))))
-                   (mentions (vulpea-mentions--collect-outgoing output dict nil))
-                   (ids (sort (mapcar (lambda (m) (vulpea-note-id (plist-get m :note)))
-                                      mentions)
-                              #'string<)))
-              ;; "Cabernet Sauvignon" (bare) -> cab; "Merlot" bare on line 2 -> merlot;
-              ;; the linked Merlot on line 1 is excluded.
-              (should (equal ids '("cab" "merlot")))
-              (let ((merlot (seq-find
-                             (lambda (m) (equal (vulpea-note-id (plist-get m :note)) "merlot"))
-                             mentions)))
-                (should (equal (plist-get merlot :line) 2))
-                (should (equal (plist-get merlot :matched) "Merlot"))
-                (should (equal (plist-get merlot :context) "More Merlot later.")))))
+                                 (kill-buffer out))))))
+              ;; when `vulpea-mentions-exclude-linked' is non-nil
+              (let ((mentions
+                     (vulpea-mentions--collect-outgoing
+                      output
+                      dict
+                      nil
+                      linked-ids-exclude-linked)))
+                (should (= (length mentions) 1))
+                (should (equal (plist-get (car mentions) :matched) "Cabernet Sauvignon")))
+              ;; when `vulpea-mentions-exclude-linked' is nil
+              (let* ((mentions
+                      (vulpea-mentions--collect-outgoing
+                       output
+                       dict
+                       nil
+                       linked-ids-no-exclude-linked))
+                     (ids (sort (mapcar (lambda (m) (vulpea-note-id (plist-get m :note)))
+                                        mentions)
+                                #'string<)))
+                ;; "Cabernet Sauvignon" (bare) -> cab; "Merlot" bare on line 2 -> merlot;
+                ;; the linked Merlot on line 1 is excluded.
+                (should (equal ids '("cab" "merlot")))
+                (let ((merlot (seq-find
+                               (lambda (m) (equal (vulpea-note-id (plist-get m :note)) "merlot"))
+                               mentions)))
+                  (should (equal (plist-get merlot :line) 2))
+                  (should (equal (plist-get merlot :matched) "Merlot"))
+                  (should (equal (plist-get merlot :context) "More Merlot later."))))))
         (delete-file patterns)))))
 
 (ert-deftest vulpea-mentions-outgoing-rejects-without-rg ()
