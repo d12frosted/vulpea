@@ -55,6 +55,7 @@
 (require 'ol)
 (require 'vulpea-note)
 (require 'vulpea-db-query)
+(require 'vulpea-db-extract)
 
 (defvar vulpea-db-sync-directories)     ; defined in vulpea-db-sync
 
@@ -94,8 +95,8 @@ or to `always' to consider every note."
   "Exclude mentions from/to linked notes.
 
 If set to non-nil value, then mentions from/to linked notes will be
-excluded. That is, if a note has a link to the current note, then any
-other mentions from that note to the current one is excluded. On the
+excluded.  That is, if a note has a link to the current note, then any
+other mentions from that note to the current one is excluded.  On the
 other hand, if the current note contains a link to another note, then
 any mentions from the current one to the other one will be excluded."
   :type 'boolean
@@ -228,7 +229,7 @@ the same reasoning as skipping the searched note's own file."
     (seq-intersection names lc-terms #'string=)))
 
 (defun vulpea-mentions--paths-link-to-note (note)
-  "Return a hash table of paths of note that contain links to NOTE."
+  "Return a hash table of note paths that contain links to NOTE."
   (let* ((result (make-hash-table :test 'equal))
          (links (vulpea-db-query-links-to (vulpea-note-id note)))
          (ids (mapcar (lambda (link) (plist-get link :source)) links))
@@ -242,9 +243,9 @@ the same reasoning as skipping the searched note's own file."
 
 OWN-PATH is NOTE's own expanded file path, whose hits are skipped.  Hits
 whose mentioning note shares a name with NOTE (a title collision) are
-skipped too. Hits whose mentioning note contains at least one explicit
-link to NOTE are skipped as well. Set `vulpea-mentions-exclude-linked'
-to nil to disable this behavior. Returns a list of plists with
+skipped too.  Hits whose mentioning note contains at least one explicit
+link to NOTE are skipped as well.  Set `vulpea-mentions-exclude-linked'
+to nil to disable this behavior.  Returns a list of plists with
 :note (the mentioning note), :path, :line, and :context."
   (let* ((terms (vulpea-mentions--note-terms note))
          (path->note (make-hash-table :test 'equal))
@@ -294,17 +295,18 @@ alias strings to search for."
                 (push id (gethash (downcase trimmed) dict))))))))
     (cons dict (delete-dups terms))))
 
-(defun vulpea-mentions--collect-outgoing-link-ids-in-buffer ()
-  "Return a hash table of ids appeared in links in the current buffer.
+(defun vulpea-mentions--buffer-link-ids ()
+  "Return a hash table of ids in bracket links in the current buffer.
 
 The hash table will be empty if `vulpea-mentions-exclude-linked' is nil."
+  ;; only scans for bracket id links
   (let ((result (make-hash-table :test 'equal))
         (vulpea-db-index-plain-links nil))
-    (when vulpea-mentions-exclude-linked
-      (vulpea-db--region-links
-       (point-min)
-       (point-max)
-       (lambda (link)
+    (vulpea-db--region-links
+     (point-min)
+     (point-max)
+     (lambda (link)
+       (when (equal (plist-get link :type) "id")
          (puthash (plist-get link :dest) t result))))
     result))
 
@@ -313,9 +315,9 @@ The hash table will be empty if `vulpea-mentions-exclude-linked' is nil."
 
 DICT maps a downcased title/alias to candidate note ids (see
 `vulpea-mentions--title-dictionary').  SELF-IDS are the note ids in the
-buffer's own file, excluded as candidates. LINKED-IDS is a hash table of
-note ids that appears in the links in the buffer. It would be empty if
-`vulpea-mentions-exclude-linked' is nil.
+buffer's own file, excluded as candidates.  LINKED-IDS is a hash table
+of note ids that appears in the links in the buffer.  It would be empty
+if `vulpea-mentions-exclude-linked' is nil.
 
 Returns a list of plists with :note (a candidate note to link to),
 :line, :context, and :matched (the text that matched)."
@@ -449,7 +451,9 @@ target a specific buffer."
              (dict-terms (vulpea-mentions--title-dictionary))
              (dict (car dict-terms))
              (terms (cdr dict-terms))
-             (linked-ids (vulpea-mentions--collect-outgoing-link-ids-in-buffer)))
+             (linked-ids (if vulpea-mentions-exclude-linked
+                             (vulpea-mentions--buffer-link-ids)
+                           (make-hash-table :test 'equal))))
         (if (null terms)
             (progn (funcall resolve nil) nil)
           (let ((patterns-file (make-temp-file "vulpea-mentions-pat-"))

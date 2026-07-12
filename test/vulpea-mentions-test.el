@@ -270,11 +270,20 @@
                     (funcall mk "#+title: Merlot" 1 "Merlot")
                     ;; mention of the buffer's own note -> excluded via self-ids
                     (funcall mk "my Diary entry" 4 "Diary")))
-           (mentions (vulpea-mentions--collect-outgoing output dict self-ids)))
-      (should (= (length mentions) 1))
-      (should (equal (vulpea-note-id (plist-get (car mentions) :note)) "cab"))
-      (should (equal (plist-get (car mentions) :matched) "Cabernet"))
-      (should (equal (plist-get (car mentions) :line) 2)))))
+           (build-linked-ids (lambda ()
+                               (let ((result (make-hash-table :test 'equal)))
+                                 (puthash "cab" t result)
+                                 result)))
+           (linked-ids (funcall build-linked-ids)))
+      (let ((mentions (vulpea-mentions--collect-outgoing
+                       output dict self-ids linked-ids)))
+        (should (= (length mentions) 0)))
+      (let ((mentions (vulpea-mentions--collect-outgoing
+                       output dict self-ids (make-hash-table :test 'equal))))
+        (should (= (length mentions) 1))
+        (should (equal (vulpea-note-id (plist-get (car mentions) :note)) "cab"))
+        (should (equal (plist-get (car mentions) :matched) "Cabernet"))
+        (should (equal (plist-get (car mentions) :line) 2))))))
 
 (ert-deftest vulpea-mentions-outgoing-with-real-rg ()
   "Real ripgrep over buffer content (stdin) yields candidate notes; links excluded."
@@ -292,14 +301,11 @@
           (progn
             (with-temp-file patterns (insert (mapconcat #'identity terms "\n") "\n"))
             (let* (linked-ids-exclude-linked
-                   linked-ids-no-exclude-linked
+                   (linked-ids-no-exclude-linked (make-hash-table :test 'equal))
                    (output (with-temp-buffer
                              (insert content)
                              (setq linked-ids-exclude-linked
-                                   (vulpea-mentions--collect-outgoing-link-ids-in-buffer))
-                             (let ((vulpea-mentions-exclude-linked nil))
-                               (setq linked-ids-no-exclude-linked
-                                     (vulpea-mentions--collect-outgoing-link-ids-in-buffer)))
+                                   (vulpea-mentions--buffer-link-ids))
                              (let ((out (generate-new-buffer " *rg*")))
                                (call-process-region
                                 (point-min) (point-max) (executable-find "rg")
