@@ -291,28 +291,50 @@
       (unwind-protect
           (progn
             (with-temp-file patterns (insert (mapconcat #'identity terms "\n") "\n"))
-            (let* ((output (with-temp-buffer
+            (let* (linked-ids-exclude-linked
+                   linked-ids-no-exclude-linked
+                   (output (with-temp-buffer
                              (insert content)
+                             (setq linked-ids-exclude-linked
+                                   (vulpea-mentions--collect-outgoing-link-ids-in-buffer))
+                             (let ((vulpea-mentions-exclude-linked nil))
+                               (setq linked-ids-no-exclude-linked
+                                     (vulpea-mentions--collect-outgoing-link-ids-in-buffer)))
                              (let ((out (generate-new-buffer " *rg*")))
                                (call-process-region
                                 (point-min) (point-max) (executable-find "rg")
                                 nil out nil "--json" "--fixed-strings" "--ignore-case"
                                 "--word-regexp" "-f" patterns "-")
                                (prog1 (with-current-buffer out (buffer-string))
-                                 (kill-buffer out)))))
-                   (mentions (vulpea-mentions--collect-outgoing output dict nil))
-                   (ids (sort (mapcar (lambda (m) (vulpea-note-id (plist-get m :note)))
-                                      mentions)
-                              #'string<)))
-              ;; "Cabernet Sauvignon" (bare) -> cab; "Merlot" bare on line 2 -> merlot;
-              ;; the linked Merlot on line 1 is excluded.
-              (should (equal ids '("cab" "merlot")))
-              (let ((merlot (seq-find
-                             (lambda (m) (equal (vulpea-note-id (plist-get m :note)) "merlot"))
-                             mentions)))
-                (should (equal (plist-get merlot :line) 2))
-                (should (equal (plist-get merlot :matched) "Merlot"))
-                (should (equal (plist-get merlot :context) "More Merlot later.")))))
+                                 (kill-buffer out))))))
+              ;; when `vulpea-mentions-exclude-linked' is non-nil
+              (let ((mentions
+                     (vulpea-mentions--collect-outgoing
+                      output
+                      dict
+                      nil
+                      linked-ids-exclude-linked)))
+                (should (= (length mentions) 1))
+                (should (equal (plist-get (car mentions) :matched) "Cabernet Sauvignon")))
+              ;; when `vulpea-mentions-exclude-linked' is nil
+              (let* ((mentions
+                      (vulpea-mentions--collect-outgoing
+                       output
+                       dict
+                       nil
+                       linked-ids-no-exclude-linked))
+                     (ids (sort (mapcar (lambda (m) (vulpea-note-id (plist-get m :note)))
+                                        mentions)
+                                #'string<)))
+                ;; "Cabernet Sauvignon" (bare) -> cab; "Merlot" bare on line 2 -> merlot;
+                ;; the linked Merlot on line 1 is excluded.
+                (should (equal ids '("cab" "merlot")))
+                (let ((merlot (seq-find
+                               (lambda (m) (equal (vulpea-note-id (plist-get m :note)) "merlot"))
+                               mentions)))
+                  (should (equal (plist-get merlot :line) 2))
+                  (should (equal (plist-get merlot :matched) "Merlot"))
+                  (should (equal (plist-get merlot :context) "More Merlot later."))))))
         (delete-file patterns)))))
 
 (ert-deftest vulpea-mentions-outgoing-rejects-without-rg ()

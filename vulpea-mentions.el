@@ -228,22 +228,24 @@ the same reasoning as skipping the searched note's own file."
     (seq-intersection names lc-terms #'string=)))
 
 (defun vulpea-mentions--paths-link-to-note (note)
-  "Return a hash table of note ids whose matching note links to NOTE."
+  "Return a hash table of paths of note that contain links to NOTE."
   (let* ((result (make-hash-table :test 'equal))
          (links (vulpea-db-query-links-to (vulpea-note-id note)))
          (ids (mapcar (lambda (link) (plist-get link :source)) links))
          (notes (vulpea-db-query-by-ids ids))
-         (paths (mapcar (lambda (note) (vulpea-note-path note)) notes)))
+         (paths (mapcar #'vulpea-note-path notes)))
     (mapc (lambda (path) (puthash (expand-file-name path) t result)) paths)
     result))
 
 (defun vulpea-mentions--collect (output note own-path)
   "Collect unlinked mentions of NOTE from ripgrep OUTPUT.
 
-OWN-PATH is NOTE's own expanded file path, whose hits are skipped.
-Hits whose mentioning note shares a name with NOTE (a title collision)
-are skipped too.  Returns a list of plists with :note (the mentioning
-note), :path, :line, and :context."
+OWN-PATH is NOTE's own expanded file path, whose hits are skipped.  Hits
+whose mentioning note shares a name with NOTE (a title collision) are
+skipped too. Hits whose mentioning note contains at least one explicit
+link to NOTE are skipped as well. Set `vulpea-mentions-exclude-linked'
+to nil to disable this behavior. Returns a list of plists with
+:note (the mentioning note), :path, :line, and :context."
   (let* ((terms (vulpea-mentions--note-terms note))
          (path->note (make-hash-table :test 'equal))
          (hits (vulpea-mentions--parse-rg-json output))
@@ -292,21 +294,28 @@ alias strings to search for."
                 (push id (gethash (downcase trimmed) dict))))))))
     (cons dict (delete-dups terms))))
 
-(defun vulpea-mentions--self-ids-to-linked-ids (self-ids)
-  "Return ids of note linked by notes designated by SELF-IDS."
-  (let ((result (make-hash-table :test 'equal)))
-    (dolist (id self-ids)
-      (let ((links (vulpea-db-query-links-from id)))
-        (dolist (link links)
-          (puthash (plist-get link :dest) t result))))
+(defun vulpea-mentions--collect-outgoing-link-ids-in-buffer ()
+  "Return a hash table of ids appeared in links in the current buffer.
+
+The hash table will be empty if `vulpea-mentions-exclude-linked' is nil."
+  (let ((result (make-hash-table :test 'equal))
+        (vulpea-db-index-plain-links nil))
+    (when vulpea-mentions-exclude-linked
+      (vulpea-db--region-links
+       (point-min)
+       (point-max)
+       (lambda (link)
+         (puthash (plist-get link :dest) t result))))
     result))
 
-(defun vulpea-mentions--collect-outgoing (output dict self-ids)
+(defun vulpea-mentions--collect-outgoing (output dict self-ids linked-ids)
   "Collect outgoing unlinked mentions from ripgrep OUTPUT over one buffer.
 
 DICT maps a downcased title/alias to candidate note ids (see
 `vulpea-mentions--title-dictionary').  SELF-IDS are the note ids in the
-buffer's own file, excluded as candidates.
+buffer's own file, excluded as candidates. LINKED-IDS is a hash table of
+note ids that appears in the links in the buffer. It would be empty if
+`vulpea-mentions-exclude-linked' is nil.
 
 Returns a list of plists with :note (a candidate note to link to),
 :line, :context, and :matched (the text that matched)."
@@ -316,10 +325,7 @@ Returns a list of plists with :note (a candidate note to link to),
                 (let ((cached (gethash id id->note 'miss)))
                   (if (not (eq cached 'miss)) cached
                     (puthash id (vulpea-db-get-by-id id) id->note)))))
-      (let* ((hits (vulpea-mentions--parse-rg-json output))
-             (linked-ids
-              (when (and vulpea-mentions-exclude-linked hits)
-                (vulpea-mentions--self-ids-to-linked-ids self-ids))))
+      (let ((hits (vulpea-mentions--parse-rg-json output)))
         (dolist (hit hits)
           (let ((line-text (plist-get hit :line-text))
                 (line-no (plist-get hit :line)))
@@ -345,8 +351,10 @@ Returns a list of plists with :note (a candidate note to link to),
 Searches the files under `vulpea-db-sync-directories' with ripgrep for
 NOTE's title and aliases, drops occurrences that are already inside an
 Org link, that live in NOTE's own file or in the file of a note sharing
-NOTE's title (a title collision), or that fall on an Org metadata line (a
-keyword or property-drawer line), and maps each remaining hit to the
+NOTE's title (a title collision), or that fall on an Org metadata
+line (a keyword or property-drawer line), or that belong to file already
+containing a link to NOTE (if `vulpea-mentions-exclude-linked' is
+non-nil, which is the default) and maps each remaining hit to the
 mentioning note.
 
 This is asynchronous and promise-style: exactly one of RESOLVE or
@@ -407,10 +415,16 @@ Returns the ripgrep process, so the caller can wait on or
 Scans the current buffer's content with ripgrep for the titles and
 aliases of the candidate notes (those kept by
 `vulpea-mentions-note-filter', file-level notes by default), drops
-occurrences inside an Org link or on an Org metadata line, ignores notes
-in the buffer's own file, and maps each remaining match to the candidate
-note(s) it could link to.  The buffer's live content is searched (via the
-process's standard input), so unsaved edits are included.
+occurrences inside an Org link or on an Org metadata line, ignores:
+
+1. Notes in the buffer's own file
+
+2. Notes that are already linked by this buffer if
+`vulpea-mentions-exclude-linked' is non-nil.
+
+Maps each remaining match to the candidate note(s) it could link to.
+The buffer's live content is searched (via the process's standard
+input), so unsaved edits are included.
 
 Asynchronous and promise-style: exactly one of RESOLVE or REJECT is
 called.  RESOLVE receives a list of plists with :note (a candidate note
@@ -434,7 +448,8 @@ target a specific buffer."
                                  (vulpea-db-query-by-file-path file))))
              (dict-terms (vulpea-mentions--title-dictionary))
              (dict (car dict-terms))
-             (terms (cdr dict-terms)))
+             (terms (cdr dict-terms))
+             (linked-ids (vulpea-mentions--collect-outgoing-link-ids-in-buffer)))
         (if (null terms)
             (progn (funcall resolve nil) nil)
           (let ((patterns-file (make-temp-file "vulpea-mentions-pat-"))
@@ -459,7 +474,7 @@ target a specific buffer."
                                    (condition-case err
                                        (funcall resolve
                                                 (vulpea-mentions--collect-outgoing
-                                                 output dict self-ids))
+                                                 output dict self-ids linked-ids))
                                      (error (funcall reject (error-message-string err))))
                                  (funcall reject
                                           (format "ripgrep failed (exit %s)" code)))))))))
