@@ -608,6 +608,60 @@ even with `vulpea-db-sync-scan-on-enable' set to nil."
         (when (file-directory-p similar)
           (delete-directory similar t))))))
 
+(ert-deftest vulpea-db-sync-tracked-file-p-basic ()
+  "A path counts as tracked only when it lives under a synced directory."
+  (let* ((dir (file-truename (make-temp-file "vulpea-tracked-" t)))
+         (vulpea-db-sync-directories (list dir)))
+    (unwind-protect
+        (progn
+          ;; inside the directory
+          (should (vulpea-db-sync-tracked-file-p
+                   (expand-file-name "note.org" dir)))
+          ;; a file in a subdirectory (fswatch reports these on creation)
+          (should (vulpea-db-sync-tracked-file-p
+                   (expand-file-name "journal/2026.org" dir)))
+          ;; a sibling that merely shares a name prefix
+          (should-not (vulpea-db-sync-tracked-file-p
+                       (concat dir "-archive/note.org")))
+          ;; somewhere else entirely
+          (should-not (vulpea-db-sync-tracked-file-p "/tmp/elsewhere/x.org"))
+          ;; a relative path is rejected
+          (should-not (vulpea-db-sync-tracked-file-p "note.org"))
+          ;; nil path
+          (should-not (vulpea-db-sync-tracked-file-p nil)))
+      (delete-directory dir t)))
+  ;; with no directories configured, nothing is tracked
+  (let ((vulpea-db-sync-directories nil))
+    (should-not (vulpea-db-sync-tracked-file-p "/tmp/vault/note.org"))))
+
+(ert-deftest vulpea-db-sync-tracked-file-p-symlink ()
+  "Symlinked directories match whichever side of the check carries the link.
+
+fswatch on macOS reports resolved paths, so a symlinked
+`vulpea-db-sync-directories' entry has to resolve both sides before
+comparing."
+  (let* ((real (file-truename (make-temp-file "vulpea-tracked-real-" t)))
+         (link (concat (file-truename
+                        (make-temp-file "vulpea-tracked-link-" t))
+                       "/vault")))
+    (unwind-protect
+        (progn
+          (make-symbolic-link real link)
+          ;; directory is the symlink, path is the resolved location
+          (let ((vulpea-db-sync-directories (list link)))
+            (should (vulpea-db-sync-tracked-file-p
+                     (expand-file-name "note.org" real))))
+          ;; directory is the resolved location, path goes through the link
+          (let ((vulpea-db-sync-directories (list real)))
+            (should (vulpea-db-sync-tracked-file-p
+                     (expand-file-name "note.org" link))))
+          ;; an outside file is still rejected through the link
+          (let ((vulpea-db-sync-directories (list link)))
+            (should-not (vulpea-db-sync-tracked-file-p "/tmp/elsewhere/x.org"))))
+      (when (file-symlink-p link) (delete-file link))
+      (delete-directory real t)
+      (delete-directory (file-name-directory link) t))))
+
 (ert-deftest vulpea-db-sync-full-scan-cleans-untracked ()
   "Test that full-scan automatically cleans up untracked files."
   (vulpea-test--with-temp-db
@@ -1372,10 +1426,15 @@ issue #344)."
             ;; Simulate mingw fswatch: backslash before the file name.
             ;; Pretend we are on Windows so backslash separators are
             ;; normalized; the temp paths themselves stay POSIX, and file
-            ;; I/O above runs under the real `system-type'.
-            (let ((system-type 'windows-nt))
-              (vulpea-db-sync--fswatch-filter
-               nil (format "%s\\note.org|||Updated\n" dir)))
+            ;; I/O above runs under the real `system-type'.  The
+            ;; watched-directory check resolves paths with `file-truename',
+            ;; which under a faked `windows-nt' calls `w32-long-file-name'
+            ;; (void off Windows); stub it to identity, standing in for the
+            ;; real function that exists on Windows.
+            (cl-letf (((symbol-function 'w32-long-file-name) #'identity))
+              (let ((system-type 'windows-nt))
+                (vulpea-db-sync--fswatch-filter
+                 nil (format "%s\\note.org|||Updated\n" dir))))
             (should (= (length vulpea-db-sync--queue) 1))
             ;; The enqueued path must be the canonical forward-slash form
             ;; so downstream DB lookups match.

@@ -11,6 +11,8 @@
 
 *Features*
 
+- New =vulpea-db-sync-tracked-file-p= answers whether a path lives under one of =vulpea-db-sync-directories=, the "is this file in my vault?" question. It resolves symlinks on both sides with =file-truename=, so a vault reached through a symlink (a Termux storage link, an iCloud or Dropbox path) matches whichever side of the comparison carries the link. This also fixes external-change detection through =fswatch= on macOS, where fswatch reports the resolved path that a symlinked directory entry would otherwise not match; the untracked-file cleanup and the fswatch path filter both go through the new predicate now.
+
 - [[https://github.com/d12frosted/vulpea/issues/369][vulpea#369]] Unlinked mentions no longer include notes that are already linked: a note linking to the target is dropped from the target's incoming mentions, and notes already linked from the buffer are dropped from its outgoing mentions. Once a link exists, further plain-text occurrences are prose, not a missing connection. Set =vulpea-mentions-exclude-linked= to nil to restore the old behavior. Thanks to @drcxd for the implementation.
 
 ** v2.6.0 (2026-07-10)
