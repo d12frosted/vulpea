@@ -145,6 +145,17 @@
     (should-not (vulpea-mentions--shares-name-p
                  (make-vulpea-note :title "Merlot") terms))))
 
+(ert-deftest vulpea-mentions--ingore-note-p ()
+  "Ignore notes with certain property set to certain value."
+  (should (vulpea-mentions--ignore-note-p
+           (make-vulpea-note
+            :title "Ignore This"
+            :properties `((,vulpea-mentions-ignore-property-key
+                           .
+                           ,vulpea-mentions-ignore-property-value)))))
+  (should (not (vulpea-mentions--ignore-note-p
+                (make-vulpea-note :title "Do Not Ignore This")))))
+
 ;;; Integration with real ripgrep
 
 ;; The full subprocess pipeline is exercised by running ripgrep
@@ -199,6 +210,38 @@
               (setq mentions (vulpea-mentions--collect
                               output note (expand-file-name target)))
               (should (= (length mentions) 2)))))
+      (when vulpea-db--connection (vulpea-db-close))
+      (when (file-exists-p vulpea-db-location) (delete-file vulpea-db-location))
+      (delete-directory dir t))))
+
+(ert-deftest vulpea-mentions-ignore-note-with-property ()
+  "When a note set the ignore property, skip searching for its mentions."
+  (skip-unless (executable-find "rg"))
+  (let* ((dir (make-temp-file "vulpea-mentions-" t))
+         (target (expand-file-name "target.org" dir))
+         (mention (expand-file-name "mention.org" dir))
+         (vulpea-db-location (make-temp-file "vulpea-mentions-" nil ".db"))
+         (vulpea-db--connection nil)
+         (vulpea-db-sync-directories (list dir)))
+    (unwind-protect
+        (progn
+          (with-temp-file target
+            (insert ":PROPERTIES:\n:ID: ignored\n"
+                    (format ":%s: %s\n"
+                            vulpea-mentions-ignore-property-key
+                            vulpea-mentions-ignore-property-value)
+                    ":END:\n#+title: Ignored\n"))
+          (with-temp-file mention
+            (insert ":PROPERTIES:\n:ID: mention\n:END:\n#+title: Mention\n\n"
+                    "An ignored mention.\n"))
+          (vulpea-db)
+          (vulpea-db-update-file target)
+          (vulpea-db-update-file mention)
+          (vulpea-note-unlinked-mentions-async
+           (vulpea-db-get-by-id "ignored")
+           (lambda (mentions)
+             (should (not mentions)))
+           (lambda (_e) (should nil))))
       (when vulpea-db--connection (vulpea-db-close))
       (when (file-exists-p vulpea-db-location) (delete-file vulpea-db-location))
       (delete-directory dir t))))
