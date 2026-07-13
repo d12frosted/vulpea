@@ -702,6 +702,61 @@ live on disk; cleanup must not treat it as deleted."
         (delete-file other-file)
         (delete-file new-file)))))
 
+(ert-deftest vulpea-db-sync-cleanup-deleted-files-purges-orphan-notes ()
+  "Cleanup removes notes rows whose path has no files row.
+
+A crash or rename race can leave notes rows pointing at a path
+that is gone from both disk and the files table.  Such orphans
+shadow re-indexing (the id is taken) and resolve to dead paths,
+so cleanup must purge them even though no files row references
+them."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((live-file (vulpea-test--create-temp-org-file
+                      ":PROPERTIES:\n:ID: live-id\n:END:\n#+TITLE: Live\n")))
+      (unwind-protect
+          (progn
+            (vulpea-db-update-file live-file)
+
+            ;; Orphan: notes row without files row, path gone from disk
+            (vulpea-db--insert-note
+             :id "orphan-id"
+             :path "/nonexistent/orphan.org"
+             :level 0
+             :pos 0
+             :title "Orphan"
+             :modified-at "2025-11-16 10:00:00")
+
+            (vulpea-db-sync--cleanup-deleted-files)
+
+            (should (vulpea-db-get-by-id "live-id"))
+            (should-not (vulpea-db-get-by-id "orphan-id")))
+        (delete-file live-file)))))
+
+(ert-deftest vulpea-db-sync-cleanup-deleted-files-using-purges-orphan-notes ()
+  "Set-based cleanup purges orphan notes rows too."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((live-file (vulpea-test--create-temp-org-file
+                      ":PROPERTIES:\n:ID: live-id\n:END:\n#+TITLE: Live\n")))
+      (unwind-protect
+          (progn
+            (vulpea-db-update-file live-file)
+
+            (vulpea-db--insert-note
+             :id "orphan-id"
+             :path "/nonexistent/orphan.org"
+             :level 0
+             :pos 0
+             :title "Orphan"
+             :modified-at "2025-11-16 10:00:00")
+
+            (vulpea-db-sync--cleanup-deleted-files-using (list live-file))
+
+            (should (vulpea-db-get-by-id "live-id"))
+            (should-not (vulpea-db-get-by-id "orphan-id")))
+        (delete-file live-file)))))
+
 (ert-deftest vulpea-db-sync-cleanup-untracked-files ()
   "Test that narrowing sync directories removes untracked files from database."
   (vulpea-test--with-temp-db

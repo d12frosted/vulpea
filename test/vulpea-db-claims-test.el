@@ -243,5 +243,34 @@ mark instead of being dropped by the unchanged-content check."
               (should (gethash queued vulpea-db-sync--force-set))))
         (delete-file path)))))
 
+(ert-deftest vulpea-db-claims-cleanup-mid-heal-keeps-destination ()
+  "Cleanup between id release and the queued re-index spares the claimant.
+
+When the origin releases the id, claim resolution drops the
+destination's change-detection row (the force re-read marker) and
+enqueues it.  The queue is debounced, and a cleanup can fire in
+that window; it must not treat the destination as an orphan - the
+file sits on disk untouched."
+  (vulpea-db-claims-test--with-refile
+    (let ((vulpea-db-autosync-mode t)
+          (vulpea-db-sync--queue nil)
+          (vulpea-db-sync--queue-tail nil)
+          (vulpea-db-sync--queue-set (make-hash-table :test 'equal))
+          (vulpea-db-sync--force-set (make-hash-table :test 'equal))
+          (vulpea-db-sync--timer nil))
+      (vulpea-db-claims-test--write
+       origin vulpea-db-claims-test--origin-without-task)
+      (vulpea-db-update-file origin)
+      ;; Cleanup fires before the queue drains.
+      (vulpea-db-sync--cleanup-deleted-files)
+      ;; The destination's own file-level note - never part of the
+      ;; refile - must survive.
+      (should (vulpea-db-get-by-id "dest-id"))
+      ;; Draining the queue completes the move as designed.
+      (let ((vulpea-db-async-extraction nil)
+            (vulpea-db-sync--processing nil))
+        (vulpea-db-sync--process-queue))
+      (should (equal dest (vulpea-db-claims-test--owner "task-id"))))))
+
 (provide 'vulpea-db-claims-test)
 ;;; vulpea-db-claims-test.el ends here

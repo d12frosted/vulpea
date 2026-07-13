@@ -1330,6 +1330,32 @@ Returns number of purged paths."
          purged (if (= purged 1) "" "s")))
       purged)))
 
+(defun vulpea-db-sync--purge-orphan-notes (db)
+  "Forget notes in DB whose path has no files row and no file on disk.
+
+Notes and files rows are normally removed together, but a crash or
+a rename race can leave notes pointing at a path the files table no
+longer tracks.  Deleting by files-table paths never reaches such
+rows, so they persist indefinitely: they resolve ids to dead paths
+and shadow re-indexing of the moved file (its ids are taken).
+
+A missing files row is also how a re-read is asked for - claim
+resolution drops it and queues the file - so a path whose file is
+still on disk is left to that queued re-index.  Forgetting goes
+through `vulpea-db--forget-file', so freed ids reach their
+claimants and removals are announced.
+
+Returns the number of paths forgotten."
+  (let ((paths (mapcar #'car
+                       (emacsql db [:select :distinct [path] :from notes
+                                    :where path :not-in [:select path
+                                                         :from files]])))
+        (purged 0))
+    (dolist (path paths purged)
+      (unless (file-exists-p path)
+        (vulpea-db--forget-file path)
+        (setq purged (1+ purged))))))
+
 (defun vulpea-db-sync--cleanup-deleted-files ()
   "Remove database entries for files that no longer exist.
 
@@ -1339,11 +1365,13 @@ Returns count of removed files."
          (all-paths (mapcar #'car (emacsql db [:select path :from files])))
          (vulpea-db--pending-removal-announcements nil)
          (deleted 0))
-    (emacsql-with-transaction db
-      (dolist (path all-paths)
-        (unless (file-exists-p path)
-          (vulpea-db--forget-file path)
-          (setq deleted (1+ deleted)))))
+    (vulpea-db-sync--flushing-deferred-claimants
+      (emacsql-with-transaction db
+        (dolist (path all-paths)
+          (unless (file-exists-p path)
+            (vulpea-db--forget-file path)
+            (setq deleted (1+ deleted))))
+        (vulpea-db-sync--purge-orphan-notes db)))
     (vulpea-db--flush-removal-announcements)
     (when (> deleted 0)
       (vulpea-db-sync--message "Vulpea: Removed %d deleted file%s from database"
@@ -1375,13 +1403,15 @@ Returns count of removed files."
     ;; output bypasses filename decoding.
     (dolist (f existing-files)
       (puthash (vulpea-db-normalize-path f) t existing-set))
-    (emacsql-with-transaction db
-      (dolist (path all-paths)
-        (unless (or (gethash path existing-set)
-                    (and (vulpea-db-sync-tracked-file-p path)
-                         (file-exists-p path)))
-          (vulpea-db--forget-file path)
-          (setq deleted (1+ deleted)))))
+    (vulpea-db-sync--flushing-deferred-claimants
+      (emacsql-with-transaction db
+        (dolist (path all-paths)
+          (unless (or (gethash path existing-set)
+                      (and (vulpea-db-sync-tracked-file-p path)
+                           (file-exists-p path)))
+            (vulpea-db--forget-file path)
+            (setq deleted (1+ deleted))))
+        (vulpea-db-sync--purge-orphan-notes db)))
     (vulpea-db--flush-removal-announcements)
     (when (> deleted 0)
       (vulpea-db-sync--message "Vulpea: Removed %d deleted file%s from database"
