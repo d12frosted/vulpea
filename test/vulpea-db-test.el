@@ -171,6 +171,92 @@ https://github.com/d12frosted/vulpea/issues/399"
     (should (null (vulpea-note-title-source
                    (vulpea-db-get-by-id "ts-nil-id"))))))
 
+(ert-deftest vulpea-db-insert-note-evicts-stale-row-after-file-move ()
+  "Re-indexing a moved file wins over a stale row keeping the old path.
+
+When a note id is already taken by a row whose file no longer
+exists on disk (the file was moved or deleted), inserting the same
+id from a new path must replace the stale row instead of being
+silently dropped."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((new-path (vulpea-test--create-temp-org-file "#+TITLE: Moved\n")))
+      (unwind-protect
+          (progn
+            ;; Stale row: its path does not exist on disk
+            (vulpea-db--insert-note
+             :id "moved-id"
+             :path "/nonexistent/old-location.org"
+             :level 0
+             :pos 0
+             :title "Old"
+             :tags '("old-tag")
+             :modified-at "2025-11-16 10:00:00")
+
+            ;; Re-index at the new location
+            (vulpea-db--insert-note
+             :id "moved-id"
+             :path new-path
+             :level 0
+             :pos 0
+             :title "Moved"
+             :tags '("new-tag")
+             :modified-at "2025-11-17 10:00:00")
+
+            (let ((rows (emacsql (vulpea-db)
+                                 [:select [id path title] :from notes
+                                  :where (= id $s1)]
+                                 "moved-id")))
+              (should (= (length rows) 1))
+              (should (equal (elt (car rows) 1) new-path))
+              (should (equal (elt (car rows) 2) "Moved")))
+
+            ;; Normalized tables follow the new row
+            (let ((tags (emacsql (vulpea-db)
+                                 [:select [tag] :from tags
+                                  :where (= note-id $s1)]
+                                 "moved-id")))
+              (should (equal tags '(("new-tag"))))))
+        (delete-file new-path)))))
+
+(ert-deftest vulpea-db-insert-note-keeps-row-on-duplicate-id-with-live-file ()
+  "Duplicate id from another existing file is still ignored.
+
+When two files on disk genuinely claim the same id, the first
+indexed row must stay - the tolerance provided by INSERT OR
+IGNORE is preserved."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((path-a (vulpea-test--create-temp-org-file "#+TITLE: A\n"))
+          (path-b (vulpea-test--create-temp-org-file "#+TITLE: B\n")))
+      (unwind-protect
+          (progn
+            (vulpea-db--insert-note
+             :id "dup-id"
+             :path path-a
+             :level 0
+             :pos 0
+             :title "A"
+             :modified-at "2025-11-16 10:00:00")
+
+            (vulpea-db--insert-note
+             :id "dup-id"
+             :path path-b
+             :level 0
+             :pos 0
+             :title "B"
+             :modified-at "2025-11-17 10:00:00")
+
+            (let ((rows (emacsql (vulpea-db)
+                                 [:select [path title] :from notes
+                                  :where (= id $s1)]
+                                 "dup-id")))
+              (should (= (length rows) 1))
+              (should (equal (elt (car rows) 0) path-a))
+              (should (equal (elt (car rows) 1) "A"))))
+        (delete-file path-a)
+        (delete-file path-b)))))
+
 (ert-deftest vulpea-db-insert-note-normalized-tables ()
   "Test note insertion populates normalized tables."
   (vulpea-test--with-temp-db

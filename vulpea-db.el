@@ -674,6 +674,20 @@ Arguments:
   (let* ((db (vulpea-db))
          (handle (oref db handle)))
     (emacsql-with-transaction db
+      ;; A row keeping the id from a path whose file no longer exists
+      ;; is stale (the file was moved or deleted and its removal was
+      ;; missed).  Evict it so the insert below wins; when the other
+      ;; file still exists the id is genuinely duplicated and the
+      ;; first-indexed row keeps it.
+      (let ((existing-path
+             (caar (emacsql db [:select path :from notes
+                                :where (= id $s1)]
+                            id))))
+        (when (and existing-path
+                   (not (equal existing-path path))
+                   (not (file-exists-p existing-path)))
+          (vulpea-db--delete-note id)))
+
       ;; 1. Insert into materialized notes table
       (vulpea-db--insert-rows
        handle
