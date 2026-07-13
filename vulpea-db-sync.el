@@ -1044,6 +1044,30 @@ Returns count of removed files."
                                deleted (if (= deleted 1) "" "s")))
     deleted))
 
+(defun vulpea-db-sync-tracked-file-p (path)
+  "Return non-nil when PATH lives under a synced directory.
+
+PATH is checked against `vulpea-db-sync-directories'.  Both PATH and
+each directory are resolved with `file-truename' before comparing, so a
+directory reached through a symlink still matches when only one side of
+the comparison carries the link (for example a Termux storage link, or
+an iCloud or Dropbox path).  On Windows the comparison is
+case-insensitive.  Returns nil when PATH is nil or not absolute, or when
+no directories are configured.
+
+PATH may name a file or a directory; only membership is checked, so the
+file need not exist."
+  (when (and path
+             (file-name-absolute-p path)
+             vulpea-db-sync-directories)
+    (let ((path (file-truename path))
+          (ignore-case (memq system-type '(windows-nt ms-dos cygwin))))
+      (seq-some
+       (lambda (dir)
+         (string-prefix-p (file-name-as-directory (file-truename dir))
+                          path ignore-case))
+       vulpea-db-sync-directories))))
+
 (defun vulpea-db-sync--cleanup-untracked-files ()
   "Remove database entries for files outside tracked directories.
 
@@ -1059,17 +1083,13 @@ Returns count of removed files."
       0  ; No cleanup if no directories configured
     (let* ((db (vulpea-db))
            (all-paths (mapcar #'car (emacsql db [:select path :from files])))
-           (removed 0)
-           (tracked-dirs (mapcar #'expand-file-name vulpea-db-sync-directories)))
+           (removed 0))
       (emacsql-with-transaction db
         (dolist (path all-paths)
-          (let ((expanded-path (expand-file-name path)))
-            (unless (seq-some (lambda (dir)
-                                (file-in-directory-p expanded-path dir))
-                              tracked-dirs)
-              (vulpea-db--delete-file-notes path)
-              (emacsql db [:delete :from files :where (= path $s1)] path)
-              (setq removed (1+ removed))))))
+          (unless (vulpea-db-sync-tracked-file-p path)
+            (vulpea-db--delete-file-notes path)
+            (emacsql db [:delete :from files :where (= path $s1)] path)
+            (setq removed (1+ removed)))))
       (when (> removed 0)
         (vulpea-db-sync--message "Vulpea: Removed %d untracked file%s from database"
                                  removed (if (= removed 1) "" "s")))
@@ -1347,16 +1367,13 @@ a legal file-name character there."
 (defun vulpea-db-sync--fswatch-path-valid-p (path)
   "Return non-nil if PATH is within a watched directory.
 
-PATH is compared case-insensitively on Windows, whose file systems are
-case-insensitive and where fswatch may report a different drive-letter
-case than `expand-file-name'."
-  (and path
-       (file-name-absolute-p path)
-       (let ((ignore-case (memq system-type '(windows-nt ms-dos cygwin))))
-         (seq-some (lambda (dir)
-                     (string-prefix-p (file-name-as-directory (expand-file-name dir))
-                                      path ignore-case))
-                   vulpea-db-sync-directories))))
+A thin wrapper over `vulpea-db-sync-tracked-file-p', which resolves
+symlinks on both sides (fswatch on macOS reports the resolved path,
+which would otherwise not match a symlinked `vulpea-db-sync-directories'
+entry) and compares case-insensitively on Windows, whose file systems
+are case-insensitive and where fswatch may report a different
+drive-letter case."
+  (vulpea-db-sync-tracked-file-p path))
 
 (defun vulpea-db-sync--fswatch-to-cygwin-path (path)
   "Convert a native Windows PATH to the Cygwin `/cygdrive/' form.
