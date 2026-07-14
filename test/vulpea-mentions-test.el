@@ -145,7 +145,7 @@
     (should-not (vulpea-mentions--shares-name-p
                  (make-vulpea-note :title "Merlot") terms))))
 
-(ert-deftest vulpea-mentions--ingore-note-p ()
+(ert-deftest vulpea-mentions--ignore-note-p ()
   "Ignore notes with certain property set to certain value."
   (should (vulpea-mentions--ignore-note-p
            (make-vulpea-note
@@ -218,30 +218,54 @@
   "When a note set the ignore property, skip searching for its mentions."
   (skip-unless (executable-find "rg"))
   (let* ((dir (make-temp-file "vulpea-mentions-" t))
-         (target (expand-file-name "target.org" dir))
+         (ignored (expand-file-name "ignored.org" dir))
+         (not-ignored (expand-file-name "not-ignored.org" dir))
          (mention (expand-file-name "mention.org" dir))
          (vulpea-db-location (make-temp-file "vulpea-mentions-" nil ".db"))
          (vulpea-db--connection nil)
          (vulpea-db-sync-directories (list dir)))
     (unwind-protect
         (progn
-          (with-temp-file target
+          (with-temp-file ignored
             (insert ":PROPERTIES:\n:ID: ignored\n"
                     (format ":%s: %s\n"
                             vulpea-mentions-ignore-property-key
                             vulpea-mentions-ignore-property-value)
                     ":END:\n#+title: Ignored\n"))
+          (with-temp-file not-ignored
+            (insert ":PROPERTIES:\n:ID: not-ignored\n:END:\n"
+                    "#+title: Not Ignored\n\n"))
           (with-temp-file mention
             (insert ":PROPERTIES:\n:ID: mention\n:END:\n#+title: Mention\n\n"
-                    "An ignored mention.\n"))
+                    "An ignored mention.\n"
+                    "A not ignored mention.\n"))
           (vulpea-db)
-          (vulpea-db-update-file target)
+          (vulpea-db-update-file ignored)
+          (vulpea-db-update-file not-ignored)
           (vulpea-db-update-file mention)
-          (vulpea-note-unlinked-mentions-async
-           (vulpea-db-get-by-id "ignored")
-           (lambda (mentions)
-             (should (not mentions)))
-           (lambda (_e) (should nil))))
+          (let ((test (lambda (note-id assert)
+                        (let* (result
+                               done
+                               (proc (vulpea-note-unlinked-mentions-async
+                                      (vulpea-db-get-by-id note-id)
+                                      (lambda (mentions)
+                                        (setq result mentions
+                                              done t))
+                                      (lambda (_e) (setq done 'error)))))
+                          (when proc
+                            (while (not done)
+                              (accept-process-output proc 0.2)))
+                          (funcall assert result done)))))
+            (funcall test
+                     "ignored"
+                     (lambda (result done)
+                       (should (eq done t))
+                       (should (null result))))
+            (funcall test
+                     "not-ignored"
+                     (lambda (result done)
+                       (should (eq done t))
+                       (should (eq (length result) 1))))))
       (when vulpea-db--connection (vulpea-db-close))
       (when (file-exists-p vulpea-db-location) (delete-file vulpea-db-location))
       (delete-directory dir t))))
@@ -289,6 +313,33 @@
     (let* ((vulpea-mentions-note-filter (lambda (_n) t))
            (dict (car (vulpea-mentions--title-dictionary))))
       (should (gethash "heading wine" dict)))))
+
+(ert-deftest vulpea-mentions--title-dictionary-respects-ignore-property ()
+  "The candidate dictionary honors `vulpea-mentions--ignore-note-p'."
+  (vulpea-test--with-temp-db
+   (vulpea-db)
+   (vulpea-test--insert-test-note "c" "Cabernet"
+                                  :properties
+                                  `((,vulpea-mentions-ignore-property-key
+                                     .
+                                     ,vulpea-mentions-ignore-property-value)))
+   (vulpea-test--insert-test-note "m" "Merlot")
+   (let* ((dt (vulpea-mentions--title-dictionary))
+          (dict (car dt))
+          (terms (cdr dt)))
+     (should (equal terms '("Merlot")))))
+  (vulpea-test--with-temp-db
+   (vulpea-db)
+   (vulpea-test--insert-test-note "c1" "Cabernet"
+                                  :properties
+                                  `((,vulpea-mentions-ignore-property-key
+                                     .
+                                     ,vulpea-mentions-ignore-property-value)))
+   (vulpea-test--insert-test-note "c2" "Cabernet")
+   (let* ((dt (vulpea-mentions--title-dictionary))
+          (dict (car dt))
+          (terms (cdr dt)))
+     (should (equal (gethash "cabernet" dict) '("c2"))))))
 
 (ert-deftest vulpea-mentions--collect-outgoing ()
   "Outgoing collect maps matched terms to candidate notes and applies filters."

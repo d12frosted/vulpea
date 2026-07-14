@@ -243,7 +243,7 @@ the same reasoning as skipping the searched note's own file."
   "Return non-nil if NOTE set the property to ignore incoming mentions."
   (equal vulpea-mentions-ignore-property-value
          (cdr (assoc
-               vulpea-mentions-ignore-property-key
+               (upcase vulpea-mentions-ignore-property-key)
                (vulpea-note-properties note)))))
 
 (defun vulpea-mentions--paths-link-to-note (note)
@@ -296,13 +296,17 @@ to nil to disable this behavior.  Returns a list of plists with
 (defun vulpea-mentions--title-dictionary ()
   "Return (DICT . TERMS) describing the candidate notes' names.
 
-Candidates are the notes kept by `vulpea-mentions-note-filter'.  DICT is
-a hash table mapping a downcased title or alias to the list of note ids
-that bear it.  TERMS is the de-duplicated list of the original title and
-alias strings to search for."
+Candidates are the notes kept by `vulpea-mentions-note-filter' while not
+ignored by `vulpea-mentions--ignore-note-p'.  DICT is a hash table
+mapping a downcased title or alias to the list of note ids that bear it.
+TERMS is the de-duplicated list of the original title and alias strings
+to search for."
   (let ((dict (make-hash-table :test 'equal))
-        (terms nil))
-    (dolist (note (vulpea-db-query vulpea-mentions-note-filter))
+        (terms nil)
+        (filter (lambda (note)
+                  (and (not (vulpea-mentions--ignore-note-p note))
+                       (funcall vulpea-mentions-note-filter note)))))
+    (dolist (note (vulpea-db-query filter))
       (let ((id (vulpea-note-id note))
             (names (cons (vulpea-note-title note) (vulpea-note-aliases note))))
         (dolist (name names)
