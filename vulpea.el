@@ -1268,7 +1268,14 @@ PROPERTIES values, and META values:
   %(elisp)   - Elisp evaluation (e.g., %(user-full-name))
   %<format>  - Timestamp formatting (e.g., %<[%Y-%m-%d]>)
 
-Note: Does not support %a or %i from org-capture."
+Note: Does not support %a or %i from org-capture.
+
+TITLE must be a string; signals `user-error' otherwise.  Notes
+without titles are not supported (see vulpea#379)."
+  (unless (stringp title)
+    (user-error
+     "Note title must be a string, got %S; notes without titles are not supported"
+     title))
   (let* ((id (or id (org-id-new)))
          (context (or context nil)))
     (if parent
