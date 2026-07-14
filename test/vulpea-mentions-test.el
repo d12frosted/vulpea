@@ -253,8 +253,11 @@
                                               done t))
                                       (lambda (_e) (setq done 'error)))))
                           (when proc
-                            (while (not done)
-                              (accept-process-output proc 0.2)))
+                            (let (proc-status)
+                              (while (and (not done)
+                                          (not (equal proc-status 'exit)))
+                                (setq proc-status (process-status proc))
+                                (accept-process-output proc 0.2))))
                           (funcall assert result done)))))
             (funcall test
                      "ignored"
@@ -386,11 +389,17 @@
     (vulpea-db)
     (vulpea-test--insert-test-note "cab" "Cabernet Sauvignon" :path "/n/cab.org")
     (vulpea-test--insert-test-note "merlot" "Merlot" :path "/n/merlot.org")
+    (vulpea-test--insert-test-note "syrah" "Syrah"
+                                   :path "/n/syrah.org"
+                                   :properties
+                                   `((,vulpea-mentions-ignore-property-key
+                                      .
+                                      ,vulpea-mentions-ignore-property-value)))
     (let* ((terms (cdr (vulpea-mentions--title-dictionary)))
            (dict (car (vulpea-mentions--title-dictionary)))
            (patterns (make-temp-file "vmp-"))
            (content (concat "We had Cabernet Sauvignon and [[id:merlot][Merlot]].\n"
-                            "More Merlot later.\n")))
+                            "More Merlot and Syrah later.\n")))
       (unwind-protect
           (progn
             (with-temp-file patterns (insert (mapconcat #'identity terms "\n") "\n"))
@@ -434,7 +443,7 @@
                                mentions)))
                   (should (equal (plist-get merlot :line) 2))
                   (should (equal (plist-get merlot :matched) "Merlot"))
-                  (should (equal (plist-get merlot :context) "More Merlot later."))))))
+                  (should (equal (plist-get merlot :context) "More Merlot and Syrah later."))))))
         (delete-file patterns)))))
 
 (ert-deftest vulpea-mentions-outgoing-rejects-without-rg ()
