@@ -514,6 +514,15 @@ Guards against arbitrary code execution from untrusted note titles."
         (when (file-directory-p vulpea-default-notes-directory)
           (delete-directory vulpea-default-notes-directory t))))))
 
+(ert-deftest vulpea-create-rejects-non-string-title ()
+  "Test that `vulpea-create' fails loudly when TITLE is not a string."
+  (should-error (vulpea-create nil) :type 'user-error)
+  (should-error (vulpea-create 'some-symbol) :type 'user-error)
+  (should-error (vulpea-create 42) :type 'user-error)
+  ;; heading-level path goes through the same guard
+  (should-error (vulpea-create nil nil :parent (make-vulpea-note :id "x"))
+                :type 'user-error))
+
 (ert-deftest vulpea-create-custom-file-name ()
   "Test note creation with custom file name."
   (vulpea-test--with-temp-db
