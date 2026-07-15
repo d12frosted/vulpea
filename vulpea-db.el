@@ -204,7 +204,7 @@ changes to extraction logic that keep the schema intact, bump
 `vulpea-db-parser-epoch' instead - it re-extracts files without
 discarding the database.")
 
-(defconst vulpea-db-parser-epoch 4
+(defconst vulpea-db-parser-epoch 5
   "Epoch of the note extraction logic.
 
 Increment this whenever the parser/extractor in `vulpea-db-extract'
