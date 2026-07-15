@@ -21,6 +21,8 @@
 
 - [[https://github.com/d12frosted/vulpea/issues/379][vulpea#379]] =vulpea-create= now signals a clear =user-error= when TITLE is not a string, instead of failing deep inside content formatting with a cryptic type error. Notes without titles are not supported; the title is a structural invariant (it is derived from the org source on every sync), so passing nil was never going to work, it just failed badly.
 
+- Disabling external monitoring no longer resurrects the fswatch watcher. The fswatch sentinel auto-restarts a died process after 2 seconds, and stopping used to kill the process without detaching that sentinel, so the watcher came back moments after =vulpea-db-autosync-mode= was turned off (and, in the test suite, came back watching the default =org-directory= instead of the test's temp dir). Stop now detaches the sentinel before killing and cancels an already-scheduled respawn.
+
 ** v2.6.0 (2026-07-10)
 
 *Breaking changes*

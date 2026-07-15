@@ -209,6 +209,11 @@ content is identical but extraction output is not.")
 (defvar vulpea-db-sync--fswatch-process nil
   "Process handle for fswatch external monitoring.")
 
+(defvar vulpea-db-sync--fswatch-restart-timer nil
+  "Timer for the delayed fswatch respawn scheduled by the sentinel.
+Tracked so that stopping external monitoring can cancel a restart
+that is already in flight.")
+
 (defvar vulpea-db-sync--fswatch-buffer ""
   "Buffer for incomplete fswatch output lines.")
 
@@ -1259,8 +1264,18 @@ settings migrations from freezing the session."
 
 (defun vulpea-db-sync--stop-external-monitoring ()
   "Stop all external file monitoring."
+  ;; Cancel a respawn the sentinel may have already scheduled
+  (when vulpea-db-sync--fswatch-restart-timer
+    (cancel-timer vulpea-db-sync--fswatch-restart-timer)
+    (setq vulpea-db-sync--fswatch-restart-timer nil))
+
   ;; Stop fswatch process
   (when vulpea-db-sync--fswatch-process
+    ;; Suppress the sentinel's auto-restart: killing the process below
+    ;; would otherwise schedule a respawn that fires after this stop,
+    ;; resurrecting the watcher with whatever configuration is current
+    ;; at that point.
+    (set-process-sentinel vulpea-db-sync--fswatch-process #'ignore)
     (when (process-live-p vulpea-db-sync--fswatch-process)
       (delete-process vulpea-db-sync--fswatch-process))
     (setq vulpea-db-sync--fswatch-process nil))
@@ -1486,8 +1501,11 @@ Handles partial lines by buffering incomplete output."
   (unless (process-live-p proc)
     (message "Vulpea: fswatch process died (%s), restarting..." (string-trim event))
     (setq vulpea-db-sync--fswatch-process nil)
-    ;; Restart after a delay
-    (run-at-time 2 nil #'vulpea-db-sync--setup-fswatch)))
+    ;; Restart after a delay.  The timer is tracked so that
+    ;; `vulpea-db-sync--stop-external-monitoring' can cancel a restart
+    ;; scheduled between the process dying and monitoring being stopped.
+    (setq vulpea-db-sync--fswatch-restart-timer
+          (run-at-time 2 nil #'vulpea-db-sync--setup-fswatch))))
 
 (defun vulpea-db-sync--setup-polling ()
   "Setup polling-based external monitoring.

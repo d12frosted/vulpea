@@ -460,6 +460,39 @@ even with `vulpea-db-sync-scan-on-enable' set to nil."
             (should (process-live-p proc))))
       (vulpea-db-sync--stop-external-monitoring))))
 
+(ert-deftest vulpea-db-sync-stop-detaches-fswatch-sentinel ()
+  "Stopping detaches the auto-restart sentinel before killing fswatch.
+
+Without this, the kill triggers `vulpea-db-sync--fswatch-sentinel',
+which schedules a respawn 2 seconds later - after any let-bound
+configuration is gone - so a zombie fswatch comes back watching the
+default `vulpea-db-sync-directories' and nothing ever stops it."
+  (skip-unless (executable-find "fswatch"))
+  (let ((vulpea-db-sync--fswatch-process nil)
+        (vulpea-db-sync--fswatch-restart-timer nil)
+        (vulpea-db-sync-directories (list temporary-file-directory)))
+    (vulpea-db-sync--setup-fswatch)
+    (let ((proc vulpea-db-sync--fswatch-process))
+      (should (process-live-p proc))
+      (vulpea-db-sync--stop-external-monitoring)
+      ;; Inspected post-mortem: the process object outlives the kill.
+      (should (eq (process-sentinel proc) #'ignore)))))
+
+(ert-deftest vulpea-db-sync-stop-cancels-pending-fswatch-restart ()
+  "Stopping cancels a restart already scheduled by the sentinel.
+
+Covers the other half of the race: fswatch died on its own, the
+sentinel scheduled the 2-second respawn, and monitoring is stopped
+before the timer fires.  The timer must not survive the stop."
+  (let* ((fired nil)
+         (timer (run-at-time 3600 nil (lambda () (setq fired t))))
+         (vulpea-db-sync--fswatch-process nil)
+         (vulpea-db-sync--fswatch-restart-timer timer))
+    (ignore fired)
+    (vulpea-db-sync--stop-external-monitoring)
+    (should-not vulpea-db-sync--fswatch-restart-timer)
+    (should-not (memq timer timer-list))))
+
 (ert-deftest vulpea-db-sync-setup-polling-idempotent ()
   "Test repeated polling setup does not leak a second timer."
   (let* ((test-dir (make-temp-file "vulpea-test-poll-idem-" t))
