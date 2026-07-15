@@ -23,6 +23,8 @@
 
 - Disabling external monitoring no longer resurrects the fswatch watcher. The fswatch sentinel auto-restarts a died process after 2 seconds, and stopping used to kill the process without detaching that sentinel, so the watcher came back moments after =vulpea-db-autosync-mode= was turned off (and, in the test suite, came back watching the default =org-directory= instead of the test's temp dir). Stop now detaches the sentinel before killing and cancels an already-scheduled respawn.
 
+- The extraction worker now sets =load-prefer-newer= before loading anything. The worker is spawned with =-Q=, so a stale =.elc= sitting next to a newer =.el= used to load in the worker while the main process ran the source, and the two processes silently executed different versions of vulpea. Extraction results could then disagree with what the main process would have produced, in ways that depend on whatever the stale bytecode predates.
+
 ** v2.6.0 (2026-07-10)
 
 *Breaking changes*

@@ -76,6 +76,20 @@ Ensures the worker and the file are cleaned up."
        (when (file-exists-p path)
          (delete-file path)))))
 
+(ert-deftest vulpea-db-worker-command-prefers-newer ()
+  "The worker command forces `load-prefer-newer'.
+
+The worker is spawned with -Q, so without this it silently loads a
+stale .elc even when the .el next to it is newer - and then runs
+different extraction code than the main process (which, under eldev,
+prefers the newer source).  The mismatch is invisible until an
+extractor observes behavior the stale bytecode predates."
+  (let ((cmd (vulpea-db-worker--command)))
+    (should (member "(setq load-prefer-newer t)" cmd))
+    ;; It must take effect before the worker library itself is loaded.
+    (should (< (seq-position cmd "(setq load-prefer-newer t)")
+               (seq-position cmd "-l")))))
+
 (ert-deftest vulpea-db-worker-async-database-equals-sync ()
   "Worker-extracted data lands in the database byte-identically.
 Indexes the adversarial corpus twice - synchronously in one database,

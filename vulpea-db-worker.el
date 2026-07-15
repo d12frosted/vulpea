@@ -413,7 +413,13 @@ output is not.")
     (append (list emacs "--batch" "-Q")
             (mapcan (lambda (dir) (list "-L" dir))
                     (seq-filter #'stringp load-path))
-            (list "-l" lib "-f" "vulpea-db-worker-batch-main"))))
+            ;; -Q leaves `load-prefer-newer' nil, so a stale .elc next
+            ;; to a newer .el would load in the worker while the main
+            ;; process runs the source - two processes silently
+            ;; executing different versions of vulpea.  Prefer the
+            ;; newer file, whatever it is, before anything loads.
+            (list "--eval" "(setq load-prefer-newer t)"
+                  "-l" lib "-f" "vulpea-db-worker-batch-main"))))
 
 (defun vulpea-db-worker--salvage ()
   "Re-enqueue in-flight work of a dead worker and reset client state.
