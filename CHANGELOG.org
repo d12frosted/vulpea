@@ -15,6 +15,8 @@
 
 - [[https://github.com/d12frosted/vulpea/issues/369][vulpea#369]] Unlinked mentions no longer include notes that are already linked: a note linking to the target is dropped from the target's incoming mentions, and notes already linked from the buffer are dropped from its outgoing mentions. Once a link exists, further plain-text occurrences are prose, not a missing connection. Set =vulpea-mentions-exclude-linked= to nil to restore the old behavior. Thanks to @drcxd for the implementation.
 
+- [[https://github.com/d12frosted/vulpea/issues/369][vulpea#369]] A note can now opt out of mention detection entirely by setting the =MENTIONS= property to =ignore= (both customizable via =vulpea-mentions-ignore-property-key= and =vulpea-mentions-ignore-property-value=). An opted-out note gets no incoming mention scan, and its title and aliases are never suggested as outgoing mentions in other notes. Made for notes whose titles are everyday words (a note called "Sets" matching the verb in every other file). Thanks to @drcxd for the implementation.
+
 *Fixes*
 
 - [[https://github.com/d12frosted/vulpea/issues/379][vulpea#379]] =vulpea-create= now signals a clear =user-error= when TITLE is not a string, instead of failing deep inside content formatting with a cryptic type error. Notes without titles are not supported; the title is a structural invariant (it is derived from the org source on every sync), so passing nil was never going to work, it just failed badly.

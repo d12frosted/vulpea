@@ -104,12 +104,19 @@ every occurrence regardless of existing links."
   :group 'vulpea-mentions)
 
 (defcustom vulpea-mentions-ignore-property-key "MENTIONS"
-  "Property key to ignore mentions for the current note."
+  "Org property marking a note as excluded from mention detection.
+
+A note whose property drawer sets this property to
+`vulpea-mentions-ignore-property-value' opts out of mentions entirely:
+no incoming mentions are searched for it, and its title and aliases
+are not offered as outgoing mention candidates in other notes.  Useful
+for notes whose titles are common words (e.g. \"Sets\") that would
+otherwise produce mostly false positives."
   :type 'string
   :group 'vulpea-mentions)
 
 (defcustom vulpea-mentions-ignore-property-value "ignore"
-  "Property value to ignore mentions for the current note."
+  "Value of `vulpea-mentions-ignore-property-key' that opts a note out."
   :type 'string
   :group 'vulpea-mentions)
 
@@ -240,7 +247,12 @@ the same reasoning as skipping the searched note's own file."
     (seq-intersection names lc-terms #'string=)))
 
 (defun vulpea-mentions--ignore-note-p (note)
-  "Return non-nil if NOTE set the property to ignore incoming mentions."
+  "Return non-nil when NOTE opts out of mention detection.
+
+A note opts out by setting `vulpea-mentions-ignore-property-key' to
+`vulpea-mentions-ignore-property-value' in its property drawer; it then
+gets no incoming mention scan and is excluded from the outgoing
+candidate dictionary."
   (equal vulpea-mentions-ignore-property-value
          (cdr (assoc
                (upcase vulpea-mentions-ignore-property-key)
@@ -296,8 +308,9 @@ to nil to disable this behavior.  Returns a list of plists with
 (defun vulpea-mentions--title-dictionary ()
   "Return (DICT . TERMS) describing the candidate notes' names.
 
-Candidates are the notes kept by `vulpea-mentions-note-filter' while not
-ignored by `vulpea-mentions--ignore-note-p'.  DICT is a hash table
+Candidates are the notes kept by `vulpea-mentions-note-filter', minus
+those opting out via `vulpea-mentions--ignore-note-p'.  DICT is a hash
+table
 mapping a downcased title or alias to the list of note ids that bear it.
 TERMS is the de-duplicated list of the original title and alias strings
 to search for."
@@ -381,9 +394,10 @@ Org link, that live in NOTE's own file or in the file of a note sharing
 NOTE's title (a title collision), or that fall on an Org metadata
 line (a keyword or property-drawer line), or that live in a file
 already linking to NOTE (unless `vulpea-mentions-exclude-linked' is
-nil), and maps each remaining hit to the mentioning note.  If the note
-has property `vulpea-mentions-ignore-property-key' set to
-`vulpea-mentions-ignore-property-value', then skip searches for NOTE.
+nil), and maps each remaining hit to the mentioning note.  When NOTE
+itself opts out of mention detection (see
+`vulpea-mentions-ignore-property-key'), no search runs at all and
+RESOLVE is called synchronously with nil.
 
 This is asynchronous and promise-style: exactly one of RESOLVE or
 REJECT is called.
