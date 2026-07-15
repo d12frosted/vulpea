@@ -145,6 +145,17 @@
     (should-not (vulpea-mentions--shares-name-p
                  (make-vulpea-note :title "Merlot") terms))))
 
+(ert-deftest vulpea-mentions--ignore-note-p ()
+  "Ignore notes with certain property set to certain value."
+  (should (vulpea-mentions--ignore-note-p
+           (make-vulpea-note
+            :title "Ignore This"
+            :properties `((,vulpea-mentions-ignore-property-key
+                           .
+                           ,vulpea-mentions-ignore-property-value)))))
+  (should (not (vulpea-mentions--ignore-note-p
+                (make-vulpea-note :title "Do Not Ignore This")))))
+
 ;;; Integration with real ripgrep
 
 ;; The full subprocess pipeline is exercised by running ripgrep
@@ -203,6 +214,63 @@
       (when (file-exists-p vulpea-db-location) (delete-file vulpea-db-location))
       (delete-directory dir t))))
 
+(ert-deftest vulpea-mentions-ignore-note-with-property ()
+  "When a note set the ignore property, skip searching for its mentions."
+  (skip-unless (executable-find "rg"))
+  (let* ((dir (make-temp-file "vulpea-mentions-" t))
+         (ignored (expand-file-name "ignored.org" dir))
+         (not-ignored (expand-file-name "not-ignored.org" dir))
+         (mention (expand-file-name "mention.org" dir))
+         (vulpea-db-location (make-temp-file "vulpea-mentions-" nil ".db"))
+         (vulpea-db--connection nil)
+         (vulpea-db-sync-directories (list dir)))
+    (unwind-protect
+        (progn
+          (with-temp-file ignored
+            (insert ":PROPERTIES:\n:ID: ignored\n"
+                    (format ":%s: %s\n"
+                            vulpea-mentions-ignore-property-key
+                            vulpea-mentions-ignore-property-value)
+                    ":END:\n#+title: Ignored\n"))
+          (with-temp-file not-ignored
+            (insert ":PROPERTIES:\n:ID: not-ignored\n:END:\n"
+                    "#+title: Not Ignored\n\n"))
+          (with-temp-file mention
+            (insert ":PROPERTIES:\n:ID: mention\n:END:\n#+title: Mention\n\n"
+                    "An ignored mention.\n"
+                    "A not ignored mention.\n"))
+          (vulpea-db)
+          (vulpea-db-update-file ignored)
+          (vulpea-db-update-file not-ignored)
+          (vulpea-db-update-file mention)
+          ;; Notes set the ignore property short-circuit
+          ;; `vulpea-note-unlinked-mentions-async' without spawning
+          ;; the rg process. RESOLVE is called synchronously.
+          (let (result done)
+            (should (null (vulpea-note-unlinked-mentions-async
+                           (vulpea-db-get-by-id "ignored")
+                           (lambda (mentions) (setq done t
+                                                    result mentions))
+                           (lambda (_e) (setq done 'error)))))
+            (should (eq done t))
+            (should (null result)))
+          ;; Notes without the ignore property are discovered by the
+          ;; rg scan.
+          (let* ((note (vulpea-db-get-by-id "not-ignored"))
+                 (cmd (vulpea-mentions--rg-command
+                       (executable-find "rg")
+                       (vulpea-mentions--note-terms note)
+                       (list dir)))
+                 (output (with-temp-buffer
+                           (apply #'call-process (car cmd) nil t nil (cdr cmd))
+                           (buffer-string)))
+                 (mentions (vulpea-mentions--collect
+                            output note (expand-file-name not-ignored))))
+            (should (= (length mentions) 1))))
+      (when vulpea-db--connection (vulpea-db-close))
+      (when (file-exists-p vulpea-db-location) (delete-file vulpea-db-location))
+      (delete-directory dir t))))
+
 (ert-deftest vulpea-mentions-async-rejects-without-rg ()
   "When ripgrep is unavailable, REJECT is called."
   (cl-letf (((symbol-function 'executable-find) (lambda (&rest _) nil)))
@@ -246,6 +314,33 @@
     (let* ((vulpea-mentions-note-filter (lambda (_n) t))
            (dict (car (vulpea-mentions--title-dictionary))))
       (should (gethash "heading wine" dict)))))
+
+(ert-deftest vulpea-mentions--title-dictionary-respects-ignore-property ()
+  "The candidate dictionary honors `vulpea-mentions--ignore-note-p'."
+  (vulpea-test--with-temp-db
+   (vulpea-db)
+   (vulpea-test--insert-test-note "c" "Cabernet"
+                                  :properties
+                                  `((,vulpea-mentions-ignore-property-key
+                                     .
+                                     ,vulpea-mentions-ignore-property-value)))
+   (vulpea-test--insert-test-note "m" "Merlot")
+   (let* ((dt (vulpea-mentions--title-dictionary))
+          (dict (car dt))
+          (terms (cdr dt)))
+     (should (equal terms '("Merlot")))))
+  (vulpea-test--with-temp-db
+   (vulpea-db)
+   (vulpea-test--insert-test-note "c1" "Cabernet"
+                                  :properties
+                                  `((,vulpea-mentions-ignore-property-key
+                                     .
+                                     ,vulpea-mentions-ignore-property-value)))
+   (vulpea-test--insert-test-note "c2" "Cabernet")
+   (let* ((dt (vulpea-mentions--title-dictionary))
+          (dict (car dt))
+          (terms (cdr dt)))
+     (should (equal (gethash "cabernet" dict) '("c2"))))))
 
 (ert-deftest vulpea-mentions--collect-outgoing ()
   "Outgoing collect maps matched terms to candidate notes and applies filters."
@@ -292,11 +387,17 @@
     (vulpea-db)
     (vulpea-test--insert-test-note "cab" "Cabernet Sauvignon" :path "/n/cab.org")
     (vulpea-test--insert-test-note "merlot" "Merlot" :path "/n/merlot.org")
+    (vulpea-test--insert-test-note "syrah" "Syrah"
+                                   :path "/n/syrah.org"
+                                   :properties
+                                   `((,vulpea-mentions-ignore-property-key
+                                      .
+                                      ,vulpea-mentions-ignore-property-value)))
     (let* ((terms (cdr (vulpea-mentions--title-dictionary)))
            (dict (car (vulpea-mentions--title-dictionary)))
            (patterns (make-temp-file "vmp-"))
            (content (concat "We had Cabernet Sauvignon and [[id:merlot][Merlot]].\n"
-                            "More Merlot later.\n")))
+                            "More Merlot and Syrah later.\n")))
       (unwind-protect
           (progn
             (with-temp-file patterns (insert (mapconcat #'identity terms "\n") "\n"))
@@ -340,7 +441,7 @@
                                mentions)))
                   (should (equal (plist-get merlot :line) 2))
                   (should (equal (plist-get merlot :matched) "Merlot"))
-                  (should (equal (plist-get merlot :context) "More Merlot later."))))))
+                  (should (equal (plist-get merlot :context) "More Merlot and Syrah later."))))))
         (delete-file patterns)))))
 
 (ert-deftest vulpea-mentions-outgoing-rejects-without-rg ()

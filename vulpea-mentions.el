@@ -103,6 +103,16 @@ every occurrence regardless of existing links."
   :type 'boolean
   :group 'vulpea-mentions)
 
+(defcustom vulpea-mentions-ignore-property-key "MENTIONS"
+  "Property key to ignore mentions for the current note."
+  :type 'string
+  :group 'vulpea-mentions)
+
+(defcustom vulpea-mentions-ignore-property-value "ignore"
+  "Property value to ignore mentions for the current note."
+  :type 'string
+  :group 'vulpea-mentions)
+
 ;;; Pure helpers
 
 (defun vulpea-mentions--note-terms (note)
@@ -229,6 +239,13 @@ the same reasoning as skipping the searched note's own file."
         (lc-terms (mapcar #'downcase terms)))
     (seq-intersection names lc-terms #'string=)))
 
+(defun vulpea-mentions--ignore-note-p (note)
+  "Return non-nil if NOTE set the property to ignore incoming mentions."
+  (equal vulpea-mentions-ignore-property-value
+         (cdr (assoc
+               (upcase vulpea-mentions-ignore-property-key)
+               (vulpea-note-properties note)))))
+
 (defun vulpea-mentions--paths-link-to-note (note)
   "Return a hash table of note paths that contain links to NOTE."
   (let* ((result (make-hash-table :test 'equal))
@@ -279,13 +296,17 @@ to nil to disable this behavior.  Returns a list of plists with
 (defun vulpea-mentions--title-dictionary ()
   "Return (DICT . TERMS) describing the candidate notes' names.
 
-Candidates are the notes kept by `vulpea-mentions-note-filter'.  DICT is
-a hash table mapping a downcased title or alias to the list of note ids
-that bear it.  TERMS is the de-duplicated list of the original title and
-alias strings to search for."
+Candidates are the notes kept by `vulpea-mentions-note-filter' while not
+ignored by `vulpea-mentions--ignore-note-p'.  DICT is a hash table
+mapping a downcased title or alias to the list of note ids that bear it.
+TERMS is the de-duplicated list of the original title and alias strings
+to search for."
   (let ((dict (make-hash-table :test 'equal))
-        (terms nil))
-    (dolist (note (vulpea-db-query vulpea-mentions-note-filter))
+        (terms nil)
+        (filter (lambda (note)
+                  (and (not (vulpea-mentions--ignore-note-p note))
+                       (funcall vulpea-mentions-note-filter note)))))
+    (dolist (note (vulpea-db-query filter))
       (let ((id (vulpea-note-id note))
             (names (cons (vulpea-note-title note) (vulpea-note-aliases note))))
         (dolist (name names)
@@ -360,7 +381,9 @@ Org link, that live in NOTE's own file or in the file of a note sharing
 NOTE's title (a title collision), or that fall on an Org metadata
 line (a keyword or property-drawer line), or that live in a file
 already linking to NOTE (unless `vulpea-mentions-exclude-linked' is
-nil), and maps each remaining hit to the mentioning note.
+nil), and maps each remaining hit to the mentioning note.  If the note
+has property `vulpea-mentions-ignore-property-key' set to
+`vulpea-mentions-ignore-property-value', then skip searches for NOTE.
 
 This is asynchronous and promise-style: exactly one of RESOLVE or
 REJECT is called.
@@ -389,7 +412,8 @@ Returns the ripgrep process, so the caller can wait on or
                               (mapcar #'expand-file-name
                                       vulpea-db-sync-directories)))
             (own-path (expand-file-name (vulpea-note-path note))))
-        (if (or (null terms) (null dirs))
+        (if (or (null terms) (null dirs)
+                (vulpea-mentions--ignore-note-p note))
             (progn (funcall resolve nil) nil)
           (let ((output ""))
             (make-process
