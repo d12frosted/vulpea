@@ -97,6 +97,35 @@ Returns STR with emphasis markers removed, or nil if STR is nil."
             (setq result (replace-match "\\1\\2\\3" nil nil result)))))
       result)))
 
+(defun vulpea-db--strip-statistics-cookies (str)
+  "Strip Org statistics cookies from STR.
+
+Removes cookies of both forms - fraction ([3/5], [/]) and
+percent ([50%], [%]) - wherever org itself updates one, glued to
+a neighbouring word or not, closing the gap they leave behind.
+Cookies reflect transient subtask state, not the heading's name,
+so titles keep them out, same as they keep out the priority
+cookie.  Other bracketed text is left intact.
+
+A heading that is nothing but a cookie keeps it: a nameless note
+is worse than a stale name.
+
+Returns STR with cookies removed, or nil if STR is nil."
+  (when str
+    (let ((result str))
+      (while (string-match
+              "\\( ?\\)\\[[0-9]*\\(?:%\\|/[0-9]*\\)\\]\\( ?\\)"
+              result)
+        ;; A cookie between two words leaves the words apart.
+        (setq result (replace-match
+                      (if (and (string-empty-p (match-string 1 result))
+                               (string-empty-p (match-string 2 result)))
+                          ""
+                        " ")
+                      nil t result)))
+      (let ((stripped (string-trim result)))
+        (if (string-empty-p stripped) str stripped)))))
+
 (defun vulpea-db--extract-links-from-string (str &optional base-pos)
   "Extract org links from raw STR.
 
@@ -921,10 +950,11 @@ Respects `vulpea-db-index-heading-level' setting."
                    (archived (vulpea-db--archived-p headline properties filetags)))
               ;; Only index if not explicitly ignored and not archived
               (unless (or ignored disowned archived)
-                (let* ((title (vulpea-db--strip-emphasis
-                               (org-link-display-format
-                                (vulpea-db--string-no-properties
-                                 (org-element-property :raw-value headline)))))
+                (let* ((title (vulpea-db--strip-statistics-cookies
+                               (vulpea-db--strip-emphasis
+                                (org-link-display-format
+                                 (vulpea-db--string-no-properties
+                                  (org-element-property :raw-value headline))))))
                        (inherited-tags
                         (when org-use-tag-inheritance
                           (let (parent-tags
@@ -998,10 +1028,11 @@ Respects `vulpea-db-index-heading-level' setting."
                                            (current headline))
                                        (while (setq current (org-element-property :parent current))
                                          (when (eq (org-element-type current) 'headline)
-                                           (push (vulpea-db--strip-emphasis
-                                                  (org-link-display-format
-                                                   (vulpea-db--string-no-properties
-                                                    (org-element-property :raw-value current))))
+                                           (push (vulpea-db--strip-statistics-cookies
+                                                  (vulpea-db--strip-emphasis
+                                                   (org-link-display-format
+                                                    (vulpea-db--string-no-properties
+                                                     (org-element-property :raw-value current)))))
                                                  path)))
                                        path))
                        (attach-dir (vulpea-db--attach-dir

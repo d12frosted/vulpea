@@ -2944,6 +2944,118 @@ file base name."
                          "The Memory Illusion book by Dr. Julia Shaw")))
       (delete-file path))))
 
+(ert-deftest vulpea-db-extract-heading-title-strips-statistics-cookies ()
+  "Heading titles lose statistics cookies, like they lose priority.
+
+Cookies ([3/5], [50%], [/], [%]) reflect transient subtask state,
+not the note's name; a link description or completion candidate
+built from the title must not carry them.  Plain bracketed text
+that is not a cookie stays."
+  (let ((path (vulpea-test--create-temp-org-file
+               (concat
+                ":PROPERTIES:\n:ID: file-id\n:END:\n"
+                "#+TITLE: File\n\n"
+                "* TODO [#A] [22/22] IR-23: Block properties\n"
+                ":PROPERTIES:\n:ID: h1\n:END:\n"
+                "* Tasks [50%] for today\n"
+                ":PROPERTIES:\n:ID: h2\n:END:\n"
+                "* Empty cookies [/] and [%]\n"
+                ":PROPERTIES:\n:ID: h3\n:END:\n"
+                "* Retro [2025] notes\n"
+                ":PROPERTIES:\n:ID: h4\n:END:\n"))))
+    (unwind-protect
+        (let* ((vulpea-db-index-heading-level t)
+               (ctx (vulpea-db--parse-file path))
+               (nodes (vulpea-parse-ctx-heading-nodes ctx))
+               (title-of (lambda (id)
+                           (plist-get
+                            (seq-find (lambda (n) (equal (plist-get n :id) id))
+                                      nodes)
+                            :title))))
+          (should (equal (funcall title-of "h1")
+                         "IR-23: Block properties"))
+          (should (equal (funcall title-of "h2") "Tasks for today"))
+          (should (equal (funcall title-of "h3") "Empty cookies and"))
+          (should (equal (funcall title-of "h4") "Retro [2025] notes")))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-heading-title-strips-glued-statistics-cookies ()
+  "A cookie glued to a word is still a cookie.
+
+Org keeps such a cookie updated all the same, so stripping
+follows it - at either end of the title and in the middle of it,
+where the words it separated stay apart."
+  (let ((path (vulpea-test--create-temp-org-file
+               (concat
+                ":PROPERTIES:\n:ID: file-id\n:END:\n"
+                "#+TITLE: File\n\n"
+                "* Tasks[2/3]\n"
+                ":PROPERTIES:\n:ID: h1\n:END:\n"
+                "* [2/3]Tasks\n"
+                ":PROPERTIES:\n:ID: h2\n:END:\n"
+                "* Sprint[50%]review\n"
+                ":PROPERTIES:\n:ID: h3\n:END:\n"
+                "* Sprint [50%]review\n"
+                ":PROPERTIES:\n:ID: h4\n:END:\n"))))
+    (unwind-protect
+        (let* ((vulpea-db-index-heading-level t)
+               (ctx (vulpea-db--parse-file path))
+               (nodes (vulpea-parse-ctx-heading-nodes ctx))
+               (title-of (lambda (id)
+                           (plist-get
+                            (seq-find (lambda (n) (equal (plist-get n :id) id))
+                                      nodes)
+                            :title))))
+          (should (equal (funcall title-of "h1") "Tasks"))
+          (should (equal (funcall title-of "h2") "Tasks"))
+          (should (equal (funcall title-of "h3") "Sprintreview"))
+          (should (equal (funcall title-of "h4") "Sprint review")))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-heading-title-of-cookie-only-heading ()
+  "A heading that is nothing but a cookie keeps it.
+
+Stripping would leave a nameless note, and an empty completion
+candidate is worse than a stale one."
+  (let ((path (vulpea-test--create-temp-org-file
+               (concat
+                ":PROPERTIES:\n:ID: file-id\n:END:\n"
+                "#+TITLE: File\n\n"
+                "* TODO [2/3]\n"
+                ":PROPERTIES:\n:ID: h1\n:END:\n"
+                "* [/] [%]\n"
+                ":PROPERTIES:\n:ID: h2\n:END:\n"))))
+    (unwind-protect
+        (let* ((vulpea-db-index-heading-level t)
+               (ctx (vulpea-db--parse-file path))
+               (nodes (vulpea-parse-ctx-heading-nodes ctx))
+               (title-of (lambda (id)
+                           (plist-get
+                            (seq-find (lambda (n) (equal (plist-get n :id) id))
+                                      nodes)
+                            :title))))
+          (should (equal (funcall title-of "h1") "[2/3]"))
+          (should (equal (funcall title-of "h2") "[/] [%]")))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-outline-path-strips-statistics-cookies ()
+  "Outline path components lose statistics cookies too."
+  (let ((path (vulpea-test--create-temp-org-file
+               (concat
+                ":PROPERTIES:\n:ID: file-id\n:END:\n"
+                "#+TITLE: File\n\n"
+                "* Projects [1/3]\n"
+                "** Child\n"
+                ":PROPERTIES:\n:ID: child-id\n:END:\n"))))
+    (unwind-protect
+        (let* ((vulpea-db-index-heading-level t)
+               (ctx (vulpea-db--parse-file path))
+               (nodes (vulpea-parse-ctx-heading-nodes ctx))
+               (node (seq-find (lambda (n) (equal (plist-get n :id) "child-id"))
+                               nodes)))
+          (should (equal (plist-get node :outline-path) '("Projects"))))
+      (delete-file path))))
+
 (ert-deftest vulpea-db-extract-heading-title-links-preserved ()
   "Test that links in heading titles are still extracted as links."
   (let ((path (vulpea-test--create-temp-org-file
