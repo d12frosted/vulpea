@@ -243,32 +243,30 @@
           (vulpea-db-update-file ignored)
           (vulpea-db-update-file not-ignored)
           (vulpea-db-update-file mention)
-          (let ((test (lambda (note-id assert)
-                        (let* (result
-                               done
-                               (proc (vulpea-note-unlinked-mentions-async
-                                      (vulpea-db-get-by-id note-id)
-                                      (lambda (mentions)
-                                        (setq result mentions
-                                              done t))
-                                      (lambda (_e) (setq done 'error)))))
-                          (when proc
-                            (let (proc-status)
-                              (while (and (not done)
-                                          (not (equal proc-status 'exit)))
-                                (setq proc-status (process-status proc))
-                                (accept-process-output proc 0.2))))
-                          (funcall assert result done)))))
-            (funcall test
-                     "ignored"
-                     (lambda (result done)
-                       (should (eq done t))
-                       (should (null result))))
-            (funcall test
-                     "not-ignored"
-                     (lambda (result done)
-                       (should (eq done t))
-                       (should (eq (length result) 1))))))
+          ;; Notes set the ignore property short-circuit
+          ;; `vulpea-note-unlinked-mentions-async' without spawning
+          ;; the rg process. RESOLVE is called synchronously.
+          (let (result done)
+            (should (null (vulpea-note-unlinked-mentions-async
+                           (vulpea-db-get-by-id "ignored")
+                           (lambda (mentions) (setq done t
+                                                    result mentions))
+                           (lambda (_e) (setq done 'error)))))
+            (should (eq done t))
+            (should (null result)))
+          ;; Notes without the ignore property are discovered by the
+          ;; rg scan.
+          (let* ((note (vulpea-db-get-by-id "not-ignored"))
+                 (cmd (vulpea-mentions--rg-command
+                       (executable-find "rg")
+                       (vulpea-mentions--note-terms note)
+                       (list dir)))
+                 (output (with-temp-buffer
+                           (apply #'call-process (car cmd) nil t nil (cdr cmd))
+                           (buffer-string)))
+                 (mentions (vulpea-mentions--collect
+                            output note (expand-file-name not-ignored))))
+            (should (= (length mentions) 1))))
       (when vulpea-db--connection (vulpea-db-close))
       (when (file-exists-p vulpea-db-location) (delete-file vulpea-db-location))
       (delete-directory dir t))))
