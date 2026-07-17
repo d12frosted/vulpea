@@ -49,6 +49,7 @@
 (require 'emacsql)
 (require 'emacsql-sqlite-builtin)
 (require 'json)
+(require 'ucs-normalize)
 
 ;;; Customization
 
@@ -61,6 +62,38 @@
   "Location of Vulpea database file."
   :type 'file
   :group 'vulpea-db)
+
+(defcustom vulpea-db-path-normalization
+  (and (eq system-type 'darwin) 'nfc)
+  "Unicode normalization applied to paths used as database keys.
+
+On macOS the same file can be referred to by two strings that differ
+only in Unicode normalization: filename syscalls are decoded via
+`utf-8-hfs' and yield precomposed (NFC) strings, while paths arriving
+from subprocesses such as fd, find or fswatch are raw decomposed
+\(NFD) bytes.  HFS+ and APFS treat both as the same file, so without
+canonicalization the database accumulates two independent rows per
+file - one updated by each source - and consumers read stale hashes
+and metadata depending on which row a query happens to hit.
+
+When set to symbol `nfc', every path is composed to NFC before it is
+used as a database key or queue key.  When nil, paths are used as
+given - the correct setting for file systems where two
+differently-normalized names address different files (most Linux
+setups)."
+  :type '(choice (const :tag "Compose to NFC" nfc)
+                 (const :tag "No normalization" nil))
+  :group 'vulpea-db)
+
+(defun vulpea-db-normalize-path (path)
+  "Return the canonical form of PATH for use as a database key.
+
+Applies the normalization selected by
+`vulpea-db-path-normalization'.  Returns PATH unchanged when
+normalization is disabled or PATH is nil."
+  (if (and path (eq vulpea-db-path-normalization 'nfc))
+      (ucs-normalize-NFC-string path)
+    path))
 
 (defcustom vulpea-db-index-heading-level t
   "Whether to index heading-level notes.
@@ -523,6 +556,7 @@ Arguments:
   ;; keys - never failed indexing.  OR IGNORE preserves that tolerance
   ;; but at row granularity: a violating row is skipped instead of
   ;; taking its sibling rows down with the whole statement.
+  (setq path (vulpea-db-normalize-path path))
   (let* ((db (vulpea-db))
          (handle (oref db handle)))
     (emacsql-with-transaction db
@@ -678,7 +712,7 @@ note-data is written as an update afterwards."
 Cascades to normalized tables automatically via foreign keys."
   (emacsql (vulpea-db)
            [:delete :from notes :where (= path $s1)]
-           path))
+           (vulpea-db-normalize-path path)))
 
 (defun vulpea-db--delete-note (id)
   "Delete note with ID.
@@ -694,7 +728,7 @@ Cascades to normalized tables automatically via foreign keys."
 HASH, MTIME and SIZE as inserted as values."
   (emacsql (vulpea-db)
            [:insert :or :replace :into files :values $v1]
-           (list (vector path hash mtime size))))
+           (list (vector (vulpea-db-normalize-path path) hash mtime size))))
 
 (defun vulpea-db--get-file-hash (path)
   "Get stored hash for PATH.
@@ -703,7 +737,7 @@ Returns plist with :hash, :mtime, :size or nil if not tracked."
   (when-let* ((row (car (emacsql (vulpea-db)
                                 [:select [hash mtime size] :from files
                                  :where (= path $s1)]
-                                path))))
+                                (vulpea-db-normalize-path path)))))
     (list :hash (elt row 0)
           :mtime (elt row 1)
           :size (elt row 2))))
