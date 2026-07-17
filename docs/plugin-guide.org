@@ -81,14 +81,26 @@ Each extractor receives and returns =note-data=, a plist containing:
 - =:outline-path= - path to heading
 - =:attach-dir= - attachment directory
 
-Extractors can add custom keys to =note-data= for other extractors to use.
+Extractors can also add custom keys to =note-data=, but those are
+*transient*: they live only for the duration of the current extraction
+run, as a way to pass data to extractors that run later (see
+[[*Extractor Dependencies][Extractor Dependencies]]). They are never
+written to the database.
 
-Changes to the core fields are persisted: after all extractors have run,
-any field an extractor changed is written back to the note's row in the
-=notes= table, and the normalized tables (=tags=, =links=, =meta=,
-=properties=) are re-synced to match. Adding a link to =:links= makes it a
+Persistence goes strictly by the field list above. After all extractors
+have run, any core field an extractor changed is written back to the
+note's row in the =notes= table, and the normalized tables (=tags=,
+=links=, =meta=, =properties=) are re-synced to match. Any key outside
+that list is silently ignored at this point: a custom =:category= key
+does not become a =category= column in =notes=, no matter how it is
+spelled. Adding a link to =:links=, on the other hand, makes it a
 first-class link - it shows up in backlink queries exactly like a link
 parsed from the file. See [[*Contributing to Core Data][Contributing to Core Data]].
+
+If your plugin computes per-note data that should survive, put it where
+persistent data lives: in your plugin's own tables (the =:schema=
+field) or in the file itself (a property or a metadata entry). See
+[[*Storing Per-Note Data][Storing Per-Note Data]] for the common shapes.
 
 * Creating a Plugin
 
@@ -162,6 +174,8 @@ Returns NOTE-DATA, possibly with additional keys added."
                        my-data)))
 
     ;; 3. Optionally add to note-data for other extractors
+    ;;    (transient: visible to later extractors in this run,
+    ;;    never persisted - the table insert above is the storage)
     (when my-data
       (plist-put note-data :my-custom-key my-data))
 
@@ -522,6 +536,79 @@ If extractor B depends on data from extractor A:
       (process-a-data a-data))
     note-data))
 #+end_src
+
+Remember that =:a-data= here is transient - it exists so B can see what
+A computed within the same extraction run, and it is gone afterwards.
+If either extractor wants to keep the data, it has to write it to its
+own table.
+
+** Storing Per-Note Data
+
+A question that came up in [[https://github.com/d12frosted/vulpea/issues/382][vulpea#382]]: what if my plugin computes
+exactly one value per note, say a category? Custom =note-data= keys do
+not help (they are transient, see [[*Note Data (=note-data=)][Note Data]]), and there is no way to
+add a column to the =notes= table - that table is owned by vulpea, it
+doubles as a materialized cache, and its schema changes on vulpea's
+schedule, not yours.
+
+The answer is a side table with =note-id= as the primary key. One row
+per note, cheap joins (both sides hit an index), and your data is
+untouched by core schema migrations:
+
+#+begin_src emacs-lisp
+:schema '((note-category
+           [(note-id :not-null :primary-key)
+            (category :not-null)]
+           (:foreign-key [note-id] :references notes [id]
+            :on-delete :cascade)))
+#+end_src
+
+The extractor writes at most one row per note:
+
+#+begin_src emacs-lisp
+(emacsql (vulpea-db)
+         [:insert :or :replace :into note-category :values $v1]
+         (list (vector note-id category)))
+#+end_src
+
+And queries join it in:
+
+#+begin_src emacs-lisp
+(emacsql (vulpea-db)
+         [:select [notes:id notes:title note-category:category]
+          :from notes
+          :left :join note-category
+          :on (= notes:id note-category:note-id)])
+#+end_src
+
+If you expect several axes of categorization, do not multiply tables
+(=note-category=, =note-foo=, =note-bar=, ...). Use one generic table
+keyed by =(note-id, axis)=:
+
+#+begin_src emacs-lisp
+:schema '((note-attrs
+           [(note-id :not-null)
+            (axis :not-null)
+            (value :not-null)]
+           (:primary-key [note-id axis])
+           (:foreign-key [note-id] :references notes [id]
+            :on-delete :cascade)))
+#+end_src
+
+One table, one row per (note, axis) pair, and a new axis is a new
+=axis= value instead of a new table.
+
+Do not let row counts scare you away from either shape: a table of
+skinny rows keyed by an indexed primary key is exactly what SQLite is
+built for, and a few hundred (or a few hundred thousand) of them is
+not duplication, it is just normalized data.
+
+One more option worth considering: if the value really is an attribute
+of the note, maybe it belongs in the file rather than only in the
+database. A property or a metadata entry survives re-extraction by
+definition, shows up in =note-data= (=:properties= / =:meta=) for free,
+and stays queryable through the normalized =properties= and =meta=
+tables without any plugin code at all.
 
 ** Conditional Extraction
 
