@@ -27,6 +27,10 @@
 
 - The extraction worker now sets =load-prefer-newer= before loading anything. The worker is spawned with =-Q=, so a stale =.elc= sitting next to a newer =.el= used to load in the worker while the main process ran the source, and the two processes silently executed different versions of vulpea. Extraction results could then disagree with what the main process would have produced, in ways that depend on whatever the stale bytecode predates.
 
+*Documentation*
+
+- [[https://github.com/d12frosted/vulpea/issues/382][vulpea#382]] The plugin guide no longer implies that custom =note-data= keys end up in the database. They are transient: a way to pass data between extractors within a single extraction run, dropped once the run is over - only the documented core fields are persisted, and unknown keys are silently ignored. The guide now says so explicitly and gains a "Storing Per-Note Data" section with the recipes for data that should survive: a 1:1 side table keyed by =note-id=, a generic =(note-id, axis, value)= table when there are several axes, or a property/metadata entry in the file itself. Thanks to @edenworky for pointing out the misleading wording.
+
 ** v2.6.0 (2026-07-10)
 
 *Breaking changes*
