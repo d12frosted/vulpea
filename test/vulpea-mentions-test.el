@@ -23,6 +23,21 @@
 
 ;;; Pure helpers
 
+(defun vulpea-mentions-test--collect-incoming-mentions-for-note (id)
+  "Return mentions for note specified by ID. "
+  (let* ((note (vulpea-db-get-by-id id))
+         (path (vulpea-note-path note))
+         (cmd (vulpea-mentions--rg-command
+               (executable-find "rg")
+               (vulpea-mentions--note-terms note)
+               vulpea-db-sync-directories))
+         (output (with-temp-buffer
+                   (apply #'call-process (car cmd) nil t nil (cdr cmd))
+                   (buffer-string)))
+         (mentions (vulpea-mentions--collect
+                    output note (expand-file-name path))))
+    mentions))
+
 (ert-deftest vulpea-mentions--note-terms-title-and-aliases ()
   "Terms are the title and aliases, trimmed and de-duplicated."
   (let ((note (make-vulpea-note :title "Cabernet Sauvignon"
@@ -270,6 +285,25 @@
       (when vulpea-db--connection (vulpea-db-close))
       (when (file-exists-p vulpea-db-location) (delete-file vulpea-db-location))
       (delete-directory dir t))))
+
+(ert-deftest vulpea-mentions-per-note-ignore ()
+  "When a note is specifically ignored, drop its mentions to that note."
+  (vulpea-test--with-temp-db-and-files
+   `((:name "target.org"
+            :content
+            ,(concat ":PROPERTIES:\n:ID: target\n"
+                     (format ":%s: ignored-mention\n" vulpea-mentions-per-note-ignore-property-key)
+                     ":END:\n#+title: Target\n\n"))
+     (:name "mention.org"
+            :content
+            ,(concat ":PROPERTIES:\n:ID: mention\n:END:\n#+title: Mention\n\n"
+                     "A mention to target that should not be ignored.\n"))
+     (:name "ignored-mention.org"
+            :content
+            ,(concat ":PROPERTIES:\n:ID: ignored-mention\n:END:\n#+title: Ignored Mention\n\n"
+                     "A mention to target that should be ignored\n")))
+   (let ((mentions (vulpea-mentions-test--collect-incoming-mentions-for-note "target")))
+     (should (eq 1 (length mentions))))))
 
 (ert-deftest vulpea-mentions-async-rejects-without-rg ()
   "When ripgrep is unavailable, REJECT is called."

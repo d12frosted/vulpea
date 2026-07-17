@@ -120,6 +120,14 @@ otherwise produce mostly false positives."
   :type 'string
   :group 'vulpea-mentions)
 
+(defcustom vulpea-mentions-per-note-ignore-property-key "IGNORE-MENTIONS-FROM"
+  "Org property marking notes ignored from mention detection for this note.
+
+Its value is a list of note ids.  Mentions from those notes to this note
+are excluded from mention lists."
+  :type 'string
+  :group 'vulpea-mentions)
+
 ;;; Pure helpers
 
 (defun vulpea-mentions--note-terms (note)
@@ -268,6 +276,22 @@ candidate dictionary."
     (mapc (lambda (path) (puthash (expand-file-name path) t result)) paths)
     result))
 
+(defun vulpea-mentions--ignore-mention-ids (note)
+  "Return note ids that mentions from them are ignored by NOTE.
+
+NOTE can be either a note object or a note id."
+  (unless (vulpea-note-p note)
+    (setq note (vulpea-db-get-by-id note)))
+  (let* ((result (make-hash-table :test 'equal))
+         (properties (vulpea-note-properties note))
+         (ignore-mentions
+          (assoc (upcase vulpea-mentions-per-note-ignore-property-key)
+                 properties)))
+    (when ignore-mentions
+      (let ((ignored-ids (split-string (cdr ignore-mentions))))
+        (mapc (lambda (id) (puthash id t result)) ignored-ids)))
+    result))
+
 (defun vulpea-mentions--collect (output note own-path)
   "Collect unlinked mentions of NOTE from ripgrep OUTPUT.
 
@@ -275,14 +299,17 @@ OWN-PATH is NOTE's own expanded file path, whose hits are skipped.  Hits
 whose mentioning note shares a name with NOTE (a title collision) are
 skipped too.  Hits whose mentioning note contains at least one explicit
 link to NOTE are skipped as well.  Set `vulpea-mentions-exclude-linked'
-to nil to disable this behavior.  Returns a list of plists with
-:note (the mentioning note), :path, :line, and :context."
+to nil to disable this behavior.  Hits whose mentioning note are ignored
+explicitly by `vulpea-mentions-per-note-ignore-property' are skipped as
+well.  Returns a list of plists with :note (the mentioning note), :path,
+:line, and :context."
   (let* ((terms (vulpea-mentions--note-terms note))
          (path->note (make-hash-table :test 'equal))
          (hits (vulpea-mentions--parse-rg-json output))
          (paths-link-to-note
           (when (and vulpea-mentions-exclude-linked hits)
             (vulpea-mentions--paths-link-to-note note)))
+         (ignore-mention-ids (vulpea-mentions--ignore-mention-ids note))
          (result nil))
     (dolist (hit hits)
       (let* ((path (plist-get hit :path))
@@ -295,7 +322,8 @@ to nil to disable this behavior.  Returns a list of plists with
                    (vulpea-mentions--line-unlinked-p line-text terms))
           (let ((mentioning (vulpea-mentions--file-note path path->note)))
             (when (and mentioning
-                       (not (vulpea-mentions--shares-name-p mentioning terms)))
+                       (not (vulpea-mentions--shares-name-p mentioning terms))
+                       (not (gethash (vulpea-note-id mentioning) ignore-mention-ids)))
               (push (list :note mentioning
                           :path path
                           :line (plist-get hit :line)
@@ -347,15 +375,28 @@ search for \"[[\" is also much cheaper than the plain-link regexp."
          (puthash (plist-get link :dest) t result))))
     result))
 
+(defun vulpea-mentions--ignored-by-note-p (ids note)
+  "Return non-nil if at least one of IDS is ignored by NOTE.
+
+NOTE can be a note object or a note id."
+  (let (result
+        (ignore-mentions-id (vulpea-mentions--ignore-mention-ids note)))
+    (dolist (id ids)
+      (when (gethash id ignore-mentions-id)
+        (setq result t)))
+    result))
+
 (defun vulpea-mentions--collect-outgoing (output dict self-ids linked-ids)
   "Collect outgoing unlinked mentions from ripgrep OUTPUT over one buffer.
 
 DICT maps a downcased title/alias to candidate note ids (see
 `vulpea-mentions--title-dictionary').  SELF-IDS are the note ids in the
-buffer's own file, excluded as candidates.  LINKED-IDS is a hash table
-keyed by the note ids the buffer already links to (see
-`vulpea-mentions--buffer-link-ids'); candidates found in it are
-dropped.  Pass an empty table to keep them all.
+buffer's own file, excluded as candidates.  If one of SELF-IDS are
+explicitly ignored by the mentioned note, then the mention will be
+dropped (see `vulpea-mentions-per-note-ignore-property-key').
+LINKED-IDS is a hash table keyed by the note ids the buffer already
+links to (see `vulpea-mentions--buffer-link-ids'); candidates found in
+it are dropped.  Pass an empty table to keep them all.
 
 Returns a list of plists with :note (a candidate note to link to),
 :line, :context, and :matched (the text that matched)."
@@ -374,7 +415,8 @@ Returns a list of plists with :note (a candidate note to link to),
                 (when (vulpea-mentions--line-unlinked-p line-text (list term))
                   (dolist (id (gethash (downcase term) dict))
                     (unless (or (member id self-ids)
-                                (gethash id linked-ids))
+                                (gethash id linked-ids)
+                                (vulpea-mentions--ignored-by-note-p self-ids id))
                       (when-let* ((cand (resolve-note id)))
                         (push (list :note cand :line line-no
                                     :context (string-trim line-text)
