@@ -373,16 +373,17 @@ LEVEL is optional filter: 0 for file-level, 1+ for headings.
 When LEVEL is nil, returns all notes from the file.
 
 Returns list of `vulpea-note' structs."
-  (let ((rows (if level
-                  (emacsql (vulpea-db)
-                           [:select * :from notes
-                            :where (and (= path $s1)
-                                        (= level $s2))]
-                           file-path level)
-                (emacsql (vulpea-db)
-                         [:select * :from notes
-                          :where (= path $s1)]
-                         file-path))))
+  (let* ((file-path (vulpea-db-normalize-path file-path))
+         (rows (if level
+                   (emacsql (vulpea-db)
+                            [:select * :from notes
+                             :where (and (= path $s1)
+                                         (= level $s2))]
+                            file-path level)
+                 (emacsql (vulpea-db)
+                          [:select * :from notes
+                           :where (= path $s1)]
+                          file-path))))
     (mapcar #'vulpea-db--row-to-note rows)))
 
 (defun vulpea-db-query-by-file-paths (file-paths &optional level)
@@ -394,7 +395,8 @@ When LEVEL is nil, returns all notes from the files.
 
 Returns list of `vulpea-note' structs."
   (when file-paths
-    (let ((rows (if level
+    (let* ((file-paths (mapcar #'vulpea-db-normalize-path file-paths))
+           (rows (if level
                     (emacsql (vulpea-db)
                              [:select * :from notes
                               :where (and (in path $v1)
@@ -421,7 +423,7 @@ Returns list of `vulpea-note' structs."
   ;; directory path as wildcards, pulling in sibling directories.  The
   ;; directory is escaped for GLOB's own specials (*, ?, [) so it
   ;; matches literally; the trailing * is the prefix wildcard.
-  (let* ((dir (file-name-as-directory directory))
+  (let* ((dir (file-name-as-directory (vulpea-db-normalize-path directory)))
          (pattern (concat (vulpea-db--escape-glob-pattern dir) "*"))
          (rows (if level
                    (emacsql (vulpea-db)

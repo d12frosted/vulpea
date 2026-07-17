@@ -553,8 +553,9 @@ and prevents tilde-vs-absolute mismatches in database queries."
                             (concat (regexp-quote ext) "\\'"))
                           (vulpea-db--all-extensions)
                           "\\|")))
-    (seq-filter #'vulpea-db-sync--org-file-p
-                (directory-files-recursively dir regex))))
+    (mapcar #'vulpea-db-normalize-path
+            (seq-filter #'vulpea-db-sync--org-file-p
+                        (directory-files-recursively dir regex)))))
 
 (defun vulpea-db-sync--scan-files-async (dirs callback)
   "List org files in DIRS asynchronously, call CALLBACK with file list.
@@ -595,9 +596,15 @@ CALLBACK receives a list of absolute file paths."
                (setq buffer (concat buffer output)))
      :sentinel (lambda (_proc event)
                  (when (string-prefix-p "finished" event)
-                   (let ((files (seq-filter
-                                 #'vulpea-db-sync--org-file-p
-                                 (split-string buffer "\n" t))))
+                   ;; Subprocess output bypasses filename decoding, so
+                   ;; paths arrive in whatever normalization the file
+                   ;; system uses (NFD on macOS); canonicalize them to
+                   ;; match paths obtained through filename syscalls.
+                   (let ((files (mapcar
+                                 #'vulpea-db-normalize-path
+                                 (seq-filter
+                                  #'vulpea-db-sync--org-file-p
+                                  (split-string buffer "\n" t)))))
                      (if (cdr dirs)
                          ;; More directories to scan
                          (vulpea-db-sync--scan-files-async
@@ -623,6 +630,7 @@ CALLBACK receives a list of absolute file paths."
 PATH can be a file or directory. If PATH is a directory (detected
 by trailing slash or by having files under it in the database),
 all files under that directory are removed."
+  (setq path (vulpea-db-normalize-path path))
   (vulpea-db-sync--drop-from-queue path)
   (vulpea-db-sync--unwatch-file path)
   (let ((db (vulpea-db)))
@@ -681,6 +689,7 @@ With NO-COUNT non-nil the entry does not increment the progress
 total: used when re-queueing an entry that was already counted
 \(flow-control saturation retries), which would otherwise inflate
 the reported total on every retry."
+  (setq path (vulpea-db-normalize-path path))
   (let ((timestamp (float-time)))
     (when force
       (puthash path t vulpea-db-sync--force-set))
@@ -1005,10 +1014,52 @@ no longer exists."
 
 ;;; Cleanup
 
+(defun vulpea-db-sync--purge-denormalized-rows ()
+  "Remove rows keyed by non-canonical paths.
+
+Rows written before path normalization was in effect (or by a
+process with different filename decoding) can be keyed by a
+differently-normalized twin of the canonical path - on macOS an NFD
+variant of an NFC path, addressing the same file.  Such rows can
+never be updated again, since every write goes through
+`vulpea-db-normalize-path', yet `file-exists-p' reports their path
+as existing on normalization-insensitive file systems, so regular
+deleted-file cleanup keeps them forever.  Consumers that resolve a
+note through such a row then read stale hashes and metadata.
+
+Deletes notes and files rows keyed by a non-canonical path, plus the
+canonical files row of the same file: the canonical notes rows may
+never have been written (inserts are OR IGNORE, so an id conflict
+with a legacy row silently dropped them), and removing the files row
+forces a full re-index of the file on the next scan.
+
+Returns number of purged paths."
+  (if (not vulpea-db-path-normalization)
+      0
+    (let* ((db (vulpea-db))
+           (note-paths (mapcar #'car (emacsql db [:select :distinct [path]
+                                                  :from notes])))
+           (file-paths (mapcar #'car (emacsql db [:select path :from files])))
+           (purged 0))
+      (emacsql-with-transaction db
+        (dolist (path (delete-dups (append note-paths file-paths)))
+          (let ((canonical (vulpea-db-normalize-path path)))
+            (unless (equal path canonical)
+              (emacsql db [:delete :from notes :where (= path $s1)] path)
+              (emacsql db [:delete :from files :where (= path $s1)] path)
+              (emacsql db [:delete :from files :where (= path $s1)] canonical)
+              (setq purged (1+ purged))))))
+      (when (> purged 0)
+        (vulpea-db-sync--message
+         "Vulpea: Purged %d database row(s) keyed by non-canonical path%s"
+         purged (if (= purged 1) "" "s")))
+      purged)))
+
 (defun vulpea-db-sync--cleanup-deleted-files ()
   "Remove database entries for files that no longer exist.
 
 Returns count of removed files."
+  (vulpea-db-sync--purge-denormalized-rows)
   (let* ((db (vulpea-db))
          (all-paths (mapcar #'car (emacsql db [:select path :from files])))
          (deleted 0))
@@ -1031,13 +1082,16 @@ EXISTING-FILES is a list of absolute paths known to exist on disk
 `file-exists-p' calls by comparing against the known set.
 
 Returns count of removed files."
+  (vulpea-db-sync--purge-denormalized-rows)
   (let* ((db (vulpea-db))
          (existing-set (make-hash-table :test 'equal :size (length existing-files)))
          (all-paths (mapcar #'car (emacsql db [:select path :from files])))
          (deleted 0))
-    ;; Build set of existing files for O(1) lookup
+    ;; Build set of existing files for O(1) lookup.  Canonicalize:
+    ;; the list typically comes from an fd/find subprocess, whose
+    ;; output bypasses filename decoding.
     (dolist (f existing-files)
-      (puthash f t existing-set))
+      (puthash (vulpea-db-normalize-path f) t existing-set))
     (emacsql-with-transaction db
       (dolist (path all-paths)
         (unless (gethash path existing-set)
@@ -1361,10 +1415,13 @@ backslash before the file name; the Cygwin build prefixes paths with
 \"/cygdrive/\".  Normalize both to the forward-slash, lower-case-drive
 form vulpea stores in the database.
 
-On non-Windows systems PATH is returned unchanged, since a backslash is
-a legal file-name character there."
+On all systems the result is passed through
+`vulpea-db-normalize-path': fswatch prints raw file-system bytes, so
+on macOS names arrive decomposed (NFD) and would otherwise mismatch
+the precomposed (NFC) paths produced by filename syscalls."
   (when (and (stringp path) (not (string-empty-p path)))
-    (if (not (memq system-type '(windows-nt ms-dos cygwin)))
+    (vulpea-db-normalize-path
+     (if (not (memq system-type '(windows-nt ms-dos cygwin)))
         path
       (let ((p path))
         ;; /cygdrive/c/... -> c:/...
@@ -1377,7 +1434,7 @@ a legal file-name character there."
         (when (string-match "\\`\\([A-Za-z]\\):" p)
           (setq p (concat (downcase (match-string 1 p))
                           (substring p 1))))
-        p))))
+        p)))))
 
 (defun vulpea-db-sync--fswatch-path-valid-p (path)
   "Return non-nil if PATH is within a watched directory.
