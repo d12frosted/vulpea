@@ -523,25 +523,6 @@ NOTE can be either an ID or a `vulpea-note' object."
                   (should (equal (plist-get merlot :context) "More Merlot and Syrah later."))))))
         (delete-file patterns)))))
 
-(ert-deftest vulpea-mentions-outgoing-ignore-per-note ()
-  "When this note is ignored by another note, drop its mentions to that note."
-  (vulpea-test--with-temp-db-and-files
-   `((:name "target.org"
-            :content
-            ,(concat ":PROPERTIES:\n:ID: target\n"
-                     (format ":%s: ignored-mention\n" vulpea-mentions-per-note-ignore-property-key)
-                     ":END:\n#+title: Target\n\n"))
-     (:name "mention.org"
-            :content
-            ,(concat ":PROPERTIES:\n:ID: mention\n:END:\n#+title: Mention\n\n"
-                     "A mention to target that should not be ignored.\n"))
-     (:name "ignored-mention.org"
-            :content
-            ,(concat ":PROPERTIES:\n:ID: ignored-mention\n:END:\n#+title: Ignored Mention\n\n"
-                     "A mention to target that should be ignored\n")))
-
-   ))
-
 (ert-deftest vulpea-mentions-outgoing-rejects-without-rg ()
   "When ripgrep is unavailable, the outgoing search REJECTs."
   (cl-letf (((symbol-function 'executable-find) (lambda (&rest _) nil)))
