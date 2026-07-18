@@ -868,10 +868,10 @@ Guards against arbitrary code execution from untrusted note titles."
            (vulpea-create-default-template '(:file-name "${slug}.org"))
            (vulpea-create-default-function
             (lambda (title)
-              (list :tags (if (string-match-p "TODO" title)
-                              '("task" "inbox")
-                            '("note"))
-                    :head (format "#+created: %s" (format-time-string "[%Y-%m-%d]")))))
+              (let ((head (format "#+created: %s" (format-time-string "[%Y-%m-%d]"))))
+                (if (string-match-p "TODO" title)
+                    (list :tags '("task" "inbox") :head head :title (string-replace "TODO " "" title))
+                  (list :tags '("note") :head head)))))
            note1 note2 created-file1 created-file2)
       (unwind-protect
           (progn
@@ -881,10 +881,13 @@ Guards against arbitrary code execution from untrusted note titles."
             (setq created-file1 (vulpea-note-path note1))
             (should (file-exists-p created-file1))
 
-            ;; Verify task tags applied
             (with-temp-buffer
               (insert-file-contents created-file1)
-              (should (string-match-p ":task:inbox:" (buffer-string))))
+              ;; Verify task tags applied
+              (should (string-match-p ":task:inbox:" (buffer-string)))
+
+              ;; Verify "TODO" was removed from title in file content
+              (should (string-match-p "#\\+title: Fix bug" (buffer-string))))
 
             ;; Create note without TODO
             (setq note2 (vulpea-create "Regular Note"))
