@@ -71,7 +71,7 @@ FILES is a list of plists, where each plist has two properties `:name'
 and `:content', which specifies the name and content of a temporary file
 respectively.  Cleans up both the database and the temporary files
 afterward."
-  (declare (indent 2))
+  (declare (indent 1))
   `(let* ((dir (make-temp-file "vulpea-mentions-" t))
           (vulpea-db-location (make-temp-file "vulpea-mentions-" nil ".db"))
           (vulpea-db--connection nil)

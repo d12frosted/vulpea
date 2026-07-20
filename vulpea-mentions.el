@@ -120,11 +120,11 @@ otherwise produce mostly false positives."
   :type 'string
   :group 'vulpea-mentions)
 
-(defcustom vulpea-mentions-per-note-ignore-property-key "IGNORE-MENTIONS-FROM"
+(defcustom vulpea-mentions-per-note-ignore-property-key "IGNORE_MENTIONS_FROM"
   "Org property marking notes ignored from mention detection for this note.
 
-Its value is a list of note ids.  Mentions from those notes to this note
-are excluded from mention lists."
+Its value is a whitespace-separated list of file level note ids.
+Mentions from those notes to this note are excluded from mention lists."
   :type 'string
   :group 'vulpea-mentions)
 
@@ -277,11 +277,7 @@ candidate dictionary."
     result))
 
 (defun vulpea-mentions--ignore-mention-ids (note)
-  "Return note ids that mentions from them are ignored by NOTE.
-
-NOTE can be either a note object or a note id."
-  (unless (vulpea-note-p note)
-    (setq note (vulpea-db-get-by-id note)))
+  "Return note ids that mentions from them are ignored by NOTE."
   (let* ((result (make-hash-table :test 'equal))
          (properties (vulpea-note-properties note))
          (ignore-mentions
@@ -300,9 +296,9 @@ whose mentioning note shares a name with NOTE (a title collision) are
 skipped too.  Hits whose mentioning note contains at least one explicit
 link to NOTE are skipped as well.  Set `vulpea-mentions-exclude-linked'
 to nil to disable this behavior.  Hits whose mentioning note are ignored
-explicitly by `vulpea-mentions-per-note-ignore-property' are skipped as
-well.  Returns a list of plists with :note (the mentioning note), :path,
-:line, and :context."
+explicitly by `vulpea-mentions-per-note-ignore-property-key' are skipped
+as well.  Returns a list of plists with :note (the mentioning note),
+:path, :line, and :context."
   (let* ((terms (vulpea-mentions--note-terms note))
          (path->note (make-hash-table :test 'equal))
          (hits (vulpea-mentions--parse-rg-json output))
@@ -376,15 +372,9 @@ search for \"[[\" is also much cheaper than the plain-link regexp."
     result))
 
 (defun vulpea-mentions--ignored-by-note-p (ids note)
-  "Return non-nil if at least one of IDS is ignored by NOTE.
-
-NOTE can be a note object or a note id."
-  (let (result
-        (ignore-mentions-id (vulpea-mentions--ignore-mention-ids note)))
-    (dolist (id ids)
-      (when (gethash id ignore-mentions-id)
-        (setq result t)))
-    result))
+  "Return non-nil if at least one of IDS is ignored by NOTE."
+  (let ((ignore-mentions-id (vulpea-mentions--ignore-mention-ids note)))
+    (seq-some (lambda (id) (gethash id ignore-mentions-id)) ids)))
 
 (defun vulpea-mentions--collect-outgoing (output dict self-ids linked-ids)
   "Collect outgoing unlinked mentions from ripgrep OUTPUT over one buffer.
@@ -415,13 +405,13 @@ Returns a list of plists with :note (a candidate note to link to),
                 (when (vulpea-mentions--line-unlinked-p line-text (list term))
                   (dolist (id (gethash (downcase term) dict))
                     (unless (or (member id self-ids)
-                                (gethash id linked-ids)
-                                (vulpea-mentions--ignored-by-note-p self-ids id))
+                                (gethash id linked-ids))
                       (when-let* ((cand (resolve-note id)))
-                        (push (list :note cand :line line-no
+                        (unless (vulpea-mentions--ignored-by-note-p self-ids cand)
+                          (push (list :note cand :line line-no
                                     :context (string-trim line-text)
                                     :matched term)
-                              result))))))))))
+                                result)))))))))))
       (nreverse result))))
 
 ;;; Async entry point

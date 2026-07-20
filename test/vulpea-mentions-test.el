@@ -24,7 +24,7 @@
 ;;; Pure helpers
 
 (defun vulpea-mentions-test--collect-incoming-mentions-for-note (id)
-  "Return mentions for note specified by ID. "
+  "Return mentions for note specified by ID."
   (let* ((note (vulpea-db-get-by-id id))
          (path (vulpea-note-path note))
          (cmd (vulpea-mentions--rg-command
@@ -54,7 +54,7 @@ NOTE can be either an ID or a `vulpea-note' object."
           (let* (linked-ids
                  (note-path (expand-file-name (vulpea-note-path note)))
                  (output (with-temp-buffer
-                           (insert-file note-path)
+                           (insert-file-contents note-path)
                            (setq linked-ids
                                  (vulpea-mentions--buffer-link-ids))
                            (let ((out (generate-new-buffer " *rg*")))
@@ -347,7 +347,6 @@ NOTE can be either an ID or a `vulpea-note' object."
      (should (eq (length mentions) 1)))
    ;; Outgoing mentions to notes explicitly ignore us are dropped.
    (let ((mentions (vulpea-mentions-test--collect-outgoing-mentions-for-note "pc-prediction")))
-     (eldev-debug "%s" (plist-get (car mentions) :context))
      (should (eq (length mentions) 0)))))
 
 (ert-deftest vulpea-mentions-async-rejects-without-rg ()
