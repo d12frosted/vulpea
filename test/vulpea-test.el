@@ -1565,6 +1565,27 @@ Guards against arbitrary code execution from untrusted note titles."
         (should explicit-called)
         (should-not default-called)))))
 
+(ert-deftest vulpea-insert-uses-rewritten-title-as-description ()
+  "Test that the link description follows a title rewritten during creation.
+
+When `vulpea-create-default-function' rewrites the title (e.g. to
+strip a routing marker), the inserted link should use the created
+note's final title, not the raw text the user typed."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((vulpea-insert-default-create-fn nil)
+          (vulpea-create-default-function
+           (lambda (title)
+             (list :title (string-replace " #contact" "" title)))))
+      (cl-letf (((symbol-function 'vulpea-select-from)
+                 (lambda (_prompt _notes &rest _)
+                   (make-vulpea-note :title "Frodo #contact" :level 0))))
+        (with-temp-buffer
+          (org-mode)
+          (vulpea-insert :candidates-fn (lambda (_) nil))
+          (should (string-match-p "\\[Frodo\\]\\]" (buffer-string)))
+          (should-not (string-match-p "#contact" (buffer-string))))))))
+
 ;;; Title Propagation Tests
 
 ;;;; Link Categorization Tests

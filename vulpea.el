@@ -1070,7 +1070,11 @@ for the original title and once for each alias."
                     (set-marker end nil))
                   (insert (org-link-make-string
                            (concat "id:" (vulpea-note-id new-note))
-                           description))
+                           ;; Prefer the created note's title: it may have
+                           ;; been rewritten during creation (e.g. by
+                           ;; `vulpea-create-default-function'), while
+                           ;; `description' still holds the typed text.
+                           (or region-text (vulpea-note-title new-note))))
                   (run-hook-with-args
                    'vulpea-insert-handle-functions
                    new-note)))))))
