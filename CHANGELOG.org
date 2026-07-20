@@ -17,7 +17,7 @@
 
 - [[https://github.com/d12frosted/vulpea/issues/369][vulpea#369]] A note can now opt out of mention detection entirely by setting the =MENTIONS= property to =ignore= (both customizable via =vulpea-mentions-ignore-property-key= and =vulpea-mentions-ignore-property-value=). An opted-out note gets no incoming mention scan, and its title and aliases are never suggested as outgoing mentions in other notes. Made for notes whose titles are everyday words (a note called "Sets" matching the verb in every other file). Thanks to @drcxd for the implementation.
 
-- [[https://github.com/d12frosted/vulpea/issues/369][vulpea #369]] a note can now drop mentions from another note by setting the =IGNORE_MENTIONS_FROM= (customizable via =vulpea-mentions-per-note-ignore-property-key=) org property. Its value is a whitespace-separated list of file-level note ids. Any mention from those notes to this note will be excluded from the "Unlinked Mentions" list of this note and the "Outgoing Mentions" list of those note.
+- [[https://github.com/d12frosted/vulpea/issues/369][vulpea#369]] A note can now silence mentions from specific other notes by listing their ids in the =IGNORE_MENTIONS_FROM= property (customizable via =vulpea-mentions-per-note-ignore-property-key=), a whitespace-separated list of file-level note ids. Those notes stop appearing in this note's incoming unlinked mentions, and this note stops being suggested as an outgoing mention while editing them. A narrower counterpart to the blanket =MENTIONS: ignore=. Thanks to @drcxd for the implementation.
 
 *Fixes*
 
