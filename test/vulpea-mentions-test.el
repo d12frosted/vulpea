@@ -23,6 +23,56 @@
 
 ;;; Pure helpers
 
+(defun vulpea-mentions-test--collect-incoming-mentions-for-note (id)
+  "Return mentions for note specified by ID."
+  (let* ((note (vulpea-db-get-by-id id))
+         (path (vulpea-note-path note))
+         (cmd (vulpea-mentions--rg-command
+               (executable-find "rg")
+               (vulpea-mentions--note-terms note)
+               vulpea-db-sync-directories))
+         (output (with-temp-buffer
+                   (apply #'call-process (car cmd) nil t nil (cdr cmd))
+                   (buffer-string)))
+         (mentions (vulpea-mentions--collect
+                    output note (expand-file-name path))))
+    mentions))
+
+(defun vulpea-mentions-test--collect-outgoing-mentions-for-note (note)
+  "Returns outgoing mentions for NOTE.
+
+NOTE can be either an ID or a `vulpea-note' object."
+  (let* ((terms-dict (vulpea-mentions--title-dictionary))
+         (terms (cdr terms-dict))
+         (dict (car terms-dict))
+         (patterns (make-temp-file "vmp-")))
+    (unwind-protect
+        (progn
+          (unless (vulpea-note-p note)
+            (setq note (vulpea-db-get-by-id note)))
+          (with-temp-file patterns (insert (mapconcat #'identity terms "\n") "\n"))
+          (let* (linked-ids
+                 (note-path (expand-file-name (vulpea-note-path note)))
+                 (output (with-temp-buffer
+                           (insert-file-contents note-path)
+                           (setq linked-ids
+                                 (vulpea-mentions--buffer-link-ids))
+                           (let ((out (generate-new-buffer " *rg*")))
+                             (call-process-region
+                              (point-min) (point-max) (executable-find "rg")
+                              nil out nil "--json" "--fixed-strings" "--ignore-case"
+                              "--word-regexp" "-f" patterns "-")
+                             (prog1 (with-current-buffer out (buffer-string))
+                               (kill-buffer out)))))
+                 (self-ids (mapcar #'vulpea-note-id
+                                   (vulpea-db-query-by-file-path note-path))))
+            (vulpea-mentions--collect-outgoing
+             output
+             dict
+             self-ids
+             linked-ids)))
+      (delete-file patterns))))
+
 (ert-deftest vulpea-mentions--note-terms-title-and-aliases ()
   "Terms are the title and aliases, trimmed and de-duplicated."
   (let ((note (make-vulpea-note :title "Cabernet Sauvignon"
@@ -270,6 +320,34 @@
       (when vulpea-db--connection (vulpea-db-close))
       (when (file-exists-p vulpea-db-location) (delete-file vulpea-db-location))
       (delete-directory dir t))))
+
+(ert-deftest vulpea-mentions-per-note-ignore ()
+  "Mentions from explicitly ignored notes should be dropped."
+  (vulpea-test--with-temp-db-and-files
+   `((:name "stems.org"
+            :content
+            ,(concat ":PROPERTIES:\n:ID: stems\n"
+                     (format ":%s: pc-prediction\n" vulpea-mentions-per-note-ignore-property-key)
+                     ":END:\n#+title: Stems\n\n"))
+     (:name "notes.org"
+            :content
+            ,(concat ":PROPERTIES:\n:ID: notes\n:END:\n#+title: Notes\n\n"
+                     "Notes may have stems attached to them."))
+     (:name "pc-prediction.org"
+            :content
+            ,(concat ":PROPERTIES:\n:ID: pc-prediction\n:END:\n#+title: PC Prediction\n\n"
+                     "This strategy stems from ...")))
+   ;; Only one incoming mentions from Notes
+   (let ((mentions (vulpea-mentions-test--collect-incoming-mentions-for-note "stems")))
+     (should (eq 1 (length mentions)))
+     (should (string-match-p "Notes may have"
+                             (plist-get (car mentions) :context))))
+   ;; Normal outgoing mentions
+   (let ((mentions (vulpea-mentions-test--collect-outgoing-mentions-for-note "notes")))
+     (should (eq (length mentions) 1)))
+   ;; Outgoing mentions to notes explicitly ignore us are dropped.
+   (let ((mentions (vulpea-mentions-test--collect-outgoing-mentions-for-note "pc-prediction")))
+     (should (eq (length mentions) 0)))))
 
 (ert-deftest vulpea-mentions-async-rejects-without-rg ()
   "When ripgrep is unavailable, REJECT is called."

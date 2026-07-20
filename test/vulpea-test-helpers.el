@@ -64,6 +64,31 @@ the database and org file afterward."
        (when (file-exists-p temp-org-file)
          (delete-file temp-org-file)))))
 
+(defmacro vulpea-test--with-temp-db-and-files (files &rest body)
+  "Execute BODY with temporary database constructed upon FILES.
+
+FILES is a list of plists, where each plist has two properties `:name'
+and `:content', which specifies the name and content of a temporary file
+respectively.  Cleans up both the database and the temporary files
+afterward."
+  (declare (indent 1))
+  `(let* ((dir (make-temp-file "vulpea-mentions-" t))
+          (vulpea-db-location (make-temp-file "vulpea-mentions-" nil ".db"))
+          (vulpea-db--connection nil)
+          (vulpea-db-sync-directories (list dir)))
+     (unwind-protect
+         (progn
+           (vulpea-db)
+           (dolist (file ,files)
+             (let ((path (expand-file-name (plist-get file :name) dir)))
+               (with-temp-file path
+                 (insert (plist-get file :content)))
+               (vulpea-db-update-file path)))
+           ,@body)
+       (when vulpea-db--connection (vulpea-db-close))
+       (when (file-exists-p vulpea-db-location) (delete-file vulpea-db-location))
+       (delete-directory dir t))))
+
 ;;; File Helpers
 
 (defun vulpea-test--create-temp-org-file (content)
