@@ -476,6 +476,40 @@ parameterized query returns nil safely."
     (should-not (vulpea-db--table-exists-p (intern "weird'name")))
     (should-not (vulpea-db--index-exists-p (intern "weird'index")))))
 
+(ert-deftest vulpea-db-table-exists-p-normalizes-dashes ()
+  "Both spellings of a table name find it, however it was declared.
+Emacsql identifier escaping converts dashes to underscores when it
+creates a table, so a table declared as guide-dashed lives in
+sqlite_master as guide_dashed.  The existence check normalizes its
+argument the same way instead of demanding the literal SQL name."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    ;; Declared with a dash: emacsql creates it as guide_dashed.
+    (emacsql (vulpea-db) [:create-table guide-dashed ([id])])
+    (should (vulpea-db--table-exists-p 'guide-dashed))
+    (should (vulpea-db--table-exists-p 'guide_dashed))
+    ;; Declared with an underscore: same physical name either way.
+    (emacsql (vulpea-db) [:create-table guide_scored ([id])])
+    (should (vulpea-db--table-exists-p 'guide-scored))
+    (should (vulpea-db--table-exists-p 'guide_scored))
+    ;; A missing table stays missing under both spellings.
+    (should-not (vulpea-db--table-exists-p 'guide-absent))
+    (should-not (vulpea-db--table-exists-p 'guide_absent))))
+
+(ert-deftest vulpea-db-index-exists-p-normalizes-dashes ()
+  "Both spellings of an index name find it, however it was declared."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (emacsql (vulpea-db) [:create-table guide-indexed ([id])])
+    (emacsql (vulpea-db) [:create-index guide-dashed-idx :on guide-indexed [id]])
+    (should (vulpea-db--index-exists-p 'guide-dashed-idx))
+    (should (vulpea-db--index-exists-p 'guide_dashed_idx))
+    (emacsql (vulpea-db) [:create-index guide_scored_idx :on guide-indexed [id]])
+    (should (vulpea-db--index-exists-p 'guide-scored-idx))
+    (should (vulpea-db--index-exists-p 'guide_scored_idx))
+    (should-not (vulpea-db--index-exists-p 'guide-absent-idx))
+    (should-not (vulpea-db--index-exists-p 'guide_absent_idx))))
+
 (ert-deftest vulpea-db-same-version-no-rebuild ()
   "Test that same version does not trigger rebuild."
   (vulpea-test--with-temp-db

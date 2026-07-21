@@ -438,21 +438,34 @@ once, while a brand-new database (empty `files' table) is left alone."
 ;; them through emacsql's parameter machinery rather than string
 ;; interpolation, so the name cannot break out of the query.
 
+(defun vulpea-db--sql-name (name)
+  "Return NAME as the identifier stored in `sqlite_master'.
+Emacsql identifier escaping converts dashes to underscores when it
+creates tables and indices, so an object declared as `my-table'
+exists as `my_table'.  NAME is a symbol; the result is a symbol so
+existence checks can pass it as a scalar parameter (see NOTE
+above)."
+  (intern (replace-regexp-in-string "-" "_" (symbol-name name))))
+
 (defun vulpea-db--table-exists-p (table)
-  "Check if TABLE exists in database."
+  "Check if TABLE exists in database.
+TABLE is a symbol; dashes and underscores are interchangeable, so
+`my-table' finds the table emacsql created as `my_table'."
   (not (null (emacsql (vulpea-db)
                       [:select [name] :from sqlite-master
                        :where (and (= type $s1)
                                    (= name $s2))]
-                      'table table))))
+                      'table (vulpea-db--sql-name table)))))
 
 (defun vulpea-db--index-exists-p (index)
-  "Check if INDEX exists in database."
+  "Check if INDEX exists in database.
+INDEX is a symbol; dashes and underscores are interchangeable, so
+`my-index' finds the index emacsql created as `my_index'."
   (not (null (emacsql (vulpea-db)
                       [:select [name] :from sqlite-master
                        :where (and (= type $s1)
                                    (= name $s2))]
-                      'index index))))
+                      'index (vulpea-db--sql-name index)))))
 
 (defun vulpea-db--all-extensions ()
   "Return all tracked file extensions (`.org' + extras)."
