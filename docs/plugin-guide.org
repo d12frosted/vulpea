@@ -66,9 +66,9 @@ boundary; the declaration is how you consciously pay that cost. See
 Each extractor receives and returns =note-data=, a plist containing:
 
 - =:id= - note ID (UUID)
-- =:path= - file path
-- =:level= - heading level (0 = file-level)
-- =:pos= - position in file
+- =:level= - heading level; present on heading-level notes only,
+  absent for the file-level note
+- =:pos= - position in file; present on heading-level notes only
 - =:title= - note title
 - =:properties= - alist of org properties
 - =:tags= - list of tags
@@ -80,6 +80,11 @@ Each extractor receives and returns =note-data=, a plist containing:
 - =:scheduled=, =:deadline=, =:closed= - timestamps
 - =:outline-path= - path to heading
 - =:attach-dir= - attachment directory
+
+The file path is not part of =note-data= - read it from the parse
+context via =(vulpea-parse-ctx-path ctx)=.  To tell the file-level
+note from heading-level ones, compare =:id= against the context's
+file node (see the aggregate example below).
 
 Extractors can also add custom keys to =note-data=, but those are
 *transient*: they live only for the duration of the current extraction
@@ -351,28 +356,38 @@ Each extractor has a version number tracked in the =schema-registry= table:
  :schema '(...))
 #+end_src
 
-When the version changes, you can check the old version and migrate:
+When the version changes, migrate *before* registering the new
+version. =vulpea-db-register-extractor= applies the schema and
+records the new version in =schema-registry= as part of
+registration, so a check inside your extract function runs too late:
+by the time it executes, the registry already holds the new version.
 
 #+begin_src emacs-lisp
-(defun my-extractor-fn (ctx note-data)
-  (let ((old-version
-         (caar (emacsql (vulpea-db)
-                        [:select [version] :from schema-registry
-                         :where (= name $s1)]
-                        "my-extractor"))))
-    (when (and old-version (< old-version 2))
-      ;; Perform migration from version 1 to 2
-      (my-migrate-v1-to-v2)))
+;; At load time, before registering version 2:
+(let ((old-version
+       (caar (emacsql (vulpea-db)
+                      [:select [version] :from schema-registry
+                       :where (= name $s1)]
+                      "my-extractor"))))
+  (when (and old-version (< old-version 2))
+    ;; Perform migration from version 1 to 2
+    (my-migrate-v1-to-v2)))
 
-  ;; Normal extraction logic...
-  note-data)
+(vulpea-db-register-extractor
+ (make-vulpea-extractor
+  :name 'my-extractor
+  :version 2
+  :schema '(...)
+  :extract-fn #'my-extractor-fn))
 #+end_src
 
 ** Migration Helpers
 
 #+begin_src emacs-lisp
-;; Check if table exists
-(vulpea-db--table-exists-p 'my-table)
+;; Check if table exists.  Pass the literal SQL name: emacsql
+;; converts dashes in identifiers to underscores, so a table
+;; declared as my-table exists as my_table.
+(vulpea-db--table-exists-p 'my_table)
 
 ;; Check current version (extractor names are stored as strings)
 (caar (emacsql (vulpea-db)
@@ -382,7 +397,7 @@ When the version changes, you can check the old version and migrate:
 
 ;; Manual schema updates (within transaction)
 (emacsql (vulpea-db)
-         [:alter :table my-table :add :column new-field])
+         [:alter :table my_table :add :column new-field])
 #+end_src
 
 * Complete Working Example: Citation Extractor
@@ -402,9 +417,14 @@ stores them in a custom table.
     ;; Extract citations from all paragraphs
     (org-element-map ast 'paragraph
       (lambda (para)
-        (let ((content (org-element-interpret-data para)))
-          (when (string-match "\\[@\\([^]]+\\)\\]" content)
-            (push (match-string 1 content) citations)))))
+        (let ((content (org-element-interpret-data para))
+              (pos 0))
+          (while (string-match "\\[@\\([^]]+\\)\\]" content pos)
+            ;; Strip text properties: emacsql stores a propertized
+            ;; string in its printed #("...") form
+            (push (substring-no-properties (match-string 1 content))
+                  citations)
+            (setq pos (match-end 0))))))
 
     ;; Insert unique citations into custom table
     (when citations
@@ -647,8 +667,10 @@ Extract summary data across the entire file:
     (let ((total-todos (seq-count
                         (lambda (n) (plist-get n :todo))
                         all-nodes)))
-      ;; Store summary for file-level note only
-      (when (= (plist-get note-data :level) 0)
+      ;; Store summary for file-level note only.  The file-level
+      ;; note carries no :level - compare ids with the file node.
+      (when (equal (plist-get note-data :id)
+                   (plist-get file-node :id))
         (emacsql (vulpea-db)
                  [:insert :into file-summaries :values $v1]
                  (list (vector (plist-get note-data :id)
@@ -715,9 +737,11 @@ Fetch data from external sources:
         :schema '(...)
         :extract-fn #'my-extract-fn))
 
-      ;; Test with specific content
+      ;; Test with specific content.  The ID must live in a property
+      ;; drawer - a #+ID: keyword is not an org ID and the file would
+      ;; not be indexed at all.
       (let ((path (vulpea-test--create-temp-org-file
-                   "#+TITLE: Test\n#+ID: test-id\n\nTest content")))
+                   ":PROPERTIES:\n:ID: test-id\n:END:\n#+TITLE: Test\n\nTest content")))
         (unwind-protect
             (progn
               (vulpea-db-update-file path)
