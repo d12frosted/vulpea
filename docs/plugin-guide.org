@@ -36,10 +36,10 @@ Write a plugin when you need to:
 
 Every extractor receives a parse context with:
 
-- =:file-path= - absolute path to the org file
-- =:file-hash= - content hash for change detection
-- =:file-mtime= - modification time
-- =:file-size= - file size in bytes
+- =:path= - absolute path to the org file
+- =:hash= - content hash for change detection
+- =:mtime= - modification time
+- =:size= - file size in bytes
 - =:ast= - complete org-element AST for the file (only for
   extractors declaring =:requires-ast t=; nil for everyone else)
 - =:file-node= - parsed file-level note data
@@ -355,7 +355,11 @@ When the version changes, you can check the old version and migrate:
 
 #+begin_src emacs-lisp
 (defun my-extractor-fn (ctx note-data)
-  (let ((old-version (vulpea-db--get-schema-version 'my-extractor)))
+  (let ((old-version
+         (caar (emacsql (vulpea-db)
+                        [:select [version] :from schema-registry
+                         :where (= name $s1)]
+                        "my-extractor"))))
     (when (and old-version (< old-version 2))
       ;; Perform migration from version 1 to 2
       (my-migrate-v1-to-v2)))
@@ -370,8 +374,11 @@ When the version changes, you can check the old version and migrate:
 ;; Check if table exists
 (vulpea-db--table-exists-p 'my-table)
 
-;; Check current version
-(vulpea-db--get-schema-version 'my-extractor)
+;; Check current version (extractor names are stored as strings)
+(caar (emacsql (vulpea-db)
+               [:select [version] :from schema-registry
+                :where (= name $s1)]
+               "my-extractor"))
 
 ;; Manual schema updates (within transaction)
 (emacsql (vulpea-db)
@@ -617,7 +624,7 @@ Skip extraction based on file properties:
 #+begin_src emacs-lisp
 (defun my-conditional-extractor (ctx note-data)
   ;; Only extract from files in specific directory
-  (let ((path (vulpea-parse-ctx-file-path ctx)))
+  (let ((path (vulpea-parse-ctx-path ctx)))
     (if (string-match-p "/projects/" path)
         (progn
           ;; Do extraction
@@ -680,8 +687,8 @@ Fetch data from external sources:
 #+begin_src emacs-lisp
 (defun my-debug-extractor (ctx note-data)
   ;; Print context information
-  (message "Processing: %s" (vulpea-parse-ctx-file-path ctx))
-  (message "File size: %s bytes" (vulpea-parse-ctx-file-size ctx))
+  (message "Processing: %s" (vulpea-parse-ctx-path ctx))
+  (message "File size: %s bytes" (vulpea-parse-ctx-size ctx))
   (message "Note ID: %s" (plist-get note-data :id))
   (message "Note title: %s" (plist-get note-data :title))
 
@@ -731,14 +738,17 @@ Fetch data from external sources:
 
 - =(vulpea-db--table-exists-p TABLE)= :: Check if table exists
 - =(vulpea-db--index-exists-p INDEX)= :: Check if index exists
-- =(vulpea-db--get-schema-version NAME)= :: Get registered schema version
+
+Registered schema versions live in the =schema-registry= table (keyed
+by extractor name as a string); query it with =emacsql= as shown in
+[[*Migration Helpers][Migration Helpers]].
 
 ** Context Accessors
 
-- =(vulpea-parse-ctx-file-path CTX)= :: Get file path
-- =(vulpea-parse-ctx-file-hash CTX)= :: Get file hash
-- =(vulpea-parse-ctx-file-mtime CTX)= :: Get modification time
-- =(vulpea-parse-ctx-file-size CTX)= :: Get file size
+- =(vulpea-parse-ctx-path CTX)= :: Get file path
+- =(vulpea-parse-ctx-hash CTX)= :: Get file hash
+- =(vulpea-parse-ctx-mtime CTX)= :: Get modification time
+- =(vulpea-parse-ctx-size CTX)= :: Get file size
 - =(vulpea-parse-ctx-ast CTX)= :: Get org-element AST (nil unless the
   extractor declares =:requires-ast t=)
 - =(vulpea-parse-ctx-file-node CTX)= :: Get file-level note data
