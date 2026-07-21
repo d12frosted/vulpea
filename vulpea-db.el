@@ -329,7 +329,13 @@ Use with caution!"
         (emacsql db [:delete :from links])
         (emacsql db [:delete :from meta])
         (emacsql db [:delete :from files])
-        (emacsql db [:delete :from dir-locals-files])))))
+        (emacsql db [:delete :from dir-locals-files])
+        ;; The dir-locals baseline describes the (now deleted) rows,
+        ;; not code state like the other registry entries; keeping it
+        ;; would make the post-clear rescan treat every dir-locals
+        ;; file as newly created and fire spurious re-index reactions
+        (emacsql db [:delete :from schema-registry
+                     :where (= name "dir-locals-tracking")])))))
 
 ;;; Initialization
 

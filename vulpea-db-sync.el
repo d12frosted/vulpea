@@ -179,21 +179,22 @@ otherwise the database would stay empty with no indication why."
   "Whether a dir-locals change force re-indexes the affected subtree.
 
 Extraction output can depend on directory-local variables: the
-`find-file' parse method applies `.dir-locals.el' while parsing, and
-an extractor plugin may read dir-locals from the note's path.  For
-such setups, editing a `.dir-locals.el' (or `.dir-locals-2.el')
-silently leaves the database stale.  When this reaction is enabled,
-autosync watches those files alongside org files: on a real content
-change (creation, edit, deletion or rename - detected by content
-hash, so a mere touch does not count) all org files under that
-directory are force re-indexed, announced with a message.  The
-startup scan diffs the stored hashes as well, so edits made while
-Emacs was closed are picked up too.
+`find-file' and `temp-buffer' parse methods apply `.dir-locals.el'
+while parsing (only `single-temp-buffer' skips it), and an extractor
+plugin may read dir-locals from the note's path.  For such setups,
+editing a `.dir-locals.el' (or `.dir-locals-2.el') silently leaves
+the database stale.  When this reaction is enabled, autosync watches
+those files alongside org files: on a real content change (creation,
+edit, deletion or rename - detected by content hash, so a mere touch
+does not count) all org files under that directory are force
+re-indexed, announced with a message.  The startup scan diffs the
+stored hashes as well, so edits made while Emacs was closed are
+picked up too.
 
 Possible values:
-- `auto' - react when extraction actually depends on dir-locals:
-  `vulpea-db-parse-method' is `find-file', or a registered extractor
-  declares :reads-dir-locals t
+- `auto' - react when extraction can see dir-locals:
+  `vulpea-db-parse-method' is `find-file' or `temp-buffer', or a
+  registered extractor declares :reads-dir-locals t
 - t - always react
 - nil - never react (hashes are still tracked, so enabling the
   reaction later diffs against the last tracked state)
@@ -441,9 +442,15 @@ a subprocess.  The `blocking' mode still scans synchronously."
                   ;; Diff dir-locals hashes so edits made while Emacs
                   ;; was closed re-index their subtree (force marks
                   ;; land before the plain enqueue below, which then
-                  ;; deduplicates against them)
+                  ;; deduplicates against them).  Errors are contained:
+                  ;; the auxiliary check must never cost the primary
+                  ;; sync its enqueue loop below
                   (let ((dir-locals-start (current-time)))
-                    (vulpea-db-sync--check-dir-locals files)
+                    (condition-case err
+                        (vulpea-db-sync--check-dir-locals files)
+                      (error
+                       (message "Vulpea: dir-locals check failed: %s"
+                                (error-message-string err))))
                     (when vulpea-db-sync-debug
                       (message "[vulpea-sync] dir-locals check: %.0fms"
                                (* 1000 (float-time (time-subtract (current-time) dir-locals-start))))))
@@ -464,10 +471,15 @@ a subprocess.  The `blocking' mode still scans synchronously."
                       (* 1000 (float-time (time-subtract (current-time) t-phase)))))
            ;; Diff dir-locals hashes before the smart scan: a changed
            ;; subtree is then force re-indexed once and skipped as
-           ;; unchanged by the scan below
-           (vulpea-db-sync--check-dir-locals
-            (mapcan #'vulpea-db-sync--list-org-files
-                    vulpea-db-sync-directories))
+           ;; unchanged by the scan below.  Errors are contained so the
+           ;; scan itself cannot be lost to the auxiliary check
+           (condition-case err
+               (vulpea-db-sync--check-dir-locals
+                (mapcan #'vulpea-db-sync--list-org-files
+                        vulpea-db-sync-directories))
+             (error
+              (message "Vulpea: dir-locals check failed: %s"
+                       (error-message-string err))))
            (setq t-phase (current-time))
            (dolist (dir vulpea-db-sync-directories)
              (vulpea-db-sync-update-directory dir))
@@ -1222,8 +1234,9 @@ Returns count of removed files."
 
 ;;; Dir-Locals Tracking
 ;;
-;; Extraction output can depend on dir-locals (the `find-file' parse
-;; method, or an extractor declaring :reads-dir-locals), so editing a
+;; Extraction output can depend on dir-locals (the `find-file' and
+;; `temp-buffer' parse methods apply them while parsing, and an
+;; extractor may declare :reads-dir-locals), so editing a
 ;; `.dir-locals.el' leaves the database stale.  Both watch backends
 ;; already deliver events for these files; the handlers below track
 ;; their content hashes (always) and force re-index the affected
@@ -1251,13 +1264,15 @@ directory governs no indexed files, so it is not tracked."
   "Return non-nil when a dir-locals change should trigger re-indexing.
 
 Implements `vulpea-db-sync-reindex-on-dir-locals-change': with the
-default `auto', the reaction is on when extraction output actually
-depends on dir-locals - the parse method is `find-file', or a
-registered extractor declares :reads-dir-locals t.  Evaluated at
-event time, so flipping the parse method or registering an extractor
-mid-session takes effect immediately."
+default `auto', the reaction is on when extraction can see
+dir-locals - the parse method is `find-file' or `temp-buffer' (the
+per-file `org-mode' rerun hacks local variables since Emacs 26, so
+both apply dir-locals while parsing; only `single-temp-buffer' never
+does), or a registered extractor declares :reads-dir-locals t.
+Evaluated at event time, so flipping the parse method or registering
+an extractor mid-session takes effect immediately."
   (pcase vulpea-db-sync-reindex-on-dir-locals-change
-    ('auto (and (or (eq vulpea-db-parse-method 'find-file)
+    ('auto (and (or (memq vulpea-db-parse-method '(find-file temp-buffer))
                     (seq-some #'vulpea-extractor-reads-dir-locals-p
                               vulpea-db--extractors))
                 t))
@@ -1308,15 +1323,26 @@ refreshes the stored row silently) or PATH does not exist."
   "Force re-index org files under DIR after a dir-locals CHANGE.
 
 Does nothing when the reaction is gated off (see
-`vulpea-db-sync-reindex-on-dir-locals-change') or when no org files
-live under DIR.  CHANGE is `new', `changed' or `deleted' and only
-affects the wording of the announcement.
+`vulpea-db-sync-reindex-on-dir-locals-change'), when DIR no longer
+exists (a removed subtree has nothing left to re-index; the event
+for its dir-locals file may arrive after the directory is gone), or
+when no org files live under DIR.  CHANGE is `new', `changed' or
+`deleted' and only affects the wording of the announcement.
+
+With autosync enabled the files are force-enqueued through the
+regular update queue: reactions fire inside process filters,
+sentinels and timers, where re-indexing a subtree synchronously
+would freeze Emacs with quits inhibited.  Without autosync (manual
+scans) the re-index runs synchronously via
+`vulpea-db-sync-update-directory', like any force scan.
 
 The announcement is a plain `message', not subject to
-`vulpea-db-sync-verbose': the users this serves run the slow
-`find-file' parse method and should know why indexing kicked off."
-  (when (vulpea-db-sync--dir-locals-reaction-p)
-    (let ((count (length (vulpea-db-sync--list-org-files dir))))
+`vulpea-db-sync-verbose': the users this serves run slow parse
+methods and should know why indexing kicked off."
+  (when (and (vulpea-db-sync--dir-locals-reaction-p)
+             (file-directory-p dir))
+    (let* ((files (vulpea-db-sync--list-org-files dir))
+           (count (length files)))
       (when (> count 0)
         (message "Vulpea: dir-locals %s under %s, re-indexing %d file%s..."
                  (pcase change
@@ -1326,7 +1352,10 @@ The announcement is a plain `message', not subject to
                  (abbreviate-file-name (directory-file-name dir))
                  count
                  (if (= count 1) "" "s"))
-        (vulpea-db-sync-update-directory dir 'force)))))
+        (if vulpea-db-autosync-mode
+            (dolist (file files)
+              (vulpea-db-sync--enqueue file 'force))
+          (vulpea-db-sync-update-directory dir 'force))))))
 
 (defun vulpea-db-sync--handle-dir-locals-event (path)
   "Handle a watcher event for the dir-locals file at PATH.
@@ -1343,6 +1372,12 @@ always tracked - only the re-index reaction is gated by
              (vulpea-db--delete-dir-locals-hash path)
              'deleted))))
     (when change
+      ;; Establish the tracking baseline: rows written by live events
+      ;; are real prior state, and a first-ever scan must diff against
+      ;; them instead of quietly absorbing an offline edit as baseline
+      ;; noise (possible when no scan ran before, e.g.
+      ;; `vulpea-db-sync-scan-on-enable' nil)
+      (vulpea-db--register-schema (vulpea-db) 'dir-locals-tracking 1)
       (vulpea-db-sync--dir-locals-react (file-name-directory path) change))))
 
 (defun vulpea-db-sync--dir-locals-candidate-dirs (files)
@@ -1350,14 +1385,18 @@ always tracked - only the re-index reaction is gated by
 
 The directories of FILES plus all their ancestors up to (and
 including) the containing entry of `vulpea-db-sync-directories'.
-All returned paths carry a trailing slash."
+All returned paths carry a trailing slash.  Roots and file paths are
+canonicalized with `vulpea-db-normalize-path' so an NFD-typed root
+string on macOS still matches the NFC paths scans produce."
   (let ((roots (mapcar (lambda (dir)
-                         (file-name-as-directory (expand-file-name dir)))
+                         (vulpea-db-normalize-path
+                          (file-name-as-directory (expand-file-name dir))))
                        vulpea-db-sync-directories))
         (seen (make-hash-table :test 'equal))
         result)
     (dolist (file files)
-      (let ((dir (file-name-directory (expand-file-name file))))
+      (let ((dir (vulpea-db-normalize-path
+                  (file-name-directory (expand-file-name file)))))
         (while (and dir
                     (not (gethash dir seen))
                     (seq-some (lambda (root) (string-prefix-p root dir))

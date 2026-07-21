@@ -322,9 +322,10 @@ Or with =C-u= prefix: =C-u M-x vulpea-db-sync-full-scan=
 
 *** Symptom
 
-You use the =find-file= parse method (or an extractor that reads
-dir-locals) and edited a =.dir-locals.el=, but queries still return
-values computed from the old settings.
+You use a parse method that applies dir-locals (=find-file= or
+=temp-buffer=; only =single-temp-buffer= skips them) or an extractor
+that reads dir-locals, and edited a =.dir-locals.el=, but queries
+still return values computed from the old settings.
 
 *** Cause
 
