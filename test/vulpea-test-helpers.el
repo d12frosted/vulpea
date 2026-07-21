@@ -89,6 +89,32 @@ afterward."
        (when (file-exists-p vulpea-db-location) (delete-file vulpea-db-location))
        (delete-directory dir t))))
 
+(defmacro vulpea-test--with-temp-notes-dir (&rest body)
+  "Execute BODY with a temporary database and notes directory.
+
+Creates a fresh temporary database and an empty temporary
+directory, binds `vulpea-db-sync-directories' to that directory and
+makes it available to BODY as the anaphoric variable `root' (with a
+trailing slash).  Cleans up the database and the directory after
+BODY completes (even on error)."
+  (declare (indent 0))
+  `(let* ((root (file-name-as-directory
+                 (make-temp-file "vulpea-notes-" t)))
+          (vulpea-db-location (make-temp-file "vulpea-test-" nil ".db"))
+          (vulpea-db--connection nil)
+          (vulpea-db-sync-directories (list root)))
+     (ignore root)
+     (unwind-protect
+         (progn
+           (vulpea-db)
+           ,@body)
+       (when vulpea-db--connection
+         (vulpea-db-close))
+       (when (file-exists-p vulpea-db-location)
+         (delete-file vulpea-db-location))
+       (when (file-directory-p root)
+         (delete-directory root t)))))
+
 ;;; File Helpers
 
 (defun vulpea-test--create-temp-org-file (content)
