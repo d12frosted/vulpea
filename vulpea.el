@@ -983,7 +983,26 @@ an id: link).
 This mirrors `vulpea-find-default-create-fn' for \"capture on
 empty\" workflows. Note that, unlike the `vulpea-find' hook, this
 function must perform the link insertion itself, since inserting a
-link is what `vulpea-insert' does with a new note.")
+link is what `vulpea-insert' does with a new note. If you would
+rather only create the note and let `vulpea-insert' handle the
+link, use `vulpea-insert-default-note-fn' instead; when both
+variables are set, the note-fn wins.")
+
+(defvar vulpea-insert-default-note-fn nil
+  "Default function to create a note in `vulpea-insert'.
+
+When non-nil, used as the NOTE-FN of `vulpea-insert' for a note
+that does not exist yet (see its NOTE-FN argument): it is called
+with the typed title and capture properties (currently always
+nil) and should return the created `vulpea-note'; `vulpea-insert'
+then replaces the selected region, inserts the link and runs
+`vulpea-insert-handle-functions' itself. Return nil to skip link
+insertion.
+
+Unlike `vulpea-insert-default-create-fn', the function is not
+responsible for inserting the link - this is the same contract as
+`vulpea-find-default-create-fn'. When both variables are set,
+this one wins.")
 
 (defvar vulpea-insert-handle-functions nil
   "Abnormal hooks to run after `vulpea-note' is inserted.
@@ -1014,7 +1033,7 @@ called with NOTE."
   (run-hook-with-args 'vulpea-insert-handle-functions note))
 
 ;;;###autoload
-(cl-defun vulpea-insert (&key filter-fn candidates-fn create-fn
+(cl-defun vulpea-insert (&key filter-fn candidates-fn create-fn note-fn
                               (expand-aliases t))
   "Select a note and insert a link to it.
 
@@ -1034,14 +1053,31 @@ as its argument a `vulpea-note'. Unless specified,
 
 CREATE-FN allows to control how a new note is created when user picks a
 non-existent note. This function is called with two arguments - title
-and capture properties. When CREATE-FN is nil,
+and capture properties - and owns the whole flow: it must create the
+note and insert the link itself. When CREATE-FN is nil,
 `vulpea-insert-default-create-fn' is used; when that is also nil, the
 default implementation is used.
+
+NOTE-FN is an alternative to CREATE-FN with the same calling
+convention, but it only creates and returns a `vulpea-note' -
+`vulpea-insert' then replaces the selected region, inserts the
+link with a proper description and runs
+`vulpea-insert-handle-functions', exactly as for an existing
+note. Return nil to skip link insertion. This mirrors the
+CREATE-FN contract of `vulpea-find'. When NOTE-FN is nil,
+`vulpea-insert-default-note-fn' is used.
+
+Passing both NOTE-FN and CREATE-FN is an error. An explicit
+argument beats both default variables; when only the defaults are
+set, `vulpea-insert-default-note-fn' wins over
+`vulpea-insert-default-create-fn'.
 
 When EXPAND-ALIASES is non-nil (the default), each note with
 aliases will appear multiple times in the completion list - once
 for the original title and once for each alias."
   (interactive)
+  (when (and note-fn create-fn)
+    (error "vulpea-insert: Specify either NOTE-FN or CREATE-FN, not both"))
   (unwind-protect
       (atomic-change-group
         (let* (region-text
@@ -1065,14 +1101,28 @@ for the original title and once for each alias."
           (if (vulpea-note-id note)
               ;; Existing note - insert link immediately
               (vulpea--insert-note-link note region-text beg end)
-            ;; New note - create it then insert link
-            (let ((cfn (or create-fn vulpea-insert-default-create-fn)))
-              (if cfn
-                  (funcall cfn (vulpea-note-title note) nil)
-                ;; Create the note programmatically
+            ;; New note - create it then insert link. An explicit
+            ;; argument beats both defaults, so an explicit CREATE-FN
+            ;; suppresses `vulpea-insert-default-note-fn'.
+            (let ((nfn (or note-fn (unless create-fn
+                                     vulpea-insert-default-note-fn)))
+                  (cfn (or create-fn vulpea-insert-default-create-fn)))
+              (cond
+               ;; note-fn contract: it returns the note (or nil to
+               ;; skip), core inserts the link
+               (nfn
+                (let ((new-note (funcall nfn (vulpea-note-title note) nil)))
+                  (when new-note
+                    (vulpea--insert-note-link new-note region-text beg end))))
+               ;; create-fn contract: it owns the whole flow,
+               ;; including link insertion
+               (cfn
+                (funcall cfn (vulpea-note-title note) nil))
+               ;; Create the note programmatically
+               (t
                 (vulpea--insert-note-link
                  (vulpea-create (vulpea-note-title note))
-                 region-text beg end))))))
+                 region-text beg end)))))))
     (deactivate-mark)))
 
 
