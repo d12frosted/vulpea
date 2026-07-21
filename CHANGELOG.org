@@ -37,6 +37,8 @@
 
 - [[https://github.com/d12frosted/vulpea/issues/375][vulpea#375]] If =:title "Note title"= is present in the template returned by =vulpea-create-default-function= (or in =vulpea-create-default-template=), it overrides the note title passed to =vulpea-create=. This allows =vulpea-create-default-function= to modify the note title.
 
+- The plugin guide referenced =vulpea-parse-ctx= accessors that do not exist: =vulpea-parse-ctx-file-path=, =-file-hash=, =-file-mtime= and =-file-size=. The struct slots are =path=, =hash=, =mtime= and =size=, so following the guide's "Conditional Extraction" example failed with a void-function error. All examples, the context slot list, and the accessor reference now use the real names (=vulpea-parse-ctx-path= and friends). The guide also called a =vulpea-db--get-schema-version= function that never existed; the migration examples now query the =schema-registry= table directly, the same way core does.
+
 ** v2.6.0 (2026-07-10)
 
 *Breaking changes*
