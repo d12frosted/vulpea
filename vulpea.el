@@ -994,6 +994,25 @@ Each function accepts a note that was inserted via
 The current point is the point of the new node. The hooks must
 not move the point.")
 
+(defun vulpea--insert-note-link (note region-text beg end)
+  "Insert a link to NOTE at point and run insert hooks.
+
+When REGION-TEXT is non-nil, the region between markers BEG and
+END is deleted first and REGION-TEXT becomes the link
+description; otherwise the title of NOTE is used. Taking the
+description from NOTE itself means a title rewritten during
+creation (e.g. by `vulpea-create-default-function') is respected.
+After the link is inserted, `vulpea-insert-handle-functions' are
+called with NOTE."
+  (when region-text
+    (delete-region beg end)
+    (set-marker beg nil)
+    (set-marker end nil))
+  (insert (org-link-make-string
+           (concat "id:" (vulpea-note-id note))
+           (or region-text (vulpea-note-title note))))
+  (run-hook-with-args 'vulpea-insert-handle-functions note))
+
 ;;;###autoload
 (cl-defun vulpea-insert (&key filter-fn candidates-fn create-fn
                               (expand-aliases t))
@@ -1042,42 +1061,18 @@ for the original title and once for each alias."
                                (or filter-fn vulpea-insert-default-filter)))
                (note (vulpea-select-from "Note" notes
                                          :initial-prompt region-text
-                                         :expand-aliases expand-aliases))
-               (description (or region-text
-                                (vulpea-note-title note))))
+                                         :expand-aliases expand-aliases)))
           (if (vulpea-note-id note)
               ;; Existing note - insert link immediately
-              (progn
-                (when region-text
-                  (delete-region beg end)
-                  (set-marker beg nil)
-                  (set-marker end nil))
-                (insert (org-link-make-string
-                         (concat "id:" (vulpea-note-id note))
-                         description))
-                (run-hook-with-args
-                 'vulpea-insert-handle-functions
-                 note))
+              (vulpea--insert-note-link note region-text beg end)
             ;; New note - create it then insert link
             (let ((cfn (or create-fn vulpea-insert-default-create-fn)))
               (if cfn
                   (funcall cfn (vulpea-note-title note) nil)
                 ;; Create the note programmatically
-                (let ((new-note (vulpea-create (vulpea-note-title note))))
-                  (when region-text
-                    (delete-region beg end)
-                    (set-marker beg nil)
-                    (set-marker end nil))
-                  (insert (org-link-make-string
-                           (concat "id:" (vulpea-note-id new-note))
-                           ;; Prefer the created note's title: it may have
-                           ;; been rewritten during creation (e.g. by
-                           ;; `vulpea-create-default-function'), while
-                           ;; `description' still holds the typed text.
-                           (or region-text (vulpea-note-title new-note))))
-                  (run-hook-with-args
-                   'vulpea-insert-handle-functions
-                   new-note)))))))
+                (vulpea--insert-note-link
+                 (vulpea-create (vulpea-note-title note))
+                 region-text beg end))))))
     (deactivate-mark)))
 
 
