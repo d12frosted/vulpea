@@ -156,13 +156,19 @@ How Vulpea reads org files during sync:
 (setq vulpea-db-parse-method 'find-file)           ; Slowest, most compatible
 #+end_src
 
-| Method               | Speed         | Compatibility                              |
-|----------------------+---------------+--------------------------------------------|
-| =single-temp-buffer= | ~1000 files/s | Skips org-mode hooks, fastest              |
-| =temp-buffer=        | ~460 files/s  | Runs org-mode hooks per file               |
-| =find-file=          | ~34 files/s   | Full compatibility (dir-locals, all hooks) |
+| Method               | Speed         | Compatibility                               |
+|----------------------+---------------+---------------------------------------------|
+| =single-temp-buffer= | ~1000 files/s | Skips org-mode hooks and locals, fastest    |
+| =temp-buffer=        | ~460 files/s  | Runs org-mode hooks and dir-locals per file |
+| =find-file=          | ~34 files/s   | Full compatibility (all file-visiting hooks) |
 
 *Recommendation:* Use =single-temp-buffer= unless you need per-file hooks.
+
+Changing the method takes effect through a re-index: it is part of
+the settings fingerprint, because extraction output depends on it
+(for example, a category coming from an =org-category= dir-local is
+visible to every method except =single-temp-buffer=). On the first
+start after a change, all files are re-extracted automatically.
 
 ** Parse Granularity
 

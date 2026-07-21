@@ -51,8 +51,9 @@ busy again a moment later."
     (list
      :notes (emacsql db [:select [id level pos title properties tags
                                   aliases meta links todo priority
-                                  scheduled deadline closed outline-path
-                                  attach-dir file-title created-at]
+                                  scheduled deadline closed category
+                                  outline-path attach-dir file-title
+                                  created-at]
                          :from notes :order-by [(asc id)]])
      :tags (emacsql db [:select [note-id tag] :from tags
                         :order-by [(asc note-id) (asc tag)]])
@@ -208,6 +209,26 @@ from worker-extracted results too."
                                     "settings-id"))))
         (should (member "bracket-target" dests))
         (should-not (member "//plain.example.com" dests))))))
+
+(ert-deftest vulpea-db-worker-mirrors-org-category ()
+  "The worker mirrors the default value of `org-category'.
+
+Extraction reads `org-category' from the parse buffer, which for
+temp-buffer methods resolves to the default value; the worker must
+see the same default the main process has.
+https://github.com/d12frosted/vulpea/issues/389"
+  (vulpea-db-worker-test--with-file
+      ":PROPERTIES:\n:ID: org-cat-id\n:END:\n#+TITLE: C\n"
+    (vulpea-test--with-temp-db
+      (vulpea-db)
+      (let ((org-category "mirrored-cat"))
+        (vulpea-db-worker-request path)
+        (vulpea-db-worker-test--wait))
+      (should (equal "mirrored-cat"
+                     (caar (emacsql (vulpea-db)
+                                    [:select [category] :from notes
+                                     :where (= id $s1)]
+                                    "org-cat-id")))))))
 
 (ert-deftest vulpea-db-worker-can-handle-p-rejections ()
   "The worker refuses work it cannot replicate faithfully."

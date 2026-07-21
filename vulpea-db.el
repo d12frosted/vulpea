@@ -156,7 +156,7 @@ Example:
 
 ;;; Constants
 
-(defconst vulpea-db-version 3
+(defconst vulpea-db-version 4
   "Current database schema version.
 
 Bumping this triggers a full database rebuild (the file is deleted
@@ -194,6 +194,7 @@ notes are preserved.")
       (scheduled)
       (deadline)
       (closed)
+      (category)                    ; Resolved org category (never null in practice)
       (outline-path)
       (attach-dir)
       (file-title)                  ; Title of file containing this note
@@ -260,7 +261,8 @@ Uses hybrid approach:
     (idx-notes-path notes [path])
     (idx-notes-title notes [title])
     (idx-notes-modified notes [modified-at])
-    (idx-notes-created notes [created-at]))
+    (idx-notes-created notes [created-at])
+    (idx-notes-category notes [category]))
   "Database indices for performance.")
 
 ;;; Variables
@@ -273,7 +275,8 @@ Uses hybrid approach:
 Checked by `vulpea-db-sync--start' to trigger automatic re-index.")
 
 (defvar vulpea-db--settings-changed nil
-  "Non-nil if tag inheritance settings changed since last init.
+  "Non-nil if extraction settings changed since last init.
+See `vulpea-db--settings-fingerprint' for what is tracked.
 Checked by `vulpea-db-sync--start' to trigger automatic re-index.")
 
 (defvar vulpea-db--parser-changed nil
@@ -324,23 +327,37 @@ Use with caution!"
     ;; schema-registry doesn't exist → brand new DB, no rebuild needed
     (error nil)))
 
-(defun vulpea-db--tag-settings-fingerprint ()
-  "Compute a fingerprint of the current tag inheritance settings.
+(defun vulpea-db--settings-fingerprint ()
+  "Compute a fingerprint of extraction-relevant settings.
 
-Returns the `sxhash' of `org-use-tag-inheritance' and
-`org-tags-exclude-from-inheritance'.  Used to detect when these
-settings change between sessions so the DB can be re-indexed."
+Returns the `sxhash' of the settings whose value changes what
+extraction produces from the same file content: tag inheritance
+\(`org-use-tag-inheritance', `org-tags-exclude-from-inheritance')
+and `vulpea-db-parse-method' (dir- and file-local variables feeding
+`org-category' reach extraction under some methods and not others).
+Used to detect when these settings change between sessions so the
+DB can be re-indexed.
+
+`vulpea-db-parse-method' is read guarded: it is defined in
+vulpea-db-extract, which requires this file, so it may be unbound
+when only the db layer is loaded.  Its name is hashed rather than
+the symbol itself: `sxhash' of a regular symbol is address-based
+and differs across processes (t, nil, strings, and numbers are
+stable), and this fingerprint is compared across sessions and by
+the extraction worker."
   (sxhash (list org-use-tag-inheritance
-                org-tags-exclude-from-inheritance)))
+                org-tags-exclude-from-inheritance
+                (when (bound-and-true-p vulpea-db-parse-method)
+                  (symbol-name vulpea-db-parse-method)))))
 
-(defun vulpea-db--tag-settings-changed-p (db)
-  "Return non-nil if tag inheritance settings differ from those stored in DB."
+(defun vulpea-db--settings-changed-p (db)
+  "Return non-nil if extraction settings differ from those stored in DB."
   (condition-case nil
       (let ((stored (caar (emacsql db
                                    [:select [version] :from schema-registry
-                                    :where (= name "tag-inheritance")]))))
+                                    :where (= name "settings")]))))
         (and stored
-             (not (equal stored (vulpea-db--tag-settings-fingerprint)))))
+             (not (equal stored (vulpea-db--settings-fingerprint)))))
     (error nil)))
 
 (defun vulpea-db--parser-epoch-changed-p (db)
@@ -383,11 +400,11 @@ once, while a brand-new database (empty `files' table) is left alone."
     ;; Create indices
     (vulpea-db--create-indices db)
 
-    ;; Check if tag inheritance settings changed
-    (when (vulpea-db--tag-settings-changed-p db)
+    ;; Check if extraction settings changed
+    (when (vulpea-db--settings-changed-p db)
       (emacsql db [:delete :from files])
       (setq vulpea-db--settings-changed t)
-      (message "Vulpea: Tag inheritance settings changed, re-index needed..."))
+      (message "Vulpea: Extraction settings changed, re-index needed..."))
 
     ;; Check if the parser epoch changed (extraction logic updated, or
     ;; an existing pre-epoch database).  Clearing the files cache forces
@@ -398,10 +415,10 @@ once, while a brand-new database (empty `files' table) is left alone."
       (setq vulpea-db--parser-changed t)
       (message "Vulpea: Parser updated, re-index needed..."))
 
-    ;; Register schema version, tag settings fingerprint and parser epoch
+    ;; Register schema version, settings fingerprint and parser epoch
     (vulpea-db--register-schema db 'core vulpea-db-version)
-    (vulpea-db--register-schema db 'tag-inheritance
-                                (vulpea-db--tag-settings-fingerprint))
+    (vulpea-db--register-schema db 'settings
+                                (vulpea-db--settings-fingerprint))
     (vulpea-db--register-schema db 'parser-epoch vulpea-db-parser-epoch)
 
     db))
@@ -535,7 +552,7 @@ indexing files with many notes (issue #359)."
 (cl-defun vulpea-db--insert-note (&key id path level pos title
                                        properties tags aliases meta links
                                        todo priority scheduled deadline
-                                       closed outline-path attach-dir
+                                       closed category outline-path attach-dir
                                        file-title created-at modified-at)
   "Insert note into database.
 
@@ -558,6 +575,7 @@ Arguments:
   SCHEDULED - scheduled timestamp
   DEADLINE - deadline timestamp
   CLOSED - closed timestamp
+  CATEGORY - resolved org category
   OUTLINE-PATH - path to heading
   ATTACH-DIR - attachment directory
   FILE-TITLE - title of the file containing this note
@@ -578,9 +596,9 @@ Arguments:
        handle
        "INSERT OR IGNORE INTO notes (id, path, level, pos, title, properties, tags,
                            aliases, meta, links, todo, priority, scheduled,
-                           deadline, closed, outline_path, attach_dir,
+                           deadline, closed, category, outline_path, attach_dir,
                            file_title, created_at, modified_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
        (list
         (list id path level pos title
               (vulpea-db--encode-note-column :properties properties)
@@ -588,7 +606,7 @@ Arguments:
               (vulpea-db--encode-note-column :aliases aliases)
               (vulpea-db--encode-note-column :meta meta)
               (vulpea-db--encode-note-column :links links)
-              todo priority scheduled deadline closed
+              todo priority scheduled deadline closed category
               outline-path attach-dir file-title
               created-at modified-at)))
 
@@ -666,6 +684,7 @@ encoded to their JSON string; any other field is stored as is."
     (:scheduled . "scheduled")
     (:deadline . "deadline")
     (:closed . "closed")
+    (:category . "category")
     (:outline-path . "outline_path")
     (:attach-dir . "attach_dir")
     (:file-title . "file_title")

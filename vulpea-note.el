@@ -61,6 +61,9 @@ Slots:
   scheduled    - Scheduled timestamp
   deadline     - Deadline timestamp
   closed       - Closed timestamp
+  category     - Category, resolved like org does (own drawer property,
+                 ancestors, file drawer, last #+CATEGORY keyword,
+                 `org-category', file base name) - never nil
   outline-path - Path to heading
   attach-dir   - Attachment directory
   file-title   - Title of the file containing this note
@@ -82,6 +85,7 @@ Slots:
   scheduled
   deadline
   closed
+  category
   outline-path
   attach-dir
   file-title

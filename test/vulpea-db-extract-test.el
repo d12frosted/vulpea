@@ -1680,6 +1680,8 @@ Regression test for https://github.com/d12frosted/vulpea/issues/260."
 #+TITLE: Title with [[id:title-target][title link]]
 #+DESCRIPTION: keyword [[id:kw-target][kw link]]
 #+FILETAGS: :corpus:
+#+CATEGORY: shadowed-cat
+#+CATEGORY: corpus-cat
 
 Paragraph with [[id:para-target][bracket]], plain https://plain.example.com
 and <https://angle.example.com> angle link.
@@ -1727,6 +1729,7 @@ SCHEDULED: <2026-08-01 Sat> DEADLINE: <2026-09-01 Tue>
 :PROPERTIES:
 :ID: corpus-heading-id
 :CUSTOM: custom value
+:CATEGORY: heading-cat
 :END:
 - rating :: 10
 
@@ -2330,10 +2333,32 @@ computes for that ID relative to the note's file."
               (should (member '("CUSTOM_PROP" "custom-value") props))))
         (delete-file path)))))
 
-(ert-deftest vulpea-db-extract-category-keyword-as-property ()
-  "Test that #+CATEGORY keyword at file level is extracted as a property.
+;;; Category Resolution Tests
+;; https://github.com/d12frosted/vulpea/issues/389
+;;
+;; Categories mirror org's own resolution order per entry: own drawer
+;; property, ancestor drawers, file-level drawer, last #+CATEGORY
+;; keyword in the file, buffer-local `org-category', file base name.
 
-See https://github.com/d12frosted/vulpea/issues/257."
+(ert-deftest vulpea-db-extract-category-from-file-drawer ()
+  "File-level CATEGORY drawer property resolves the file note's category."
+  (let ((path (vulpea-test--create-temp-org-file
+               ":PROPERTIES:\n:ID: cat-drawer-id\n:CATEGORY: from-drawer\n:END:\n#+TITLE: Note\n")))
+    (unwind-protect
+        (let* ((ctx (vulpea-db--parse-file path))
+               (node (vulpea-parse-ctx-file-node ctx)))
+          (should (equal (plist-get node :category) "from-drawer"))
+          ;; The drawer property stays literal property content
+          (should (equal (cdr (assoc "CATEGORY" (plist-get node :properties)))
+                         "from-drawer")))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-category-keyword-not-folded-into-properties ()
+  "#+CATEGORY keyword resolves the category but is not a property.
+
+Properties mean literally what is in the drawer; the keyword only
+feeds the computed category (previously it was folded into the
+file-level properties, see vulpea#257 and vulpea#389)."
   (vulpea-test--with-temp-db
     (vulpea-db)
     (let ((path (vulpea-test--create-temp-org-file
@@ -2341,33 +2366,212 @@ See https://github.com/d12frosted/vulpea/issues/257."
       (unwind-protect
           (progn
             (vulpea-db-update-file path)
-            (let ((props (emacsql (vulpea-db)
-                                  [:select [key value] :from properties
-                                   :where (= note-id $s1)
-                                   :order-by [(asc key)]]
-                                  "category-kw-note")))
-              (should (member '("CATEGORY" "journal") props))))
+            (let ((note (vulpea-db-get-by-id "category-kw-note")))
+              (should (equal (vulpea-note-category note) "journal"))
+              (should-not (assoc "CATEGORY" (vulpea-note-properties note))))
+            ;; Normalized properties table has no CATEGORY row either
+            (should-not (emacsql (vulpea-db)
+                                 [:select [key value] :from properties
+                                  :where (and (= note-id $s1)
+                                              (= key "CATEGORY"))]
+                                 "category-kw-note")))
         (delete-file path)))))
 
-(ert-deftest vulpea-db-extract-category-drawer-overrides-keyword ()
-  "Test that :CATEGORY: in property drawer takes precedence over #+CATEGORY.
+(ert-deftest vulpea-db-extract-category-drawer-beats-keyword ()
+  "CATEGORY in the property drawer takes precedence over #+CATEGORY."
+  (let ((path (vulpea-test--create-temp-org-file
+               ":PROPERTIES:\n:ID: category-both-note\n:CATEGORY: from-drawer\n:END:\n#+TITLE: Note With Both\n#+CATEGORY: from-keyword\n")))
+    (unwind-protect
+        (let* ((ctx (vulpea-db--parse-file path))
+               (node (vulpea-parse-ctx-file-node ctx)))
+          (should (equal (plist-get node :category) "from-drawer")))
+      (delete-file path))))
 
-See https://github.com/d12frosted/vulpea/issues/257."
-  (vulpea-test--with-temp-db
-    (vulpea-db)
-    (let ((path (vulpea-test--create-temp-org-file
-                 ":PROPERTIES:\n:ID: category-both-note\n:CATEGORY: from-drawer\n:END:\n#+TITLE: Note With Both\n#+CATEGORY: from-keyword\n")))
-      (unwind-protect
-          (progn
-            (vulpea-db-update-file path)
-            (let ((props (emacsql (vulpea-db)
-                                  [:select [key value] :from properties
-                                   :where (and (= note-id $s1)
-                                               (= key "CATEGORY"))]
-                                  "category-both-note")))
-              (should (equal 1 (length props)))
-              (should (equal '("CATEGORY" "from-drawer") (car props)))))
-        (delete-file path)))))
+(ert-deftest vulpea-db-extract-category-last-keyword-wins ()
+  "The last #+CATEGORY keyword in the file wins.
+
+Org searches backwards from the end of the buffer, so a later
+keyword shadows an earlier one - even one sitting inside a subtree.
+Keyword names are case-insensitive."
+  (let ((path (vulpea-test--create-temp-org-file
+               ":PROPERTIES:\n:ID: cat-last-kw-id\n:END:\n#+TITLE: Note\n#+category: first-cat\n\n* Plain heading\n\nSome text.\n\n#+CATEGORY: last-cat\n")))
+    (unwind-protect
+        (let* ((ctx (vulpea-db--parse-file path))
+               (node (vulpea-parse-ctx-file-node ctx)))
+          (should (equal (plist-get node :category) "last-cat")))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-category-file-name-fallback ()
+  "Without any category source, the file base name is the category."
+  (let ((path (vulpea-test--create-temp-org-file
+               ":PROPERTIES:\n:ID: cat-fallback-id\n:END:\n#+TITLE: Note\n")))
+    (unwind-protect
+        (let* ((ctx (vulpea-db--parse-file path))
+               (node (vulpea-parse-ctx-file-node ctx)))
+          (should (equal (plist-get node :category)
+                         (file-name-base path))))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-category-org-category-variable ()
+  "`org-category' resolves the category before the file name fallback.
+
+A #+CATEGORY keyword still beats it, and a symbol value is
+converted to its name, mirroring org."
+  (let ((path (vulpea-test--create-temp-org-file
+               ":PROPERTIES:\n:ID: cat-var-id\n:END:\n#+TITLE: Note\n")))
+    (unwind-protect
+        (progn
+          (let ((org-category "from-variable"))
+            (let* ((ctx (vulpea-db--parse-file path))
+                   (node (vulpea-parse-ctx-file-node ctx)))
+              (should (equal (plist-get node :category) "from-variable"))))
+          (let ((org-category 'symbol-cat))
+            (let* ((ctx (vulpea-db--parse-file path))
+                   (node (vulpea-parse-ctx-file-node ctx)))
+              (should (equal (plist-get node :category) "symbol-cat")))))
+      (delete-file path)))
+  ;; Keyword beats the variable
+  (let ((path (vulpea-test--create-temp-org-file
+               ":PROPERTIES:\n:ID: cat-var-kw-id\n:END:\n#+TITLE: Note\n#+CATEGORY: from-keyword\n")))
+    (unwind-protect
+        (let ((org-category "from-variable"))
+          (let* ((ctx (vulpea-db--parse-file path))
+                 (node (vulpea-parse-ctx-file-node ctx)))
+            (should (equal (plist-get node :category) "from-keyword"))))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-category-dir-locals ()
+  "Dir-locals feed `org-category' under find-file and temp-buffer.
+
+find-file applies them through `find-file-noselect'; temp-buffer
+applies them because the per-file `org-mode' rerun triggers
+`run-mode-hooks', which hacks file- and dir-local variables (Emacs
+26+).  single-temp-buffer never reruns `org-mode', so there the
+file name fallback applies.
+
+The parse buffer is reset between methods, mirroring the session
+restart through which a method change takes effect (it is part of
+the settings fingerprint)."
+  (let* ((dir (make-temp-file "vulpea-cat-dir-" t))
+         (path (expand-file-name "dirnote.org" dir))
+         (reset-parse-buffer
+          (lambda ()
+            (when (buffer-live-p vulpea-db--parse-buffer)
+              (kill-buffer vulpea-db--parse-buffer)
+              (setq vulpea-db--parse-buffer nil)))))
+    (unwind-protect
+        (progn
+          (with-temp-file (expand-file-name ".dir-locals.el" dir)
+            (insert "((org-mode . ((org-category . \"from-dir-locals\"))))\n"))
+          (with-temp-file path
+            (insert ":PROPERTIES:\n:ID: cat-dir-id\n:END:\n#+TITLE: Note\n"))
+          (pcase-dolist (`(,method . ,expected)
+                         '((find-file . "from-dir-locals")
+                           (temp-buffer . "from-dir-locals")
+                           (single-temp-buffer . "dirnote")))
+            (funcall reset-parse-buffer)
+            (let ((vulpea-db-parse-method method))
+              (let* ((ctx (vulpea-db--parse-file path))
+                     (node (vulpea-parse-ctx-file-node ctx)))
+                (should (equal (list method (plist-get node :category))
+                               (list method expected)))))))
+      (funcall reset-parse-buffer)
+      (delete-directory dir t))))
+
+(ert-deftest vulpea-db-extract-category-heading-own-drawer ()
+  "A heading's own CATEGORY drawer property wins, case-insensitively."
+  (let ((path (vulpea-test--create-temp-org-file
+               ":PROPERTIES:\n:ID: file-id\n:CATEGORY: file-cat\n:END:\n#+TITLE: File\n\n* Heading\n:PROPERTIES:\n:ID: cat-own-id\n:category: own-cat\n:END:\n")))
+    (unwind-protect
+        (let* ((vulpea-db-index-heading-level t)
+               (ctx (vulpea-db--parse-file path))
+               (node (car (vulpea-parse-ctx-heading-nodes ctx))))
+          (should (equal (plist-get node :category) "own-cat")))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-category-heading-nearest-ancestor ()
+  "A heading inherits CATEGORY from the nearest ancestor drawer.
+
+Ancestors count whether or not they are notes themselves (an
+ancestor without an ID still contributes its category)."
+  (let ((path (vulpea-test--create-temp-org-file
+               (concat ":PROPERTIES:\n:ID: file-id\n:END:\n#+TITLE: File\n\n"
+                       "* Grand\n:PROPERTIES:\n:CATEGORY: grand-cat\n:END:\n"
+                       "** Mid\n:PROPERTIES:\n:CATEGORY: mid-cat\n:END:\n"
+                       "*** Leaf\n:PROPERTIES:\n:ID: cat-leaf-id\n:END:\n"
+                       "** Sibling\n:PROPERTIES:\n:ID: cat-sibling-id\n:END:\n"))))
+    (unwind-protect
+        (let* ((vulpea-db-index-heading-level t)
+               (ctx (vulpea-db--parse-file path))
+               (nodes (vulpea-parse-ctx-heading-nodes ctx))
+               (leaf (seq-find (lambda (n) (equal (plist-get n :id) "cat-leaf-id"))
+                               nodes))
+               (sibling (seq-find (lambda (n) (equal (plist-get n :id) "cat-sibling-id"))
+                                  nodes)))
+          ;; Nearest ancestor (Mid) wins over Grand
+          (should (equal (plist-get leaf :category) "mid-cat"))
+          ;; Sibling of Mid is under Grand only
+          (should (equal (plist-get sibling :category) "grand-cat")))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-category-heading-file-fallbacks ()
+  "A heading without drawer categories falls back like the file note.
+
+File-level drawer first, then the last #+CATEGORY keyword, then the
+file base name."
+  ;; File drawer
+  (let ((path (vulpea-test--create-temp-org-file
+               ":PROPERTIES:\n:ID: file-id\n:CATEGORY: file-cat\n:END:\n#+TITLE: File\n\n* Heading\n:PROPERTIES:\n:ID: cat-h-drawer-id\n:END:\n")))
+    (unwind-protect
+        (let* ((vulpea-db-index-heading-level t)
+               (ctx (vulpea-db--parse-file path))
+               (node (car (vulpea-parse-ctx-heading-nodes ctx))))
+          (should (equal (plist-get node :category) "file-cat")))
+      (delete-file path)))
+  ;; Keyword
+  (let ((path (vulpea-test--create-temp-org-file
+               ":PROPERTIES:\n:ID: file-id\n:END:\n#+TITLE: File\n#+CATEGORY: kw-cat\n\n* Heading\n:PROPERTIES:\n:ID: cat-h-kw-id\n:END:\n")))
+    (unwind-protect
+        (let* ((vulpea-db-index-heading-level t)
+               (ctx (vulpea-db--parse-file path))
+               (node (car (vulpea-parse-ctx-heading-nodes ctx))))
+          (should (equal (plist-get node :category) "kw-cat")))
+      (delete-file path)))
+  ;; File name
+  (let ((path (vulpea-test--create-temp-org-file
+               ":PROPERTIES:\n:ID: file-id\n:END:\n#+TITLE: File\n\n* Heading\n:PROPERTIES:\n:ID: cat-h-name-id\n:END:\n")))
+    (unwind-protect
+        (let* ((vulpea-db-index-heading-level t)
+               (ctx (vulpea-db--parse-file path))
+               (node (car (vulpea-parse-ctx-heading-nodes ctx))))
+          (should (equal (plist-get node :category)
+                         (file-name-base path))))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-category-all-parse-methods ()
+  "Category resolution produces the same result across parse methods."
+  (let ((path (vulpea-test--create-temp-org-file
+               ":PROPERTIES:\n:ID: cat-methods-id\n:END:\n#+TITLE: Note\n#+CATEGORY: methodical\n\n* Heading\n:PROPERTIES:\n:ID: cat-methods-h-id\n:END:\n")))
+    (unwind-protect
+        (dolist (method '(single-temp-buffer temp-buffer find-file))
+          (let* ((vulpea-db-parse-method method)
+                 (vulpea-db-index-heading-level t)
+                 (ctx (vulpea-db--parse-file path))
+                 (file-node (vulpea-parse-ctx-file-node ctx))
+                 (heading (car (vulpea-parse-ctx-heading-nodes ctx))))
+            (should (equal (plist-get file-node :category) "methodical"))
+            (should (equal (plist-get heading :category) "methodical"))))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-category-end-to-end ()
+  "Categories land in the notes table and survive the decode round trip."
+  (let ((vulpea-db-index-heading-level t))
+    (vulpea-test--with-temp-db-and-file "cat-e2e-id"
+      "#+TITLE: E2E\n#+CATEGORY: e2e-cat\n\n* Heading\n:PROPERTIES:\n:ID: cat-e2e-h-id\n:CATEGORY: heading-cat\n:END:\n"
+      (should (equal (vulpea-note-category (vulpea-db-get-by-id "cat-e2e-id"))
+                     "e2e-cat"))
+      (should (equal (vulpea-note-category (vulpea-db-get-by-id "cat-e2e-h-id"))
+                     "heading-cat")))))
 
 ;;; Title Link Stripping Tests
 

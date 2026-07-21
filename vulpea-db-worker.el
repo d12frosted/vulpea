@@ -198,6 +198,9 @@ parsing), or `error'.  COUNT is the number of notes written for
     org-use-tag-inheritance
     org-tags-exclude-from-inheritance
     org-use-property-inheritance
+    org-category
+    enable-local-variables
+    enable-dir-local-variables
     org-attach-id-dir
     org-attach-id-to-path-function-list
     org-todo-keywords
@@ -219,8 +222,14 @@ faithful result for such settings must use
 cases."
   (let (vars)
     (dolist (sym vulpea-db-worker--settings-vars)
-      (when (boundp sym)
-        (let ((value (symbol-value sym)))
+      ;; Capture the default value: extraction reads settings from
+      ;; fresh parse buffers, where an automatically-buffer-local
+      ;; variable (org-category) resolves to its default - the value
+      ;; of whatever buffer happens to be current here must not leak.
+      ;; For the other, never-buffer-local settings this is identical
+      ;; to symbol-value.
+      (when (default-boundp sym)
+        (let ((value (default-value sym)))
           (when (vulpea-db-worker--printable-p value)
             (push (cons sym value) vars)))))
     `(settings ,(nreverse vars) ,(org-link-types)
@@ -1023,8 +1032,11 @@ its :lib and checking its :fn; resolved ones are installed in this
 worker's extractor registry (without schema - the main process owns
 DDL), unresolved ones are reported back and disable full-write for
 this worker."
+  ;; set-default, not set: an automatically-buffer-local variable
+  ;; (org-category) would otherwise be set locally in whatever buffer
+  ;; is current here, invisible to the parse buffers extraction uses.
   (pcase-dolist (`(,sym . ,value) vars)
-    (set sym value))
+    (set-default sym value))
   ;; A code-version mismatch (main upgraded vulpea while running, or
   ;; stale byte-code) forbids opening the database from this worker:
   ;; vulpea-db--init would delete and rebuild it on a schema mismatch

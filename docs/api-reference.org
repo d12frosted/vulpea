@@ -23,6 +23,7 @@ All query functions return =vulpea-note= structs:
 (vulpea-note-scheduled note)     ; Scheduled timestamp or nil
 (vulpea-note-deadline note)      ; Deadline timestamp or nil
 (vulpea-note-closed note)        ; Closed timestamp or nil
+(vulpea-note-category note)      ; Resolved org category, never nil
 (vulpea-note-outline-path note)  ; List of parent headings
 (vulpea-note-attach-dir note)    ; Attachment directory or nil
 (vulpea-note-file-title note)    ; Title of file containing note
@@ -49,6 +50,18 @@ workflow where state-change logging (=org-log-done=) records completion
 in the logbook rather than on a =CLOSED:= planning line. The fallback
 keys on =State "DONE"= specifically, so a cancelled task is left with a
 nil =closed=.
+
+=vulpea-note-category= is the note's category, resolved at extraction
+time with org's own precedence: the note's own =CATEGORY= drawer
+property, then ancestor heading drawers, then the file-level drawer,
+then the /last/ =#+CATEGORY= keyword in the file, then a buffer-local
+=org-category= (set globally, via dir-locals, or file-local
+variables - reaching extraction depends on the parse method, see
+=vulpea-db-parse-method=), and finally the file's base name. Every
+note therefore has a category, exactly the value org agenda displays
+and filters by. Note that this is a computed value, not the literal
+=CATEGORY= property: =vulpea-note-properties= contains only what is
+written in the drawer.
 
 * Getting Notes
 
@@ -137,6 +150,17 @@ This is an optimized query that retrieves all attachment link destinations along
 ;; With type specification
 (vulpea-db-query-by-meta "region" "region-id" "note")
 #+end_src
+
+** By Category
+
+#+begin_src emacs-lisp
+;; Notes whose resolved category matches (indexed lookup)
+(vulpea-db-query-by-category "journal")
+#+end_src
+
+Matches the computed category (see =vulpea-note-category=), so notes
+that merely inherit a category from an ancestor, a =#+CATEGORY=
+keyword, or the file name are found too.
 
 ** By File Paths
 

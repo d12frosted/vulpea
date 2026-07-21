@@ -105,6 +105,30 @@ See https://github.com/d12frosted/vulpea/issues/271."
       (should (equal (elt row 0) "test-id"))
       (should (equal (elt row 1) "Test Note")))))
 
+(ert-deftest vulpea-db-insert-note-category-round-trip ()
+  "Category is stored in the notes table and decoded back.
+https://github.com/d12frosted/vulpea/issues/389"
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-db--insert-note
+     :id "cat-id"
+     :path "/tmp/cat.org"
+     :level 0
+     :pos 0
+     :title "Categorized"
+     :category "journal"
+     :modified-at "2025-11-16 10:00:00")
+
+    ;; Raw column
+    (should (equal "journal"
+                   (caar (emacsql (vulpea-db)
+                                  [:select [category] :from notes
+                                   :where (= id $s1)]
+                                  "cat-id"))))
+    ;; Decoded struct
+    (should (equal "journal"
+                   (vulpea-note-category (vulpea-db-get-by-id "cat-id"))))))
+
 (ert-deftest vulpea-db-insert-note-normalized-tables ()
   "Test note insertion populates normalized tables."
   (vulpea-test--with-temp-db
@@ -659,44 +683,54 @@ keeps only its genuine #+filetags."
       (should (member "tag2" (vulpea-note-tags note)))
       (should (member "tag3" (vulpea-note-tags note))))))
 
-;;; Tag Inheritance Settings Invalidation Tests
+;;; Extraction Settings Invalidation Tests
 
-(ert-deftest vulpea-db-tag-settings-fingerprint ()
-  "Test that fingerprint captures tag inheritance settings."
+(ert-deftest vulpea-db-settings-fingerprint ()
+  "Test that fingerprint captures extraction-relevant settings."
   ;; Default settings should produce a stable fingerprint
   (let ((org-use-tag-inheritance t)
         (org-tags-exclude-from-inheritance nil))
-    (let ((fp1 (vulpea-db--tag-settings-fingerprint))
-          (fp2 (vulpea-db--tag-settings-fingerprint)))
+    (let ((fp1 (vulpea-db--settings-fingerprint))
+          (fp2 (vulpea-db--settings-fingerprint)))
       (should (equal fp1 fp2))))
 
   ;; Different settings should produce different fingerprints
   (let ((fp-default (let ((org-use-tag-inheritance t)
                           (org-tags-exclude-from-inheritance nil))
-                      (vulpea-db--tag-settings-fingerprint)))
+                      (vulpea-db--settings-fingerprint)))
         (fp-disabled (let ((org-use-tag-inheritance nil)
                            (org-tags-exclude-from-inheritance nil))
-                       (vulpea-db--tag-settings-fingerprint)))
+                       (vulpea-db--settings-fingerprint)))
         (fp-selective (let ((org-use-tag-inheritance '("foo")))
-                        (vulpea-db--tag-settings-fingerprint)))
+                        (vulpea-db--settings-fingerprint)))
         (fp-excluded (let ((org-use-tag-inheritance t)
                            (org-tags-exclude-from-inheritance '("bar")))
-                       (vulpea-db--tag-settings-fingerprint))))
+                       (vulpea-db--settings-fingerprint))))
     (should-not (equal fp-default fp-disabled))
     (should-not (equal fp-default fp-selective))
-    (should-not (equal fp-default fp-excluded))))
+    (should-not (equal fp-default fp-excluded)))
 
-(ert-deftest vulpea-db-tag-settings-stored-on-init ()
-  "Test that tag settings fingerprint is stored in schema-registry on init."
+  ;; The parse method is part of the fingerprint: extraction output
+  ;; depends on it (org-category via dir-locals under find-file), so
+  ;; switching methods must trigger a re-index.
+  ;; https://github.com/d12frosted/vulpea/issues/389
+  (let ((fp-temp (let ((vulpea-db-parse-method 'temp-buffer))
+                   (vulpea-db--settings-fingerprint)))
+        (fp-find-file (let ((vulpea-db-parse-method 'find-file))
+                        (vulpea-db--settings-fingerprint))))
+    (should-not (equal fp-temp fp-find-file))))
+
+(ert-deftest vulpea-db-settings-stored-on-init ()
+  "Test that settings fingerprint is stored in schema-registry on init."
   (vulpea-test--with-temp-db
     (vulpea-db)
     (let ((stored (caar (emacsql (vulpea-db)
                                  [:select [version] :from schema-registry
-                                  :where (= name "tag-inheritance")]))))
+                                  :where (= name "settings")]))))
       (should stored)
-      (should (equal stored (vulpea-db--tag-settings-fingerprint))))))
+      (should (equal stored (vulpea-db--settings-fingerprint))))))
 
-(ert-deftest vulpea-db-tag-settings-change-triggers-reindex ()
+(ert-deftest vulpea-db-settings-change-triggers-reindex ()
   "Test that changing tag inheritance settings triggers re-index flag."
   (let ((org-use-tag-inheritance t)
         (org-tags-exclude-from-inheritance nil))
@@ -736,11 +770,30 @@ keeps only its genuine #+filetags."
         ;; Stored fingerprint should be updated to new settings
         (let ((stored (caar (emacsql (vulpea-db)
                                      [:select [version] :from schema-registry
-                                      :where (= name "tag-inheritance")]))))
-          (should (equal stored (vulpea-db--tag-settings-fingerprint))))))))
+                                      :where (= name "settings")]))))
+          (should (equal stored (vulpea-db--settings-fingerprint))))))))
 
-(ert-deftest vulpea-db-tag-settings-unchanged-no-reindex ()
-  "Test that same tag settings don't trigger re-index."
+(ert-deftest vulpea-db-settings-parse-method-change-triggers-reindex ()
+  "Test that changing the parse method triggers the re-index flag."
+  (let ((vulpea-db-parse-method 'temp-buffer))
+    (vulpea-test--with-temp-db
+      (vulpea-db)
+      (emacsql (vulpea-db)
+               [:insert :into files :values $v1]
+               (list (vector "/tmp/test.org" "abc123" "2025-01-01" 100)))
+      (vulpea-db-close)
+      (setq vulpea-db--connection nil)
+      (setq vulpea-db--settings-changed nil)
+
+      (let ((vulpea-db-parse-method 'find-file))
+        (vulpea-db)
+        (should vulpea-db--settings-changed)
+        ;; files table cleared to force re-extraction
+        (should-not (emacsql (vulpea-db)
+                             [:select * :from files]))))))
+
+(ert-deftest vulpea-db-settings-unchanged-no-reindex ()
+  "Test that same settings don't trigger re-index."
   (let ((org-use-tag-inheritance t)
         (org-tags-exclude-from-inheritance nil))
     (vulpea-test--with-temp-db

@@ -9,7 +9,13 @@
 
 ** Unreleased
 
+*Breaking changes*
+
+- [[https://github.com/d12frosted/vulpea/issues/389][vulpea#389]] The =#+CATEGORY= keyword is no longer folded into file-level properties: =vulpea-note-properties= and the =properties= table now mean literally what is written in the property drawer. The keyword still counts, but through the new resolved =category= column (see Features). If you queried the keyword-based category via =(vulpea-db-query-by-property "CATEGORY" ...)=, switch to =vulpea-db-query-by-category=; it also covers drawer inheritance, =org-category=, and the file name fallback, so it finds strictly more notes. A =CATEGORY= written directly in a drawer stays a property, as before.
+
 *Features*
+
+- [[https://github.com/d12frosted/vulpea/issues/389][vulpea#389]] Proper CATEGORY support. Every note now carries a category (new =category= column in =notes=, new =vulpea-note-category= slot), resolved at extraction with org's own precedence: own drawer property, ancestor heading drawers, file-level drawer, the last =#+CATEGORY= keyword in the file (org searches backwards; vulpea previously took the first), buffer-local =org-category=, and finally the file base name - so the category vulpea stores is exactly what org agenda displays and filters by, and it is never nil. Dir-locals feeding =org-category= are honored under the =find-file= parse method - and, it turns out, under =temp-buffer= too, since the per-file =org-mode= rerun hacks dir- and file-local variables on Emacs 26+; only =single-temp-buffer= skips them. Query with the new =vulpea-db-query-by-category= (indexed lookup). Extraction output now visibly depends on the parse method, so it joined the settings fingerprint: switching methods triggers a re-index on next start (the schema-registry entry is now named =settings=, previously =tag-inheritance=). The extraction worker mirrors =org-category= and the local-variables toggles, so async extraction resolves identical categories. Schema version bump: the database rebuilds itself on first access after upgrade.
 
 - New =vulpea-db-sync-tracked-file-p= answers whether a path lives under one of =vulpea-db-sync-directories=, the "is this file in my vault?" question. It resolves symlinks on both sides with =file-truename=, so a vault reached through a symlink (a Termux storage link, an iCloud or Dropbox path) matches whichever side of the comparison carries the link. This also fixes external-change detection through =fswatch= on macOS, where fswatch reports the resolved path that a symlinked directory entry would otherwise not match; the untracked-file cleanup and the fswatch path filter both go through the new predicate now.
 
