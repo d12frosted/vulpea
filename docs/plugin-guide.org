@@ -352,30 +352,23 @@ Each extractor has a version number tracked in the =schema-registry= table:
  :schema '(...))
 #+end_src
 
-When the version changes, migrate *before* registering the new
-version. =vulpea-db-register-extractor= applies the schema and
-records the new version in =schema-registry= as part of
-registration, so a check inside your extract function runs too late:
-by the time it executes, the registry already holds the new version.
+Bumping the version is the whole migration story. When vulpea sees a
+higher version than the stored one, it drops the tables declared in
+=:schema=, recreates them from the current definition, and clears the
+file change cache, so every file is re-extracted - the same mechanism
+as a vulpea parser upgrade. Plugin tables are recomputable caches
+(everything in them comes from extraction), so the drop loses
+nothing. Same or lower version is a no-op.
 
-#+begin_src emacs-lisp
-;; At load time, before registering version 2:
-(let ((old-version
-       (caar (emacsql (vulpea-db)
-                      [:select [version] :from schema-registry
-                       :where (= name $s1)]
-                      "my-extractor"))))
-  (when (and old-version (< old-version 2))
-    ;; Perform migration from version 1 to 2
-    (my-migrate-v1-to-v2)))
+Two things to keep in mind:
 
-(vulpea-db-register-extractor
- (make-vulpea-extractor
-  :name 'my-extractor
-  :version 2
-  :schema '(...)
-  :extract-fn #'my-extractor-fn))
-#+end_src
+- Tables are matched by the current =:schema=. If you rename a table
+  across versions, the old table is not dropped; clean it up manually.
+- Re-extraction rides the regular sync mechanism. Registration
+  usually happens before =vulpea-db-autosync-mode= starts sync, so
+  the forced re-index kicks in right at sync start. If you bump the
+  version mid-session, the tables stay empty until the next sync
+  start or directory scan.
 
 ** Migration Helpers
 
@@ -391,10 +384,6 @@ by the time it executes, the registry already holds the new version.
                [:select [version] :from schema-registry
                 :where (= name $s1)]
                "my-extractor"))
-
-;; Manual schema updates (within transaction)
-(emacsql (vulpea-db)
-         [:alter :table my_table :add :column new-field])
 #+end_src
 
 * Complete Working Example: Citation Extractor
