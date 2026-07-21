@@ -1248,7 +1248,7 @@ directory governs no indexed files, so it is not tracked."
        t))
 
 (defun vulpea-db-sync--dir-locals-reaction-p ()
-  "Return non-nil when dir-locals changes should trigger re-indexing.
+  "Return non-nil when a dir-locals change should trigger re-indexing.
 
 Implements `vulpea-db-sync-reindex-on-dir-locals-change': with the
 default `auto', the reaction is on when extraction output actually
