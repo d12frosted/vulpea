@@ -148,11 +148,12 @@ before re-registering, exactly as the guide now instructs."
                    (:primary-key [note-id my-field])
                    (:foreign-key [note-id] :references notes [id]
                     :on-delete :cascade)))))
-      ;; Migration Helpers: the table exists under its literal SQL
-      ;; name; a dashed symbol does not match (locked here because the
-      ;; guide explains exactly this).
+      ;; Migration Helpers: both spellings match; the check
+      ;; normalizes dashes to underscores the same way emacsql does
+      ;; when it creates the table (locked here because the guide
+      ;; explains exactly this).
       (should (vulpea-db--table-exists-p 'my_table))
-      (should-not (vulpea-db--table-exists-p 'my-table))
+      (should (vulpea-db--table-exists-p 'my-table))
       ;; Migration Helpers: check current version, verbatim query.
       (should (= 1 (caar (emacsql (vulpea-db)
                                   [:select [version] :from schema-registry

@@ -384,10 +384,11 @@ by the time it executes, the registry already holds the new version.
 ** Migration Helpers
 
 #+begin_src emacs-lisp
-;; Check if table exists.  Pass the literal SQL name: emacsql
-;; converts dashes in identifiers to underscores, so a table
-;; declared as my-table exists as my_table.
-(vulpea-db--table-exists-p 'my_table)
+;; Check if table exists.  Dashes and underscores are
+;; interchangeable: emacsql converts dashes to underscores when it
+;; creates a table (my-table is stored as my_table), and the check
+;; normalizes its argument the same way, so both spellings work.
+(vulpea-db--table-exists-p 'my-table)
 
 ;; Check current version (extractor names are stored as strings)
 (caar (emacsql (vulpea-db)
@@ -762,6 +763,9 @@ Fetch data from external sources:
 
 - =(vulpea-db--table-exists-p TABLE)= :: Check if table exists
 - =(vulpea-db--index-exists-p INDEX)= :: Check if index exists
+
+Both checks normalize dashes to underscores, matching emacsql
+identifier escaping, so either spelling of a name works.
 
 Registered schema versions live in the =schema-registry= table (keyed
 by extractor name as a string); query it with =emacsql= as shown in
