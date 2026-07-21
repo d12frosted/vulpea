@@ -1452,6 +1452,10 @@ hash, and registers note IDs with org-id - unless SKIP-ORG-ID is
 non-nil, for callers that own no org-id state (the extraction
 worker registers IDs in the main process instead).
 
+Stamps identity (:path, :level, :pos) onto every node plist before
+anything runs, so extractor plugins observe the full identity on
+note-data.
+
 Returns number of notes written (file-level + headings)."
   (let* ((path (vulpea-parse-ctx-path ctx))
          (db (vulpea-db))
@@ -1459,6 +1463,20 @@ Returns number of notes written (file-level + headings)."
          (ids nil)  ; Track IDs to register with org-id
          (t0 (current-time))
          (db-time 0))
+
+    ;; Extractors receive note-data carrying full identity (:id :path
+    ;; :level :pos - the plugin guide's contract): stamp :path onto
+    ;; every node, :level/:pos onto the file-level one (headings carry
+    ;; theirs from extraction).  Stamping here, after worker results
+    ;; cross the process boundary, keeps streamed payloads small; the
+    ;; writeback diff ignores identity fields
+    ;; (`vulpea-db--extractor-persisted-fields').
+    (when-let* ((file-data (vulpea-parse-ctx-file-node ctx)))
+      (plist-put file-data :path path)
+      (plist-put file-data :level 0)
+      (plist-put file-data :pos 0))
+    (dolist (heading-data (vulpea-parse-ctx-heading-nodes ctx))
+      (plist-put heading-data :path path))
 
     (emacsql-with-transaction db
       ;; Delete existing notes from this file

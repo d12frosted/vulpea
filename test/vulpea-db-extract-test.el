@@ -1180,6 +1180,88 @@ writeback to a phantom row nor lose sibling contributions."
                                     :where (= note-id $s1)]
                                    "phantom-id")))
           (delete-file path))))))
+
+(ert-deftest vulpea-db-extract-extractor-sees-identity ()
+  "Every note-data handed to an extractor carries :path, :level, :pos.
+The plugin guide's Note Data section documents these identity fields
+on every note: the file-level note carries :level 0 and :pos 0,
+heading notes their real level and position.  Plugin code branching
+on :level (the guide's aggregate example) or reading :path must see
+the same identity the notes table records."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((vulpea-db--extractors nil)
+          (vulpea-db-index-heading-level t)
+          (seen nil))
+      (vulpea-db-register-extractor
+       'identity-recorder
+       (lambda (_ctx data)
+         (push (list (plist-get data :id)
+                     (plist-get data :path)
+                     (plist-get data :level)
+                     (plist-get data :pos))
+               seen)
+         data))
+      (let ((path (vulpea-test--create-temp-org-file
+                   (concat ":PROPERTIES:\n:ID: identity-file\n:END:\n"
+                           "#+TITLE: Identity\n\n"
+                           "* Section\n"
+                           ":PROPERTIES:\n:ID: identity-heading\n:END:\n"))))
+        (unwind-protect
+            (progn
+              (vulpea-db-update-file path)
+              (should (= (length seen) 2))
+              ;; Identity in note-data agrees with the notes row
+              (dolist (record seen)
+                (let ((row (car (emacsql (vulpea-db)
+                                         [:select [path level pos] :from notes
+                                          :where (= id $s1)]
+                                         (nth 0 record)))))
+                  (should (equal (nth 1 record) (nth 0 row)))
+                  (should (equal (nth 2 record) (nth 1 row)))
+                  (should (equal (nth 3 record) (nth 2 row)))))
+              ;; Concrete values, not just db agreement
+              (let ((file-record (assoc "identity-file" seen))
+                    (heading-record (assoc "identity-heading" seen)))
+                (should file-record)
+                (should heading-record)
+                (should (file-equal-p (nth 1 file-record) path))
+                (should (= 0 (nth 2 file-record)))
+                (should (= 0 (nth 3 file-record)))
+                (should (file-equal-p (nth 1 heading-record) path))
+                (should (= 1 (nth 2 heading-record)))
+                (should (> (nth 3 heading-record) 0))))
+          (delete-file path))))))
+
+(ert-deftest vulpea-db-extract-extractor-identity-change-ignored ()
+  "Changes to :path, :level and :pos are ignored on writeback.
+Identity is fixed (guide: \"A few rules\"): plugin tables hold
+foreign keys against these fields, so a rogue extractor rewriting
+them in place must not move the notes row."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((vulpea-db--extractors nil))
+      (vulpea-db-register-extractor
+       'rogue-identity
+       (lambda (_ctx data)
+         (plist-put data :path "/phantom/nowhere.org")
+         (plist-put data :level 42)
+         (plist-put data :pos 4242)
+         data))
+      (let ((path (vulpea-test--create-temp-org-file
+                   ":PROPERTIES:\n:ID: fixed-identity-id\n:END:\n#+TITLE: Fixed\n")))
+        (unwind-protect
+            (progn
+              (vulpea-db-update-file path)
+              (let ((row (car (emacsql (vulpea-db)
+                                       [:select [path level pos] :from notes
+                                        :where (= id $s1)]
+                                       "fixed-identity-id"))))
+                (should (file-equal-p (nth 0 row) path))
+                (should (= 0 (nth 1 row)))
+                (should (= 0 (nth 2 row)))))
+          (delete-file path))))))
+
 ;;; Requires-AST Default and Determinism
 ;; https://github.com/d12frosted/vulpea/issues/362
 

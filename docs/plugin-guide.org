@@ -66,9 +66,9 @@ boundary; the declaration is how you consciously pay that cost. See
 Each extractor receives and returns =note-data=, a plist containing:
 
 - =:id= - note ID (UUID)
-- =:level= - heading level; present on heading-level notes only,
-  absent for the file-level note
-- =:pos= - position in file; present on heading-level notes only
+- =:path= - absolute path to the containing org file
+- =:level= - heading level (0 for the file-level note)
+- =:pos= - position in file (0 for the file-level note)
 - =:title= - note title
 - =:properties= - alist of org properties
 - =:tags= - list of tags
@@ -80,11 +80,6 @@ Each extractor receives and returns =note-data=, a plist containing:
 - =:scheduled=, =:deadline=, =:closed= - timestamps
 - =:outline-path= - path to heading
 - =:attach-dir= - attachment directory
-
-The file path is not part of =note-data= - read it from the parse
-context via =(vulpea-parse-ctx-path ctx)=.  To tell the file-level
-note from heading-level ones, compare =:id= against the context's
-file node (see the aggregate example below).
 
 Extractors can also add custom keys to =note-data=, but those are
 *transient*: they live only for the duration of the current extraction
@@ -668,10 +663,8 @@ Extract summary data across the entire file:
     (let ((total-todos (seq-count
                         (lambda (n) (plist-get n :todo))
                         all-nodes)))
-      ;; Store summary for file-level note only.  The file-level
-      ;; note carries no :level - compare ids with the file node.
-      (when (equal (plist-get note-data :id)
-                   (plist-get file-node :id))
+      ;; Store summary for file-level note only
+      (when (= (plist-get note-data :level) 0)
         (emacsql (vulpea-db)
                  [:insert :into file-summaries :values $v1]
                  (list (vector (plist-get note-data :id)

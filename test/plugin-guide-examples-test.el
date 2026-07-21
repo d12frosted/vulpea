@@ -349,10 +349,8 @@ backlink queries, as the guide promises."
     (let ((total-todos (seq-count
                         (lambda (n) (plist-get n :todo))
                         all-nodes)))
-      ;; Store summary for file-level note only.  The file-level
-      ;; note carries no :level - compare ids with the file node.
-      (when (equal (plist-get note-data :id)
-                   (plist-get file-node :id))
+      ;; Store summary for file-level note only
+      (when (= (plist-get note-data :level) 0)
         (emacsql (vulpea-db)
                  [:insert :into file-summaries :values $v1]
                  (list (vector (plist-get note-data :id)
