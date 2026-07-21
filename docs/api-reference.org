@@ -1066,14 +1066,17 @@ Interactive command for inserting a link to a note:
 (vulpea-insert :filter-fn (lambda (note)
                             (= 0 (vulpea-note-level note))))
 
-;; With custom note creation
-(vulpea-insert :create-fn (lambda (title props)
-                            (vulpea-create title nil :tags '("new"))))
+;; With custom note creation: the function returns the note,
+;; vulpea-insert takes care of the link
+(vulpea-insert :note-fn (lambda (title props)
+                          (vulpea-create title nil :tags '("new"))))
 #+end_src
 
 Both functions support =:candidates-fn= to customize the source of candidates, and =:filter-fn= to filter candidates. Global defaults can be configured via =vulpea-find-default-candidates-source= / =vulpea-insert-default-candidates-source= and =vulpea-find-default-filter= / =vulpea-insert-default-filter=.
 
-Both also support =:create-fn= to control how a new note is created when the user selects a non-existent note. It is called with two arguments - the typed title and capture properties (currently always nil) - which makes "capture on empty" workflows easy: route to =org-capture= or a custom command to turn a fruitless search straight into note creation. For =vulpea-find=, =:create-fn= should return the =vulpea-note= to visit (or nil to skip visiting), and a global default can be set via =vulpea-find-default-create-fn=. For =vulpea-insert=, =:create-fn= is responsible for creating the note and inserting the link itself, and its global default is =vulpea-insert-default-create-fn=.
+Both also support =:create-fn= to control how a new note is created when the user selects a non-existent note. It is called with two arguments - the typed title and capture properties (currently always nil) - which makes "capture on empty" workflows easy: route to =org-capture= or a custom command to turn a fruitless search straight into note creation. For =vulpea-find=, =:create-fn= should return the =vulpea-note= to visit (or nil to skip visiting), and a global default can be set via =vulpea-find-default-create-fn=. For =vulpea-insert=, =:create-fn= owns the whole flow - it must create the note and insert the link itself - and its global default is =vulpea-insert-default-create-fn=.
+
+=vulpea-insert= additionally supports =:note-fn= (global default: =vulpea-insert-default-note-fn=), which brings the =vulpea-find= contract to link insertion: called with the same two arguments, it only creates and returns the =vulpea-note= (or nil to skip), and =vulpea-insert= replaces the selected region, inserts the link with a proper description and runs =vulpea-insert-handle-functions= itself. Prefer it over =:create-fn= unless you need to control the link insertion. An explicit argument beats both defaults, =vulpea-insert-default-note-fn= beats =vulpea-insert-default-create-fn= when only the defaults are set, and passing both =:note-fn= and =:create-fn= is an error.
 
 * Synchronization
 
