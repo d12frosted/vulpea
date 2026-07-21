@@ -1300,6 +1300,16 @@ keeps room for a `vulpea-doctor' nudge about undeclared extractors."
                (make-vulpea-extractor
                 :name 'x :extract-fn #'ignore :reads-dir-locals nil))))
 
+(ert-deftest vulpea-db-extract-reads-dir-locals-p-tolerates-old-records ()
+  "Extractor records one slot short must count as nil, not signal.
+Plugin bytecode compiled against the pre-slot struct layout inlines
+the constructor and builds 9-element records; the reaction gate runs
+this predicate over all registered extractors on every dir-locals
+change, so a signal here would crash watchers."
+  (let ((old-record (record 'vulpea-extractor
+                            'legacy 1 nil 100 #'ignore 'unset nil nil)))
+    (should-not (vulpea-extractor-reads-dir-locals-p old-record))))
+
 (ert-deftest vulpea-db-extract-undeclared-extractor-keeps-element-granularity ()
   "An extractor without a :requires-ast declaration keeps 'element parsing."
   (let ((vulpea-db-parse-granularity 'element)
