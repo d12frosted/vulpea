@@ -1586,6 +1586,60 @@ note's final title, not the raw text the user typed."
           (should (string-match-p "\\[Frodo\\]\\]" (buffer-string)))
           (should-not (string-match-p "#contact" (buffer-string))))))))
 
+(ert-deftest vulpea-insert-replaces-region-for-existing-note ()
+  "Test region handling when linking to an existing note.
+
+The active region is deleted, its text wins over the note title
+as the link description, and `vulpea-insert-handle-functions' run
+with the linked note."
+  (let ((note (make-vulpea-note :id "existing-id"
+                                :title "Existing Note"
+                                :level 0))
+        (handled nil))
+    (cl-letf (((symbol-function 'vulpea-select-from)
+               (lambda (_prompt _notes &rest _) note)))
+      (let ((vulpea-insert-handle-functions
+             (list (lambda (n) (setq handled n))))
+            (transient-mark-mode t))
+        (with-temp-buffer
+          (org-mode)
+          (insert "region text")
+          (push-mark (point-min) t t)
+          (goto-char (point-max))
+          (vulpea-insert :candidates-fn (lambda (_) nil))
+          (should (equal (buffer-string)
+                         "[[id:existing-id][region text]]"))
+          (should (eq handled note)))))))
+
+(ert-deftest vulpea-insert-replaces-region-when-creating ()
+  "Test region handling on the built-in create path.
+
+The active region is deleted, its text wins over the created
+note's title as the link description, and
+`vulpea-insert-handle-functions' run with the created note."
+  (let ((created (make-vulpea-note :id "created-id"
+                                   :title "Created Note"
+                                   :level 0))
+        (handled nil)
+        (vulpea-insert-default-create-fn nil))
+    (cl-letf (((symbol-function 'vulpea-select-from)
+               (lambda (_prompt _notes &rest _)
+                 (make-vulpea-note :title "region text" :level 0)))
+              ((symbol-function 'vulpea-create)
+               (lambda (&rest _) created)))
+      (let ((vulpea-insert-handle-functions
+             (list (lambda (n) (setq handled n))))
+            (transient-mark-mode t))
+        (with-temp-buffer
+          (org-mode)
+          (insert "region text")
+          (push-mark (point-min) t t)
+          (goto-char (point-max))
+          (vulpea-insert :candidates-fn (lambda (_) nil))
+          (should (equal (buffer-string)
+                         "[[id:created-id][region text]]"))
+          (should (eq handled created)))))))
+
 ;;; Title Propagation Tests
 
 ;;;; Link Categorization Tests
