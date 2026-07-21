@@ -299,8 +299,16 @@ receives a parse context whose AST slot is nil."
   "Return non-nil when EXTRACTOR declared reading dir-locals.
 Only an explicit :reads-dir-locals t counts; nil and the default
 `unset' sentinel both mean the extractor's output does not depend on
-directory-local variables."
-  (eq (vulpea-extractor-reads-dir-locals extractor) t))
+directory-local variables.
+
+Tolerates records built by plugin bytecode compiled against the
+older struct layout (the inlined constructor produces records one
+slot short): such an extractor cannot have declared the slot, so it
+counts as nil instead of signaling out of the reaction gate, which
+runs this predicate inside watcher callbacks."
+  (condition-case nil
+      (eq (vulpea-extractor-reads-dir-locals extractor) t)
+    (args-out-of-range nil)))
 
 ;;; Core Parsing
 
