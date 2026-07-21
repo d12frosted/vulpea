@@ -147,20 +147,25 @@ to a dedicated handler instead of being dropped as non-org files:
       │   (touch without content change → stop here)
       ├─ Record new state (always, even when reaction is off)
       └─ Reaction enabled?             ← vulpea-db-sync-reindex-on-dir-locals-change
-          └─ vulpea-db-sync-update-directory(dir, 'force)
-              └─ "Vulpea: dir-locals changed under X, re-indexing N files..."
+          ├─ "Vulpea: dir-locals changed under X, re-indexing N files..."
+          ├─ autosync ON  → force-enqueue subtree (async queue)
+          └─ autosync OFF → vulpea-db-sync-update-directory(dir, 'force)
 #+end_example
 
-The reaction defaults to =auto=: on when extraction output actually
-depends on dir-locals (=vulpea-db-parse-method= is =find-file=, or a
-registered extractor declares =:reads-dir-locals t=).  Re-indexing
-the whole subtree over-approximates shadowing by deeper dir-locals
-files - wasted work, but never a stale note.  The startup scan and
-=vulpea-db-sync-full-scan= diff the stored hashes too, so edits made
-while Emacs was closed are picked up (something live watchers can
-never do).  Dir-locals classes defined from elisp
-(=dir-locals-set-class-variables=) have no file to watch: after
-changing those, run a force scan manually.
+The reaction defaults to =auto=: on when extraction can see
+dir-locals (=vulpea-db-parse-method= is =find-file= or =temp-buffer=
+- both apply dir-locals while parsing, only =single-temp-buffer=
+skips them - or a registered extractor declares
+=:reads-dir-locals t=).  Under autosync the subtree flows through
+the regular update queue with force marks: reactions fire inside
+process filters and sentinels, where synchronous extraction would
+freeze Emacs.  Re-indexing the whole subtree over-approximates
+shadowing by deeper dir-locals files - wasted work, but never a
+stale note.  The startup scan and =vulpea-db-sync-full-scan= diff
+the stored hashes too, so edits made while Emacs was closed are
+picked up (something live watchers can never do).  Dir-locals
+classes defined from elisp (=dir-locals-set-class-variables=) have
+no file to watch: after changing those, run a force scan manually.
 
 *Note*: All file watchers ALWAYS use async queue, regardless of autosync mode
 

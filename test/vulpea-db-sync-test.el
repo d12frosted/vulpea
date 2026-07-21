@@ -1578,24 +1578,27 @@ caller) as (DIR . FORCE) conses, newest first."
   (should-not (vulpea-db-sync--dir-locals-file-p "/notes/.git/.dir-locals.el")))
 
 (ert-deftest vulpea-db-sync-dir-locals-reaction-auto ()
-  "In auto mode the gate follows parse method and extractor declarations."
+  "In auto mode the gate follows parse method and extractor declarations.
+Both `find-file' and `temp-buffer' apply dir-locals while parsing
+\(the per-file `org-mode' rerun hacks local variables since Emacs
+26); only `single-temp-buffer' never does."
   (let ((vulpea-db-sync-reindex-on-dir-locals-change 'auto)
         (vulpea-db--extractors nil))
-    (let ((vulpea-db-parse-method 'temp-buffer))
-      (should-not (vulpea-db-sync--dir-locals-reaction-p)))
     (let ((vulpea-db-parse-method 'single-temp-buffer))
       (should-not (vulpea-db-sync--dir-locals-reaction-p)))
+    (let ((vulpea-db-parse-method 'temp-buffer))
+      (should (vulpea-db-sync--dir-locals-reaction-p)))
     (let ((vulpea-db-parse-method 'find-file))
       (should (vulpea-db-sync--dir-locals-reaction-p)))
     ;; A registered extractor declaring :reads-dir-locals t enables the
     ;; reaction regardless of parse method
-    (let ((vulpea-db-parse-method 'temp-buffer)
+    (let ((vulpea-db-parse-method 'single-temp-buffer)
           (vulpea-db--extractors
            (list (make-vulpea-extractor :name 'x :extract-fn #'ignore
                                         :reads-dir-locals t))))
       (should (vulpea-db-sync--dir-locals-reaction-p)))
     ;; An extractor without the declaration does not
-    (let ((vulpea-db-parse-method 'temp-buffer)
+    (let ((vulpea-db-parse-method 'single-temp-buffer)
           (vulpea-db--extractors
            (list (make-vulpea-extractor :name 'x :extract-fn #'ignore))))
       (should-not (vulpea-db-sync--dir-locals-reaction-p)))))
@@ -1935,6 +1938,104 @@ redundant full pass on every fresh database."
               (vulpea-db-sync--queue-tail nil))
           (vulpea-db-sync--check-external-changes-with-files (list note)))
         (should (= (length reactions) 1))))))
+
+(ert-deftest vulpea-db-sync-dir-locals-react-queues-under-autosync ()
+  "With autosync on, the reaction enqueues force marks, never blocks.
+Reactions fire from process filters, sentinels and timers;
+synchronous extraction there would freeze Emacs with quits
+inhibited, so the subtree must flow through the regular queue."
+  (vulpea-test--with-temp-notes-dir
+    (let ((note (expand-file-name "note.org" root))
+          (dl (expand-file-name ".dir-locals.el" root))
+          (vulpea-db-sync-reindex-on-dir-locals-change t)
+          (vulpea-db-autosync-mode t)
+          (vulpea-db-sync--queue nil)
+          (vulpea-db-sync--queue-tail nil)
+          (vulpea-db-sync--timer nil)
+          (update-directory-called nil))
+      (clrhash vulpea-db-sync--queue-set)
+      (clrhash vulpea-db-sync--force-set)
+      (vulpea-db-sync-test--write-note note "dl-note-15" "Note")
+      (vulpea-db-update-file note)
+      (unwind-protect
+          (progn
+            (cl-letf (((symbol-function 'vulpea-db-sync-update-directory)
+                       (lambda (&rest _) (setq update-directory-called t))))
+              (with-temp-file dl
+                (insert "((org-mode . ((fill-column . 80))))"))
+              (vulpea-db-sync--handle-dir-locals-event dl))
+            (should-not update-directory-called)
+            (should (assoc note vulpea-db-sync--queue))
+            (should (gethash note vulpea-db-sync--force-set)))
+        (when vulpea-db-sync--timer
+          (cancel-timer vulpea-db-sync--timer))
+        (clrhash vulpea-db-sync--queue-set)
+        (clrhash vulpea-db-sync--force-set)))))
+
+(ert-deftest vulpea-db-sync-dir-locals-react-survives-deleted-directory ()
+  "An event for a dir-locals file in a removed subtree must not signal.
+Deleting a whole subtree delivers the dir-locals event after the
+directory is gone; a signal here would abort the surrounding fswatch
+batch or the startup scan callback."
+  (vulpea-test--with-temp-notes-dir
+    (let* ((subdir (file-name-as-directory (expand-file-name "proj" root)))
+           (note (expand-file-name "note.org" subdir))
+           (dl (expand-file-name ".dir-locals.el" subdir))
+           (vulpea-db-sync-reindex-on-dir-locals-change t)
+           (reactions nil))
+      (make-directory subdir)
+      (vulpea-db-sync-test--write-note note "dl-note-16" "Note")
+      (vulpea-db-update-file note)
+      (with-temp-file dl
+        (insert "((org-mode . ((fill-column . 80))))"))
+      (let ((vulpea-db-sync-reindex-on-dir-locals-change nil))
+        (vulpea-db-sync--handle-dir-locals-event dl))
+      (should (vulpea-db--get-dir-locals-hash dl))
+      (delete-directory subdir t)
+      (vulpea-db-sync-test--with-reaction-spy reactions
+        (vulpea-db-sync--handle-dir-locals-event dl))
+      (should-not (vulpea-db--get-dir-locals-hash dl))
+      ;; Nothing left under the directory, so nothing to re-index
+      (should-not reactions))))
+
+(ert-deftest vulpea-db-sync-dir-locals-event-establishes-baseline ()
+  "Rows written by live events count as an established baseline.
+Otherwise this sequence silently swallows an offline edit: events
+track the file in session 1 (no scan ever runs, e.g.
+`vulpea-db-sync-scan-on-enable' nil), the file is edited while Emacs
+is closed, and the first-ever scan in session 2 treats its diff as
+baseline noise."
+  (vulpea-test--with-temp-notes-dir
+    (let ((note (expand-file-name "note.org" root))
+          (dl (expand-file-name ".dir-locals.el" root))
+          (vulpea-db-sync-reindex-on-dir-locals-change t)
+          (reactions nil))
+      (vulpea-db-sync-test--write-note note "dl-note-17" "Note")
+      (vulpea-db-update-file note)
+      ;; Live event tracks the file; no scan has ever run
+      (with-temp-file dl
+        (insert "((org-mode . ((fill-column . 80))))"))
+      (let ((vulpea-db-sync-reindex-on-dir-locals-change nil))
+        (vulpea-db-sync--handle-dir-locals-event dl))
+      ;; "Offline" edit, then the first scan: must diff, not baseline
+      (with-temp-file dl
+        (insert "((org-mode . ((fill-column . 100) (my-var . t))))"))
+      (vulpea-db-sync-test--with-reaction-spy reactions
+        (vulpea-db-sync--check-dir-locals (list note)))
+      (should (= (length reactions) 1)))))
+
+(ert-deftest vulpea-db-sync-dir-locals-clear-resets-baseline ()
+  "`vulpea-db-clear' drops the baseline marker along with the rows.
+A kept marker would make the post-clear rescan treat every
+dir-locals file as newly created and fire spurious reactions."
+  (vulpea-test--with-temp-notes-dir
+    (let ((note (expand-file-name "note.org" root)))
+      (vulpea-db-sync-test--write-note note "dl-note-18" "Note")
+      (vulpea-db-update-file note)
+      (vulpea-db-sync--check-dir-locals (list note))
+      (should (vulpea-db-sync--dir-locals-baseline-p))
+      (vulpea-db-clear)
+      (should-not (vulpea-db-sync--dir-locals-baseline-p)))))
 
 (ert-deftest vulpea-db-sync-handle-removed-directory-drops-dir-locals-rows ()
   "Removing a directory drops dir-locals rows under it."
