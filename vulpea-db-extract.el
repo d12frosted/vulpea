@@ -210,7 +210,10 @@ Slots:
 
 Slots:
   name         - Symbol identifying the extractor (required, unique)
-  version      - Integer version number for migrations (default: 1)
+  version      - Integer schema version (default: 1).  Increasing
+                 it drops and recreates the tables declared in
+                 :schema and re-extracts every file, repopulating
+                 them; same or lower version is a no-op.
   schema       - Database schema for plugin tables (optional)
   priority     - Execution priority, lower runs first (default: 100)
   extract-fn   - Function (ctx note-data) -> note-data (required).
@@ -1272,13 +1275,21 @@ Each extractor is a `vulpea-extractor' struct.")
 (defun vulpea-db--apply-plugin-schema (extractor)
   "Apply database schema from EXTRACTOR if present.
 
-Creates tables and indices defined in the extractor's :schema field.
+Creates tables defined in the extractor's :schema field.
 Schema format matches `vulpea-db--schema':
   ((table-name
     [(column-name :constraints...)]
     (:unique [columns])
     (:foreign-key [columns] :references table [columns]))
    ...)
+
+On a version increase the declared tables are dropped, recreated
+from the current schema and the files cache is cleared, so every
+file is re-extracted on the next scan - the same mechanism as a
+parser epoch change (see `vulpea-db--init').  Plugin tables are
+recomputable caches, so the drop loses nothing.  Tables are matched
+by the current schema: a table renamed across versions leaves the
+old one behind.  Same or lower version is a no-op.
 
 Also registers the schema version in schema-registry table."
   (when-let* ((schema (vulpea-extractor-schema extractor))
@@ -1292,18 +1303,31 @@ Also registers the schema version in schema-registry table."
                              :where (= name $s1)]
                             (symbol-name name)))))
         (unless (and existing-version (>= existing-version version))
-          ;; Create tables from schema
-          (dolist (table-spec schema)
-            (emacsql db [:create-table :if-not-exists $i1 $S2]
-                     (car table-spec)
-                     (cdr table-spec)))
+          (emacsql-with-transaction db
+            ;; Version increase: the declared tables are stale caches.
+            ;; Drop them and force a full re-extraction, like a parser
+            ;; epoch bump. See vulpea#390.
+            (when existing-version
+              (dolist (table-spec schema)
+                (emacsql db [:drop-table :if-exists $i1] (car table-spec)))
+              (emacsql db [:delete :from files])
+              (setq vulpea-db--plugin-schema-changed t))
 
-          ;; Register schema version
-          (emacsql db [:insert :or :replace :into schema-registry
-                       :values $v1]
-                   (list (vector (symbol-name name)
-                                 version
-                                 (format-time-string "%Y-%m-%d %H:%M:%S")))))))))
+            ;; Create tables from schema
+            (dolist (table-spec schema)
+              (emacsql db [:create-table :if-not-exists $i1 $S2]
+                       (car table-spec)
+                       (cdr table-spec)))
+
+            ;; Register schema version
+            (emacsql db [:insert :or :replace :into schema-registry
+                         :values $v1]
+                     (list (vector (symbol-name name)
+                                   version
+                                   (format-time-string "%Y-%m-%d %H:%M:%S")))))
+          (when existing-version
+            (message "Vulpea: Plugin %s schema updated (v%s -> v%s), re-index needed..."
+                     name existing-version version)))))))
 
 (defun vulpea-db-register-extractor (extractor-or-name &optional fn)
   "Register an extractor.

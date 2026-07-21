@@ -283,6 +283,11 @@ Checked by `vulpea-db-sync--start' to trigger automatic re-index.")
   "Non-nil if the parser epoch changed since last init.
 Checked by `vulpea-db-sync--start' to trigger automatic re-index.")
 
+(defvar vulpea-db--plugin-schema-changed nil
+  "Non-nil if a plugin extractor migrated its schema.
+Set by `vulpea-db--apply-plugin-schema' on a version increase.
+Checked by `vulpea-db-sync--start' to trigger automatic re-index.")
+
 ;;; Core API
 
 (defun vulpea-db ()
