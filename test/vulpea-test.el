@@ -1640,6 +1640,173 @@ note's title as the link description, and
                          "[[id:created-id][region text]]"))
           (should (eq handled created)))))))
 
+(ert-deftest vulpea-insert-note-fn-inserts-link ()
+  "Test that NOTE-FN only returns the note and core inserts the link.
+
+The link description is the created note's title (it may have
+been rewritten during creation), and
+`vulpea-insert-handle-functions' run with the created note."
+  (let ((created (make-vulpea-note :id "note-fn-id"
+                                   :title "Created Title"
+                                   :level 0))
+        (received-title nil)
+        (handled nil))
+    (cl-letf (((symbol-function 'vulpea-select-from)
+               (lambda (_prompt _notes &rest _)
+                 (make-vulpea-note :title "Typed Title" :level 0))))
+      (let ((vulpea-insert-handle-functions
+             (list (lambda (n) (setq handled n)))))
+        (with-temp-buffer
+          (org-mode)
+          (vulpea-insert :candidates-fn (lambda (_) nil)
+                         :note-fn (lambda (title &optional _props)
+                                    (setq received-title title)
+                                    created))
+          (should (equal received-title "Typed Title"))
+          (should (equal (buffer-string)
+                         "[[id:note-fn-id][Created Title]]"))
+          (should (eq handled created)))))))
+
+(ert-deftest vulpea-insert-uses-default-note-fn ()
+  "Test that `vulpea-insert-default-note-fn' is used by default."
+  (let* ((created (make-vulpea-note :id "default-note-fn-id"
+                                    :title "Created" :level 0))
+         (default-called nil)
+         (vulpea-insert-default-create-fn nil)
+         (vulpea-insert-default-note-fn
+          (lambda (_title &optional _props)
+            (setq default-called t)
+            created)))
+    (cl-letf (((symbol-function 'vulpea-select-from)
+               (lambda (_prompt _notes &rest _)
+                 (make-vulpea-note :title "New Note" :level 0)))
+              ;; guard the built-in path in case the default is ignored
+              ((symbol-function 'vulpea-create)
+               (lambda (&rest _)
+                 (make-vulpea-note :id "stub-id" :title "New Note" :level 0))))
+      (with-temp-buffer
+        (org-mode)
+        (vulpea-insert :candidates-fn (lambda (_) nil))
+        (should default-called)
+        (should (equal (buffer-string)
+                       "[[id:default-note-fn-id][Created]]"))))))
+
+(ert-deftest vulpea-insert-note-fn-overrides-default-create-fn ()
+  "Test that explicit :note-fn beats `vulpea-insert-default-create-fn'."
+  (let* ((created (make-vulpea-note :id "note-fn-id"
+                                    :title "Created" :level 0))
+         (create-called nil)
+         (vulpea-insert-default-create-fn
+          (lambda (&rest _) (setq create-called t))))
+    (cl-letf (((symbol-function 'vulpea-select-from)
+               (lambda (_prompt _notes &rest _)
+                 (make-vulpea-note :title "X" :level 0))))
+      (with-temp-buffer
+        (org-mode)
+        (vulpea-insert :candidates-fn (lambda (_) nil)
+                       :note-fn (lambda (&rest _) created))
+        (should-not create-called)
+        (should (equal (buffer-string)
+                       "[[id:note-fn-id][Created]]"))))))
+
+(ert-deftest vulpea-insert-create-fn-overrides-default-note-fn ()
+  "Test that explicit :create-fn beats `vulpea-insert-default-note-fn'.
+
+The CREATE-FN contract is untouched: it owns the whole flow, so
+core must not insert any link after it returns."
+  (let* ((note-fn-called nil)
+         (create-called nil)
+         (vulpea-insert-default-note-fn
+          (lambda (&rest _)
+            (setq note-fn-called t)
+            (make-vulpea-note :id "unexpected" :title "X" :level 0))))
+    (cl-letf (((symbol-function 'vulpea-select-from)
+               (lambda (_prompt _notes &rest _)
+                 (make-vulpea-note :title "X" :level 0))))
+      (with-temp-buffer
+        (org-mode)
+        (vulpea-insert :candidates-fn (lambda (_) nil)
+                       :create-fn (lambda (&rest _) (setq create-called t)))
+        (should create-called)
+        (should-not note-fn-called)
+        (should (equal (buffer-string) ""))))))
+
+(ert-deftest vulpea-insert-default-note-fn-wins-over-default-create-fn ()
+  "Test that with both defaults set the note-fn contract wins."
+  (let* ((created (make-vulpea-note :id "default-note-fn-id"
+                                    :title "Created" :level 0))
+         (create-called nil)
+         (vulpea-insert-default-note-fn (lambda (&rest _) created))
+         (vulpea-insert-default-create-fn
+          (lambda (&rest _) (setq create-called t))))
+    (cl-letf (((symbol-function 'vulpea-select-from)
+               (lambda (_prompt _notes &rest _)
+                 (make-vulpea-note :title "X" :level 0)))
+              ((symbol-function 'vulpea-create)
+               (lambda (&rest _)
+                 (make-vulpea-note :id "stub-id" :title "X" :level 0))))
+      (with-temp-buffer
+        (org-mode)
+        (vulpea-insert :candidates-fn (lambda (_) nil))
+        (should-not create-called)
+        (should (equal (buffer-string)
+                       "[[id:default-note-fn-id][Created]]"))))))
+
+(ert-deftest vulpea-insert-rejects-both-note-fn-and-create-fn ()
+  "Test that passing both :note-fn and :create-fn signals an error."
+  (cl-letf (((symbol-function 'vulpea-select-from)
+             (lambda (_prompt _notes &rest _)
+               (make-vulpea-note :title "X" :level 0))))
+    (with-temp-buffer
+      (org-mode)
+      (should-error (vulpea-insert :candidates-fn (lambda (_) nil)
+                                   :note-fn #'ignore
+                                   :create-fn #'ignore)))))
+
+(ert-deftest vulpea-insert-note-fn-nil-skips-link ()
+  "Test that a NOTE-FN returning nil skips link insertion.
+
+Nothing is inserted and `vulpea-insert-handle-functions' do not
+run, mirroring the nil contract of `vulpea-find' CREATE-FN."
+  (let ((handled nil))
+    (cl-letf (((symbol-function 'vulpea-select-from)
+               (lambda (_prompt _notes &rest _)
+                 (make-vulpea-note :title "X" :level 0)))
+              ;; guard the built-in path in case note-fn is ignored
+              ((symbol-function 'vulpea-create)
+               (lambda (&rest _)
+                 (make-vulpea-note :id "stub-id" :title "X" :level 0))))
+      (let ((vulpea-insert-handle-functions
+             (list (lambda (n) (setq handled n)))))
+        (with-temp-buffer
+          (org-mode)
+          (vulpea-insert :candidates-fn (lambda (_) nil)
+                         :note-fn (lambda (&rest _) nil))
+          (should (equal (buffer-string) ""))
+          (should-not handled))))))
+
+(ert-deftest vulpea-insert-note-fn-region-becomes-description ()
+  "Test region handling on the NOTE-FN path.
+
+The active region is deleted and its text wins over the created
+note's title as the link description."
+  (let ((created (make-vulpea-note :id "note-fn-id"
+                                   :title "Created Title"
+                                   :level 0))
+        (transient-mark-mode t))
+    (cl-letf (((symbol-function 'vulpea-select-from)
+               (lambda (_prompt _notes &rest _)
+                 (make-vulpea-note :title "region text" :level 0))))
+      (with-temp-buffer
+        (org-mode)
+        (insert "region text")
+        (push-mark (point-min) t t)
+        (goto-char (point-max))
+        (vulpea-insert :candidates-fn (lambda (_) nil)
+                       :note-fn (lambda (&rest _) created))
+        (should (equal (buffer-string)
+                       "[[id:note-fn-id][region text]]"))))))
+
 ;;; Title Propagation Tests
 
 ;;;; Link Categorization Tests
