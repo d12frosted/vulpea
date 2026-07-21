@@ -1283,6 +1283,23 @@ plain nil) lets `vulpea-doctor' nudge authors to declare explicitly."
                (make-vulpea-extractor
                 :name 'x :extract-fn #'ignore :requires-ast nil))))
 
+(ert-deftest vulpea-db-extract-reads-dir-locals-defaults-to-unset ()
+  "The :reads-dir-locals default is the `unset' sentinel, not t.
+Mirrors :requires-ast: declaring intent is opt-in, and the sentinel
+keeps room for a `vulpea-doctor' nudge about undeclared extractors."
+  (let ((extractor (make-vulpea-extractor :name 'x :extract-fn #'ignore)))
+    (should (eq 'unset (vulpea-extractor-reads-dir-locals extractor)))
+    (should-not (vulpea-extractor-reads-dir-locals-p extractor))))
+
+(ert-deftest vulpea-db-extract-reads-dir-locals-p-only-on-explicit-t ()
+  "Only an explicit :reads-dir-locals t counts as a dir-locals reader."
+  (should (vulpea-extractor-reads-dir-locals-p
+           (make-vulpea-extractor
+            :name 'x :extract-fn #'ignore :reads-dir-locals t)))
+  (should-not (vulpea-extractor-reads-dir-locals-p
+               (make-vulpea-extractor
+                :name 'x :extract-fn #'ignore :reads-dir-locals nil))))
+
 (ert-deftest vulpea-db-extract-undeclared-extractor-keeps-element-granularity ()
   "An extractor without a :requires-ast declaration keeps 'element parsing."
   (let ((vulpea-db-parse-granularity 'element)

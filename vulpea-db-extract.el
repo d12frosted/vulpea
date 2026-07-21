@@ -251,6 +251,18 @@ Slots:
                  default is the symbol `unset', which behaves like
                  nil but lets `vulpea-doctor' nudge authors to
                  declare their intent explicitly.
+  reads-dir-locals - Whether extract-fn's output depends on
+                 directory-local variables of the note's path.
+                 Declare t when it does (for example reading a
+                 project marker from `.dir-locals.el'): with the
+                 default `auto' value of
+                 `vulpea-db-sync-reindex-on-dir-locals-change',
+                 autosync then force re-indexes the affected subtree
+                 whenever a `.dir-locals.el' (or `.dir-locals-2.el')
+                 changes, so the extractor's stored output cannot go
+                 silently stale.  Same intent-declaration pattern as
+                 requires-ast: the default is the symbol `unset',
+                 which behaves like nil.
 
 Example:
   (make-vulpea-extractor
@@ -270,7 +282,11 @@ Example:
   extract-fn
   (requires-ast 'unset)
   worker-safe
-  worker-lib)
+  worker-lib
+  ;; New slots go last: accessors compile to positional access, so
+  ;; inserting in the middle would break plugin bytecode compiled
+  ;; against an older struct layout
+  (reads-dir-locals 'unset))
 
 (defun vulpea-extractor-requires-ast-p (extractor)
   "Return non-nil when EXTRACTOR is a declared AST reader.
@@ -278,6 +294,13 @@ Only an explicit :requires-ast t counts; nil and the default `unset'
 sentinel both mean the extractor works purely from note data and
 receives a parse context whose AST slot is nil."
   (eq (vulpea-extractor-requires-ast extractor) t))
+
+(defun vulpea-extractor-reads-dir-locals-p (extractor)
+  "Return non-nil when EXTRACTOR declared reading dir-locals.
+Only an explicit :reads-dir-locals t counts; nil and the default
+`unset' sentinel both mean the extractor's output does not depend on
+directory-local variables."
+  (eq (vulpea-extractor-reads-dir-locals extractor) t))
 
 ;;; Core Parsing
 
