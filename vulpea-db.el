@@ -238,6 +238,16 @@ notes are preserved.")
       (mtime :not-null)
       (size :not-null)])
 
+    ;; Dir-locals tracking for re-index on change.  A side table
+    ;; rather than a marker column in `files': removed-file detection
+    ;; and the startup scan iterate `files' expecting org files, and
+    ;; must never treat a dir-locals file as a removed note.
+    (dir-locals-files
+     [(path :not-null :primary-key)
+      (hash :not-null)
+      (mtime :not-null)
+      (size :not-null)])
+
     ;; Schema versioning for migrations
     (schema-registry
      [(name :not-null :primary-key)
@@ -318,7 +328,8 @@ Use with caution!"
         (emacsql db [:delete :from tags])
         (emacsql db [:delete :from links])
         (emacsql db [:delete :from meta])
-        (emacsql db [:delete :from files])))))
+        (emacsql db [:delete :from files])
+        (emacsql db [:delete :from dir-locals-files])))))
 
 ;;; Initialization
 
@@ -778,6 +789,38 @@ Returns plist with :hash, :mtime, :size or nil if not tracked."
     (list :hash (elt row 0)
           :mtime (elt row 1)
           :size (elt row 2))))
+
+(defun vulpea-db--update-dir-locals-hash (path hash mtime size)
+  "Update dir-locals tracking info for PATH.
+
+HASH, MTIME and SIZE are inserted as values."
+  (emacsql (vulpea-db)
+           [:insert :or :replace :into dir-locals-files :values $v1]
+           (list (vector (vulpea-db-normalize-path path) hash mtime size))))
+
+(defun vulpea-db--get-dir-locals-hash (path)
+  "Get stored hash for the dir-locals file at PATH.
+
+Returns plist with :hash, :mtime, :size or nil if not tracked."
+  (when-let* ((row (car (emacsql (vulpea-db)
+                                 [:select [hash mtime size]
+                                  :from dir-locals-files
+                                  :where (= path $s1)]
+                                 (vulpea-db-normalize-path path)))))
+    (list :hash (elt row 0)
+          :mtime (elt row 1)
+          :size (elt row 2))))
+
+(defun vulpea-db--delete-dir-locals-hash (path)
+  "Stop tracking the dir-locals file at PATH."
+  (emacsql (vulpea-db)
+           [:delete :from dir-locals-files :where (= path $s1)]
+           (vulpea-db-normalize-path path)))
+
+(defun vulpea-db--dir-locals-paths ()
+  "Return paths of all tracked dir-locals files."
+  (mapcar #'car (emacsql (vulpea-db)
+                         [:select path :from dir-locals-files])))
 
 ;;; Provide
 
