@@ -132,6 +132,36 @@ never blocks the editor.  With =fd=, the scan completes in ~50ms
 (vs ~900ms with =find=) for a 14k-file collection.  Install =fd= if
 using polling mode.
 
+*** D. Dir-locals changes (all watchers)
+
+Events for =.dir-locals.el= and =.dir-locals-2.el= arrive through the
+same channels (filenotify delivers them per directory, fswatch
+monitors whole roots, polling diffs them on each tick) and are routed
+to a dedicated handler instead of being dropped as non-org files:
+
+#+begin_example
+.dir-locals.el created / edited / deleted / renamed
+  │
+  └─ vulpea-db-sync--handle-dir-locals-event
+      ├─ Diff content hash against dir-locals-files table
+      │   (touch without content change → stop here)
+      ├─ Record new state (always, even when reaction is off)
+      └─ Reaction enabled?             ← vulpea-db-sync-reindex-on-dir-locals-change
+          └─ vulpea-db-sync-update-directory(dir, 'force)
+              └─ "Vulpea: dir-locals changed under X, re-indexing N files..."
+#+end_example
+
+The reaction defaults to =auto=: on when extraction output actually
+depends on dir-locals (=vulpea-db-parse-method= is =find-file=, or a
+registered extractor declares =:reads-dir-locals t=).  Re-indexing
+the whole subtree over-approximates shadowing by deeper dir-locals
+files - wasted work, but never a stale note.  The startup scan and
+=vulpea-db-sync-full-scan= diff the stored hashes too, so edits made
+while Emacs was closed are picked up (something live watchers can
+never do).  Dir-locals classes defined from elisp
+(=dir-locals-set-class-variables=) have no file to watch: after
+changing those, run a force scan manually.
+
 *Note*: All file watchers ALWAYS use async queue, regardless of autosync mode
 
 
@@ -154,10 +184,12 @@ vulpea-db-autosync-mode +1
       │       └─ [sentinel callback when done]
       │           ├─ Guard: check autosync still active
       │           ├─ Cleanup deleted files (set comparison)
+      │           ├─ Diff dir-locals hashes (offline edits react here)
       │           └─ Enqueue all files for change detection
       │
       ├─ scan mode = 'blocking?
       │   ├─ Cleanup deleted files (sync)
+      │   ├─ Diff dir-locals hashes (sync)
       │   └─ Update all directories (sync)     ← blocks
       │
       └─ scan mode = nil?

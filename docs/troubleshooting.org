@@ -318,6 +318,34 @@ once and heals such notes.  To fix it immediately without waiting:
 
 Or with =C-u= prefix: =C-u M-x vulpea-db-sync-full-scan=
 
+** Stale Data After Editing .dir-locals.el
+
+*** Symptom
+
+You use the =find-file= parse method (or an extractor that reads
+dir-locals) and edited a =.dir-locals.el=, but queries still return
+values computed from the old settings.
+
+*** Cause
+
+Note files themselves did not change, so change detection skips them.
+Autosync re-indexes the affected subtree automatically when it sees a
+dir-locals change (see =vulpea-db-sync-reindex-on-dir-locals-change=,
+default =auto=) - if you see stale data anyway, either the reaction
+is disabled, autosync was off while the file changed and no scan ran
+since, or the variables come from a directory class defined in elisp
+(=dir-locals-set-class-variables=), which has no file to watch.
+
+*** Solution
+
+Re-index the affected directory manually:
+
+#+begin_src emacs-lisp
+(vulpea-db-sync-update-directory "~/notes/project" 'force)
+#+end_src
+
+Or force a full scan: =C-u M-x vulpea-db-sync-full-scan=
+
 ** Database Corruption
 
 *** Symptom
