@@ -953,6 +953,38 @@ be returned with string keys after JSON round-trip through the DB."
       (should (assoc "CREATED" props))
       (should (equal (cdr (assoc "CATEGORY" props)) "journal")))))
 
+;;; Category Query Tests
+;; https://github.com/d12frosted/vulpea/issues/389
+
+(ert-deftest vulpea-db-query-by-category-basic ()
+  "Test querying notes by resolved category."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "note1" "Note 1" :category "journal")
+    (vulpea-test--insert-test-note "note2" "Note 2" :category "journal")
+    (vulpea-test--insert-test-note "note3" "Note 3" :category "project")
+
+    (let ((notes (vulpea-db-query-by-category "journal")))
+      (should (= (length notes) 2))
+      (should (member "note1" (mapcar #'vulpea-note-id notes)))
+      (should (member "note2" (mapcar #'vulpea-note-id notes)))
+      (should-not (member "note3" (mapcar #'vulpea-note-id notes))))
+
+    (let ((notes (vulpea-db-query-by-category "project")))
+      (should (= (length notes) 1))
+      (should (equal (vulpea-note-category (car notes)) "project")))
+
+    (should-not (vulpea-db-query-by-category "nonexistent"))))
+
+(ert-deftest vulpea-db-query-by-category-end-to-end ()
+  "Categories resolved at extraction are queryable."
+  (vulpea-test--with-temp-db-and-file "cat-query-id"
+    "#+TITLE: Categorized\n#+CATEGORY: research\n"
+    (let ((notes (vulpea-db-query-by-category "research")))
+      (should (= (length notes) 1))
+      (should (equal (vulpea-note-id (car notes)) "cat-query-id"))
+      (should (equal (vulpea-note-category (car notes)) "research")))))
+
 ;;; Created-At Query Tests
 
 (ert-deftest vulpea-db-query-by-created-date-basic ()

@@ -78,6 +78,7 @@ Each extractor receives and returns =note-data=, a plist containing:
 - =:todo= - TODO state
 - =:priority= - priority level
 - =:scheduled=, =:deadline=, =:closed= - timestamps
+- =:category= - resolved org category (see =vulpea-note-category=)
 - =:outline-path= - path to heading
 - =:attach-dir= - attachment directory
 
@@ -91,8 +92,8 @@ Persistence goes strictly by the field list above. After all extractors
 have run, any core field an extractor changed is written back to the
 note's row in the =notes= table, and the normalized tables (=tags=,
 =links=, =meta=, =properties=) are re-synced to match. Any key outside
-that list is silently ignored at this point: a custom =:category= key
-does not become a =category= column in =notes=, no matter how it is
+that list is silently ignored at this point: a custom =:word-count= key
+does not become a =word_count= column in =notes=, no matter how it is
 spelled. Adding a link to =:links=, on the other hand, makes it a
 first-class link - it shows up in backlink queries exactly like a link
 parsed from the file. See [[*Contributing to Core Data][Contributing to Core Data]].
@@ -545,20 +546,20 @@ own table.
 ** Storing Per-Note Data
 
 A question that came up in [[https://github.com/d12frosted/vulpea/issues/382][vulpea#382]]: what if my plugin computes
-exactly one value per note, say a category? Custom =note-data= keys do
-not help (they are transient, see [[*Note Data (=note-data=)][Note Data]]), and there is no way to
-add a column to the =notes= table - that table is owned by vulpea, it
-doubles as a materialized cache, and its schema changes on vulpea's
-schedule, not yours.
+exactly one value per note, say a reading time? Custom =note-data=
+keys do not help (they are transient, see [[*Note Data (=note-data=)][Note Data]]), and there is no
+way to add a column to the =notes= table - that table is owned by
+vulpea, it doubles as a materialized cache, and its schema changes on
+vulpea's schedule, not yours.
 
 The answer is a side table with =note-id= as the primary key. One row
 per note, cheap joins (both sides hit an index), and your data is
 untouched by core schema migrations:
 
 #+begin_src emacs-lisp
-:schema '((note-category
+:schema '((note-reading-time
            [(note-id :not-null :primary-key)
-            (category :not-null)]
+            (minutes :not-null)]
            (:foreign-key [note-id] :references notes [id]
             :on-delete :cascade)))
 #+end_src
@@ -567,23 +568,23 @@ The extractor writes at most one row per note:
 
 #+begin_src emacs-lisp
 (emacsql (vulpea-db)
-         [:insert :or :replace :into note-category :values $v1]
-         (list (vector note-id category)))
+         [:insert :or :replace :into note-reading-time :values $v1]
+         (list (vector note-id minutes)))
 #+end_src
 
 And queries join it in:
 
 #+begin_src emacs-lisp
 (emacsql (vulpea-db)
-         [:select [notes:id notes:title note-category:category]
+         [:select [notes:id notes:title note-reading-time:minutes]
           :from notes
-          :left :join note-category
-          :on (= notes:id note-category:note-id)])
+          :left :join note-reading-time
+          :on (= notes:id note-reading-time:note-id)])
 #+end_src
 
-If you expect several axes of categorization, do not multiply tables
-(=note-category=, =note-foo=, =note-bar=, ...). Use one generic table
-keyed by =(note-id, axis)=:
+If you expect several such per-note attributes, do not multiply
+tables (=note-reading-time=, =note-foo=, =note-bar=, ...). Use one
+generic table keyed by =(note-id, axis)=:
 
 #+begin_src emacs-lisp
 :schema '((note-attrs

@@ -295,6 +295,8 @@ that matches your configuration:
     Reuses one hidden buffer but re-runs `org-mode' per file.
     - ✓ Honors file-level keywords and `org-mode-hook'
     - ✓ Supports hook-based per-file tweaks
+    - ✓ Applies dir- and file-local variables (the `org-mode'
+      rerun triggers `run-mode-hooks', which hacks them)
     - ⚠️ Slower if hooks are heavy (e.g., org-roam)
     Hooks can check `vulpea-db--active-parse-method' to skip work.
 
@@ -459,8 +461,9 @@ after loading PATH so file-local keywords and hooks are respected."
                  ;; to a string first costs time and garbage
                  (hash (secure-hash 'sha256 (current-buffer)))
                  (file-title (vulpea-db--extract-file-title ast path))
-                 (file-node (vulpea-db--extract-file-node ast path (current-buffer) file-title))
-                 (heading-nodes (vulpea-db--extract-heading-nodes ast path (current-buffer) file-title))
+                 (file-category (vulpea-db--file-category ast path (current-buffer)))
+                 (file-node (vulpea-db--extract-file-node ast path (current-buffer) file-title file-category))
+                 (heading-nodes (vulpea-db--extract-heading-nodes ast path (current-buffer) file-title file-category))
                  (t4 (current-time)))
 
             ;; Accumulate detailed timing if enabled
@@ -527,13 +530,14 @@ ensure decryption hooks run properly."
                       (mtime (float-time (file-attribute-modification-time attrs)))
                       (size (file-attribute-size attrs))
                       (hash (secure-hash 'sha256 (current-buffer)))
-                      (file-title (vulpea-db--extract-file-title ast path)))
+                      (file-title (vulpea-db--extract-file-title ast path))
+                      (file-category (vulpea-db--file-category ast path (current-buffer))))
 
                  (make-vulpea-parse-ctx
                   :path path
                   :ast ast
-                  :file-node (vulpea-db--extract-file-node ast path (current-buffer) file-title)
-                  :heading-nodes (vulpea-db--extract-heading-nodes ast path (current-buffer) file-title)
+                  :file-node (vulpea-db--extract-file-node ast path (current-buffer) file-title file-category)
+                  :heading-nodes (vulpea-db--extract-heading-nodes ast path (current-buffer) file-title file-category)
                   :hash hash
                   :mtime mtime
                   :size size)))
@@ -596,16 +600,84 @@ Returns the #+TITLE keyword value if present, otherwise the filename base."
            (org-link-display-format title)))
         (file-name-base path))))
 
-(defun vulpea-db--extract-file-node (ast _path buffer file-title)
+(defun vulpea-db--file-category (ast path buffer)
+  "Resolve the file-level category from AST for PATH parsed in BUFFER.
+
+Mirrors org's category resolution at file scope: a CATEGORY
+property in the file-level property drawer wins, then the last
+#+CATEGORY keyword anywhere in the file (org searches backwards, so
+a later keyword shadows an earlier one), then a buffer-local
+`org-category' (a symbol is converted to its name, as org does),
+and finally the file's base name.  Never returns nil.
+
+Whether dir- and file-local variables populate `org-category'
+depends on the parse method: \\='find-file applies them via
+`find-file-noselect', \\='temp-buffer applies them because the
+per-file `org-mode' rerun triggers `run-mode-hooks' (which hacks
+local variables since Emacs 26), and \\='single-temp-buffer never
+does - a globally customized `org-category' default is picked up
+under every method.
+
+Headings build on this value: it is the fallback when neither the
+heading's own property drawer nor any ancestor's provides CATEGORY.
+See `vulpea-db--extract-heading-nodes'."
+  (or (cdr (assoc "CATEGORY" (vulpea-db--extract-properties ast nil)))
+      (car (last (org-element-map ast 'keyword
+                   (lambda (kw)
+                     (when (string= "CATEGORY"
+                                    (org-element-property :key kw))
+                       (vulpea-db--string-no-properties
+                        (org-element-property :value kw)))))))
+      (when-let* ((category (buffer-local-value 'org-category buffer)))
+        (if (symbolp category) (symbol-name category) category))
+      (file-name-base path)))
+
+(defun vulpea-db--headline-own-category (headline)
+  "Return the CATEGORY value from HEADLINE's own property drawer.
+
+Only HEADLINE's own drawer is consulted - the one inside its
+section, never a child headline's.  Property keys are matched
+case-insensitively, as org does.  Returns nil when HEADLINE has no
+drawer or no CATEGORY property."
+  (when-let* ((section (seq-find (lambda (el)
+                                   (eq (org-element-type el) 'section))
+                                 (org-element-contents headline))))
+    (org-element-map section 'node-property
+      (lambda (prop)
+        (when (string= "CATEGORY"
+                       (upcase (org-element-property :key prop)))
+          (vulpea-db--string-no-properties
+           (org-element-property :value prop))))
+      nil t)))
+
+(defun vulpea-db--inherited-category (headline)
+  "Return CATEGORY inherited from HEADLINE's ancestor headlines.
+
+Walks up the parse tree and returns the value from the nearest
+ancestor whose own property drawer carries CATEGORY - ancestors
+count whether or not they are notes themselves.  Returns nil when
+no ancestor provides one."
+  (let ((current (org-element-property :parent headline))
+        category)
+    (while (and current (not category))
+      (when (eq (org-element-type current) 'headline)
+        (setq category (vulpea-db--headline-own-category current)))
+      (setq current (org-element-property :parent current)))
+    category))
+
+(defun vulpea-db--extract-file-node (ast _path buffer file-title file-category)
   "Extract file-level node data from AST in BUFFER.
 
 _PATH is accepted for signature symmetry with
 `vulpea-db--extract-heading-nodes' but is not used.
 FILE-TITLE is the title of the file (from #+TITLE or filename).
+FILE-CATEGORY is the resolved file-level category (see
+`vulpea-db--file-category').
 
 Returns plist with:
   :id :title :aliases :tags :links :properties :meta
-  :todo :priority :scheduled :deadline :closed :attach-dir :file-title
+  :todo :priority :scheduled :deadline :closed :category
+  :attach-dir :file-title
 
 Returns nil if:
 - File has no ID property in property drawer
@@ -618,12 +690,6 @@ Returns nil if:
                              (vulpea-db--string-no-properties
                               (org-element-property :value kw))))))
          (properties (vulpea-db--extract-properties ast nil))
-         (category-kw (cdr (assoc "CATEGORY" keywords)))
-         (properties (if (and category-kw
-                              (not (assoc "CATEGORY" properties)))
-                         (append properties
-                                 (list (cons "CATEGORY" category-kw)))
-                       properties))
          (id (cdr (assoc "ID" properties)))
          (ignored (org-not-nil (cdr (assoc vulpea-db-exclude-property properties))))
          (filetags (cl-mapcan (lambda (kw)
@@ -670,6 +736,7 @@ Returns nil if:
               :scheduled nil
               :deadline nil
               :closed nil
+              :category file-category
               :attach-dir attach-dir
               :file-title file-title)))))
 
@@ -715,10 +782,15 @@ state logging) rather than on a `CLOSED:' planning line."
       ;; greatest is the most recent completion.
       (car (sort timestamps #'string>)))))
 
-(defun vulpea-db--extract-heading-nodes (ast path buffer file-title)
+(defun vulpea-db--extract-heading-nodes (ast path buffer file-title file-category)
   "Extract heading-level nodes from AST at PATH in BUFFER.
 
 FILE-TITLE is the title of the file containing the headings.
+FILE-CATEGORY is the resolved file-level category (see
+`vulpea-db--file-category'); a heading falls back to it when
+neither its own property drawer nor any ancestor's provides
+CATEGORY, so every heading ends up with a non-nil category, same
+as org.
 
 Returns list of plists, one per heading with ID property.
 Each plist has same structure as file-node.
@@ -811,6 +883,9 @@ Respects `vulpea-db-index-heading-level' setting."
                                       'done)
                               (vulpea-db--extract-closed-from-logbook
                                section buffer))))
+                       (category (or (cdr (assoc "CATEGORY" properties))
+                                     (vulpea-db--inherited-category headline)
+                                     file-category))
                        (raw-title (vulpea-db--string-no-properties
                                    (org-element-property :raw-value headline)))
                        (title-start (+ pos level 1 ; stars + space
@@ -851,6 +926,7 @@ Respects `vulpea-db-index-heading-level' setting."
                                     (vulpea-db--string-no-properties
                                      (org-element-property :raw-value deadline)))
                         :closed closed-str
+                        :category category
                         :outline-path outline-path
                         :attach-dir attach-dir
                         :file-title file-title))))))))))
@@ -1378,6 +1454,7 @@ links) are populated.  Used to present the note to
    :meta (plist-get data :meta)
    :links (plist-get data :links)
    :properties (plist-get data :properties)
+   :category (plist-get data :category)
    :file-title (plist-get data :file-title)))
 
 (defun vulpea-db--note-allowed-p (data path level)
@@ -1508,7 +1585,8 @@ Returns number of notes written (file-level + headings)."
 
 (defconst vulpea-db--extractor-persisted-fields
   '(:title :properties :tags :aliases :meta :links :todo :priority
-    :scheduled :deadline :closed :outline-path :attach-dir :file-title)
+    :scheduled :deadline :closed :category :outline-path :attach-dir
+    :file-title)
   "Note-data fields whose extractor-made changes are persisted.
 When an extractor changes one of these in the note-data plist, the
 change is written back to the notes row (and, for fields with a
@@ -1549,6 +1627,7 @@ registered."
      :scheduled (plist-get data :scheduled)
      :deadline (plist-get data :deadline)
      :closed (plist-get data :closed)
+     :category (plist-get data :category)
      :outline-path (plist-get data :outline-path)
      :attach-dir (plist-get data :attach-dir)
      :file-title (plist-get data :file-title)

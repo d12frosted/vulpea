@@ -106,11 +106,12 @@ ROW is a vector from the notes table with all fields in schema order."
         (scheduled (elt row 12))
         (deadline (elt row 13))
         (closed (elt row 14))
-        (outline-path (elt row 15))
-        (attach-dir (elt row 16))
-        (file-title (elt row 17))
-        (created-at (elt row 18))
-        (modified-at (elt row 19)))
+        (category (elt row 15))
+        (outline-path (elt row 16))
+        (attach-dir (elt row 17))
+        (file-title (elt row 18))
+        (created-at (elt row 19))
+        (modified-at (elt row 20)))
     (make-vulpea-note
      :id id
      :path path
@@ -133,6 +134,7 @@ ROW is a vector from the notes table with all fields in schema order."
      :scheduled scheduled
      :deadline deadline
      :closed closed
+     :category category
      :outline-path outline-path
      :attach-dir attach-dir
      :file-title file-title
@@ -480,6 +482,26 @@ Returns list of `vulpea-note' structs."
                          [:select * :from notes
                           :where (= created-at $s1)]
                          date))))
+    (mapcar #'vulpea-db--row-to-note rows)))
+
+;;; Category Queries
+
+(defun vulpea-db-query-by-category (category)
+  "Get notes whose resolved category is CATEGORY.
+
+The category is computed at extraction time following org's own
+resolution order (own drawer property, ancestor drawers, file-level
+drawer, last #+CATEGORY keyword, `org-category', file base name),
+so every note has one - this is the value org agenda displays and
+filters by, not merely the literal CATEGORY property.
+
+Performance: <50ms for 10k notes (indexed lookup).
+
+Returns list of `vulpea-note' structs."
+  (let ((rows (emacsql (vulpea-db)
+                       [:select * :from notes
+                        :where (= category $s1)]
+                       category)))
     (mapcar #'vulpea-db--row-to-note rows)))
 
 ;;; Stale Note Queries
