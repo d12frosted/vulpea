@@ -412,6 +412,35 @@ written before and after any insert-path change are interchangeable."
       (should (equal (plist-get info :mtime) 1234567891))
       (should (equal (plist-get info :size) 2048)))))
 
+(ert-deftest vulpea-db-dir-locals-tracking ()
+  "Dir-locals hashes are tracked in their own table, not `files'."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    ;; No hash initially
+    (should-not (vulpea-db--get-dir-locals-hash "/tmp/.dir-locals.el"))
+
+    ;; Update hash
+    (vulpea-db--update-dir-locals-hash "/tmp/.dir-locals.el" "abc123" 1234567890 64)
+    (let ((info (vulpea-db--get-dir-locals-hash "/tmp/.dir-locals.el")))
+      (should (equal (plist-get info :hash) "abc123"))
+      (should (equal (plist-get info :mtime) 1234567890))
+      (should (equal (plist-get info :size) 64)))
+
+    ;; Lives in a side table: never visible as a tracked org file, so
+    ;; removed-file detection and the startup scan cannot eat it
+    (should-not (vulpea-db--get-file-hash "/tmp/.dir-locals.el"))
+    (should (equal (vulpea-db--dir-locals-paths) '("/tmp/.dir-locals.el")))
+
+    ;; Update again (should replace)
+    (vulpea-db--update-dir-locals-hash "/tmp/.dir-locals.el" "def456" 1234567891 65)
+    (let ((info (vulpea-db--get-dir-locals-hash "/tmp/.dir-locals.el")))
+      (should (equal (plist-get info :hash) "def456")))
+    (should (= (length (vulpea-db--dir-locals-paths)) 1))
+
+    ;; Delete
+    (vulpea-db--delete-dir-locals-hash "/tmp/.dir-locals.el")
+    (should-not (vulpea-db--get-dir-locals-hash "/tmp/.dir-locals.el"))))
+
 ;;; Transaction Tests
 
 (ert-deftest vulpea-db-transaction-rollback ()
