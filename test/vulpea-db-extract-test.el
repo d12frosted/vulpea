@@ -1459,6 +1459,196 @@ while a declared one still receives the parsed tree."
                                "test-versioned"))))
         (should (= v2 2))))))
 
+;;; Plugin Schema Migration on Version Bump
+;; https://github.com/d12frosted/vulpea/issues/390
+
+(ert-deftest vulpea-db-extract-schema-version-bump-migrates ()
+  "A version increase drops and recreates the extractor's declared
+tables and clears the files cache, while preserving the notes table."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((vulpea-db--extractors nil)
+          (vulpea-db--plugin-schema-changed nil))
+      ;; v1 with a single-column table, holding soon-stale data
+      (vulpea-db-register-extractor
+       (make-vulpea-extractor
+        :name 'test-migrate
+        :version 1
+        :schema '((test-migrate-table [(id :not-null)]))
+        :extract-fn (lambda (_ctx data) data)))
+      (emacsql (vulpea-db) [:insert :into test-migrate-table :values $v1]
+               (list (vector 1)))
+      ;; A note that must survive and a cached file that must not
+      (vulpea-db--insert-note
+       :id "migrate-id" :path "/tmp/migrate.org" :level 0 :pos 0
+       :title "Migrate Note" :properties nil
+       :modified-at "2025-11-16 10:00:00")
+      (emacsql (vulpea-db) [:insert :into files :values $v1]
+               (list (vector "/tmp/migrate.org" "hash" "2025-01-01" 100)))
+
+      ;; Bump to v2 with a changed table definition
+      (vulpea-db-register-extractor
+       (make-vulpea-extractor
+        :name 'test-migrate
+        :version 2
+        :schema '((test-migrate-table [(id :not-null) (label)]))
+        :extract-fn (lambda (_ctx data) data)))
+
+      ;; Old rows are gone (table was dropped and recreated)
+      (should-not (emacsql (vulpea-db) [:select * :from test-migrate-table]))
+      ;; New column is usable
+      (emacsql (vulpea-db) [:insert :into test-migrate-table :values $v1]
+               (list (vector 2 "fresh")))
+      (should (equal (emacsql (vulpea-db)
+                              [:select [id label] :from test-migrate-table])
+                     '((2 "fresh"))))
+      ;; Files cache cleared so every file is re-extracted
+      (should-not (emacsql (vulpea-db) [:select * :from files]))
+      ;; Flag set so an active sync triggers a forced re-index
+      (should vulpea-db--plugin-schema-changed)
+      ;; Notes are preserved (no full rebuild)
+      (should (emacsql (vulpea-db)
+                       [:select * :from notes :where (= id $s1)] "migrate-id"))
+      ;; Registry records the new version
+      (should (= (caar (emacsql (vulpea-db)
+                                [:select [version] :from schema-registry
+                                 :where (= name $s1)]
+                                "test-migrate"))
+                 2)))))
+
+(ert-deftest vulpea-db-extract-schema-same-version-keeps-data ()
+  "Re-registering the same version leaves plugin tables and the files
+cache untouched."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((vulpea-db--extractors nil)
+          (vulpea-db--plugin-schema-changed nil)
+          (extractor (make-vulpea-extractor
+                      :name 'test-same
+                      :version 1
+                      :schema '((test-same-table [(id :not-null)]))
+                      :extract-fn (lambda (_ctx data) data))))
+      (vulpea-db-register-extractor extractor)
+      (emacsql (vulpea-db) [:insert :into test-same-table :values $v1]
+               (list (vector 1)))
+      (emacsql (vulpea-db) [:insert :into files :values $v1]
+               (list (vector "/tmp/same.org" "hash" "2025-01-01" 100)))
+
+      (vulpea-db-register-extractor extractor)
+
+      (should (emacsql (vulpea-db) [:select * :from test-same-table]))
+      (should (emacsql (vulpea-db) [:select * :from files]))
+      (should-not vulpea-db--plugin-schema-changed))))
+
+(ert-deftest vulpea-db-extract-schema-lower-version-keeps-data ()
+  "Registering a lower version than the stored one is a no-op."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((vulpea-db--extractors nil)
+          (vulpea-db--plugin-schema-changed nil))
+      (vulpea-db-register-extractor
+       (make-vulpea-extractor
+        :name 'test-lower
+        :version 2
+        :schema '((test-lower-table [(id :not-null)]))
+        :extract-fn (lambda (_ctx data) data)))
+      (emacsql (vulpea-db) [:insert :into test-lower-table :values $v1]
+               (list (vector 1)))
+      (emacsql (vulpea-db) [:insert :into files :values $v1]
+               (list (vector "/tmp/lower.org" "hash" "2025-01-01" 100)))
+
+      (vulpea-db-register-extractor
+       (make-vulpea-extractor
+        :name 'test-lower
+        :version 1
+        :schema '((test-lower-table [(id :not-null)]))
+        :extract-fn (lambda (_ctx data) data)))
+
+      (should (emacsql (vulpea-db) [:select * :from test-lower-table]))
+      (should (emacsql (vulpea-db) [:select * :from files]))
+      (should-not vulpea-db--plugin-schema-changed)
+      (should (= (caar (emacsql (vulpea-db)
+                                [:select [version] :from schema-registry
+                                 :where (= name $s1)]
+                                "test-lower"))
+                 2)))))
+
+(ert-deftest vulpea-db-extract-schema-first-registration-keeps-cache ()
+  "First registration of an extractor creates its tables but does not
+invalidate the files cache."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((vulpea-db--extractors nil)
+          (vulpea-db--plugin-schema-changed nil))
+      (emacsql (vulpea-db) [:insert :into files :values $v1]
+               (list (vector "/tmp/first.org" "hash" "2025-01-01" 100)))
+
+      (vulpea-db-register-extractor
+       (make-vulpea-extractor
+        :name 'test-first
+        :version 1
+        :schema '((test-first-table [(id :not-null)]))
+        :extract-fn (lambda (_ctx data) data)))
+
+      (should (vulpea-db--table-exists-p 'test-first-table))
+      (should (emacsql (vulpea-db) [:select * :from files]))
+      (should-not vulpea-db--plugin-schema-changed))))
+
+(ert-deftest vulpea-db-extract-schema-version-bump-reextracts ()
+  "After a version bump the cleared files cache makes the next scan
+re-extract unchanged files, repopulating the recreated plugin tables."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((vulpea-db--extractors nil)
+          (vulpea-db--plugin-schema-changed nil)
+          (path (vulpea-test--create-temp-org-file
+                 ":PROPERTIES:\n:ID: reex-id\n:END:\n#+TITLE: Reex\n")))
+      (unwind-protect
+          (progn
+            (vulpea-db-register-extractor
+             (make-vulpea-extractor
+              :name 'test-reex
+              :version 1
+              :schema '((test-reex-table
+                         [(note-id :not-null) (val :not-null)]))
+              :extract-fn (lambda (_ctx data)
+                            (emacsql (vulpea-db)
+                                     [:insert :into test-reex-table :values $v1]
+                                     (list (vector (plist-get data :id) "v1")))
+                            data)))
+            (vulpea-db-update-file path)
+            (should (equal (emacsql (vulpea-db)
+                                    [:select [val] :from test-reex-table
+                                     :where (= note-id $s1)]
+                                    "reex-id")
+                           '(("v1"))))
+
+            ;; v2 changes both the table shape and what is stored
+            (vulpea-db-register-extractor
+             (make-vulpea-extractor
+              :name 'test-reex
+              :version 2
+              :schema '((test-reex-table
+                         [(note-id :not-null) (val :not-null) (extra)]))
+              :extract-fn (lambda (_ctx data)
+                            (emacsql (vulpea-db)
+                                     [:insert :into test-reex-table :values $v1]
+                                     (list (vector (plist-get data :id) "v2" "x")))
+                            data)))
+
+            ;; Table was recreated empty; stale v1 rows are gone
+            (should-not (emacsql (vulpea-db) [:select * :from test-reex-table]))
+            ;; Files cache is empty, so a scan re-extracts the unchanged
+            ;; file; vulpea-db-update-file stands in for that scan here
+            (should-not (emacsql (vulpea-db) [:select * :from files]))
+            (vulpea-db-update-file path)
+            (should (equal (emacsql (vulpea-db)
+                                    [:select [val extra] :from test-reex-table
+                                     :where (= note-id $s1)]
+                                    "reex-id")
+                           '(("v2" "x")))))
+        (delete-file path)))))
+
 ;;; Plugin Example: Citation Extractor
 
 (defun vulpea-test--extract-citations (ctx note-data)
