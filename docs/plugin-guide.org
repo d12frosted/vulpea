@@ -115,6 +115,7 @@ Use =make-vulpea-extractor= to create an extractor:
  :version 1                   ; Schema version for migrations
  :priority 50                 ; Execution order (lower = earlier)
  :requires-ast t              ; Declare when extract-fn reads the AST
+ :reads-dir-locals nil        ; Declare when output depends on dir-locals
  :schema '(...)               ; Database schema definition
  :extract-fn #'my-extract-fn) ; Extraction function
 #+end_src
@@ -130,6 +131,16 @@ Declare =:requires-ast= explicitly, one way or the other:
 
 Leaving it undeclared behaves like nil, but =M-x vulpea-doctor= will
 nag about it.
+
+Declare =:reads-dir-locals t= when your extract function's output
+depends on directory-local variables of the note's path - for example
+reading a project marker or category from the nearest
+=.dir-locals.el=. The declaration makes autosync force re-index the
+affected subtree whenever a =.dir-locals.el= (or =.dir-locals-2.el=)
+changes, so your stored output cannot go silently stale (see
+=vulpea-db-sync-reindex-on-dir-locals-change=; its default =auto=
+honors this declaration). Same intent-declaration pattern as
+=:requires-ast=: undeclared behaves like nil.
 
 ** Step 2: Define the Schema
 

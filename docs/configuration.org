@@ -170,6 +170,10 @@ the settings fingerprint, because extraction output depends on it
 visible to every method except =single-temp-buffer=). On the first
 start after a change, all files are re-extracted automatically.
 
+With =find-file=, extraction results can depend on =.dir-locals.el=;
+autosync re-indexes the affected subtree when such a file changes
+(see [[*Dir-Locals Changes][Dir-Locals Changes]]).
+
 ** Parse Granularity
 
 How deep the org-element parse goes during extraction:
@@ -440,6 +444,49 @@ The MSYS2/mingw and Cygwin builds of =fswatch= take different directory argument
 #+end_src
 
 This has no effect off Windows.
+
+* Dir-Locals Changes
+
+Extraction output can depend on directory-local variables: the
+=find-file= parse method applies =.dir-locals.el= while parsing, and
+an extractor plugin may read dir-locals from the note's path (see
+=:reads-dir-locals= in the [[file:plugin-guide.org][plugin guide]]). For such setups, editing a
+=.dir-locals.el= would silently leave the database stale: file
+contents did not change, so no re-index happens.
+
+When the reaction is enabled, autosync tracks content hashes of
+=.dir-locals.el= and =.dir-locals-2.el= files alongside org files. On
+a real change (creation, edit, deletion or rename - a mere touch does
+not count) all org files under that directory are force re-indexed,
+announced loudly:
+
+: Vulpea: dir-locals changed under ~/notes/project, re-indexing 42 files...
+
+The startup scan diffs the stored hashes too, so edits made while
+Emacs was closed are picked up as well.
+
+#+begin_src emacs-lisp
+;; React when extraction depends on dir-locals (default):
+;; parse method is 'find-file, or an extractor declares :reads-dir-locals
+(setq vulpea-db-sync-reindex-on-dir-locals-change 'auto)
+
+;; Always react
+(setq vulpea-db-sync-reindex-on-dir-locals-change t)
+
+;; Never react
+(setq vulpea-db-sync-reindex-on-dir-locals-change nil)
+#+end_src
+
+The setting gates only the reaction, not the tracking: hashes are
+recorded even with =nil=, so enabling the reaction later diffs
+against the last tracked state.
+
+*Boundary:* only dir-locals /files/ can be watched. Directory classes
+defined from elisp via =dir-locals-set-class-variables= have no file
+to watch; after changing those, re-index manually with =C-u M-x
+vulpea-db-sync-full-scan=. The same applies to variables that
+dir-locals files merely reference (e.g. an =eval= block reading
+another file).
 
 * Startup Behavior
 
