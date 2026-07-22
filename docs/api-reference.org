@@ -29,6 +29,7 @@ All query functions return =vulpea-note= structs:
 (vulpea-note-file-title note)    ; Title of file containing note
 (vulpea-note-created-at note)    ; Creation date "YYYY-MM-DD" or nil
 (vulpea-note-modified-at note)   ; File mtime "YYYY-MM-DD HH:MM:SS"
+(vulpea-note-title-source note)  ; Where the title came from, or nil
 #+end_src
 
 =vulpea-note-created-at= is the note's creation date, derived from its
@@ -62,6 +63,17 @@ note therefore has a category, exactly the value org agenda displays
 and filters by. Note that this is a computed value, not the literal
 =CATEGORY= property: =vulpea-note-properties= contains only what is
 written in the drawer.
+
+=vulpea-note-title-source= records where the title came from: the
+symbol =keyword= (a =#+title= keyword), =heading= (heading text) or
+=filename= (fallback to the file base name). The title itself is
+always a non-nil string; the source tells you whether it was written
+down or derived. Nil means unknown - a hand-constructed note - not
+untitled. Two predicates build on it: =vulpea-note-title-explicit-p=
+is non-nil when the title was written down (=keyword= or =heading=),
+and =vulpea-note-titled-p= is the opt-in completion filter that drops
+only notes whose title is /known/ to be filename-derived (see the
+[[file:user-guide.org][User Guide]] on untitled micro-notes).
 
 * Getting Notes
 
