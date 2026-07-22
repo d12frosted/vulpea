@@ -475,6 +475,29 @@ Guards against arbitrary code execution from untrusted note titles."
          (content (vulpea--format-note-content "id" "Title" head)))
     (should (string-match-p "This is the head section" content))))
 
+(ert-deftest vulpea--format-note-content-without-title ()
+  "Nil title produces no #+title line at all.
+https://github.com/d12frosted/vulpea/issues/399"
+  (let ((content (vulpea--format-note-content "test-id-123" nil)))
+    (should-not (string-match-p "#\\+title" content))
+    (should (string-match-p ":ID:.*test-id-123" content))
+    (should (string-match-p ":END:" content)))
+  ;; Tags and head still render after the drawer
+  (let ((content (vulpea--format-note-content
+                  "id" nil "head line" nil '("tag1"))))
+    (should (string-match-p "#\\+filetags: :tag1:" content))
+    (should (string-match-p "head line" content))))
+
+(ert-deftest vulpea--expand-template-nil-title ()
+  "Nil title expands title-free templates and rejects the rest.
+https://github.com/d12frosted/vulpea/issues/399"
+  (should (equal (vulpea--expand-template "${id}.org" nil "some-id")
+                 "some-id.org"))
+  (should-error (vulpea--expand-template "${slug}.org" nil "some-id")
+                :type 'user-error)
+  (should-error (vulpea--expand-template "note: ${title}" nil "some-id")
+                :type 'user-error))
+
 ;;; vulpea-create Tests
 
 (ert-deftest vulpea-create-basic ()
@@ -515,13 +538,105 @@ Guards against arbitrary code execution from untrusted note titles."
           (delete-directory vulpea-default-notes-directory t))))))
 
 (ert-deftest vulpea-create-rejects-non-string-title ()
-  "Test that `vulpea-create' fails loudly when TITLE is not a string."
-  (should-error (vulpea-create nil) :type 'user-error)
+  "Test that `vulpea-create' fails loudly when TITLE is not a string.
+Nil is allowed for file-level notes (vulpea#399) but nothing else is,
+and heading-level notes still require a string title - the heading
+text is the title."
   (should-error (vulpea-create 'some-symbol) :type 'user-error)
   (should-error (vulpea-create 42) :type 'user-error)
-  ;; heading-level path goes through the same guard
+  ;; heading-level notes cannot be untitled
   (should-error (vulpea-create nil nil :parent (make-vulpea-note :id "x"))
+                :type 'user-error)
+  (should-error (vulpea-create 42 nil :parent (make-vulpea-note :id "x"))
                 :type 'user-error))
+
+(ert-deftest vulpea-create-untitled-file-note ()
+  "Nil TITLE creates a file-level note without a #+title line.
+The returned note mirrors the post-extraction state: title is the
+file base name, title-source is `filename'.
+https://github.com/d12frosted/vulpea/issues/399"
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((vulpea-default-notes-directory (make-temp-file "vulpea-test-" t))
+           (file-path (expand-file-name "quick-capture.org"
+                                        vulpea-default-notes-directory))
+           note)
+      (unwind-protect
+          (progn
+            (setq note (vulpea-create nil file-path :tags '("inbox")))
+            (should note)
+            (should (file-exists-p file-path))
+
+            ;; No #+title line at all in the file
+            (with-temp-buffer
+              (insert-file-contents file-path)
+              (should-not (string-match-p "^#\\+title:" (buffer-string)))
+              (should (string-match-p ":ID:" (buffer-string)))
+              (should (string-match-p "#\\+filetags: :inbox:" (buffer-string))))
+
+            ;; Returned note mirrors extraction: filename title + source
+            (should (equal (vulpea-note-title note) "quick-capture"))
+            (should (eq (vulpea-note-title-source note) 'filename))
+            (should-not (vulpea-note-title-explicit-p note))
+            (should-not (vulpea-note-titled-p note)))
+        (when (and file-path (file-exists-p file-path))
+          (when (get-file-buffer file-path)
+            (kill-buffer (get-file-buffer file-path)))
+          (delete-file file-path))
+        (when (file-directory-p vulpea-default-notes-directory)
+          (delete-directory vulpea-default-notes-directory t))))))
+
+(ert-deftest vulpea-create-untitled-requires-title-free-template ()
+  "Nil TITLE with a template referencing ${title}/${slug} errors clearly.
+A title-free template works.
+https://github.com/d12frosted/vulpea/issues/399"
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((vulpea-default-notes-directory (make-temp-file "vulpea-test-" t))
+           note)
+      (unwind-protect
+          (progn
+            ;; The stock default template references ${slug}
+            (let ((vulpea-create-default-template
+                   '(:file-name "${timestamp}_${slug}.org")))
+              (should-error (vulpea-create nil) :type 'user-error))
+            (let ((vulpea-create-default-template
+                   '(:file-name "${title}.org")))
+              (should-error (vulpea-create nil) :type 'user-error))
+            ;; Head templates referencing ${title} cannot expand either
+            (let ((vulpea-create-default-template
+                   '(:file-name "${id}.org" :head "#+subtitle: ${title}")))
+              (should-error (vulpea-create nil) :type 'user-error))
+            ;; A title-free template works
+            (let ((vulpea-create-default-template
+                   '(:file-name "${timestamp}-${id}.org")))
+              (setq note (vulpea-create nil))
+              (should note)
+              (should (eq (vulpea-note-title-source note) 'filename))
+              (should (equal (vulpea-note-title note)
+                             (file-name-base (vulpea-note-path note))))))
+        (when (file-directory-p vulpea-default-notes-directory)
+          (delete-directory vulpea-default-notes-directory t))))))
+
+(ert-deftest vulpea-create-untitled-defaults-title-override ()
+  "A :title from the defaults still wins over a nil TITLE argument.
+The note then is a regular titled note with source `keyword'.
+https://github.com/d12frosted/vulpea/issues/399"
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((vulpea-default-notes-directory (make-temp-file "vulpea-test-" t))
+           (vulpea-create-default-function
+            (lambda (_title)
+              (list :file-name "given.org" :title "Given Title")))
+           note)
+      (unwind-protect
+          (progn
+            (setq note (vulpea-create nil))
+            (should note)
+            (should (equal (vulpea-note-title note) "Given Title"))
+            (should (eq (vulpea-note-title-source note) 'keyword)))
+        (when (file-directory-p vulpea-default-notes-directory)
+          (delete-directory vulpea-default-notes-directory t))))))
 
 (ert-deftest vulpea-create-custom-file-name ()
   "Test note creation with custom file name."
