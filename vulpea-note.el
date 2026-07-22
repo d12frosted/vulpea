@@ -68,7 +68,15 @@ Slots:
   attach-dir   - Attachment directory
   file-title   - Title of the file containing this note
   created-at   - Creation timestamp (from the CREATED property, may be nil)
-  modified-at  - File modification time (mtime), captured at last sync"
+  modified-at  - File modification time (mtime), captured at last sync
+  title-source - Where the title comes from: symbol `keyword'
+                 \\=(#+title), `heading' (heading text) or `filename'
+                 (fallback to the file base name).  Nil means unknown
+                 (e.g. a hand-constructed note), not untitled.
+
+New slots are only ever appended: plugin bytecode compiled against an
+older layout accesses slots positionally and would silently read the
+wrong slot if the order changed."
   id
   path
   level
@@ -90,7 +98,8 @@ Slots:
   attach-dir
   file-title
   created-at
-  modified-at)
+  modified-at
+  title-source)
 
 ;;; Predicates
 
@@ -115,6 +124,32 @@ Slots:
   (let ((note-links (mapcar (lambda (l) (plist-get l :dest))
                             (vulpea-note-links note))))
     (cl-some (lambda (link) (member link note-links)) links)))
+
+(defun vulpea-note-title-explicit-p (note)
+  "Return non-nil when NOTE's title was written down explicitly.
+
+Explicit means the title comes from a #+title keyword or from
+heading text - `vulpea-note-title-source' is the symbol `keyword'
+or `heading'.  Returns nil when the title was derived from the
+file name (`filename') and when the source is unknown (nil slot,
+e.g. a hand-constructed note)."
+  (memq (vulpea-note-title-source note) '(keyword heading)))
+
+(defun vulpea-note-titled-p (note)
+  "Return non-nil unless NOTE's title is known to come from its file name.
+
+This is the opt-in completion filter for hiding untitled notes:
+
+  (setq vulpea-find-default-filter #\\='vulpea-note-titled-p
+        vulpea-insert-default-filter #\\='vulpea-note-titled-p)
+
+Only notes whose `vulpea-note-title-source' is the symbol
+`filename' are dropped.  A nil source means unknown, not untitled,
+so hand-constructed notes are never hidden.  Note that the
+file-name fallback does not imply anonymous - deliberately named
+files are a legitimate setup - which is why this filter is opt-in
+and nothing hides such notes by default."
+  (not (eq (vulpea-note-title-source note) 'filename)))
 
 ;;; Note Expansion
 

@@ -272,6 +272,41 @@ the resolved note is nil; it should degrade to a nil entry instead."
       (should (vulpea-note-links-to-any-p note "target3" "target1"))
       (should-not (vulpea-note-links-to-any-p note "target3" "target4")))))
 
+(ert-deftest vulpea-note-title-explicit-p-cases ()
+  "Explicit means the title was written down: keyword or heading.
+A nil source is unknown, not explicit.
+https://github.com/d12frosted/vulpea/issues/399"
+  (should (vulpea-note-title-explicit-p
+           (make-vulpea-note :title "T" :title-source 'keyword)))
+  (should (vulpea-note-title-explicit-p
+           (make-vulpea-note :title "T" :title-source 'heading)))
+  (should-not (vulpea-note-title-explicit-p
+               (make-vulpea-note :title "T" :title-source 'filename)))
+  (should-not (vulpea-note-title-explicit-p
+               (make-vulpea-note :title "T"))))
+
+(ert-deftest vulpea-note-titled-p-cases ()
+  "The completion filter hides only known filename-derived titles.
+A hand-constructed note (nil source) must never be hidden.
+https://github.com/d12frosted/vulpea/issues/399"
+  (should (vulpea-note-titled-p
+           (make-vulpea-note :title "T" :title-source 'keyword)))
+  (should (vulpea-note-titled-p
+           (make-vulpea-note :title "T" :title-source 'heading)))
+  (should (vulpea-note-titled-p
+           (make-vulpea-note :title "T")))
+  (should-not (vulpea-note-titled-p
+               (make-vulpea-note :title "T" :title-source 'filename))))
+
+(ert-deftest vulpea-note-title-source-slot-is-last ()
+  "The title-source slot stays appended at the struct end.
+Old plugin bytecode compiled against earlier struct layouts reads
+slots positionally, so new slots must only ever be appended (same
+reason as vulpea#395).
+https://github.com/d12frosted/vulpea/issues/399"
+  (let ((slots (mapcar #'car (cl-struct-slot-info 'vulpea-note))))
+    (should (eq (car (last slots)) 'title-source))))
+
 ;;; Expand Aliases Tests
 
 (ert-deftest vulpea-note-expand-aliases-no-aliases ()

@@ -124,6 +124,57 @@ longer does."
           (should (equal title (file-name-base path))))
       (delete-file path))))
 
+(ert-deftest vulpea-db-extract-title-source-keyword ()
+  "File-level note with #+TITLE has title-source `keyword'.
+https://github.com/d12frosted/vulpea/issues/399"
+  (let ((path (vulpea-test--create-temp-org-file
+               ":PROPERTIES:\n:ID: test-id\n:END:\n#+TITLE: Explicit Title\n")))
+    (unwind-protect
+        (let* ((ctx (vulpea-db--parse-file path))
+               (node (vulpea-parse-ctx-file-node ctx)))
+          (should (eq (plist-get node :title-source) 'keyword)))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-title-source-filename ()
+  "File-level note without #+TITLE has title-source `filename'.
+https://github.com/d12frosted/vulpea/issues/399"
+  (let ((path (vulpea-test--create-temp-org-file
+               ":PROPERTIES:\n:ID: test-id\n:END:\n")))
+    (unwind-protect
+        (let* ((ctx (vulpea-db--parse-file path))
+               (node (vulpea-parse-ctx-file-node ctx)))
+          (should (equal (plist-get node :title) (file-name-base path)))
+          (should (eq (plist-get node :title-source) 'filename)))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-title-source-heading ()
+  "Heading-level notes always have title-source `heading'.
+https://github.com/d12frosted/vulpea/issues/399"
+  (let ((path (vulpea-test--create-temp-org-file
+               "#+TITLE: File\n\n* Heading 1\n:PROPERTIES:\n:ID: heading-1-id\n:END:\n")))
+    (unwind-protect
+        (let* ((vulpea-db-index-heading-level t)
+               (ctx (vulpea-db--parse-file path))
+               (node (car (vulpea-parse-ctx-heading-nodes ctx))))
+          (should (eq (plist-get node :title-source) 'heading)))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-title-source-indexed-in-db ()
+  "Title source survives the full extract-insert-query cycle.
+https://github.com/d12frosted/vulpea/issues/399"
+  (vulpea-test--with-temp-db-and-file "file-id"
+      "#+title: Titled File\n\n* Some Heading\n:PROPERTIES:\n:ID: heading-id\n:END:\n"
+    (let ((file-note (vulpea-db-get-by-id "file-id"))
+          (heading-note (vulpea-db-get-by-id "heading-id")))
+      (should (eq (vulpea-note-title-source file-note) 'keyword))
+      (should (eq (vulpea-note-title-source heading-note) 'heading))))
+  ;; Same cycle for a file without #+title
+  (vulpea-test--with-temp-db-and-file "file-id-2" ""
+    (let ((note (vulpea-db-get-by-id "file-id-2")))
+      (should (equal (vulpea-note-title note)
+                     (file-name-base (vulpea-note-path note))))
+      (should (eq (vulpea-note-title-source note) 'filename)))))
+
 (ert-deftest vulpea-db-extract-parse-with-readonly-buffer ()
   "Test that parsing succeeds when parse buffer has read-only text properties.
 This simulates the scenario where org-transclusion (or similar packages)
