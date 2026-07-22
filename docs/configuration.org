@@ -70,7 +70,7 @@ Default: first entry in =vulpea-db-sync-directories=
 
 Default: =~/.emacs.d/vulpea.db=
 
-** Id Input Resolution
+** Matching Notes by Id
 
 Note ids are matchable in =vulpea-find= and =vulpea-insert= completion:
 each candidate carries its id as an invisible suffix, so typing or
@@ -79,16 +79,6 @@ guide). To drop ids from matching:
 
 #+begin_src emacs-lisp
 (setq vulpea-select-match-ids nil)
-#+end_src
-
-Default: =t=
-
-As a backstop, input that still comes back unmatched but is exactly
-the id of an existing note resolves to that note instead of becoming a
-new-note title. To turn that off:
-
-#+begin_src emacs-lisp
-(setq vulpea-resolve-id-input nil)
 #+end_src
 
 Default: =t=
