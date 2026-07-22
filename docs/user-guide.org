@@ -37,26 +37,19 @@ M-x vulpea-find RET person:lectia RET
 The id is carried invisibly: it is in the candidate string so
 completion can match it, but hidden so it never clutters the list -
 the same idea as tags and aliases being matchable. Typing an id
-narrows the list to that note as you go; how much you must type
-depends on your =completion-styles= (interior styles like =substring=,
-=flex= or =orderless= match an id anywhere in the candidate, a strict
-prefix style only from the start). Set =vulpea-select-match-ids= to nil
-to drop ids from matching.
-
-As a backstop, a fully typed id that still comes back unmatched (say
-your completion style would not narrow to it, or you submit the raw
-input) is resolved before the "create new note" path: it visits or
-links the existing note instead of starting a new one titled like the
-id. Titles keep priority - this runs only when nothing in the
-completion list matched. Set =vulpea-resolve-id-input= to nil to turn
-that off and treat unmatched input strictly as a new-note title.
+narrows the list to that note as you go, and you then select the note
+like any other candidate. How much you must type depends on your
+=completion-styles=, the same as for tags and aliases: interior styles
+like =substring=, =flex= or =orderless= match an id anywhere in the
+candidate, a strict prefix style only from the start. Set
+=vulpea-select-match-ids= to nil to drop ids from matching.
 
 For =vulpea-insert= the link description follows the usual rule: the
 region text when a region is active, otherwise
 =vulpea-insert-default-description-fn= (the note title by default).
 The =id:= target is always kept behind a description, so the raw id is
-never shown. When the resolved note is untitled its title is the file
-base name, which may be noise - point the function at the id (a good
+never shown. When the note is untitled its title is the file base
+name, which may be noise - point the function at the id (a good
 description when ids are structured like =person:lectia=) or at a
 combination of both:
 
@@ -70,11 +63,8 @@ combination of both:
         (format "%s (%s)" (vulpea-note-title note) (vulpea-note-id note))))
 #+end_src
 
-This function applies to every =vulpea-insert=, not just id
-resolution. Return an empty string from it to insert a bare id link.
-
-Set =vulpea-resolve-id-input= to nil to turn resolution off and treat
-unmatched input strictly as a new-note title.
+This function applies to every =vulpea-insert=. Return an empty string
+from it to insert a bare id link.
 
 ** vulpea-find-backlink
 
@@ -625,9 +615,9 @@ written down (keyword or heading) - useful in your own queries.
 
 Hidden notes still need to be reachable: they are one backlink away
 from the notes that link to them, and =vulpea-db-get-by-id= always
-works. On top of that, a fully typed id resolves right in
-=vulpea-find= and =vulpea-insert= (see [[*Selecting by Id][Selecting by Id]]), so a hidden
-note is one paste away - and since its file-name title is a poor link
+works. On top of that, ids are matchable in =vulpea-find= and
+=vulpea-insert= completion (see [[*Selecting by Id][Selecting by Id]]), so a hidden note is a
+typed id away - and since its file-name title is a poor link
 description, point =vulpea-insert-default-description-fn= at the id or
 your own function so the description is more than the file name.
 
