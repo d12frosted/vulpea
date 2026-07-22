@@ -111,7 +111,15 @@ For scripts or custom commands:
                nil
                :meta '(("author" . "Jane Smith")
                        ("rating" . "4")))
+
+;; Without a title: no #+title line is written, the note's title
+;; falls back to the file base name (here "scratch")
+(vulpea-create nil "scratch.org")
 #+end_src
+
+Passing nil as the title works only for file-level notes and needs a
+file name that does not depend on the title - see [[*Untitled
+Micro-Notes][Untitled Micro-Notes]] for the full story.
 
 ** Under Existing Notes
 
@@ -499,6 +507,70 @@ Integrate with org-capture for quick note creation:
                   (vulpea-create "Quick Note"))))
          "%?")))
 #+end_src
+
+** Untitled Micro-Notes
+
+Some notes have no meaningful title: quick capture scratchpads, daily
+logs, contact cards where the file name is a structured id like
+=person-lectia.org=. Vulpea treats these as first class instead of
+forcing a sentinel title. Every note records where its title came from
+(=vulpea-note-title-source=: =keyword= for =#+title=, =heading= for
+heading text, =filename= for the fallback), so "this note is
+anonymous" is a fact about the note, not a magic title value.
+
+Create one by passing nil to =vulpea-create=. No =#+title= line is
+written; the title you see in queries and completion falls back to the
+file base name:
+
+#+begin_src emacs-lisp
+(vulpea-create nil "inbox/note.org" :tags '("inbox"))
+#+end_src
+
+One wrinkle: without a title, a file-name template referencing
+=${title}= or =${slug}= cannot expand (the stock default template
+references both), so pass an explicit file name as above or use a
+title-free template:
+
+#+begin_src emacs-lisp
+(vulpea-create nil nil :tags '("inbox"))  ; with this template it works
+;; (setq vulpea-create-default-template '(:file-name "inbox/${timestamp}.org"))
+#+end_src
+
+To create micro-notes straight from =vulpea-insert=, plug untitled
+creation into =:note-fn= (see [[*From vulpea-insert][From vulpea-insert]]). Here the typed text
+becomes the file name, the note itself stays untitled, and the
+inserted link picks up the file base name as its description:
+
+#+begin_src emacs-lisp
+(setq vulpea-insert-default-note-fn
+      (lambda (title &optional _props)
+        (vulpea-create nil (format "contacts/%s.org" title))))
+#+end_src
+
+By default untitled notes show up in completion under their file-name
+title - deliberately named files are a legitimate setup, so nothing is
+hidden unless you ask. When the file names are noise (timestamps,
+structured ids), hide them opt-in:
+
+#+begin_src emacs-lisp
+(setq vulpea-find-default-filter #'vulpea-note-titled-p
+      vulpea-insert-default-filter #'vulpea-note-titled-p)
+#+end_src
+
+=vulpea-note-titled-p= drops only notes whose title is /known/ to come
+from the file name. A note with unknown provenance (say, constructed
+by hand in a test or a custom tool) is never hidden. The stricter
+=vulpea-note-title-explicit-p= is non-nil only when the title was
+written down (keyword or heading) - useful in your own queries.
+
+Hidden notes still need to be reachable: they are one backlink away
+from the notes that link to them, and =vulpea-db-get-by-id= always
+works. Selecting notes by id in =vulpea-find= and =vulpea-insert= is
+planned in [[https://github.com/d12frosted/vulpea/issues/400][vulpea#400]].
+
+Adding a title later is just writing the =#+title= keyword: on the
+next sync the source flips to =keyword= and the note surfaces in
+completion again.
 
 * Next Steps
 
