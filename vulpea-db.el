@@ -156,7 +156,7 @@ Example:
 
 ;;; Constants
 
-(defconst vulpea-db-version 4
+(defconst vulpea-db-version 5
   "Current database schema version.
 
 Bumping this triggers a full database rebuild (the file is deleted
@@ -199,7 +199,11 @@ notes are preserved.")
       (attach-dir)
       (file-title)                  ; Title of file containing this note
       (created-at)
-      (modified-at :not-null)]
+      (modified-at :not-null)
+      ;; Where title came from: keyword | heading | filename.
+      ;; Nullable: nil means unknown, not untitled.  New columns are
+      ;; only ever appended - rows are decoded positionally.
+      (title-source)]
      (:unique [path level pos]))
 
     ;; Normalized tables for efficient filtering
@@ -575,7 +579,8 @@ indexing files with many notes (issue #359)."
                                        properties tags aliases meta links
                                        todo priority scheduled deadline
                                        closed category outline-path attach-dir
-                                       file-title created-at modified-at)
+                                       file-title created-at modified-at
+                                       title-source)
   "Insert note into database.
 
 Updates both materialized notes table and normalized tables.
@@ -602,7 +607,9 @@ Arguments:
   ATTACH-DIR - attachment directory
   FILE-TITLE - title of the file containing this note
   CREATED-AT - creation timestamp
-  MODIFIED-AT - modification timestamp"
+  MODIFIED-AT - modification timestamp
+  TITLE-SOURCE - where the title comes from: symbol `keyword',
+    `heading' or `filename'; nil when unknown"
   ;; All inserts use OR IGNORE: emacsql-sqlite-builtin silently
   ;; dropped constraint-violating statements (sqlite-select swallows
   ;; step errors), so messy data - duplicate IDs, duplicate property
@@ -619,8 +626,8 @@ Arguments:
        "INSERT OR IGNORE INTO notes (id, path, level, pos, title, properties, tags,
                            aliases, meta, links, todo, priority, scheduled,
                            deadline, closed, category, outline_path, attach_dir,
-                           file_title, created_at, modified_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+                           file_title, created_at, modified_at, title_source)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
        (list
         (list id path level pos title
               (vulpea-db--encode-note-column :properties properties)
@@ -630,7 +637,7 @@ Arguments:
               (vulpea-db--encode-note-column :links links)
               todo priority scheduled deadline closed category
               outline-path attach-dir file-title
-              created-at modified-at)))
+              created-at modified-at title-source)))
 
       ;; 2-5. Insert into normalized tables
       (vulpea-db--insert-tag-rows handle id tags)
@@ -710,7 +717,8 @@ encoded to their JSON string; any other field is stored as is."
     (:outline-path . "outline_path")
     (:attach-dir . "attach_dir")
     (:file-title . "file_title")
-    (:created-at . "created_at"))
+    (:created-at . "created_at")
+    (:title-source . "title_source"))
   "Mapping of updatable note-data fields to notes table columns.
 Identity fields (:id, :path, :level, :pos) are deliberately absent -
 they anchor foreign keys and the file association and must not be

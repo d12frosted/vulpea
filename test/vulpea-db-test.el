@@ -129,6 +129,48 @@ https://github.com/d12frosted/vulpea/issues/389"
     (should (equal "journal"
                    (vulpea-note-category (vulpea-db-get-by-id "cat-id"))))))
 
+(ert-deftest vulpea-db-insert-note-title-source-round-trip ()
+  "Title source is stored in the notes table and decoded back.
+https://github.com/d12frosted/vulpea/issues/399"
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-db--insert-note
+     :id "ts-id"
+     :path "/tmp/ts.org"
+     :level 0
+     :pos 0
+     :title "Titled"
+     :title-source 'keyword
+     :modified-at "2025-11-16 10:00:00")
+
+    ;; Raw column
+    (should (eq 'keyword
+                (caar (emacsql (vulpea-db)
+                               [:select [title-source] :from notes
+                                :where (= id $s1)]
+                               "ts-id"))))
+    ;; Decoded struct
+    (should (eq 'keyword
+                (vulpea-note-title-source (vulpea-db-get-by-id "ts-id"))))))
+
+(ert-deftest vulpea-db-insert-note-title-source-nil ()
+  "A note inserted without title source decodes with a nil slot.
+Nil means unknown, not untitled; the column is nullable so
+hand-inserted rows stay representable.
+https://github.com/d12frosted/vulpea/issues/399"
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-db--insert-note
+     :id "ts-nil-id"
+     :path "/tmp/ts-nil.org"
+     :level 0
+     :pos 0
+     :title "Mystery"
+     :modified-at "2025-11-16 10:00:00")
+
+    (should (null (vulpea-note-title-source
+                   (vulpea-db-get-by-id "ts-nil-id"))))))
+
 (ert-deftest vulpea-db-insert-note-normalized-tables ()
   "Test note insertion populates normalized tables."
   (vulpea-test--with-temp-db

@@ -709,9 +709,13 @@ FILE-CATEGORY is the resolved file-level category (see
 `vulpea-db--file-category').
 
 Returns plist with:
-  :id :title :aliases :tags :links :properties :meta
+  :id :title :title-source :aliases :tags :links :properties :meta
   :todo :priority :scheduled :deadline :closed :category
   :attach-dir :file-title
+
+:title-source records where the title comes from: symbol `keyword'
+when a #+TITLE keyword is present, `filename' when the title fell
+back to the file base name.
 
 Returns nil if:
 - File has no ID property in property drawer
@@ -760,6 +764,10 @@ Returns nil if:
                           (vulpea-db--attach-dir-props-p buffer))))
         (list :id id
               :title file-title
+              ;; title-kw is the same first TITLE keyword that
+              ;; `vulpea-db--extract-file-title' consulted, so title
+              ;; and source can never disagree
+              :title-source (if title-kw 'keyword 'filename)
               :aliases aliases
               :tags filetags
               :links links
@@ -946,6 +954,7 @@ Respects `vulpea-db-index-heading-level' setting."
                         :level level
                         :pos pos
                         :title title
+                        :title-source 'heading
                         :aliases (vulpea-db--extract-aliases properties)
                         :tags tags
                         :links links
@@ -1504,6 +1513,7 @@ links) are populated.  Used to present the note to
    :path path
    :level level
    :title (plist-get data :title)
+   :title-source (plist-get data :title-source)
    :tags (plist-get data :tags)
    :aliases (plist-get data :aliases)
    :meta (plist-get data :meta)
@@ -1659,7 +1669,7 @@ Returns number of notes written (file-level + headings)."
 (defconst vulpea-db--extractor-persisted-fields
   '(:title :properties :tags :aliases :meta :links :todo :priority
     :scheduled :deadline :closed :category :outline-path :attach-dir
-    :file-title)
+    :file-title :title-source)
   "Note-data fields whose extractor-made changes are persisted.
 When an extractor changes one of these in the note-data plist, the
 change is written back to the notes row (and, for fields with a
@@ -1705,7 +1715,8 @@ registered."
      :attach-dir (plist-get data :attach-dir)
      :file-title (plist-get data :file-title)
      :created-at created-at
-     :modified-at modified-at)
+     :modified-at modified-at
+     :title-source (plist-get data :title-source))
 
     ;; Then run extractors that may insert into foreign-keyed tables
     (when vulpea-db--extractors
