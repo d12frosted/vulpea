@@ -1922,6 +1922,92 @@ note's title as the link description."
         (should (equal (buffer-string)
                        "[[id:note-fn-id][region text]]"))))))
 
+;;;; Link Description Tests (vulpea#400)
+
+(ert-deftest vulpea-insert-description-fn-default-is-title ()
+  "Test that the default link description is the note title.
+
+An existing note selected from completion is linked with its
+title as the description, and `vulpea-insert-handle-functions'
+run with that note."
+  (let ((note (make-vulpea-note :id "person:lectia" :title "Lectia" :level 0))
+        (handled nil))
+    (cl-letf (((symbol-function 'vulpea-select-from)
+               (lambda (_prompt _notes &rest _) note)))
+      (let ((vulpea-insert-handle-functions
+             (list (lambda (n) (setq handled n)))))
+        (with-temp-buffer
+          (org-mode)
+          (vulpea-insert :candidates-fn (lambda (_) nil))
+          (should (equal (buffer-string) "[[id:person:lectia][Lectia]]"))
+          (should (eq handled note)))))))
+
+(ert-deftest vulpea-insert-description-fn-can-use-id ()
+  "Test that `vulpea-insert-default-description-fn' can return the id.
+
+For structured ids the id itself is a better description than a
+file-name title, and a one-liner override achieves that."
+  (let ((note (make-vulpea-note :id "person:lectia" :title "scratch" :level 0))
+        (vulpea-insert-default-description-fn #'vulpea-note-id))
+    (cl-letf (((symbol-function 'vulpea-select-from)
+               (lambda (_prompt _notes &rest _) note)))
+      (with-temp-buffer
+        (org-mode)
+        (vulpea-insert :candidates-fn (lambda (_) nil))
+        (should (equal (buffer-string)
+                       "[[id:person:lectia][person:lectia]]"))))))
+
+(ert-deftest vulpea-insert-description-fn-empty-gives-bare-link ()
+  "Test that a description function returning empty inserts a bare link."
+  (let ((note (make-vulpea-note :id "abc" :title "scratch" :level 0))
+        (vulpea-insert-default-description-fn (lambda (_note) "")))
+    (cl-letf (((symbol-function 'vulpea-select-from)
+               (lambda (_prompt _notes &rest _) note)))
+      (with-temp-buffer
+        (org-mode)
+        (vulpea-insert :candidates-fn (lambda (_) nil))
+        (should (equal (buffer-string) "[[id:abc]]"))))))
+
+(ert-deftest vulpea-insert-region-wins-over-description-fn ()
+  "Test that an active region beats the description function.
+
+The region text becomes the description, and the description
+function is not consulted."
+  (let ((note (make-vulpea-note :id "abc" :title "scratch" :level 0))
+        (vulpea-insert-default-description-fn
+         (lambda (_note)
+           (error "Must not consult description-fn when region is active"))))
+    (cl-letf (((symbol-function 'vulpea-select-from)
+               (lambda (_prompt _notes &rest _) note)))
+      (let ((transient-mark-mode t))
+        (with-temp-buffer
+          (org-mode)
+          (insert "that thought")
+          (push-mark (point-min) t t)
+          (goto-char (point-max))
+          (vulpea-insert :candidates-fn (lambda (_) nil))
+          (should (equal (buffer-string)
+                         "[[id:abc][that thought]]")))))))
+
+(ert-deftest vulpea-insert-untitled-note-keeps-file-name-title ()
+  "Test that an untitled note is linked with its file-name title.
+
+The default description function is the note title, which for an
+untitled note is the file base name."
+  (vulpea-test--with-temp-db-and-file "20260722T120000" "Some fleeting thought."
+    (let ((note (vulpea-db-get-by-id "20260722T120000")))
+      (should note)
+      ;; sanity: the note really is untitled (filename-derived title)
+      (should-not (vulpea-note-titled-p note))
+      (cl-letf (((symbol-function 'vulpea-select-from)
+                 (lambda (_prompt _notes &rest _) note)))
+        (with-temp-buffer
+          (org-mode)
+          (vulpea-insert :candidates-fn (lambda (_) nil))
+          (should (equal (buffer-string)
+                         (format "[[id:20260722T120000][%s]]"
+                                 (vulpea-note-title note)))))))))
+
 ;;; Title Propagation Tests
 
 ;;;; Link Categorization Tests

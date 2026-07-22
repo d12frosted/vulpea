@@ -48,6 +48,28 @@ Accepts a `vulpea-note'. Returns a `string'.")
 
 Accepts a `vulpea-note'. Returns a `string'.")
 
+(defvar vulpea-select-match-ids t
+  "When non-nil, note ids are matchable in selection completion.
+
+Each candidate built by `vulpea-select-describe' carries the note
+id as an invisible suffix: it is part of the candidate string, so
+typing or pasting an id (or part of one) narrows completion to
+that note, but it is hidden from display so it never clutters the
+list. The id is kept in the matchable string itself rather than
+shown only as an annotation, the same way tags and aliases are.
+
+This makes ids interactive handles alongside titles in
+`vulpea-find' and `vulpea-insert', which matters when ids are
+structured and meaningful (person:lectia) while titles are
+incidental or absent (see `vulpea-note-titled-p'). How much of an
+id you must type to narrow depends on your `completion-styles', the
+same as for tags and aliases: interior styles (substring, flex,
+orderless) match an id anywhere in the candidate, while a strict
+prefix style only matches from the start.
+
+Set to nil to drop ids from matching, e.g. if opaque ids produce
+surprising matches.")
+
 (defvar vulpea-select-dyncontext-fn nil
   "Function computing a shared context for the current selection.
 
@@ -83,15 +105,24 @@ are unaffected.")
 CONTEXT is the optional shared value produced by
 `vulpea-select-dyncontext-fn'. It is forwarded as the second argument to
 `vulpea-select-describe-fn' and `vulpea-select-annotate-fn' when they
-accept one."
-  (propertize
-   (concat
-    (vulpea-select--funcall vulpea-select-describe-fn note context)
+accept one.
+
+When `vulpea-select-match-ids' is non-nil, the note id is appended
+as an invisible, matchable suffix so an id can be typed or pasted
+to narrow completion. The suffix is added here, around any custom
+`vulpea-select-describe-fn', so it is present regardless of how
+candidates are displayed."
+  (let ((id (vulpea-note-id note)))
     (propertize
-     (vulpea-select--funcall vulpea-select-annotate-fn note context)
-     'face 'completions-annotations))
-   'vulpea-note-id
-   (vulpea-note-id note)))
+     (concat
+      (vulpea-select--funcall vulpea-select-describe-fn note context)
+      (propertize
+       (vulpea-select--funcall vulpea-select-annotate-fn note context)
+       'face 'completions-annotations)
+      (when (and vulpea-select-match-ids id)
+        (propertize (concat " " id) 'invisible t)))
+     'vulpea-note-id
+     id)))
 
 (defun vulpea-select-annotate (note)
   "Annotate a NOTE for completion."
