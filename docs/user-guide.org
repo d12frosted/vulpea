@@ -625,6 +625,79 @@ Adding a title later is just writing the =#+title= keyword: on the
 next sync the source flips to =keyword= and the note surfaces in
 completion again.
 
+** Grouping Notes by Tag or Content
+
+The [[*Untitled Micro-Notes][micro-notes recipe]] above made single notes untitled. The same
+idea scales to a whole group of them: a stream of small notes whose
+identity is a shared tag or some shared content, never a title. A
+ledger is the classic shape - a pile of entries you keep adding to,
+query as a set, and rarely open one by name.
+
+Capture the stream straight from =vulpea-insert= by pointing
+=vulpea-insert-default-note-fn= (see [[*From vulpea-insert][From vulpea-insert]]) at an untitled
+=vulpea-create= that stamps the shared tag. Each entry lands under a
+common directory, carries the =ledger= tag, and writes no =#+title=:
+
+#+begin_src emacs-lisp
+(setq vulpea-insert-default-note-fn
+      (lambda (title &optional _props)
+        (vulpea-create nil
+                       (format "ledger/%s.org" title)
+                       :tags '("ledger"))))
+#+end_src
+
+The typed text is only the file name here; the =ledger= tag is what
+ties the entries together. Hide the stream from title completion the
+same way the micro-notes recipe does, with =vulpea-note-titled-p= as
+=vulpea-find-default-filter= and =vulpea-insert-default-filter=, so it
+never clutters the list.
+
+Now work with the whole set at once. The tag is indexed, so pulling
+the group is one cheap query:
+
+#+begin_src emacs-lisp
+;; every ledger entry, titles never enter into it
+(vulpea-db-query-by-tags-some '("ledger"))
+
+;; count them or collect their ids - identity is the id and the tag
+(mapcar #'vulpea-note-id
+        (vulpea-db-query-by-tags-some '("ledger")))
+#+end_src
+
+The grouping key does not have to be a tag. When it lives in the
+body - say every entry holds a =#+begin_src ledger= block - group by
+content instead. Content is not in the database, so =vulpea-db-query=
+runs your predicate over each note in Elisp; here it reads the file
+and looks for the block:
+
+#+begin_src emacs-lisp
+(vulpea-db-query
+ (lambda (note)
+   (with-temp-buffer
+     (insert-file-contents (vulpea-note-path note))
+     (goto-char (point-min))
+     (re-search-forward "^[ \t]*#\\+begin_src ledger" nil t))))
+#+end_src
+
+This reads every note file, so reach for a tag when you can: the tag
+query uses the index and touches no files. Content matching is the
+fallback for a group defined by what a note contains rather than by a
+label you attached.
+
+Reaching one entry is by id, not by title. The entries are hidden
+from completion and their file-name titles are noise, but ids stay
+matchable in =vulpea-find= and =vulpea-insert= (see [[*Selecting by Id][Selecting by Id]]), so a
+full id typed or pasted narrows to the entry. The file-name title also
+makes a poor link description, so use the id there too:
+
+#+begin_src emacs-lisp
+(setq vulpea-insert-default-description-fn #'vulpea-note-id)
+#+end_src
+
+The title stayed out of the loop the whole way: a tag or the content
+defines the group, an id reaches a member, and a query aggregates it.
+None of it went through a title.
+
 * Next Steps
 
 - [[file:configuration.org][Configuration]] - All options and performance tuning
