@@ -478,7 +478,12 @@ title.
 
 These defaults seed file-level note creation only.  When
 `vulpea-create' is called with a non-nil `:parent' (a heading-level
-note), this function is not called and no defaults are applied."
+note), this function is not called and no defaults are applied.
+
+When `vulpea-create' is called with a nil TITLE (an untitled note,
+see vulpea#399), this function receives nil - account for that if
+you opt into untitled creation.  A returned `:title' still wins and
+turns the note into a regular titled one."
   :type '(choice (const :tag "Use template instead" nil)
           (function :tag "Function returning plist"))
   :group 'vulpea)
@@ -698,8 +703,12 @@ substituted value such as TITLE or a CONTEXT value.  This keeps
 untrusted data (e.g. a note title) from being executed as code.
 
 Note: Does not support %a (annotation) or %i (initial content)
-from org-capture as they don't make sense for programmatic creation."
-  (let* ((slug (vulpea-title-to-slug title))
+from org-capture as they don't make sense for programmatic creation.
+
+TITLE may be nil (untitled notes, see vulpea#399); a template
+referencing ${title} or ${slug} then signals `user-error', since
+there is nothing to substitute."
+  (let* ((slug (when title (vulpea-title-to-slug title)))
          (timestamp (format-time-string "%Y%m%d%H%M%S"))
          (id (or id (org-id-new)))
          (result template))
@@ -736,9 +745,16 @@ from org-capture as they don't make sense for programmatic creation."
 
     ;; Expand ${var} placeholders.  Done AFTER directive expansion so
     ;; substituted values are never re-scanned for %(...) or %<...>.
+    (if title
+        (setq result (thread-last result
+                                  (s-replace "${title}" title)
+                                  (s-replace "${slug}" slug)))
+      (when (or (s-contains-p "${title}" result)
+                (s-contains-p "${slug}" result))
+        (user-error
+         "Cannot expand %S: ${title} and ${slug} are unavailable for a note without a title; pass an explicit file name or use a title-free template"
+         template)))
     (setq result (thread-last result
-                              (s-replace "${title}" title)
-                              (s-replace "${slug}" slug)
                               (s-replace "${timestamp}" timestamp)
                               (s-replace "${id}" id)))
 
@@ -771,8 +787,10 @@ Returns absolute file path."
 (defun vulpea--format-note-content (id title &optional head meta tags properties)
   "Format note content for `org-capture' template.
 
-ID and TITLE are required. Optional: HEAD, META (alist), TAGS (list),
-PROPERTIES (alist)."
+ID is required.  TITLE may be nil for an untitled note (see
+vulpea#399): no `#+title' line is written at all, so extraction
+falls back to the file base name with title-source `filename'.
+Optional: HEAD, META (alist), TAGS (list), PROPERTIES (alist)."
   (string-join
    (append
     (list
@@ -784,9 +802,9 @@ PROPERTIES (alist)."
                (concat ":" (car prop) ":")
                (cdr prop)))
      properties)
-    (list
-     ":END:"
-     (format "#+title: %s" title))
+    (list ":END:")
+    (when title
+      (list (format "#+title: %s" title)))
     (when tags
       (list (concat "#+filetags: :"
                     (string-join tags ":")
@@ -1332,11 +1350,23 @@ PROPERTIES values, and META values:
 
 Note: Does not support %a or %i from org-capture.
 
-TITLE must be a string; signals `user-error' otherwise.  Notes
-without titles are not supported (see vulpea#379)."
-  (unless (stringp title)
+TITLE must be a string, or nil to create an untitled file-level
+note (see vulpea#399): no `#+title' line is written, so extraction
+falls back to the file base name and records title-source
+`filename'.  The returned note mirrors that post-extraction state.
+With a nil TITLE the file name template cannot reference ${title}
+or ${slug} - pass an explicit FILE-NAME or use a title-free
+template; a clear `user-error' is signaled otherwise (same for a
+:file-name function template, which is then called with nil, and
+for `vulpea-create-default-function').  When PARENT is provided,
+TITLE stays mandatory - the heading text is the title - and any
+non-string signals `user-error' (see vulpea#379)."
+  (unless (or (stringp title)
+              (and (null title) (not parent)))
     (user-error
-     "Note title must be a string, got %S; notes without titles are not supported"
+     (if parent
+         "Heading note title must be a string, got %S; the heading text is the title, so heading-level notes cannot be untitled"
+       "Note title must be a string or nil, got %S")
      title))
   (let* ((id (or id (org-id-new)))
          (context (or context nil)))
@@ -1351,6 +1381,7 @@ without titles are not supported (see vulpea#379)."
 (defun vulpea--create-file (title file-name id head meta body tags properties context)
   "Create a file-level note with TITLE.
 
+TITLE may be nil for an untitled note (see `vulpea-create').
 FILE-NAME, ID, HEAD, META, BODY, TAGS, PROPERTIES, and CONTEXT
 are as documented in `vulpea-create'."
   ;; Get defaults from function or template
