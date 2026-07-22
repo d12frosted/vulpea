@@ -1357,6 +1357,12 @@ EXISTING-FILES is a list of absolute paths known to exist on disk
 \(typically from an fd/find subprocess).  This avoids per-file
 `file-exists-p' calls by comparing against the known set.
 
+A tracked path missing from the set is rechecked on disk before it is
+deleted: EXISTING-FILES is a snapshot, and a file indexed after it was
+taken is live yet absent from it.  An untracked path is removed whether
+or not it exists, since a file outside the synced directories is gone
+as far as the database is concerned.
+
 Returns count of removed files."
   (vulpea-db-sync--purge-denormalized-rows)
   (let* ((db (vulpea-db))
@@ -1371,7 +1377,9 @@ Returns count of removed files."
       (puthash (vulpea-db-normalize-path f) t existing-set))
     (emacsql-with-transaction db
       (dolist (path all-paths)
-        (unless (gethash path existing-set)
+        (unless (or (gethash path existing-set)
+                    (and (vulpea-db-sync-tracked-file-p path)
+                         (file-exists-p path)))
           (vulpea-db--forget-file path)
           (setq deleted (1+ deleted)))))
     (vulpea-db--flush-removal-announcements)
