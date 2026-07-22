@@ -867,6 +867,10 @@ When REQUIRE-MATCH is nil user may select a non-existent note,
 which is then created via CREATE-FN. When non-nil, only existing
 notes may be selected.
 
+A note can be selected by typing its id: ids are matchable in
+completion (see `vulpea-select-match-ids'), which makes them handy
+handles when titles are incidental or absent (vulpea#400).
+
 When EXPAND-ALIASES is non-nil (the default), each note with
 aliases will appear multiple times in the completion list - once
 for the original title and once for each alias."
@@ -1031,14 +1035,46 @@ Each function accepts a note that was inserted via
 The current point is the point of the new node. The hooks must
 not move the point.")
 
+(defvar vulpea-insert-default-description-fn #'vulpea-note-title
+  "Function computing the link description in `vulpea-insert'.
+
+Called with the inserted `vulpea-note' and returns the string
+used as the description of the inserted id link. A selected
+region always wins over this function; taking the value from the
+note otherwise means a title rewritten during creation (e.g. by
+`vulpea-create-default-function') is respected. The default uses
+the note title.
+
+The id is always the link target, so it stays hidden behind
+whatever description this returns - and it is available as a
+description itself. For a note without an explicit title (see
+`vulpea-note-titled-p') the title falls back to the file base
+name, which may be noise; you might then prefer the id or a
+combination:
+
+  ;; use the id (handy for structured ids like person:lectia)
+  (setq vulpea-insert-default-description-fn #\\='vulpea-note-id)
+
+  ;; title and id together
+  (setq vulpea-insert-default-description-fn
+        (lambda (note)
+          (format \"%s (%s)\"
+                  (vulpea-note-title note)
+                  (vulpea-note-id note))))
+
+Return nil or an empty string to insert a bare id link with no
+description.")
+
 (defun vulpea--insert-note-link (note region-text beg end)
   "Insert a link to NOTE at point and run insert hooks.
 
 When REGION-TEXT is non-nil, the region between markers BEG and
 END is deleted first and REGION-TEXT becomes the link
-description; otherwise the title of NOTE is used. Taking the
-description from NOTE itself means a title rewritten during
-creation (e.g. by `vulpea-create-default-function') is respected.
+description. Otherwise the description is computed by
+`vulpea-insert-default-description-fn' (the title of NOTE by
+default); when it returns nil or an empty string a bare id link
+is inserted.
+
 After the link is inserted, `vulpea-insert-handle-functions' are
 called with NOTE."
   (when region-text
@@ -1047,7 +1083,8 @@ called with NOTE."
     (set-marker end nil))
   (insert (org-link-make-string
            (concat "id:" (vulpea-note-id note))
-           (or region-text (vulpea-note-title note))))
+           (or region-text
+               (funcall vulpea-insert-default-description-fn note))))
   (run-hook-with-args 'vulpea-insert-handle-functions note))
 
 ;;;###autoload
@@ -1089,6 +1126,14 @@ Passing both NOTE-FN and CREATE-FN is an error. An explicit
 argument beats both default variables; when only the defaults are
 set, `vulpea-insert-default-note-fn' wins over
 `vulpea-insert-default-create-fn'.
+
+A note can be selected by typing its id: ids are matchable in
+completion (see `vulpea-select-match-ids'), which makes them handy
+handles when titles are incidental or absent (vulpea#400). The
+link description of the inserted note is the region text when a
+region is active, otherwise the value of
+`vulpea-insert-default-description-fn', which defaults to the note
+title.
 
 When EXPAND-ALIASES is non-nil (the default), each note with
 aliases will appear multiple times in the completion list - once

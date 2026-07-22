@@ -70,6 +70,46 @@ Default: first entry in =vulpea-db-sync-directories=
 
 Default: =~/.emacs.d/vulpea.db=
 
+** Id Input Resolution
+
+Note ids are matchable in =vulpea-find= and =vulpea-insert= completion:
+each candidate carries its id as an invisible suffix, so typing or
+pasting an id narrows to that note (see [[file:user-guide.org::*Selecting by Id][Selecting by Id]] in the user
+guide). To drop ids from matching:
+
+#+begin_src emacs-lisp
+(setq vulpea-select-match-ids nil)
+#+end_src
+
+Default: =t=
+
+As a backstop, input that still comes back unmatched but is exactly
+the id of an existing note resolves to that note instead of becoming a
+new-note title. To turn that off:
+
+#+begin_src emacs-lisp
+(setq vulpea-resolve-id-input nil)
+#+end_src
+
+Default: =t=
+
+** Insert Link Description
+
+=vulpea-insert= derives the link description of the note it inserts
+from =vulpea-insert-default-description-fn= (a selected region always
+wins over it). The default uses the note title. Override it to base
+the description on the id - useful when ids are structured
+(=person:lectia=) and titles are file-name noise - or on a
+combination:
+
+#+begin_src emacs-lisp
+(setq vulpea-insert-default-description-fn #'vulpea-note-id)
+#+end_src
+
+Return an empty string to insert a bare id link.
+
+Default: =vulpea-note-title=
+
 * Note Creation Templates
 
 Configure how new notes are created.

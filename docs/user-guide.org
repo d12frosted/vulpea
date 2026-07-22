@@ -18,7 +18,63 @@ This opens a completion interface showing all your notes. Type to filter, then s
 Features:
 - Searches titles and aliases
 - Shows tags in the completion display
+- Resolves a fully typed id to the existing note (see [[*Selecting by Id][Selecting by Id]])
 - Creates a new note if you enter a title that doesn't exist
+
+** Selecting by Id
+
+Titles are not the only interactive handle: every note's id is part of
+its completion candidate too, so you can type or paste an id to reach
+the note. Type it in =vulpea-find= and it visits the note; do the same
+in =vulpea-insert= and it links the note. This is most useful when ids
+are structured and meaningful while titles are incidental or absent -
+say contact cards with ids like =person:lectia= (see [[*Untitled Micro-Notes][Untitled Micro-Notes]]):
+
+#+begin_example
+M-x vulpea-find RET person:lectia RET
+#+end_example
+
+The id is carried invisibly: it is in the candidate string so
+completion can match it, but hidden so it never clutters the list -
+the same idea as tags and aliases being matchable. Typing an id
+narrows the list to that note as you go; how much you must type
+depends on your =completion-styles= (interior styles like =substring=,
+=flex= or =orderless= match an id anywhere in the candidate, a strict
+prefix style only from the start). Set =vulpea-select-match-ids= to nil
+to drop ids from matching.
+
+As a backstop, a fully typed id that still comes back unmatched (say
+your completion style would not narrow to it, or you submit the raw
+input) is resolved before the "create new note" path: it visits or
+links the existing note instead of starting a new one titled like the
+id. Titles keep priority - this runs only when nothing in the
+completion list matched. Set =vulpea-resolve-id-input= to nil to turn
+that off and treat unmatched input strictly as a new-note title.
+
+For =vulpea-insert= the link description follows the usual rule: the
+region text when a region is active, otherwise
+=vulpea-insert-default-description-fn= (the note title by default).
+The =id:= target is always kept behind a description, so the raw id is
+never shown. When the resolved note is untitled its title is the file
+base name, which may be noise - point the function at the id (a good
+description when ids are structured like =person:lectia=) or at a
+combination of both:
+
+#+begin_src emacs-lisp
+;; use the id
+(setq vulpea-insert-default-description-fn #'vulpea-note-id)
+
+;; title and id together
+(setq vulpea-insert-default-description-fn
+      (lambda (note)
+        (format "%s (%s)" (vulpea-note-title note) (vulpea-note-id note))))
+#+end_src
+
+This function applies to every =vulpea-insert=, not just id
+resolution. Return an empty string from it to insert a bare id link.
+
+Set =vulpea-resolve-id-input= to nil to turn resolution off and treat
+unmatched input strictly as a new-note title.
 
 ** vulpea-find-backlink
 
@@ -49,6 +105,8 @@ For notes that live in headings, two ready-made describe functions prefix the ti
 
 Because the whole =vulpea-note= is available, you can assemble any layout you like - directory, outline path, tags, timestamps, even a backlink count - into a single aligned row. See [[file:api-reference.org::*Customizing Selection Display][Customizing Selection Display]] in the API reference for a worked multi-column example, and note that the displayed text does not by itself change the order of candidates - sort the note list (e.g. by =vulpea-note-modified-at=) or let your completion framework sort if you want a specific order.
 
+Whatever =vulpea-select-describe-fn= builds, the note id is appended to each candidate as an invisible, matchable suffix so ids can be typed to narrow completion (see [[*Selecting by Id][Selecting by Id]]). It is added around your describe function, so it neither shows up in your layout nor needs handling there; =vulpea-select-match-ids= turns it off.
+
 Keep these functions cheap. They run once for every candidate when the finder opens, so heavy work - especially an extra database query per candidate - can make selection slow on large collections. If you need data that is expensive to compute, such as a backlink count, set =vulpea-select-dyncontext-fn=: it runs once per selection, returns a shared value (for example a counts table), and Vulpea hands that value to your describe/annotate functions as a second argument. See [[file:api-reference.org::*Shared context for the whole selection][Shared context for the whole selection]] in the API reference for the full pattern.
 
 Selection also reports a =vulpea-note= completion category, so completion UIs and their extensions (marginalia, embark, consult) can recognize note candidates and annotate or act on them. See [[file:api-reference.org::*Completion Category][Completion Category]].
@@ -70,6 +128,8 @@ See [[id:abc123][Selected Note Title]] for details.
 #+end_src
 
 If you type a title that doesn't exist, Vulpea offers to create a new note. See "From vulpea-insert" under Creating Notes for customizing how that note is created.
+
+Typing or pasting the full id of an existing note links that note instead of creating a new one - see [[*Selecting by Id][Selecting by Id]] for details, including how the link description is picked for untitled notes.
 
 * Creating Notes
 
@@ -565,8 +625,11 @@ written down (keyword or heading) - useful in your own queries.
 
 Hidden notes still need to be reachable: they are one backlink away
 from the notes that link to them, and =vulpea-db-get-by-id= always
-works. Selecting notes by id in =vulpea-find= and =vulpea-insert= is
-planned in [[https://github.com/d12frosted/vulpea/issues/400][vulpea#400]].
+works. On top of that, a fully typed id resolves right in
+=vulpea-find= and =vulpea-insert= (see [[*Selecting by Id][Selecting by Id]]), so a hidden
+note is one paste away - and since its file-name title is a poor link
+description, point =vulpea-insert-default-description-fn= at the id or
+your own function so the description is more than the file name.
 
 Adding a title later is just writing the =#+title= keyword: on the
 next sync the source flips to =keyword= and the note surfaces in

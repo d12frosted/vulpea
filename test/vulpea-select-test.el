@@ -177,6 +177,36 @@
     ;; Should have id property
     (should (equal (get-text-property 0 'vulpea-note-id described) "test-id"))))
 
+(ert-deftest vulpea-select-describe-id-is-matchable-and-invisible ()
+  "Test that the id is part of the candidate string but hidden.
+
+The id must be in the string content so completion can match it,
+and carry the `invisible' property so it is not displayed."
+  (let* ((note (make-vulpea-note
+                :id "person:lectia"
+                :title "Test Note"
+                :level 0))
+         (described (vulpea-select-describe note))
+         (idx (string-match (regexp-quote "person:lectia")
+                            (substring-no-properties described))))
+    ;; the id is part of the matchable string content
+    (should idx)
+    ;; and that portion is invisible
+    (should (get-text-property idx 'invisible described))
+    ;; while the visible title is not invisible
+    (should-not (get-text-property 0 'invisible described))))
+
+(ert-deftest vulpea-select-describe-id-matching-can-be-disabled ()
+  "Test that `vulpea-select-match-ids' nil drops the id from the string."
+  (let* ((vulpea-select-match-ids nil)
+         (note (make-vulpea-note
+                :id "person:lectia"
+                :title "Test Note"
+                :level 0))
+         (described (substring-no-properties (vulpea-select-describe note))))
+    (should (string-match-p "Test Note" described))
+    (should-not (string-match-p (regexp-quote "person:lectia") described))))
+
 (ert-deftest vulpea-select-annotate-with-tags ()
   "Test vulpea-select-annotate includes tags."
   (let* ((note (make-vulpea-note
@@ -214,7 +244,9 @@
 
 (ert-deftest vulpea-select-describe-backward-compatible-with-1-arg-fn ()
   "Passing a context must not break describe/annotate functions taking one arg."
-  (let* ((vulpea-select-describe-fn (lambda (note) (vulpea-note-title note)))
+  ;; This checks describe-fn plumbing, not the id suffix.
+  (let* ((vulpea-select-match-ids nil)
+         (vulpea-select-describe-fn (lambda (note) (vulpea-note-title note)))
          (vulpea-select-annotate-fn (lambda (_note) ""))
          (note (make-vulpea-note :id "x" :title "Title" :level 0)))
     (should (equal (substring-no-properties (vulpea-select-describe note "CTX"))
@@ -431,7 +463,9 @@
 
 (ert-deftest vulpea-select-completion-table-exposes-category ()
   "Test that the completion table reports the `vulpea-note' category."
-  (let* ((note (make-vulpea-note :id "id1" :title "One" :level 0))
+  ;; Assert the plain candidate; the id suffix has its own tests.
+  (let* ((vulpea-select-match-ids nil)
+         (note (make-vulpea-note :id "id1" :title "One" :level 0))
          (table (vulpea-select--completion-table
                  (list (cons (vulpea-select-describe note) note)))))
     ;; metadata reports the vulpea-note category
