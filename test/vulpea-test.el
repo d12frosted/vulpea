@@ -2720,6 +2720,801 @@ move it, which is the common case rather than an edge one."
         (should (seq-every-p (lambda (dir) (string-suffix-p "/" dir))
                              dirs))))))
 
+;;;; Heading Split Tests (#343)
+
+(defvar vulpea-test--split-source-content
+  (concat ":PROPERTIES:\n:ID: split-file-id\n:END:\n"
+          "#+TITLE: Source Note\n"
+          "#+FILETAGS: :ftag:\n"
+          "\n"
+          "Preamble body.\n"
+          "\n"
+          "* Section :stag:\n"
+          ":PROPERTIES:\n:ID: split-section-id\n:CUSTOM: kept\n:END:\n"
+          "- key :: value\n"
+          "\n"
+          "Section body.\n"
+          "\n"
+          "** Child One\n"
+          ":PROPERTIES:\n:ID: split-child-id\n:END:\n"
+          "Child body.\n"
+          "\n"
+          "*** Grandchild\n"
+          "Deep body.\n"
+          "\n"
+          "* Sibling\n"
+          "Sibling body.\n")
+  "Source file used by the split tests.
+
+Holds a file-level note with an inheritable filetag, a heading note with
+its own tag, property, meta and body, a child note with its own id, an
+unindexed grandchild, and a sibling that must survive untouched.")
+
+(defmacro vulpea-test--with-split-fixture (&rest body)
+  "Execute BODY with a vault holding the split source file.
+
+Binds `root' (the vault and the only `vulpea-db-sync-directories'
+entry) and `source-path', indexes the source file and cleans up
+afterwards."
+  (declare (indent 0))
+  `(let* ((root (make-temp-file "vulpea-test-" t))
+          (vulpea-db-sync-directories (list root))
+          (source-path (expand-file-name "source_note.org" root)))
+     (unwind-protect
+         (progn
+           (with-temp-file source-path
+             (insert vulpea-test--split-source-content))
+           (vulpea-db-update-file source-path)
+           ,@body)
+       (dolist (buf (buffer-list))
+         (when-let* ((file (buffer-file-name buf)))
+           (when (string-prefix-p (file-name-as-directory root) file)
+             (with-current-buffer buf
+               (set-buffer-modified-p nil))
+             (kill-buffer buf))))
+       (when (file-directory-p root)
+         (delete-directory root t)))))
+
+(ert-deftest vulpea-split-heading-creates-file-note ()
+  "Splitting a heading produces a file-level note keeping its id."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-split-fixture
+      (let ((note (vulpea-split-heading "split-section-id")))
+        (should (vulpea-note-p note))
+        (should (equal (vulpea-note-id note) "split-section-id"))
+        (should (= (vulpea-note-level note) 0))
+        (should (equal (vulpea-note-title note) "Section"))
+        (should (equal (vulpea-note-path note)
+                       (expand-file-name "section.org" root)))
+        (should (file-exists-p (expand-file-name "section.org" root)))))))
+
+(ert-deftest vulpea-split-heading-removes-subtree-from-source ()
+  "The split subtree is gone from the source, siblings survive."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-split-fixture
+      (vulpea-split-heading "split-section-id")
+      (with-temp-buffer
+        (insert-file-contents source-path)
+        (let ((text (buffer-string)))
+          (should-not (string-match-p "^\\* Section" text))
+          (should-not (string-match-p "Section body\\." text))
+          (should-not (string-match-p "Child body\\." text))
+          ;; Untouched parts of the source stay put.
+          (should (string-match-p "^\\* Sibling" text))
+          (should (string-match-p "Preamble body\\." text))))
+      ;; And the source note itself is still a note.
+      (should (vulpea-db-get-by-id "split-file-id")))))
+
+(ert-deftest vulpea-split-heading-promotes-children ()
+  "Children follow and are promoted so the shallowest lands at level 1."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-split-fixture
+      (vulpea-split-heading "split-section-id")
+      (with-temp-buffer
+        (insert-file-contents (expand-file-name "section.org" root))
+        (let ((text (buffer-string)))
+          (should (string-match-p "^\\* Child One$" text))
+          (should (string-match-p "^\\*\\* Grandchild$" text))
+          (should (string-match-p "Deep body\\." text)))))))
+
+(ert-deftest vulpea-split-heading-keeps-child-notes ()
+  "A child with its own id stays a heading note and keeps that id."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-split-fixture
+      (vulpea-split-heading "split-section-id")
+      (let ((child (vulpea-db-get-by-id "split-child-id")))
+        (should child)
+        ;; Not recursively split: still a heading, now in the new file.
+        (should (= (vulpea-note-level child) 1))
+        (should (equal (vulpea-note-path child)
+                       (expand-file-name "section.org" root)))))))
+
+(ert-deftest vulpea-split-heading-materializes-inherited-tags ()
+  "Tags inherited from the source file are written into the new file."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-split-fixture
+      (let* ((note (vulpea-split-heading "split-section-id"))
+             (tags (vulpea-note-tags note)))
+        ;; Own tag kept, inherited filetag materialized.
+        (should (member "stag" tags))
+        (should (member "ftag" tags))
+        (with-temp-buffer
+          (insert-file-contents (vulpea-note-path note))
+          (should (string-match-p "^#\\+filetags:.*ftag" (buffer-string))))))))
+
+(ert-deftest vulpea-split-heading-without-tag-inheritance ()
+  "With inheritance off, only the heading's own tags travel."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((org-use-tag-inheritance nil))
+      (vulpea-test--with-split-fixture
+        (let ((tags (vulpea-note-tags (vulpea-split-heading "split-section-id"))))
+          (should (member "stag" tags))
+          (should-not (member "ftag" tags)))))))
+
+(ert-deftest vulpea-split-heading-tags-survive-differing-dir-locals ()
+  "Tags resolved in the source directory hold in the target one.
+
+Tag inheritance can be configured per directory through
+`.dir-locals.el', so a heading can mean different things on either side
+of a split.  Writing the resolved tags out as literal `#+filetags' is
+what makes the note read the same wherever it lands."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((root (make-temp-file "vulpea-test-" t))
+          ;; These two are not `safe-local-variable', so batch drops
+          ;; them unless local variables are trusted outright.
+          (enable-local-variables :all))
+      (unwind-protect
+          (let* ((vulpea-db-sync-directories (list root))
+                 (from (expand-file-name "from" root))
+                 (to (expand-file-name "to" root))
+                 (source (expand-file-name "source.org" from)))
+            (make-directory from t)
+            (make-directory to t)
+            ;; Only the source directory excludes a tag from inheritance.
+            (with-temp-file (expand-file-name ".dir-locals.el" from)
+              (prin1 '((org-mode
+                        . ((org-tags-exclude-from-inheritance . ("private")))))
+                     (current-buffer)))
+            (with-temp-file source
+              (insert ":PROPERTIES:\n:ID: dirlocal-file-id\n:END:\n"
+                      "#+TITLE: Source\n#+FILETAGS: :private:shared:\n\n"
+                      "* Contact :own:\n"
+                      ":PROPERTIES:\n:ID: dirlocal-heading-id\n:END:\n"
+                      "Body.\n"))
+            (vulpea-db-update-file source)
+            ;; The excluded tag is not inherited in the first place.
+            (should (equal (sort (vulpea-note-tags
+                                  (vulpea-db-get-by-id "dirlocal-heading-id"))
+                                 #'string<)
+                           '("own" "shared")))
+            (let ((note (vulpea-split-heading "dirlocal-heading-id" to)))
+              (with-temp-buffer
+                (insert-file-contents (vulpea-note-path note))
+                (let ((text (buffer-string)))
+                  (should (string-match-p "^#\\+filetags:.*shared" text))
+                  (should-not (string-match-p "private" text))))
+              ;; Stable under the target directory's own rules.
+              (vulpea-db-update-file (vulpea-note-path note))
+              (should (equal (sort (vulpea-note-tags
+                                    (vulpea-db-get-by-id "dirlocal-heading-id"))
+                                   #'string<)
+                             '("own" "shared")))))
+        (dolist (buf (buffer-list))
+          (when-let* ((file (buffer-file-name buf)))
+            (when (string-prefix-p (file-name-as-directory root) file)
+              (with-current-buffer buf (set-buffer-modified-p nil))
+              (kill-buffer buf))))
+        (delete-directory root t)))))
+
+(ert-deftest vulpea-split-heading-carries-meta-and-properties ()
+  "Meta and drawer properties travel to the new note, id written once."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-split-fixture
+      (let ((note (vulpea-split-heading "split-section-id")))
+        (should (equal (vulpea-note-meta-get note "key") "value"))
+        (should (equal (cdr (assoc "CUSTOM" (vulpea-note-properties note)))
+                       "kept"))
+        (with-temp-buffer
+          (insert-file-contents (vulpea-note-path note))
+          ;; The note's own id is written exactly once: the drawer is
+          ;; rebuilt from properties, which still carry it.  Child
+          ;; drawers in the body are a different id and stay put.
+          (should (= 1 (seq-count
+                        (lambda (line)
+                          (string-match-p "^:ID:[ \t]+split-section-id$"
+                                          line))
+                        (split-string (buffer-string) "\n"))))
+          (should (string-match-p "^:ID: split-child-id$"
+                                  (buffer-string))))))))
+
+(ert-deftest vulpea-split-heading-does-not-expand-templates ()
+  "Content is moved verbatim, never expanded as a template.
+
+Body, properties and meta of an existing note are user content.  Running
+them through template expansion would execute `%(...)' found in a note
+and rewrite anything shaped like a variable reference."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((root (make-temp-file "vulpea-test-" t))
+          (canary (expand-file-name "vulpea-split-canary"
+                                    temporary-file-directory)))
+      (unwind-protect
+          (let* ((vulpea-db-sync-directories (list root))
+                 (source (expand-file-name "templates.org" root)))
+            (with-temp-file source
+              (insert ":PROPERTIES:\n:ID: template-file-id\n:END:\n"
+                      "#+TITLE: Templates\n\n"
+                      "* Template Heading\n"
+                      ":PROPERTIES:\n:ID: template-heading-id\n"
+                      (format ":FORMULA: 100%%(write-region \"x\" nil %S)\n"
+                              canary)
+                      ":END:\n"
+                      "- cost :: ${title} and ${slug}\n\n"
+                      "Body with %(+ 1 2) and ${title}.\n"))
+            (vulpea-db-update-file source)
+            (let ((note (vulpea-split-heading "template-heading-id")))
+              (with-temp-buffer
+                (insert-file-contents (vulpea-note-path note))
+                (let ((text (buffer-string)))
+                  ;; Verbatim, not evaluated and not substituted.
+                  (should (string-match-p "%(\\+ 1 2)" text))
+                  (should (string-match-p "Body with .* and \\${title}" text))
+                  (should (string-match-p "- cost :: \\${title} and \\${slug}"
+                                          text))
+                  (should-not (string-match-p "ERROR:" text))))
+              ;; And nothing was executed on the way through.
+              (should-not (file-exists-p canary))))
+        (when (file-exists-p canary) (delete-file canary))
+        (dolist (buf (buffer-list))
+          (when-let* ((file (buffer-file-name buf)))
+            (when (string-prefix-p (file-name-as-directory root) file)
+              (with-current-buffer buf (set-buffer-modified-p nil))
+              (kill-buffer buf))))
+        (delete-directory root t)))))
+
+(ert-deftest vulpea-split-heading-ignores-create-defaults ()
+  "A default create template does not leak into an extracted note.
+
+The note already exists; defaults describe how to make a new one."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((vulpea-create-default-template
+           '(:head "#+startup: showall" :tags ("fromtemplate"))))
+      (vulpea-test--with-split-fixture
+        (let ((note (vulpea-split-heading "split-section-id")))
+          (should-not (member "fromtemplate" (vulpea-note-tags note)))
+          (with-temp-buffer
+            (insert-file-contents (vulpea-note-path note))
+            (should-not (string-match-p "showall" (buffer-string)))))))))
+
+(ert-deftest vulpea-split-heading-refuses-todo-and-planning ()
+  "Headings carrying a todo keyword or planning are refused.
+
+A file-level note has nowhere to put either, and dropping them silently
+would lose the scheduling the heading was written for."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((root (make-temp-file "vulpea-test-" t)))
+      (unwind-protect
+          (let* ((vulpea-db-sync-directories (list root))
+                 (source (expand-file-name "tasks.org" root)))
+            (with-temp-file source
+              (insert ":PROPERTIES:\n:ID: tasks-file-id\n:END:\n"
+                      "#+TITLE: Tasks\n\n"
+                      "* TODO Do the thing\n"
+                      ":PROPERTIES:\n:ID: todo-heading-id\n:END:\n"
+                      "Body.\n\n"
+                      "* Scheduled thing\n"
+                      "SCHEDULED: <2026-02-02 Mon>\n"
+                      ":PROPERTIES:\n:ID: planned-heading-id\n:END:\n"
+                      "Body.\n"))
+            (vulpea-db-update-file source)
+            (should-error (vulpea-split-heading "todo-heading-id")
+                          :type 'user-error)
+            (should-error (vulpea-split-heading "planned-heading-id")
+                          :type 'user-error)
+            ;; Nothing was cut on the way to refusing.
+            (with-temp-buffer
+              (insert-file-contents source)
+              (let ((text (buffer-string)))
+                (should (string-match-p "TODO Do the thing" text))
+                (should (string-match-p "SCHEDULED:" text)))))
+        (dolist (buf (buffer-list))
+          (when-let* ((file (buffer-file-name buf)))
+            (when (string-prefix-p (file-name-as-directory root) file)
+              (with-current-buffer buf (set-buffer-modified-p nil))
+              (kill-buffer buf))))
+        (delete-directory root t)))))
+
+(ert-deftest vulpea-split-heading-refuses-own-logbook ()
+  "A heading with clocking history is refused, a child's is not.
+
+Clock entries belong to an entry.  In a file they parse as a plain
+drawer that `org-clock-sum' does not count, so the time would survive
+as text and stop being time.  A child keeps its heading, so its own
+logbook travels intact."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((root (make-temp-file "vulpea-test-" t)))
+      (unwind-protect
+          (let* ((vulpea-db-sync-directories (list root))
+                 (source (expand-file-name "clocked.org" root))
+                 (clock (concat ":LOGBOOK:\nCLOCK: [2026-01-01 Thu 10:00]--"
+                                "[2026-01-01 Thu 11:00] =>  1:00\n:END:\n")))
+            (with-temp-file source
+              (insert ":PROPERTIES:\n:ID: clock-file-id\n:END:\n"
+                      "#+TITLE: Clocked\n\n"
+                      "* Clocked Heading\n"
+                      ":PROPERTIES:\n:ID: clocked-heading-id\n:END:\n"
+                      clock
+                      "Body.\n\n"
+                      "* Clean Heading\n"
+                      ":PROPERTIES:\n:ID: clean-heading-id\n:END:\n"
+                      "Body.\n\n"
+                      "** Clocked Child\n"
+                      ":PROPERTIES:\n:ID: clocked-child-id\n:END:\n"
+                      clock
+                      "Child body.\n"))
+            (vulpea-db-update-file source)
+            (should-error (vulpea-split-heading "clocked-heading-id")
+                          :type 'user-error)
+            ;; Nothing was cut on the way to refusing.
+            (with-temp-buffer
+              (insert-file-contents source)
+              (should (string-match-p "^\\* Clocked Heading" (buffer-string))))
+            ;; A logbook further down the subtree is not the heading's
+            ;; own, and travels with the child that owns it.
+            (let ((note (vulpea-split-heading "clean-heading-id")))
+              (with-temp-buffer
+                (insert-file-contents (vulpea-note-path note))
+                (let ((text (buffer-string)))
+                  (should (string-match-p "^\\* Clocked Child$" text))
+                  (should (string-match-p ":LOGBOOK:" text))))))
+        (dolist (buf (buffer-list))
+          (when-let* ((file (buffer-file-name buf)))
+            (when (string-prefix-p (file-name-as-directory root) file)
+              (with-current-buffer buf (set-buffer-modified-p nil))
+              (kill-buffer buf))))
+        (delete-directory root t)))))
+
+(ert-deftest vulpea-split-heading-ignores-narrowing ()
+  "A narrowed source buffer does not redirect the split.
+
+`org-find-entry-with-id' searches the whole buffer while `goto-char'
+clamps to the restriction, so a narrowed buffer could put point on one
+heading while the id belongs to another, and cut the wrong subtree."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((root (make-temp-file "vulpea-test-" t)))
+      (unwind-protect
+          (let* ((vulpea-db-sync-directories (list root))
+                 (source (expand-file-name "narrow.org" root)))
+            (with-temp-file source
+              (insert ":PROPERTIES:\n:ID: narrow-file-id\n:END:\n"
+                      "#+TITLE: Narrow\n\n"
+                      "* First\n:PROPERTIES:\n:ID: narrow-first-id\n:END:\n"
+                      "First body.\n\n"
+                      "* Third\n:PROPERTIES:\n:ID: narrow-third-id\n:END:\n"
+                      "Third body, precious.\n"))
+            (vulpea-db-update-file source)
+            ;; Narrow the live buffer to a heading other than the target.
+            (with-current-buffer (find-file-noselect source)
+              (goto-char (point-max))
+              (org-back-to-heading t)
+              (org-narrow-to-subtree))
+            (let ((note (vulpea-split-heading "narrow-first-id")))
+              ;; The right subtree moved.
+              (with-temp-buffer
+                (insert-file-contents (vulpea-note-path note))
+                (let ((text (buffer-string)))
+                  (should (string-match-p "First body\\." text))
+                  (should-not (string-match-p "precious" text)))))
+            ;; And the innocent bystander is untouched.
+            (with-temp-buffer
+              (insert-file-contents source)
+              (should (string-match-p "Third body, precious\\." (buffer-string))))
+            (should (vulpea-db-get-by-id "narrow-third-id")))
+        (dolist (buf (buffer-list))
+          (when-let* ((file (buffer-file-name buf)))
+            (when (string-prefix-p (file-name-as-directory root) file)
+              (with-current-buffer buf
+                (widen)
+                (set-buffer-modified-p nil))
+              (kill-buffer buf))))
+        (delete-directory root t)))))
+
+(ert-deftest vulpea-split-heading-sees-unsaved-state ()
+  "State added since the last index is still seen by the guards.
+
+The guards read the file, not the database row, so a todo keyword typed
+but not yet saved cannot slip past them."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-split-fixture
+      ;; Indexed clean, then given a todo keyword in the live buffer.
+      (with-current-buffer (find-file-noselect source-path)
+        (goto-char (point-min))
+        (re-search-forward "^\\* Section")
+        (beginning-of-line)
+        (forward-char 2)
+        (insert "TODO "))
+      (should-error (vulpea-split-heading "split-section-id")
+                    :type 'user-error)
+      ;; Refused, and nothing was written.
+      (should-not (file-exists-p (expand-file-name "section.org" root))))))
+
+(ert-deftest vulpea-split-heading-keeps-markup-in-title ()
+  "A heading's raw text becomes the title, markup and links intact.
+
+The database stores the display form of a title, so writing that out
+would drop a link target that exists nowhere else once the heading is
+cut."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((root (make-temp-file "vulpea-test-" t)))
+      (unwind-protect
+          (let* ((vulpea-db-sync-directories (list root))
+                 (source (expand-file-name "markup.org" root)))
+            (with-temp-file source
+              (insert ":PROPERTIES:\n:ID: markup-file-id\n:END:\n"
+                      "#+TITLE: Markup\n\n"
+                      "* *Bold* [[https://example.com][Ada]]\n"
+                      ":PROPERTIES:\n:ID: markup-heading-id\n:END:\n"
+                      "Body.\n"))
+            (vulpea-db-update-file source)
+            (let ((note (vulpea-split-heading "markup-heading-id")))
+              (with-temp-buffer
+                (insert-file-contents (vulpea-note-path note))
+                (let ((text (buffer-string)))
+                  (should (string-match-p "\\*Bold\\*" text))
+                  (should (string-match-p "https://example\\.com" text))))
+              ;; The note still reads with the display title.
+              (should (equal (vulpea-note-title note) "Bold Ada"))))
+        (dolist (buf (buffer-list))
+          (when-let* ((file (buffer-file-name buf)))
+            (when (string-prefix-p (file-name-as-directory root) file)
+              (with-current-buffer buf (set-buffer-modified-p nil))
+              (kill-buffer buf))))
+        (delete-directory root t)))))
+
+(ert-deftest vulpea-split-heading-refuses-priority-and-comment ()
+  "A priority or a COMMENT keyword is refused, not dropped."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((root (make-temp-file "vulpea-test-" t)))
+      (unwind-protect
+          (let* ((vulpea-db-sync-directories (list root))
+                 (source (expand-file-name "marked.org" root)))
+            (with-temp-file source
+              (insert ":PROPERTIES:\n:ID: marked-file-id\n:END:\n"
+                      "#+TITLE: Marked\n\n"
+                      "* [#A] Priority Thing\n"
+                      ":PROPERTIES:\n:ID: priority-heading-id\n:END:\n"
+                      "Body.\n\n"
+                      "* COMMENT Hidden Thing\n"
+                      ":PROPERTIES:\n:ID: comment-heading-id\n:END:\n"
+                      "Body.\n"))
+            (vulpea-db-update-file source)
+            (should-error (vulpea-split-heading "priority-heading-id")
+                          :type 'user-error)
+            (should-error (vulpea-split-heading "comment-heading-id")
+                          :type 'user-error))
+        (dolist (buf (buffer-list))
+          (when-let* ((file (buffer-file-name buf)))
+            (when (string-prefix-p (file-name-as-directory root) file)
+              (with-current-buffer buf (set-buffer-modified-p nil))
+              (kill-buffer buf))))
+        (delete-directory root t)))))
+
+(ert-deftest vulpea-split-heading-empty-slug ()
+  "A title that slugs to nothing is refused before anything is cut."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((root (make-temp-file "vulpea-test-" t)))
+      (unwind-protect
+          (let* ((vulpea-db-sync-directories (list root))
+                 (source (expand-file-name "punct.org" root)))
+            (with-temp-file source
+              (insert ":PROPERTIES:\n:ID: punct-file-id\n:END:\n"
+                      "#+TITLE: Punctuation\n\n"
+                      "* ???\n:PROPERTIES:\n:ID: punct-heading-id\n:END:\n"
+                      "Body.\n"))
+            (vulpea-db-update-file source)
+            (should-error (vulpea-split-heading "punct-heading-id")
+                          :type 'user-error)
+            ;; No hidden ".org" file was created.
+            (should-not (file-exists-p (expand-file-name ".org" root)))
+            (with-temp-buffer
+              (insert-file-contents source)
+              (should (string-match-p "^\\* ???" (buffer-string)))))
+        (dolist (buf (buffer-list))
+          (when-let* ((file (buffer-file-name buf)))
+            (when (string-prefix-p (file-name-as-directory root) file)
+              (with-current-buffer buf (set-buffer-modified-p nil))
+              (kill-buffer buf))))
+        (delete-directory root t)))))
+
+(ert-deftest vulpea-split-heading-survives-failed-write ()
+  "A failure partway leaves the source intact rather than losing it."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-split-fixture
+      ;; Make the cut fail after the new file has been written.
+      (cl-letf (((symbol-function 'org-cut-subtree)
+                 (lambda (&rest _) (error "boom"))))
+        (should-error (vulpea-split-heading "split-section-id")))
+      ;; Source still holds the subtree, and the half-written file is
+      ;; rolled back rather than left behind.
+      (with-temp-buffer
+        (insert-file-contents source-path)
+        (should (string-match-p "^\\* Section" (buffer-string))))
+      (should-not (file-exists-p (expand-file-name "section.org" root)))
+      (should (= 1 (vulpea-note-level
+                    (vulpea-db-get-by-id "split-section-id")))))))
+
+(ert-deftest vulpea-split-heading-keeps-body ()
+  "The heading's own body text travels, meta is not duplicated into it."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-split-fixture
+      (let ((note (vulpea-split-heading "split-section-id")))
+        (with-temp-buffer
+          (insert-file-contents (vulpea-note-path note))
+          (let ((text (buffer-string)))
+            (should (string-match-p "Section body\\." text))
+            ;; Meta appears once, as file-level meta.
+            (should (= 1 (cl-count "- key :: value" (split-string text "\n")
+                                   :test #'string-equal)))))))))
+
+(ert-deftest vulpea-split-heading-keeps-meta-order ()
+  "Meta keeps the order it was written in.
+
+`vulpea-note-meta' hands back reverse document order, so writing it out
+unchanged would silently reshuffle meta the user ordered on purpose."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((root (make-temp-file "vulpea-test-" t)))
+      (unwind-protect
+          (let* ((vulpea-db-sync-directories (list root))
+                 (source (expand-file-name "ordered.org" root)))
+            (with-temp-file source
+              (insert ":PROPERTIES:\n:ID: order-file-id\n:END:\n"
+                      "#+TITLE: Ordered\n\n"
+                      "* Ordered Heading\n"
+                      ":PROPERTIES:\n:ID: order-heading-id\n:END:\n"
+                      "- one :: 1\n- two :: 2\n- three :: 3\n\nBody.\n"))
+            (vulpea-db-update-file source)
+            (let ((note (vulpea-split-heading "order-heading-id")))
+              (with-temp-buffer
+                (insert-file-contents (vulpea-note-path note))
+                (let ((lines (seq-filter
+                              (lambda (line) (string-prefix-p "- " line))
+                              (split-string (buffer-string) "\n"))))
+                  (should (equal lines
+                                 '("- one :: 1"
+                                   "- two :: 2"
+                                   "- three :: 3")))))))
+        (dolist (buf (buffer-list))
+          (when-let* ((file (buffer-file-name buf)))
+            (when (string-prefix-p (file-name-as-directory root) file)
+              (with-current-buffer buf (set-buffer-modified-p nil))
+              (kill-buffer buf))))
+        (delete-directory root t)))))
+
+(ert-deftest vulpea-split-heading-keeps-links-resolvable ()
+  "Links into the split heading still resolve, no rewriting needed."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-split-fixture
+      (let ((linking-path (expand-file-name "linking.org" root)))
+        (with-temp-file linking-path
+          (insert ":PROPERTIES:\n:ID: split-linking-id\n:END:\n"
+                  "#+TITLE: Linking Note\n\n"
+                  "See [[id:split-section-id][Section]].\n"))
+        (vulpea-db-update-file linking-path)
+        (vulpea-split-heading "split-section-id")
+        (should (vulpea-db-get-by-id "split-section-id"))
+        (let ((linking (vulpea-db-query-by-links-some
+                        (list "split-section-id"))))
+          (should (equal (seq-map #'vulpea-note-id linking)
+                         (list "split-linking-id"))))))))
+
+(ert-deftest vulpea-split-heading-accepts-directory ()
+  "The new note can be placed in another directory."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-split-fixture
+      (let ((sub (expand-file-name "sub" root)))
+        (make-directory sub t)
+        (let ((note (vulpea-split-heading "split-section-id" sub)))
+          (should (equal (vulpea-note-path note)
+                         (expand-file-name "section.org" sub))))))))
+
+(ert-deftest vulpea-split-heading-promotes-across-level-gaps ()
+  "Promotion is driven by the shallowest child, not the parent level.
+
+A tree that skips levels still lands with its outermost heading at 1."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((root (make-temp-file "vulpea-test-" t)))
+      (unwind-protect
+          (let* ((vulpea-db-sync-directories (list root))
+                 (source (expand-file-name "gaps.org" root)))
+            (with-temp-file source
+              (insert ":PROPERTIES:\n:ID: gap-file-id\n:END:\n"
+                      "#+TITLE: Gaps\n\n"
+                      "* A\n** B\n*** Head\n"
+                      ":PROPERTIES:\n:ID: gap-heading-id\n:END:\n"
+                      "***** Skipped Level Child\n"
+                      "****** Deeper\n"))
+            (vulpea-db-update-file source)
+            (let ((note (vulpea-split-heading "gap-heading-id")))
+              (with-temp-buffer
+                (insert-file-contents (vulpea-note-path note))
+                (let ((text (buffer-string)))
+                  (should (string-match-p "^\\* Skipped Level Child$" text))
+                  (should (string-match-p "^\\*\\* Deeper$" text))))))
+        (dolist (buf (buffer-list))
+          (when-let* ((file (buffer-file-name buf)))
+            (when (string-prefix-p (file-name-as-directory root) file)
+              (with-current-buffer buf (set-buffer-modified-p nil))
+              (kill-buffer buf))))
+        (delete-directory root t)))))
+
+(ert-deftest vulpea-split-heading-promotes-with-odd-levels-only ()
+  "Promotion respects `org-odd-levels-only'.
+
+Star counts and vulpea's own levels disagree under that setting, so
+promotion goes through org rather than counting stars."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((root (make-temp-file "vulpea-test-" t))
+          (org-odd-levels-only t))
+      (unwind-protect
+          (let* ((vulpea-db-sync-directories (list root))
+                 (source (expand-file-name "odd.org" root)))
+            (with-temp-file source
+              (insert ":PROPERTIES:\n:ID: odd-file-id\n:END:\n"
+                      "#+TITLE: Odd\n\n"
+                      "* Top\n*** Head\n"
+                      ":PROPERTIES:\n:ID: odd-heading-id\n:END:\n"
+                      "***** Child\n******* Grand\n"))
+            (vulpea-db-update-file source)
+            (let ((note (vulpea-split-heading "odd-heading-id")))
+              (with-temp-buffer
+                (insert-file-contents (vulpea-note-path note))
+                (let ((text (buffer-string)))
+                  (should (string-match-p "^\\* Child$" text))
+                  (should (string-match-p "^\\*\\*\\* Grand$" text))))))
+        (dolist (buf (buffer-list))
+          (when-let* ((file (buffer-file-name buf)))
+            (when (string-prefix-p (file-name-as-directory root) file)
+              (with-current-buffer buf (set-buffer-modified-p nil))
+              (kill-buffer buf))))
+        (delete-directory root t)))))
+
+(ert-deftest vulpea-split-heading-meta-variants-not-duplicated ()
+  "Meta stays exactly where it was, whatever shape it takes.
+
+Meta is left in place rather than round-tripped through
+`vulpea-note-meta', so bullets, indentation and meta that does not lead
+the section all survive without being dropped or written twice."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((root (make-temp-file "vulpea-test-" t)))
+      (unwind-protect
+          (let* ((vulpea-db-sync-directories (list root))
+                 (source (expand-file-name "variants.org" root)))
+            (with-temp-file source
+              (insert ":PROPERTIES:\n:ID: variant-file-id\n:END:\n"
+                      "#+TITLE: Variants\n\n"
+                      "* Variant Heading\n"
+                      ":PROPERTIES:\n:ID: variant-heading-id\n:END:\n"
+                      "intro line\n"
+                      "- after :: intro\n"
+                      "+ plus :: bullet\n"
+                      "- tight ::value\n"))
+            (vulpea-db-update-file source)
+            (let ((note (vulpea-split-heading "variant-heading-id")))
+              (with-temp-buffer
+                (insert-file-contents (vulpea-note-path note))
+                (let ((lines (split-string (buffer-string) "\n")))
+                  (dolist (line '("intro line"
+                                  "- after :: intro"
+                                  "+ plus :: bullet"
+                                  "- tight ::value"))
+                    ;; Present, and present exactly once.
+                    (should (= 1 (seq-count (lambda (l) (equal l line))
+                                            lines))))))))
+        (dolist (buf (buffer-list))
+          (when-let* ((file (buffer-file-name buf)))
+            (when (string-prefix-p (file-name-as-directory root) file)
+              (with-current-buffer buf (set-buffer-modified-p nil))
+              (kill-buffer buf))))
+        (delete-directory root t)))))
+
+(ert-deftest vulpea-split-heading-carries-category ()
+  "An inherited category is carried, a file-name fallback is not."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((root (make-temp-file "vulpea-test-" t)))
+      (unwind-protect
+          (let* ((vulpea-db-sync-directories (list root))
+                 (with-cat (expand-file-name "contacts.org" root))
+                 (without-cat (expand-file-name "plain.org" root)))
+            (with-temp-file with-cat
+              (insert ":PROPERTIES:\n:ID: cat-file-id\n:END:\n"
+                      "#+TITLE: Contacts\n#+CATEGORY: crm\n\n"
+                      "* Ada\n:PROPERTIES:\n:ID: cat-heading-id\n:END:\n"
+                      "Body.\n"))
+            (with-temp-file without-cat
+              (insert ":PROPERTIES:\n:ID: nocat-file-id\n:END:\n"
+                      "#+TITLE: Plain\n\n"
+                      "* Bob\n:PROPERTIES:\n:ID: nocat-heading-id\n:END:\n"
+                      "Body.\n"))
+            (vulpea-db-update-file with-cat)
+            (vulpea-db-update-file without-cat)
+            ;; Explicit category follows the note out.
+            (let ((note (vulpea-split-heading "cat-heading-id")))
+              (should (equal (vulpea-note-category note) "crm"))
+              (with-temp-buffer
+                (insert-file-contents (vulpea-note-path note))
+                (should (string-match-p "^#\\+category: crm"
+                                        (buffer-string)))))
+            ;; The source file name is not a category worth carrying.
+            (let ((note (vulpea-split-heading "nocat-heading-id")))
+              (with-temp-buffer
+                (insert-file-contents (vulpea-note-path note))
+                (should-not (string-match-p "#\\+category: plain"
+                                            (buffer-string))))))
+        (dolist (buf (buffer-list))
+          (when-let* ((file (buffer-file-name buf)))
+            (when (string-prefix-p (file-name-as-directory root) file)
+              (with-current-buffer buf (set-buffer-modified-p nil))
+              (kill-buffer buf))))
+        (delete-directory root t)))))
+
+(ert-deftest vulpea-split-heading-file-level-note ()
+  "Splitting a file-level note errors: there is nothing to extract."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-split-fixture
+      (let ((err (should-error (vulpea-split-heading "split-file-id")
+                               :type 'user-error)))
+        (should (string-match-p "heading" (cadr err)))))))
+
+(ert-deftest vulpea-split-heading-unknown-id ()
+  "Splitting a note that does not exist errors."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-split-fixture
+      (should-error (vulpea-split-heading "no-such-note-id")
+                    :type 'user-error))))
+
+(ert-deftest vulpea-split-heading-target-exists ()
+  "Splitting onto an existing file errors and leaves the source alone."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-split-fixture
+      (with-temp-file (expand-file-name "section.org" root)
+        (insert "Existing content"))
+      (should-error (vulpea-split-heading "split-section-id")
+                    :type 'user-error)
+      ;; Nothing was cut out of the source.
+      (with-temp-buffer
+        (insert-file-contents source-path)
+        (should (string-match-p "^\\* Section" (buffer-string))))
+      (should (= (vulpea-note-level (vulpea-db-get-by-id "split-section-id"))
+                 1)))))
+
 ;;; Schema authoring (#330)
 
 (ert-deftest vulpea-schema-insert-field-values-writes-in-order ()
