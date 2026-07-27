@@ -1917,6 +1917,284 @@ Signals a `user-error' if:
       (message "Moved \"%s\" to %s" (vulpea-note-title note) dir)
       moved)))
 
+(defun vulpea-split--heading-facts (note)
+  "Return what the split needs to know about NOTE's heading, or nil.
+
+Everything is read from the file in one widened pass.  Widened, because
+`org-find-entry-with-id' searches the whole buffer while `goto-char'
+clamps to the current restriction, so in a narrowed buffer the position
+of one heading can land point on another.  From the file rather than
+from the database, because a database row describes the last save: a
+todo keyword or planning line added since would otherwise slip past the
+checks that exist to catch them.
+
+The keys are :raw-title, :todo, :priority, :commented, :planning,
+:logbook and :body.  Returns nil when the heading is not in the file."
+  (with-current-buffer (find-file-noselect (vulpea-note-path note))
+    (org-with-wide-buffer
+     (when-let* ((pos (org-find-entry-with-id (vulpea-note-id note))))
+       (goto-char pos)
+       (org-back-to-heading t)
+       (let ((components (org-heading-components))
+             (section-end (save-excursion (outline-next-heading) (point))))
+         (list :raw-title (org-get-heading t t t t)
+               :todo (nth 2 components)
+               :priority (nth 3 components)
+               :commented (org-in-commented-heading-p)
+               :planning (or (org-entry-get nil "SCHEDULED")
+                             (org-entry-get nil "DEADLINE")
+                             (org-entry-get nil "CLOSED"))
+               ;; Only the heading's own drawer: a child keeps its
+               ;; heading, and with it a logbook that stays valid.
+               :logbook (save-excursion
+                          (and (re-search-forward
+                                "^[ \t]*\\(:LOGBOOK:\\|CLOCK:[ \t]+\\[\\)"
+                                section-end t)
+                               t))
+               :body (vulpea-split--extract-body
+                      (buffer-substring-no-properties
+                       (point)
+                       (save-excursion (org-end-of-subtree t t) (point))))))))))
+
+(defun vulpea-split--extract-body (text)
+  "Return TEXT, a subtree, as the body of a file-level note.
+
+Strips the heading line, its planning line and its property drawer, all
+of which are rebuilt at the file level, then promotes the children so
+the shallowest one lands at level 1.
+
+Meta is deliberately left where it is: it already sits at the start of
+the section, which is exactly where file-level meta belongs, so moving
+it through `vulpea-note-meta' and back would only risk dropping or
+duplicating lines that the two do not agree about."
+  (let ((text text))
+    (with-temp-buffer
+      (delay-mode-hooks (org-mode))
+      (insert text)
+      (goto-char (point-min))
+      ;; The heading itself becomes the file: drop its line, its
+      ;; planning line and its drawer.  A planning line sits between
+      ;; the heading and the drawer, so skipping it is what keeps the
+      ;; drawer findable.
+      (delete-region (point) (progn (forward-line 1) (point)))
+      (when (looking-at-p org-planning-line-re)
+        (delete-region (point) (progn (forward-line 1) (point))))
+      (when (looking-at-p "^[ \t]*:PROPERTIES:")
+        (delete-region (point)
+                       (progn (re-search-forward "^[ \t]*:END:[ \t]*$" nil t)
+                              (forward-line 1)
+                              (point))))
+      ;; Children follow their parent, promoted as a block so the
+      ;; shallowest lands at level 1.  Promotion goes through org so
+      ;; that level gaps and `org-odd-levels-only' are its problem and
+      ;; not ours.
+      (let ((shallowest most-positive-fixnum)
+            tops)
+        (goto-char (point-min))
+        (while (re-search-forward org-outline-regexp-bol nil t)
+          (setq shallowest (min shallowest (org-current-level))))
+        (when (< shallowest most-positive-fixnum)
+          (goto-char (point-min))
+          (while (re-search-forward org-outline-regexp-bol nil t)
+            (beginning-of-line)
+            (when (= (org-current-level) shallowest)
+              (push (point) tops))
+            (end-of-line))
+          ;; Bottom-up, so promoting one subtree cannot invalidate the
+          ;; position of an earlier one, and a promoted descendant is
+          ;; never mistaken for a top-level sibling.
+          (dolist (pos tops)
+            (goto-char pos)
+            (while (> (org-current-level) 1)
+              (org-promote-subtree)))))
+      (string-trim (buffer-string)))))
+
+(defun vulpea-split--write-file (path id title head tags properties body)
+  "Write a file-level note to PATH and return it.
+
+ID, TITLE, HEAD, TAGS, PROPERTIES and BODY are written verbatim.  This
+deliberately does not go through `vulpea-create': that expands its
+arguments as templates, which would execute `%(...)' found in the
+content being moved and rewrite anything looking like `${var}', and it
+merges in `vulpea-create-default-template' values that have no business
+in a note that already exists."
+  (let ((content (vulpea--format-note-content id title head nil tags
+                                              properties)))
+    (with-temp-buffer
+      (insert (if (string-empty-p body)
+                  content
+                (concat content "\n\n" body))
+              "\n")
+      (write-region (point-min) (point-max) path nil 'silent)))
+  path)
+
+(defun vulpea-split--category-head (note)
+  "Return a `#+category' line carrying NOTE's category, or nil.
+
+Category resolves through the file when a note does not set it, so a
+heading leaving its file would silently take the new file's name as its
+category.  Carrying it over keeps the note answering the same queries.
+The file name fallback itself is not carried: it describes the old file
+rather than the note."
+  (let ((category (vulpea-note-category note)))
+    (when (and category
+               ;; Already in the drawer, which travels with the note.
+               (not (assoc "CATEGORY" (vulpea-note-properties note)))
+               (not (equal category
+                           (file-name-base (vulpea-note-path note)))))
+      (concat "#+category: " category))))
+
+;;;###autoload
+(defun vulpea-split-heading (note-or-id &optional directory)
+  "Extract NOTE-OR-ID's subtree into a file-level note of its own.
+
+DIRECTORY is where the new file lands, defaulting to the directory of
+the file the heading currently lives in.  The file name is the title
+slug, as for any other created note.
+
+The heading becomes the file: its text becomes the title, its own tags
+and the ones it inherited become `#+filetags', its property drawer and
+meta move to the file level.  Children follow and are promoted so the
+shallowest lands at level 1; a child with an id of its own stays a
+heading note and keeps that id rather than being split in turn.  The
+subtree is removed from the source file.
+
+Tag inheritance follows `org-use-tag-inheritance': what a heading
+inherits is what vulpea already reports as its tags, and leaving those
+behind would drop the note out of queries that used to find it.
+
+The note keeps its id, so links into it need no rewriting.
+
+Returns the created `vulpea-note'.
+
+Signals a `user-error' if:
+- The note cannot be found
+- The note is a file-level note (level 0), so there is nothing to
+  extract
+- The heading carries a todo keyword, a priority, planning
+  information, a logbook, or is commented out, none of which a
+  file-level note can hold
+- The note's file no longer holds the heading (a stale database row)
+- DIRECTORY is not writable
+- The title has no file name to slug (punctuation only, say)
+- DIRECTORY does not exist, or is outside `vulpea-db-sync-directories'
+  when any are configured
+- A file of that name already exists in DIRECTORY"
+  (interactive
+   (let* ((note (or (when-let* ((id (org-entry-get nil "ID"))
+                                (note (vulpea-db-get-by-id id)))
+                      ;; In a file preamble the id at point is the
+                      ;; file's own, which is not something to split.
+                      (and (> (vulpea-note-level note) 0) note))
+                    (vulpea-select "Heading to split out"
+                                   :require-match t
+                                   :filter-fn (lambda (note)
+                                                (> (vulpea-note-level note) 0)))))
+          (dir (completing-read
+                (format "Split \"%s\" into directory: "
+                        (vulpea-note-title note))
+                (vulpea--note-directories)
+                nil 'confirm
+                (file-name-directory (vulpea-note-path note)))))
+     (when (string-empty-p (string-trim dir))
+       (user-error "vulpea-split-heading: No directory given"))
+     (list note dir)))
+  (let* ((note (if (vulpea-note-p note-or-id)
+                   note-or-id
+                 (vulpea-db-get-by-id note-or-id)))
+         (source-path (when note (vulpea-note-path note)))
+         (dir (when (or directory source-path)
+                (file-name-as-directory
+                 (expand-file-name (or directory
+                                       (file-name-directory source-path))))))
+         (slug (when note (vulpea-title-to-slug (vulpea-note-title note))))
+         (new-path (when (and note dir slug (not (string-empty-p slug)))
+                     (expand-file-name (concat slug ".org") dir))))
+    (unless note
+      (user-error "vulpea-split-heading: Cannot find note with ID: %s"
+                  (if (vulpea-note-p note-or-id)
+                      (vulpea-note-id note-or-id)
+                    note-or-id)))
+    (when (= (vulpea-note-level note) 0)
+      (user-error
+       "vulpea-split-heading: Note is already a file, expected a heading"))
+    (unless (and source-path (file-exists-p source-path))
+      (user-error "vulpea-split-heading: File does not exist: %s" source-path))
+    (when (string-empty-p slug)
+      (user-error
+       "vulpea-split-heading: Title \"%s\" has no file name to slug"
+       (vulpea-note-title note)))
+    (unless (file-directory-p dir)
+      (user-error "vulpea-split-heading: Directory does not exist: %s" dir))
+    (when (and vulpea-db-sync-directories
+               (not (vulpea-db-sync-tracked-file-p dir)))
+      (user-error
+       "vulpea-split-heading: %s is outside `vulpea-db-sync-directories'"
+       dir))
+    (when (file-exists-p new-path)
+      (user-error "vulpea-split-heading: Target file already exists: %s"
+                  new-path))
+    (unless (file-writable-p new-path)
+      (user-error "vulpea-split-heading: Directory is not writable: %s" dir))
+    (let ((facts (vulpea-split--heading-facts note)))
+      (unless facts
+        (user-error
+         "vulpea-split-heading: Heading is not in %s (stale database row)"
+         source-path))
+      ;; A file-level note carries none of these, so they cannot survive
+      ;; the move.  Refuse rather than drop them silently.  All of them
+      ;; are read from the file, not from the database, so an edit made
+      ;; since the last index is still seen.
+      (when (plist-get facts :todo)
+        (user-error
+         "vulpea-split-heading: Cannot split a heading with a todo keyword"))
+      (when (plist-get facts :planning)
+        (user-error
+         "vulpea-split-heading: Cannot split a heading with planning info"))
+      (when (plist-get facts :priority)
+        (user-error
+         "vulpea-split-heading: Cannot split a heading with a priority"))
+      (when (plist-get facts :commented)
+        (user-error
+         "vulpea-split-heading: Cannot split a commented heading"))
+      ;; A clock entry belongs to an entry.  In a file it parses as a
+      ;; plain drawer that `org-clock-sum' does not count, so the time
+      ;; would survive as text and stop being time.
+      (when (plist-get facts :logbook)
+        (user-error
+         "vulpea-split-heading: Cannot split a heading with a logbook"))
+      (let (;; The raw heading, not the note title: the database stores
+            ;; the display form, so a title holding a link or emphasis
+            ;; would lose it here and nowhere keep it.
+            (title (plist-get facts :raw-title))
+            (id (vulpea-note-id note))
+            (tags (vulpea-note-tags note))
+            (head (vulpea-split--category-head note))
+            (properties (seq-remove (lambda (kvp) (equal (car kvp) "ID"))
+                                    (vulpea-note-properties note)))
+            (body (plist-get facts :body)))
+      ;; Write first: if anything below fails the source still holds the
+      ;; subtree, so the worst case is a duplicate rather than a loss.
+      (vulpea-split--write-file new-path id title head tags properties body)
+      (condition-case err
+          (with-current-buffer (find-file-noselect source-path)
+            ;; Widened, for the same reason the facts were read widened.
+            (org-with-wide-buffer
+             (goto-char (org-find-entry-with-id id))
+             (org-back-to-heading t)
+             (org-cut-subtree))
+            (save-buffer))
+        (error
+         (delete-file new-path)
+         (signal (car err) (cdr err))))
+      ;; Source first, so the heading's row is gone before the new file
+      ;; claims the same id.
+      (vulpea-db-update-file source-path)
+      (org-id-add-location id new-path)
+      (vulpea-db-update-file new-path)
+      (message "Split \"%s\" into %s" title new-path)
+      (vulpea-db-get-by-id id)))))
+
 
 
 ;;; Schema authoring

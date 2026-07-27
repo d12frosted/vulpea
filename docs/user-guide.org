@@ -466,6 +466,10 @@ You can also rename files programmatically:
 
 → See [[file:api-reference.org][API Reference]] for detailed function documentation.
 
+* Moving and Splitting Notes
+
+Renaming changes a note's file name. These two change where a note lives, without touching links: they are ids and not paths, so nothing is ever rewritten.
+
 ** Moving a Note to Another Directory
 
 Renaming changes the file name and keeps the directory. Moving does the opposite:
@@ -481,6 +485,56 @@ This is mostly useful when =vulpea-db-sync-directories= has more than one root. 
 Links keep working, because they are ids and not paths. Nothing is rewritten.
 
 Moving a note outside =vulpea-db-sync-directories= is refused: the note would keep working until the next full scan, then quietly disappear from the database. If you have no sync directories configured there is nothing to check, and any existing directory is accepted.
+
+** Splitting a Heading into Its Own Note
+
+When a heading has grown into its own thing, extract it:
+
+#+begin_src emacs-lisp
+(vulpea-split-heading note)
+;; or into a specific directory
+(vulpea-split-heading note "~/vault/people/")
+#+end_src
+
+Interactively, =M-x vulpea-split-heading= works on the heading at point. The new file lands next to the source file unless you pick another directory, and it is named after the title slug like any created note.
+
+The heading becomes the file. Its text becomes the =#+title=, its property drawer moves to the file level, and its meta moves with it. Children follow and are promoted, so the shallowest one ends up at level 1. A child that has its own id stays a heading note and keeps that id, it is not split in turn.
+
+The note keeps its id, so every link into it keeps working with nothing rewritten. This is the whole point of doing it through vulpea rather than by hand.
+
+*** Tags a Heading Used to Inherit
+
+A heading's tags include what it inherits from =#+filetags= and from ancestor headings. Once it is a file of its own there is nothing left to inherit from, so those tags are written into the new file:
+
+#+begin_example
+#+filetags: :people:          |  #+title: Ada Lovelace
+                              |  #+filetags: :people:math:
+,* Ada Lovelace :math:        |
+#+end_example
+
+Without this the note would quietly drop out of every query filtering on =people=, which is exactly the kind of breakage splitting by hand causes.
+
+This follows =org-use-tag-inheritance=. If you have inheritance off, a heading never had those tags to begin with and only its own travel with it.
+
+The category is carried over the same way, unless it was only the source file's name.
+
+*** What Is Left Behind
+
+Nothing. The subtree is removed from the source file. The relationship is still visible through backlinks and unlinked mentions, and for bulk extraction (a contacts file becoming one note per contact) stubs would just be noise.
+
+The new file is written before the subtree is cut, so a split that fails partway leaves the source untouched rather than losing it.
+
+*** What Cannot Be Split
+
+A heading is refused when it carries a todo keyword, a priority, planning (=SCHEDULED=, =DEADLINE=, =CLOSED=), a logbook, or a =COMMENT= keyword. A file-level note has nowhere to keep any of them, so splitting one would quietly drop the state it was written for. Clock entries are the clearest case: in a file they parse as an ordinary drawer that =org-clock-sum= does not count, so the time would survive as text and stop being time. A =COMMENT= heading is the loudest: it would come back as an ordinary note, exported and visible in the agenda.
+
+All of this is read from the file rather than from the database, so state you added but have not saved yet still counts.
+
+Only the heading's own logbook blocks the split. A child keeps its heading when the subtree moves, so its clocking travels with it and stays valid.
+
+Clear the keyword or the logbook first if the note really should become a file.
+
+The content itself is moved verbatim. If a body happens to contain something that looks like a template placeholder, it stays exactly as written.
 
 * Synchronization
 
