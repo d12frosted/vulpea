@@ -7,6 +7,12 @@
 :ID:                     e3f3602c-426e-451e-bcb5-b59b99e3b10e
 :END:
 
+** Unreleased
+
+*Features*
+
+- [[https://github.com/d12frosted/vulpea/issues/405][vulpea#405]] New =vulpea-move-file= moves a note's file into another directory, keeping its file name. With several roots in =vulpea-db-sync-directories=, new notes always land in the first one, and getting them anywhere else meant moving the file by hand and then making sure the database and =org-id= caught up. Links are unaffected: they are ids and not paths, so nothing is rewritten, the file simply moves, =org-id= is pointed at the new location and the old file's rows are replaced by the new file's. Moving and renaming stay separate commands, since =vulpea-rename-file= derives the file name from a title while this one deliberately leaves it alone; both share the same mechanical half now. Moving outside =vulpea-db-sync-directories= is refused when any are configured, because the note would keep working until the next full scan and then silently drop out of the database; with none configured there is nothing to check and any existing directory is accepted. Interactively it takes the note the current buffer visits - always the file-level one, so point can sit in any heading - and completes the target over directories that already hold notes without restricting you to them, so a directory that exists but is still empty can be typed in and confirmed. A buffer visiting the note follows the file to its new location instead of being killed. Thanks to @edenworky for describing the pain in [[https://github.com/d12frosted/vulpea/issues/343][vulpea#343]].
+
 ** v2.7.0 (2026-07-23)
 
 *Breaking changes*

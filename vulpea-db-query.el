@@ -367,6 +367,21 @@ Returns list of `vulpea-note' structs."
                        level)))
     (mapcar #'vulpea-db--row-to-note rows)))
 
+(defun vulpea-db--note-directories ()
+  "Return distinct directories that hold file-level notes.
+
+Each directory ends with a slash.  This is a path-only query: unlike
+`vulpea-db-query-by-level' it does not build `vulpea-note' structs, so
+it stays cheap on large vaults where it only feeds completion."
+  (seq-uniq
+   (seq-keep
+    (lambda (row)
+      (when-let* ((path (car row)))
+        (file-name-as-directory (file-name-directory path))))
+    (emacsql (vulpea-db)
+             [:select :distinct path :from notes :where (= level 0)]))
+   #'string-equal))
+
 ;;; File Path Queries
 
 (defun vulpea-db-query-by-file-path (file-path &optional level)

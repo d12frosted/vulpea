@@ -800,6 +800,41 @@ Rename a note's file based on a new title:
 
 Only works for file-level notes (=level = 0=).
 
+** vulpea-move-file
+
+Move a note's file to another directory, keeping its file name:
+
+#+begin_src emacs-lisp
+(vulpea-move-file note-or-id "~/vault/projects/")
+;; => new file path
+
+;; Moves: notes/my_note.org → projects/my_note.org
+;; Updates database and org-id location
+;; Leaves links alone (they are ids, not paths)
+#+end_src
+
+This is the counterpart to =vulpea-rename-file=: renaming derives a new
+file name from a title and keeps the directory, moving keeps the file
+name and changes the directory.
+
+Signals a =user-error= when the note cannot be found, when it is a
+heading-level note, when its file is gone from disk, when the directory
+does not exist or is not writable, when the note already lives there,
+or when a file of the same name is already in the target directory.
+
+Moving outside =vulpea-db-sync-directories= is refused as well (unless
+no sync directories are configured): the note would keep working until
+the next full scan and then silently drop out of the database.
+
+When a buffer visits the note, it is saved and replaced by a buffer
+visiting the new location, with point kept.
+
+Called interactively, the note is the one the current buffer visits.
+This is always the file-level note, never a heading inside it, so it
+works with point anywhere in the file. Completion for the target offers
+directories that already hold notes, but is not restricted to them: a
+directory that exists but is still empty can be typed in and confirmed.
+
 ** vulpea-title-change-detection-mode
 
 Minor mode that detects title changes on save:

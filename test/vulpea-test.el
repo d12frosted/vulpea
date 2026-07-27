@@ -2426,6 +2426,300 @@ the whole match."
         (when (file-directory-p temp-dir)
           (delete-directory temp-dir t))))))
 
+;;;; File Move Tests (#405)
+
+(defmacro vulpea-test--with-move-fixture (spec &rest body)
+  "Execute BODY with a two-directory vault fixture.
+
+SPEC is a list (ID TITLE) naming the note created in the source
+directory.  Binds `root' (the vault, and the only entry of
+`vulpea-db-sync-directories'), `src-dir', `dst-dir' and `old-path',
+indexes the note, and removes the whole tree afterwards."
+  (declare (indent 1))
+  (let ((id (nth 0 spec))
+        (title (nth 1 spec)))
+    `(let* ((root (make-temp-file "vulpea-test-" t))
+            (vulpea-db-sync-directories (list root))
+            (src-dir (expand-file-name "src" root))
+            (dst-dir (expand-file-name "dst" root))
+            (old-path (expand-file-name
+                       (concat (vulpea-title-to-slug ,title) ".org")
+                       src-dir)))
+       (unwind-protect
+           (progn
+             (make-directory src-dir t)
+             (make-directory dst-dir t)
+             (with-temp-file old-path
+               (insert (format ":PROPERTIES:\n:ID: %s\n:END:\n#+TITLE: %s\n"
+                               ,id ,title)))
+             (vulpea-db-update-file old-path)
+             ,@body)
+         (dolist (buf (buffer-list))
+           (when-let* ((file (buffer-file-name buf)))
+             (when (string-prefix-p (file-name-as-directory root) file)
+               (with-current-buffer buf
+                 (set-buffer-modified-p nil))
+               (kill-buffer buf))))
+         (when (file-directory-p root)
+           (delete-directory root t))))))
+
+(ert-deftest vulpea-move-file-basic ()
+  "Moving a note relocates its file and keeps the file name."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-move-fixture ("move-basic-id" "Move Me")
+      (let ((expected (expand-file-name "move_me.org" dst-dir)))
+        (should (equal (vulpea-move-file "move-basic-id" dst-dir) expected))
+        (should (file-exists-p expected))
+        (should-not (file-exists-p old-path))))))
+
+(ert-deftest vulpea-move-file-updates-db ()
+  "Moving a note updates its path in the database."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-move-fixture ("move-db-id" "Database Move")
+      (vulpea-move-file "move-db-id" dst-dir)
+      (let ((note (vulpea-db-get-by-id "move-db-id")))
+        (should note)
+        (should (equal (vulpea-note-path note)
+                       (expand-file-name "database_move.org" dst-dir)))))))
+
+(ert-deftest vulpea-move-file-preserves-title ()
+  "Moving a note leaves its title alone."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-move-fixture ("move-title-id" "Untouched Title")
+      (vulpea-move-file "move-title-id" dst-dir)
+      (should (equal (vulpea-note-title (vulpea-db-get-by-id "move-title-id"))
+                     "Untouched Title")))))
+
+(ert-deftest vulpea-move-file-with-note-object ()
+  "Moving accepts a note object, not just an id."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-move-fixture ("move-obj-id" "Note Object Move")
+      (let ((note (vulpea-db-get-by-id "move-obj-id")))
+        (vulpea-move-file note dst-dir)
+        (should (file-exists-p
+                 (expand-file-name "note_object_move.org" dst-dir)))
+        (should-not (file-exists-p old-path))))))
+
+(ert-deftest vulpea-move-file-accepts-directory-without-slash ()
+  "DIRECTORY may be given with or without a trailing slash."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-move-fixture ("move-slash-id" "Slash Move")
+      (should (equal (vulpea-move-file "move-slash-id"
+                                       (directory-file-name dst-dir))
+                     (expand-file-name "slash_move.org" dst-dir))))))
+
+(ert-deftest vulpea-move-file-keeps-links-resolvable ()
+  "Links into a moved note still resolve, since they are ids."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-move-fixture ("move-link-id" "Linked Move")
+      (let ((linking-path (expand-file-name "linking.org" src-dir)))
+        (with-temp-file linking-path
+          (insert ":PROPERTIES:\n:ID: move-linking-id\n:END:\n"
+                  "#+TITLE: Linking Note\n\n"
+                  "See [[id:move-link-id][Linked Move]].\n"))
+        (vulpea-db-update-file linking-path)
+        (vulpea-move-file "move-link-id" dst-dir)
+        ;; The link target still resolves, and the linking note was
+        ;; never touched.
+        (should (vulpea-db-get-by-id "move-link-id"))
+        (should (equal (vulpea-note-path (vulpea-db-get-by-id "move-link-id"))
+                       (expand-file-name "linked_move.org" dst-dir)))
+        (with-temp-buffer
+          (insert-file-contents linking-path)
+          (should (string-match-p "\\[\\[id:move-link-id\\]"
+                                  (buffer-string))))))))
+
+(ert-deftest vulpea-move-file-conflict ()
+  "Moving errors when the target file already exists."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-move-fixture ("move-conflict-id" "Conflict Move")
+      (with-temp-file (expand-file-name "conflict_move.org" dst-dir)
+        (insert "Existing content"))
+      (should-error (vulpea-move-file "move-conflict-id" dst-dir)
+                    :type (quote user-error))
+      ;; Source is left alone when the move is refused.
+      (should (file-exists-p old-path)))))
+
+(ert-deftest vulpea-move-file-same-directory ()
+  "Moving a note into the directory it already lives in errors.
+
+Asserts the message, because the target file necessarily exists in this
+case too and the weaker check would pass on the wrong guard."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-move-fixture ("move-same-id" "Same Directory")
+      (let ((err (should-error (vulpea-move-file "move-same-id" src-dir)
+                               :type 'user-error)))
+        (should (string-match-p "already lives in" (cadr err))))
+      (should (file-exists-p old-path)))))
+
+(ert-deftest vulpea-move-file-missing-directory ()
+  "Moving to a directory that does not exist errors."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-move-fixture ("move-missing-id" "Missing Target")
+      (should-error (vulpea-move-file "move-missing-id"
+                                      (expand-file-name "nope" root))
+                    :type (quote user-error))
+      (should (file-exists-p old-path)))))
+
+(ert-deftest vulpea-move-file-untracked-directory ()
+  "Moving outside `vulpea-db-sync-directories' errors."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-move-fixture ("move-untracked-id" "Untracked Target")
+      (let ((outside (make-temp-file "vulpea-test-outside-" t)))
+        (unwind-protect
+            (progn
+              (should-error (vulpea-move-file "move-untracked-id" outside)
+                            :type (quote user-error))
+              (should (file-exists-p old-path)))
+          (delete-directory outside t))))))
+
+(ert-deftest vulpea-move-file-untracked-allowed-without-sync-directories ()
+  "With no sync directories configured, the vault check does not apply.
+
+The target is outside the fixture vault, so this only passes when the
+check is actually skipped rather than incidentally satisfied."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-move-fixture ("move-nosync-id" "No Sync Dirs")
+      (let ((outside (make-temp-file "vulpea-test-outside-" t))
+            (vulpea-db-sync-directories nil))
+        (unwind-protect
+            (should (equal (vulpea-move-file "move-nosync-id" outside)
+                           (expand-file-name "no_sync_dirs.org"
+                                             (file-name-as-directory outside))))
+          (delete-directory outside t))))))
+
+(ert-deftest vulpea-move-file-heading-note ()
+  "Moving a heading-level note errors."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-move-fixture ("move-heading-file-id" "Heading Host")
+      (with-temp-file old-path
+        (insert ":PROPERTIES:\n:ID: move-heading-file-id\n:END:\n"
+                "#+TITLE: Heading Host\n\n"
+                "* Child\n:PROPERTIES:\n:ID: move-heading-id\n:END:\n"))
+      (vulpea-db-update-file old-path)
+      (should-error (vulpea-move-file "move-heading-id" dst-dir)
+                    :type (quote user-error)))))
+
+(ert-deftest vulpea-move-file-unknown-id ()
+  "Moving a note that does not exist errors."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-move-fixture ("move-unknown-host-id" "Unknown Host")
+      (should-error (vulpea-move-file "no-such-note-id" dst-dir)
+                    :type (quote user-error)))))
+
+(ert-deftest vulpea-move-file-missing-file-on-disk ()
+  "Moving a note whose file is gone errors, and says so."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-move-fixture ("move-gone-id" "Gone From Disk")
+      (delete-file old-path)
+      (let ((err (should-error (vulpea-move-file "move-gone-id" dst-dir)
+                               :type 'user-error)))
+        (should (string-match-p "File does not exist" (cadr err)))))))
+
+(ert-deftest vulpea-move-file-revisits-open-buffer ()
+  "A buffer visiting the note follows it to the new location."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-move-fixture ("move-buffer-id" "Open Buffer")
+      (let* ((old-buffer (find-file-noselect old-path))
+             (new-path (expand-file-name "open_buffer.org" dst-dir)))
+        (vulpea-move-file "move-buffer-id" dst-dir)
+        ;; The stale buffer is gone and a live one visits the new path.
+        (should-not (buffer-live-p old-buffer))
+        (should (get-file-buffer new-path))))))
+
+(ert-deftest vulpea-move-file-updates-org-id-location ()
+  "Moving a note re-points `org-id' at the new location.
+
+`org-id' stores abbreviated paths, so the expectation is abbreviated
+too: under a `temporary-file-directory' inside HOME the stored path
+comes back as \"~/...\"."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-move-fixture ("move-orgid-id" "Org Id Move")
+      (let ((org-id-locations (make-hash-table :test 'equal)))
+        (org-id-add-location "move-orgid-id" old-path)
+        (vulpea-move-file "move-orgid-id" dst-dir)
+        (should (equal (gethash "move-orgid-id" org-id-locations)
+                       (abbreviate-file-name
+                        (expand-file-name "org_id_move.org" dst-dir))))))))
+
+(ert-deftest vulpea-move-file-keeps-backlinks-queryable ()
+  "Backlink queries still find the linking note after a move."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-move-fixture ("move-backlink-id" "Backlink Target")
+      (let ((linking-path (expand-file-name "backlink_source.org" src-dir)))
+        (with-temp-file linking-path
+          (insert ":PROPERTIES:\n:ID: move-backlink-source-id\n:END:\n"
+                  "#+TITLE: Backlink Source\n\n"
+                  "See [[id:move-backlink-id][Backlink Target]].\n"))
+        (vulpea-db-update-file linking-path)
+        (vulpea-move-file "move-backlink-id" dst-dir)
+        (let ((linking (vulpea-db-query-by-links-some
+                        (list "move-backlink-id"))))
+          (should (equal (seq-map #'vulpea-note-id linking)
+                         (list "move-backlink-source-id"))))))))
+
+(ert-deftest vulpea--buffer-file-note-resolves-file-not-heading ()
+  "The interactive note is the file, even with point in an id'd heading.
+
+Reading the id at point would resolve the heading and then refuse to
+move it, which is the common case rather than an edge one."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-move-fixture ("buffer-note-file-id" "Buffer Note Host")
+      (with-temp-file old-path
+        (insert ":PROPERTIES:\n:ID: buffer-note-file-id\n:END:\n"
+                "#+TITLE: Buffer Note Host\n\n"
+                "* Child\n:PROPERTIES:\n:ID: buffer-note-heading-id\n:END:\n"
+                "Body.\n"))
+      (vulpea-db-update-file old-path)
+      (let ((buffer (find-file-noselect old-path)))
+        (with-current-buffer buffer
+          (goto-char (point-max))
+          ;; Point is inside the heading, whose own id would win.
+          (should (equal (org-entry-get nil "ID" t) "buffer-note-heading-id"))
+          (let ((note (vulpea--buffer-file-note)))
+            (should note)
+            (should (equal (vulpea-note-id note) "buffer-note-file-id"))
+            (should (= (vulpea-note-level note) 0))))))))
+
+(ert-deftest vulpea--buffer-file-note-without-file ()
+  "Buffers not visiting a file resolve to no note."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (with-temp-buffer
+      (should-not (vulpea--buffer-file-note)))))
+
+(ert-deftest vulpea--note-directories-covers-notes-and-roots ()
+  "Completion candidates hold both note directories and vault roots."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-move-fixture ("dirs-id" "Directory Candidates")
+      (let ((dirs (vulpea--note-directories)))
+        ;; The directory the note lives in, and the configured root.
+        (should (member (file-name-as-directory src-dir) dirs))
+        (should (member (file-name-as-directory root) dirs))
+        ;; No duplicates, and every entry ends with a slash.
+        (should (equal dirs (seq-uniq dirs)))
+        (should (seq-every-p (lambda (dir) (string-suffix-p "/" dir))
+                             dirs))))))
+
 ;;; Schema authoring (#330)
 
 (ert-deftest vulpea-schema-insert-field-values-writes-in-order ()
