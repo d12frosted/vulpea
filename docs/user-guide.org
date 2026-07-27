@@ -466,6 +466,22 @@ You can also rename files programmatically:
 
 → See [[file:api-reference.org][API Reference]] for detailed function documentation.
 
+** Moving a Note to Another Directory
+
+Renaming changes the file name and keeps the directory. Moving does the opposite:
+
+#+begin_src emacs-lisp
+(vulpea-move-file note "~/vault/projects/")
+#+end_src
+
+Or interactively with =M-x vulpea-move-file=, which picks up the note the current buffer visits (point can be anywhere in the file) and completes the target over directories that already hold notes. You are not limited to those: a directory that exists but is still empty can be typed in and confirmed. If you are looking at the note when you move it, the buffer follows the file to its new location.
+
+This is mostly useful when =vulpea-db-sync-directories= has more than one root. New notes are created in the first one (or in =vulpea-default-notes-directory= when set), so moving a note elsewhere afterwards used to mean doing it by hand.
+
+Links keep working, because they are ids and not paths. Nothing is rewritten.
+
+Moving a note outside =vulpea-db-sync-directories= is refused: the note would keep working until the next full scan, then quietly disappear from the database. If you have no sync directories configured there is nothing to check, and any existing directory is accepted.
+
 * Synchronization
 
 ** Automatic Sync

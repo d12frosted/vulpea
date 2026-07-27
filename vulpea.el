@@ -1776,13 +1776,28 @@ Signals an error if:
       (error "vulpea-rename-file: Cannot rename file for heading-level note"))
     (when (file-exists-p new-path)
       (error "vulpea-rename-file: Target file already exists: %s" new-path))
+    (vulpea--relocate-file note new-path)))
+
+(defun vulpea--relocate-file (note new-path)
+  "Move NOTE's file to NEW-PATH.
+
+Saves and kills the file's buffer when it is open, moves the file on
+disk, points `org-id' at the new location, and replaces the old file's
+notes in the database with the new file's.
+
+This is the shared mechanical half of `vulpea-rename-file' and
+`vulpea-move-file': it performs no validation, so callers must have
+checked NOTE and NEW-PATH already.
+
+Returns NEW-PATH."
+  (let ((old-path (vulpea-note-path note)))
     ;; Kill buffer if file is open
     (let ((buf (get-file-buffer old-path)))
       (when buf
         (with-current-buffer buf
           (save-buffer))
         (kill-buffer buf)))
-    ;; Rename file on disk
+    ;; Move file on disk
     (rename-file old-path new-path)
     ;; Update org-id location
     (org-id-add-location (vulpea-note-id note) new-path)
@@ -1790,6 +1805,117 @@ Signals an error if:
     (vulpea-db--delete-file-notes old-path)
     (vulpea-db-update-file new-path)
     new-path))
+
+(defun vulpea--note-directories ()
+  "Return directories that currently hold notes.
+
+The result is the directories of all file-level notes in the database,
+unioned with `vulpea-db-sync-directories' themselves so that an empty
+but configured vault root is still offered."
+  (seq-uniq
+   (append
+    (vulpea-db--note-directories)
+    (seq-map (lambda (dir)
+               (file-name-as-directory (expand-file-name dir)))
+             vulpea-db-sync-directories))
+   #'string-equal))
+
+(defun vulpea--buffer-file-note ()
+  "Return the file-level note of the current buffer, or nil.
+
+Deliberately resolves the file rather than the ID at point: moving or
+renaming a file is a file-level operation, while point usually sits
+inside some heading, and heading IDs are indexed too."
+  (when-let* ((path (buffer-file-name)))
+    (car (vulpea-db-query-by-file-path path 0))))
+
+;;;###autoload
+(defun vulpea-move-file (note-or-id directory)
+  "Move NOTE-OR-ID's file into DIRECTORY.
+
+The file name is left alone: this moves the note, it does not rename
+it.  Use `vulpea-rename-file' for the other half.
+
+Links are not touched, because they are ids and not paths, so nothing
+needs rewriting.  The file is moved on disk, `org-id' is pointed at the
+new location and the database is updated.
+
+When called interactively, the note is the one the current buffer
+visits (the file, never a heading inside it), and DIRECTORY is
+completed over directories that already hold notes.  The completion is
+not restricted to those, so a directory that exists but holds no notes
+yet can be typed in and confirmed.
+
+When the note's file is visited by a buffer, that buffer is saved and
+replaced by one visiting the new location, with point kept.
+
+Returns the new file path.
+
+Signals a `user-error' if:
+- The note cannot be found
+- The note is a heading-level note (level > 0)
+- The note's file is gone from disk (a stale database row)
+- DIRECTORY does not exist or is not writable
+- DIRECTORY is outside `vulpea-db-sync-directories' (when any are
+  configured), since the note would silently fall out of the database
+  on the next full scan
+- The note already lives in DIRECTORY
+- A file of the same name already exists in DIRECTORY"
+  (interactive
+   (let* ((note (or (vulpea--buffer-file-note)
+                    (vulpea-select "Note to move" :require-match t)))
+          (dir (completing-read
+                (format "Move \"%s\" to directory: " (vulpea-note-title note))
+                (vulpea--note-directories)
+                nil 'confirm)))
+     (when (string-empty-p (string-trim dir))
+       (user-error "vulpea-move-file: No directory given"))
+     (list note dir)))
+  (let* ((note (if (vulpea-note-p note-or-id)
+                   note-or-id
+                 (vulpea-db-get-by-id note-or-id)))
+         (old-path (when note (vulpea-note-path note)))
+         (dir (file-name-as-directory (expand-file-name directory)))
+         (new-path (when old-path
+                     (expand-file-name (file-name-nondirectory old-path) dir))))
+    (unless note
+      (user-error "vulpea-move-file: Cannot find note with ID: %s"
+                  (if (vulpea-note-p note-or-id)
+                      (vulpea-note-id note-or-id)
+                    note-or-id)))
+    (when (> (vulpea-note-level note) 0)
+      (user-error
+       "vulpea-move-file: Cannot move file for heading-level note"))
+    (unless (and old-path (file-exists-p old-path))
+      (user-error "vulpea-move-file: File does not exist: %s" old-path))
+    (unless (file-directory-p dir)
+      (user-error "vulpea-move-file: Directory does not exist: %s" dir))
+    (when (and vulpea-db-sync-directories
+               (not (vulpea-db-sync-tracked-file-p dir)))
+      (user-error
+       "vulpea-move-file: %s is outside `vulpea-db-sync-directories'" dir))
+    (when (string-equal (file-truename (file-name-directory old-path))
+                        (file-truename dir))
+      (user-error "vulpea-move-file: Note already lives in %s" dir))
+    (when (file-exists-p new-path)
+      (user-error "vulpea-move-file: Target file already exists: %s" new-path))
+    (unless (file-writable-p new-path)
+      (user-error "vulpea-move-file: Directory is not writable: %s" dir))
+    ;; Remember how the note was being looked at, so the move does not
+    ;; just kill the buffer from under the user.
+    (let* ((buffer (get-file-buffer old-path))
+           (selected (eq buffer (window-buffer (selected-window))))
+           (old-point (when buffer
+                        (with-current-buffer buffer (point))))
+           (moved (vulpea--relocate-file note new-path)))
+      (when buffer
+        (let ((new-buffer (find-file-noselect moved)))
+          (with-current-buffer new-buffer
+            (goto-char (min old-point (point-max))))
+          (when selected
+            (switch-to-buffer new-buffer))))
+      (message "Moved \"%s\" to %s" (vulpea-note-title note) dir)
+      moved)))
 
 
 
