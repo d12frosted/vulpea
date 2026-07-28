@@ -2045,7 +2045,7 @@ rather than the note."
       (concat "#+category: " category))))
 
 ;;;###autoload
-(defun vulpea-split-heading (note-or-id &optional directory)
+(defun vulpea-split-heading (note-or-id &optional directory leave-link)
   "Extract NOTE-OR-ID's subtree into a file-level note of its own.
 
 DIRECTORY is where the new file lands, defaulting to the directory of
@@ -2058,6 +2058,13 @@ meta move to the file level.  Children follow and are promoted so the
 shallowest lands at level 1; a child with an id of its own stays a
 heading note and keeps that id rather than being split in turn.  The
 subtree is removed from the source file.
+
+With LEAVE-LINK non-nil (interactively, a prefix argument) the subtree
+is replaced by a heading of the same level whose text is a link to the
+new note, instead of being removed.  The stub carries no id of its own,
+so it stays a pointer rather than becoming a note.  Useful when reading
+order in the source file matters; the default suits extracting many
+headings at once, where a stub per heading is only noise.
 
 Tag inheritance follows `org-use-tag-inheritance': what a heading
 inherits is what vulpea already reports as its tags, and leaving those
@@ -2098,7 +2105,7 @@ Signals a `user-error' if:
                 (file-name-directory (vulpea-note-path note)))))
      (when (string-empty-p (string-trim dir))
        (user-error "vulpea-split-heading: No directory given"))
-     (list note dir)))
+     (list note dir current-prefix-arg)))
   (let* ((note (if (vulpea-note-p note-or-id)
                    note-or-id
                  (vulpea-db-get-by-id note-or-id)))
@@ -2182,7 +2189,17 @@ Signals a `user-error' if:
             (org-with-wide-buffer
              (goto-char (org-find-entry-with-id id))
              (org-back-to-heading t)
-             (org-cut-subtree))
+             (let ((level (org-current-level)))
+               (org-cut-subtree)
+               (when leave-link
+                 ;; The note's title, not the raw heading: a raw
+                 ;; heading can hold a link, and a link inside a link
+                 ;; description is not a link.
+                 (insert (make-string level ?*) " "
+                         (org-link-make-string
+                          (concat "id:" id)
+                          (vulpea-note-title note))
+                         "\n"))))
             (save-buffer))
         (error
          (delete-file new-path)

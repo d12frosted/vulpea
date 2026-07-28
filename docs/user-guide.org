@@ -520,7 +520,25 @@ The category is carried over the same way, unless it was only the source file's 
 
 *** What Is Left Behind
 
-Nothing. The subtree is removed from the source file. The relationship is still visible through backlinks and unlinked mentions, and for bulk extraction (a contacts file becoming one note per contact) stubs would just be noise.
+By default, nothing. The subtree is removed from the source file. The relationship is still visible through backlinks and unlinked mentions, and for bulk extraction (a contacts file becoming one note per contact) a stub per heading would just be noise.
+
+With a prefix argument the heading is replaced by a link to the new note instead:
+
+#+begin_src emacs-lisp
+(vulpea-split-heading note nil t)
+#+end_src
+
+#+begin_example
+,* Ada Lovelace :math:            ->   * [[id:...][Ada Lovelace]]
+  :PROPERTIES:
+  :ID: ...
+  :END:
+  First programmer.
+#+end_example
+
+The stub sits at the level the heading had and carries no id of its own, so it stays a pointer rather than becoming a note. It is a real link, so the source file gains a backlink to the extracted note. Tags do not stay behind on it either, they travel with the note, as everything else does.
+
+Reach for this when reading order in the source matters, and for the bulk case leave it off.
 
 The new file is written before the subtree is cut, so a split that fails partway leaves the source untouched rather than losing it.
 

@@ -865,6 +865,18 @@ unless it was the source file-name fallback.
 The subtree is removed from the source file. The new file is written
 first, so a failure partway leaves the source intact.
 
+With a non-nil third argument (interactively, a prefix argument) the
+heading is replaced by a link to the new note rather than removed:
+
+#+begin_src emacs-lisp
+(vulpea-split-heading note-or-id nil t)
+;; source keeps: * [[id:...][Title]]
+#+end_src
+
+The stub sits at the level the heading had, carries no id of its own so
+it does not become a note, and is described by the note's title rather
+than the raw heading, since a raw heading may itself hold a link.
+
 Content is moved verbatim. Unlike =vulpea-create=, nothing is expanded
 as a template, so a body containing =%(...)= or =${...}= is written as
 written, and =vulpea-create-default-template= is not consulted: the

@@ -2775,6 +2775,115 @@ afterwards."
        (when (file-directory-p root)
          (delete-directory root t)))))
 
+(ert-deftest vulpea-split-heading-leaves-link-behind ()
+  "With LEAVE-LINK the heading is replaced by a link to the new note."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-split-fixture
+      (let ((note (vulpea-split-heading "split-section-id" nil t)))
+        (with-temp-buffer
+          (insert-file-contents source-path)
+          (let ((text (buffer-string)))
+            ;; A stub heading at the original level, pointing forward.
+            (should (string-match-p
+                     "^\\* \\[\\[id:split-section-id\\]\\[Section\\]\\]$"
+                     text))
+            ;; The content itself is gone, only the pointer remains.
+            (should-not (string-match-p "Section body\\." text))
+            (should-not (string-match-p "Child body\\." text))
+            ;; The stub is not a note: no drawer, no id of its own.
+            (should-not (string-match-p ":ID: split-child-id" text))))
+        ;; And the note really did move.
+        (should (= 0 (vulpea-note-level note)))
+        (should (equal (vulpea-note-path note)
+                       (expand-file-name "section.org" root)))))))
+
+(ert-deftest vulpea-split-heading-leaves-link-that-resolves ()
+  "The stub link is a real link, so the source gains a backlink."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-split-fixture
+      (vulpea-split-heading "split-section-id" nil t)
+      (let ((linking (vulpea-db-query-by-links-some
+                      (list "split-section-id"))))
+        (should (member "split-file-id"
+                        (seq-map #'vulpea-note-id linking)))))))
+
+(ert-deftest vulpea-split-heading-leaves-link-at-original-level ()
+  "The stub keeps the level the heading had."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((root (make-temp-file "vulpea-test-" t)))
+      (unwind-protect
+          (let* ((vulpea-db-sync-directories (list root))
+                 (source (expand-file-name "nested.org" root)))
+            (with-temp-file source
+              (insert ":PROPERTIES:\n:ID: nested-file-id\n:END:\n"
+                      "#+TITLE: Nested\n\n"
+                      "* Parent\n"
+                      "** Deep Heading\n"
+                      ":PROPERTIES:\n:ID: nested-heading-id\n:END:\n"
+                      "Body.\n"))
+            (vulpea-db-update-file source)
+            (vulpea-split-heading "nested-heading-id" nil t)
+            (with-temp-buffer
+              (insert-file-contents source)
+              (should (string-match-p
+                       "^\\*\\* \\[\\[id:nested-heading-id\\]\\[Deep Heading\\]\\]$"
+                       (buffer-string)))))
+        (dolist (buf (buffer-list))
+          (when-let* ((file (buffer-file-name buf)))
+            (when (string-prefix-p (file-name-as-directory root) file)
+              (with-current-buffer buf (set-buffer-modified-p nil))
+              (kill-buffer buf))))
+        (delete-directory root t)))))
+
+(ert-deftest vulpea-split-heading-leaves-link-uses-display-title ()
+  "The stub description is the display title, never the raw heading.
+
+A raw heading can itself hold a link, and a link inside a link
+description is not a link at all."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((root (make-temp-file "vulpea-test-" t)))
+      (unwind-protect
+          (let* ((vulpea-db-sync-directories (list root))
+                 (source (expand-file-name "markup.org" root)))
+            (with-temp-file source
+              (insert ":PROPERTIES:\n:ID: markup-file-id\n:END:\n"
+                      "#+TITLE: Markup\n\n"
+                      "* *Bold* [[https://example.com][Ada]]\n"
+                      ":PROPERTIES:\n:ID: markup-heading-id\n:END:\n"
+                      "Body.\n"))
+            (vulpea-db-update-file source)
+            (vulpea-split-heading "markup-heading-id" nil t)
+            (with-temp-buffer
+              (insert-file-contents source)
+              (let ((text (buffer-string)))
+                (should (string-match-p
+                         "^\\* \\[\\[id:markup-heading-id\\]\\[Bold Ada\\]\\]$"
+                         text))
+                ;; The original link is not nested inside the stub's.
+                (should-not (string-match-p "https://example\\.com" text)))))
+        (dolist (buf (buffer-list))
+          (when-let* ((file (buffer-file-name buf)))
+            (when (string-prefix-p (file-name-as-directory root) file)
+              (with-current-buffer buf (set-buffer-modified-p nil))
+              (kill-buffer buf))))
+        (delete-directory root t)))))
+
+(ert-deftest vulpea-split-heading-removes-subtree-by-default ()
+  "Without LEAVE-LINK nothing is left behind, as before."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-split-fixture
+      (vulpea-split-heading "split-section-id")
+      (with-temp-buffer
+        (insert-file-contents source-path)
+        (let ((text (buffer-string)))
+          (should-not (string-match-p "Section" text))
+          (should-not (string-match-p "id:split-section-id" text)))))))
+
 (ert-deftest vulpea-split-heading-creates-file-note ()
   "Splitting a heading produces a file-level note keeping its id."
   (vulpea-test--with-temp-db
