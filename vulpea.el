@@ -2212,6 +2212,322 @@ Signals a `user-error' if:
       (message "Split \"%s\" into %s" title new-path)
       (vulpea-db-get-by-id id)))))
 
+(defun vulpea-merge--file-body (path)
+  "Return the body of the file-level note in PATH.
+
+Everything before the body belongs to the note as a note rather than as
+content: the property drawer, the keywords and the meta.  Those are
+merged into the target separately, so they must not travel twice."
+  (with-current-buffer (find-file-noselect path)
+    (org-with-wide-buffer
+     (goto-char (point-min))
+     ;; Both boundaries are org's answer rather than a line pattern of
+     ;; our own.  A pattern for the leading keywords cannot tell
+     ;; `#+title: x' from `#+begin_src elisp :tangle yes', and a
+     ;; pattern for the meta disagrees with org about wrapped items,
+     ;; which copies meta into the body as well as merging it.
+     (let* ((meta-pl (plist-get (vulpea-buffer-meta) :pl))
+            (meta-beg (when meta-pl (org-element-property :begin meta-pl)))
+            (meta-end (when meta-pl (org-element-property :end meta-pl)))
+            (start (progn
+                     (goto-char (point-min))
+                     (let ((element (org-element-at-point)))
+                       ;; Walk off the note's own preamble: the drawer
+                       ;; and the keywords, nothing else.
+                       (while (and (memq (org-element-type element)
+                                         '(property-drawer keyword comment))
+                                   (< (point) (point-max)))
+                         (goto-char (org-element-property :end element))
+                         (setq element (org-element-at-point)))
+                       (point)))))
+       (string-trim
+        (if (and meta-beg (>= meta-beg start))
+            ;; Meta is merged separately, so it is cut out of the body
+            ;; while whatever sits on either side of it is kept.
+            (concat
+             (buffer-substring-no-properties start meta-beg)
+             "\n"
+             (buffer-substring-no-properties (min meta-end (point-max))
+                                             (point-max)))
+          (buffer-substring-no-properties start (point-max))))))))
+
+(defun vulpea-merge--demote (text)
+  "Return TEXT with every heading demoted one level.
+
+The merged body hangs under a heading carrying the source's title, so
+its own headings have to make room.  Every heading is shifted by the
+same amount, which keeps the tree's shape exactly: relative depth,
+level gaps and all.
+
+Deliberately not `org-demote-subtree' per top-level heading, the way
+`vulpea-split-heading' promotes.  Promotion moves later siblings out of
+an earlier sibling's subtree, so doing it one subtree at a time is
+safe; demotion moves them in, so the second sibling becomes a child of
+the first and every later one is demoted again with it."
+  (if (string-empty-p text)
+      text
+    (with-temp-buffer
+      (delay-mode-hooks (org-mode))
+      (insert text)
+      (let ((stars (make-string (if org-odd-levels-only 2 1) ?*))
+            positions)
+        (goto-char (point-min))
+        (while (re-search-forward org-outline-regexp-bol nil t)
+          (push (match-beginning 0) positions))
+        ;; Bottom-up, so an earlier position cannot be invalidated.
+        (dolist (pos positions)
+          (goto-char pos)
+          (insert stars)))
+      (string-trim (buffer-string)))))
+
+(defun vulpea-merge--meta (path)
+  "Return the meta of the file-level note in PATH, in document order.
+
+Read from the buffer rather than from `vulpea-note-meta', which hands
+its keys back in reverse (vulpea#409)."
+  (with-current-buffer (find-file-noselect path)
+    (org-with-wide-buffer
+     (goto-char (point-min))
+     (let ((meta (vulpea-buffer-meta)))
+       (seq-map (lambda (key)
+                  (cons key (vulpea-buffer-meta-get-list! meta key 'string)))
+                (seq-uniq (vulpea-buffer-meta-props meta) #'string-equal))))))
+
+(defun vulpea-merge--title-survives-as-heading-p (title)
+  "Return non-nil when TITLE survives being put in a heading.
+
+The source's title becomes a heading, and a heading line is not plain
+text: a title like \"TODO list\" is read as a todo keyword plus the
+title \"list\", one ending in `:word:' is read as tags, and one
+starting with COMMENT hides the subtree.  Each of those changes the
+note's meaning rather than its looks, so a merge that would do it is
+refused instead."
+  (and title
+       (not (string-empty-p title))
+       (with-temp-buffer
+         (delay-mode-hooks (org-mode))
+         (insert "* " title "\n")
+         (goto-char (point-min))
+         (let ((components (org-heading-components)))
+           (and (null (nth 2 components))       ; todo keyword
+                (null (nth 3 components))       ; priority
+                (null (nth 5 components))       ; tags
+                (not (org-in-commented-heading-p))
+                (equal (org-get-heading t t t t) title))))))
+
+(defun vulpea-merge--linking-paths (id)
+  "Return the files holding a link to ID, without duplicates."
+  (seq-uniq (seq-map #'vulpea-note-path
+                     (vulpea-db-query-by-links-some (list id)))
+            #'string-equal))
+
+(defun vulpea-merge--repoint-links (from-id to-id paths)
+  "Rewrite every `id:' link to FROM-ID in PATHS so it points at TO-ID.
+
+Descriptions are left alone: only the target of the link changes, so a
+link that read the old note's name still reads it."
+  (let ((paths (seq-filter #'file-exists-p (seq-uniq paths #'string-equal))))
+    (dolist (path paths)
+      (with-current-buffer (find-file-noselect path)
+        (let ((rewrote nil))
+          (org-with-wide-buffer
+           ;; Every match has to end at the id, or an id that merely
+           ;; starts with FROM-ID gets its prefix swapped: merging
+           ;; `note' would rewrite a link to `note-2' into a link to
+           ;; nothing.
+           (goto-char (point-min))
+           (while (re-search-forward
+                   (concat "\\[\\[id:" (regexp-quote from-id) "\\(\\]\\|::\\)")
+                   nil t)
+             (replace-match (concat "[[id:" to-id (match-string 1)) t t)
+             (setq rewrote t))
+           ;; Plain links too.  They are ordinary links to org and the
+           ;; database records them, so leaving them alone leaves them
+           ;; pointing at a note that no longer exists.  The bracketed
+           ;; pass has already run, so nothing is rewritten twice.
+           (goto-char (point-min))
+           (while (re-search-forward
+                   (concat "\\_<id:" (regexp-quote from-id) "\\_>")
+                   nil t)
+             (replace-match (concat "id:" to-id) t t)
+             (setq rewrote t)))
+          ;; Only save what was actually touched, so unrelated unsaved
+          ;; work in a linking buffer is not committed by a merge.
+          (when (and rewrote (buffer-modified-p))
+            (save-buffer))
+          (when rewrote
+            (vulpea-db-update-file path)))))
+    paths))
+
+;;;###autoload
+(defun vulpea-merge (source-or-id target-or-id)
+  "Fold SOURCE-OR-ID into TARGET-OR-ID, leaving one note.
+
+The source's body is appended to the target under a heading carrying
+the source's title, with the source's own headings demoted to sit under
+it.  This is the inverse of `vulpea-split-heading', so a merge can be
+undone by splitting that heading back out.
+
+Everything else the source was is folded in too: its tags are unioned
+into the target's, its meta is merged key by key keeping both values
+where they differ, and its title becomes an alias of the target so the
+old name still resolves.
+
+Links into the source are re-pointed at the target, descriptions
+untouched, so nothing dangles.  The source file is then deleted.
+
+Both notes must be file-level.  Merging heading-level notes is a
+different operation on both sides and is refused for now.
+
+Returns the target `vulpea-note', as it is after the merge.
+
+Signals a `user-error' if either note cannot be found, either is a
+heading-level note, they are the same note, either file is missing, or
+the target is not writable."
+  (interactive
+   (let* ((source (vulpea-select "Merge note"
+                                 :require-match t
+                                 :filter-fn (lambda (note)
+                                              (= (vulpea-note-level note) 0))))
+          (target (vulpea-select (format "Merge \"%s\" into"
+                                         (vulpea-note-title source))
+                                 :require-match t
+                                 :filter-fn (lambda (note)
+                                              (and (= (vulpea-note-level note) 0)
+                                                   (not (equal
+                                                         (vulpea-note-id note)
+                                                         (vulpea-note-id source))))))))
+     (list source target)))
+  (let* ((source (if (vulpea-note-p source-or-id)
+                     source-or-id
+                   (vulpea-db-get-by-id source-or-id)))
+         (target (if (vulpea-note-p target-or-id)
+                     target-or-id
+                   (vulpea-db-get-by-id target-or-id))))
+    (unless source
+      (user-error "vulpea-merge: Cannot find note with ID: %s"
+                  (if (vulpea-note-p source-or-id)
+                      (vulpea-note-id source-or-id)
+                    source-or-id)))
+    (unless target
+      (user-error "vulpea-merge: Cannot find note with ID: %s"
+                  (if (vulpea-note-p target-or-id)
+                      (vulpea-note-id target-or-id)
+                    target-or-id)))
+    (when (equal (vulpea-note-id source) (vulpea-note-id target))
+      (user-error "vulpea-merge: Cannot merge a note into itself"))
+    (when (or (> (vulpea-note-level source) 0)
+              (> (vulpea-note-level target) 0))
+      (user-error
+       "vulpea-merge: Both notes must be file-level, got levels %s and %s"
+       (vulpea-note-level source) (vulpea-note-level target)))
+    (let ((source-path (vulpea-note-path source))
+          (target-path (vulpea-note-path target)))
+      (unless (file-exists-p source-path)
+        (user-error "vulpea-merge: File does not exist: %s" source-path))
+      (unless (file-exists-p target-path)
+        (user-error "vulpea-merge: File does not exist: %s" target-path))
+      (unless (file-writable-p target-path)
+        (user-error "vulpea-merge: File is not writable: %s" target-path))
+      (unless (vulpea-merge--title-survives-as-heading-p
+               (or (with-current-buffer (find-file-noselect source-path)
+                     (org-with-wide-buffer (vulpea-buffer-title-get)))
+                   (vulpea-note-title source)))
+        (user-error
+         "vulpea-merge: Source title \"%s\" would not read as itself in a heading"
+         (vulpea-note-title source)))
+      (let* ((title (or (with-current-buffer (find-file-noselect source-path)
+                          (org-with-wide-buffer (vulpea-buffer-title-get)))
+                        ;; A note with no `#+title' still has one, from
+                        ;; its file name.
+                        (vulpea-note-title source)))
+             ;; Collected before anything moves: once the source is gone
+             ;; the database can no longer answer who linked to it.
+             (link-paths (cons target-path
+                               (vulpea-merge--linking-paths
+                                (vulpea-note-id source))))
+             (tags (vulpea-note-tags source))
+             ;; Its title is only one of the names the source answered
+             ;; to; the rest have to survive too, or the promise that
+             ;; the old name still resolves holds for one name only.
+             (aliases (vulpea-note-aliases source))
+             (meta (vulpea-merge--meta source-path))
+             (body (vulpea-merge--demote
+                    (vulpea-merge--file-body source-path)))
+             (id (vulpea-note-id target))
+             (restore (progn
+                        ;; Snapshot what is on disk, so the target has
+                        ;; to be on disk first: otherwise a rollback
+                        ;; would restore a version of the file that
+                        ;; predates the user's unsaved work and revert
+                        ;; the buffer on top of it.
+                        (when-let* ((buf (get-file-buffer target-path)))
+                          (with-current-buffer buf
+                            (when (buffer-modified-p)
+                              (save-buffer))))
+                        (with-temp-buffer
+                          (insert-file-contents target-path)
+                          (buffer-string)))))
+        ;; The target takes everything on before the source goes away.
+        ;; If that fails the target is put back as it was, so a merge
+        ;; either happens or leaves no trace.
+        (condition-case err
+            (with-current-buffer (find-file-noselect target-path)
+              (org-with-wide-buffer
+               ;; Tags and aliases are written at point, and widening
+               ;; does not move it.  Without this they land on whatever
+               ;; heading the target buffer happens to be sitting in.
+               (goto-char (point-min))
+               (when tags
+                 (vulpea-buffer-tags-add tags))
+               (dolist (alias (cons title aliases))
+                 (when (and alias
+                            (not (string-empty-p alias))
+                            ;; A note listing its own title as an alias
+                            ;; is noise, not a second name.
+                            (not (string-equal alias
+                                               (vulpea-note-title target))))
+                   (vulpea-buffer-alias-add alias)))
+               (dolist (kvp meta)
+                 (let* ((key (car kvp))
+                        (merged (seq-uniq
+                                 (append
+                                  (vulpea-buffer-meta-get-list key 'string)
+                                  (cdr kvp))
+                                 #'string-equal)))
+                   (vulpea-buffer-meta-set key merged 'append)))
+               (goto-char (point-max))
+               (unless (bolp) (insert "\n"))
+               (insert "\n* " title "\n")
+               (unless (string-empty-p body)
+                 (insert body "\n")))
+              (save-buffer))
+          (error
+           (with-temp-buffer
+             (insert restore)
+             (write-region (point-min) (point-max) target-path nil 'silent))
+           (when-let* ((buf (get-file-buffer target-path)))
+             (with-current-buffer buf
+               (set-buffer-modified-p nil)
+               (revert-buffer t t t)))
+           (signal (car err) (cdr err))))
+        ;; The target holds everything now, so the source can go.  It
+        ;; has to go before the target is indexed: the merged body
+        ;; carries the source's heading ids, and a note row already
+        ;; claiming one of them would make the new row be ignored.
+        (let ((buf (get-file-buffer source-path)))
+          (when buf
+            (with-current-buffer buf (set-buffer-modified-p nil))
+            (kill-buffer buf)))
+        (delete-file source-path)
+        (vulpea-db--delete-file-notes source-path)
+        (vulpea-db-update-file target-path)
+        ;; Re-point last, including inside the target itself, since the
+        ;; merged body may have brought links to the note it came from.
+        (vulpea-merge--repoint-links (vulpea-note-id source) id link-paths)
+        (message "Merged \"%s\" into \"%s\"" title (vulpea-note-title target))
+        (vulpea-db-get-by-id id)))))
+
 
 
 ;;; Schema authoring
