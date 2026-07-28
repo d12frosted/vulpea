@@ -16,7 +16,7 @@ All query functions return =vulpea-note= structs:
 (vulpea-note-aliases note)       ; List of alias strings
 (vulpea-note-tags note)          ; List of tag strings
 (vulpea-note-links note)         ; List of (type . target) pairs
-(vulpea-note-meta note)          ; Alist of metadata
+(vulpea-note-meta note)          ; Alist of metadata (document order)
 (vulpea-note-properties note)    ; Alist of org properties
 (vulpea-note-todo note)          ; TODO state string or nil
 (vulpea-note-priority note)      ; Priority character or nil
@@ -424,6 +424,26 @@ When a key has multiple entries:
 
 (vulpea-note-meta-get-list note "ratings" 'number)
 ;; => (95 92 88)
+#+end_src
+
+** Order
+
+=vulpea-note-meta= returns keys in document order, and the values of a
+key in the order they appear; a key written several times keeps the
+position of its first occurrence. So iterating the alist (rendering it,
+or writing it back into a note) follows document order, with the values
+of a repeated key grouped at its first occurrence rather than spread
+out the way the note spells them.
+
+#+begin_src org
+- grape :: Riesling
+- year :: 2019
+- grape :: Sylvaner
+#+end_src
+
+#+begin_src emacs-lisp
+(vulpea-note-meta note)
+;; => (("grape" "Riesling" "Sylvaner") ("year" "2019"))
 #+end_src
 
 ** Access Patterns

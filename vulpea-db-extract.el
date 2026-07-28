@@ -1253,7 +1253,9 @@ Metadata is defined by the first description list:
   - key :: value2
 
 Returns alist of (key . values) where values is list of strings.
-Link values are stored as interpreted strings.
+Both keys and values are in document order, a repeated key keeping
+the position of its first occurrence.  Link values are stored as
+interpreted strings.
 
 Works on both object- and element-granularity ASTs.  At element
 granularity the item tag is a raw string and the value element
@@ -1303,7 +1305,7 @@ parsed from."
                 (if existing
                     (setcdr existing (append (cdr existing) (list value)))
                   (push (cons key (list value)) meta-alist))))))))
-    meta-alist))
+    (nreverse meta-alist)))
 
 ;;; Extractor Registry
 

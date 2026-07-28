@@ -55,7 +55,9 @@ Slots:
   tags         - List of tags
   links        - List of links (as plists with :dest and :type)
   properties   - Alist of properties
-  meta         - Alist of metadata
+  meta         - Alist of metadata, keys and values in document
+                 order (a repeated key keeps the position of its
+                 first occurrence)
   todo         - TODO state
   priority     - Priority
   scheduled    - Scheduled timestamp
