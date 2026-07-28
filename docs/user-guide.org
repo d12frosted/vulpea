@@ -466,9 +466,9 @@ You can also rename files programmatically:
 
 → See [[file:api-reference.org][API Reference]] for detailed function documentation.
 
-* Moving and Splitting Notes
+* Moving, Splitting and Merging Notes
 
-Renaming changes a note's file name. These two change where a note lives, without touching links: they are ids and not paths, so nothing is ever rewritten.
+Renaming changes a note's file name. These change where a note's content lives. Moving and splitting never rewrite a link, since links are ids and not paths; merging does, because one of the two ids stops existing.
 
 ** Moving a Note to Another Directory
 
@@ -553,6 +553,28 @@ Only the heading's own logbook blocks the split. A child keeps its heading when 
 Clear the keyword or the logbook first if the note really should become a file.
 
 The content itself is moved verbatim. If a body happens to contain something that looks like a template placeholder, it stays exactly as written.
+
+** Merging Two Notes
+
+The other direction: note B turns out to belong inside note A.
+
+#+begin_src emacs-lisp
+(vulpea-merge source target)
+#+end_src
+
+Or =M-x vulpea-merge=, which asks for both.
+
+The source's body is appended to the target under a heading carrying the source's title, and the source's own headings are demoted to sit under it. That is exactly what splitting that heading back out would undo, so the two operations are inverses.
+
+Everything else folds in as well. Tags are unioned, meta is merged key by key keeping both values where they differ, and the source's title and all of its aliases become aliases of the target, so every name it answered to still finds the note.
+
+Links into the source are re-pointed at the target, with descriptions left alone: a link that read the old note's name still reads it. Plain =id:= links count too, not only bracketed ones. Then the source file is deleted.
+
+Both notes have to be file-level. Merging a heading note is a different operation on each side and is refused for now.
+
+A source whose title would not read as itself in a heading is refused as well. =TODO list= becomes a todo heading titled =list=, a title ending in =:word:= is read as tags, and one starting with =COMMENT= hides what follows it. Those change what the note means rather than how it looks, and a merge that did it could not be split back out.
+
+One thing to know: keywords sitting in the source's body, such as a =#+CATEGORY:= or =#+STARTUP:= line below the meta, travel with it and take effect in the target file. Only the source's leading keywords are treated as the note's own.
 
 * Synchronization
 
