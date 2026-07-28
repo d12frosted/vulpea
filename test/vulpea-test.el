@@ -3624,6 +3624,618 @@ the section all survive without being dropped or written twice."
       (should (= (vulpea-note-level (vulpea-db-get-by-id "split-section-id"))
                  1)))))
 
+;;;; Note Merge Tests (#343)
+
+(defmacro vulpea-test--with-merge-fixture (&rest body)
+  "Execute BODY with a vault holding two file notes and a linking note.
+
+Binds `root', `source-path', `target-path' and `linking-path'.  The
+source and target both carry tags, meta and a body with headings; the
+linking note links to the source, with a description."
+  (declare (indent 0))
+  `(let* ((root (make-temp-file "vulpea-test-" t))
+          (vulpea-db-sync-directories (list root))
+          (source-path (expand-file-name "source.org" root))
+          (target-path (expand-file-name "target.org" root))
+          (linking-path (expand-file-name "linking.org" root)))
+     (unwind-protect
+         (progn
+           (with-temp-file source-path
+             (insert ":PROPERTIES:\n:ID: merge-source-id\n:END:\n"
+                     "#+TITLE: Source Note\n"
+                     "#+FILETAGS: :stag:shared:\n\n"
+                     "- key :: source value\n"
+                     "- only-source :: kept\n\n"
+                     "Source body.\n\n"
+                     "* Source Heading\n"
+                     ":PROPERTIES:\n:ID: merge-source-child-id\n:END:\n"
+                     "Source child body.\n"))
+           (with-temp-file target-path
+             (insert ":PROPERTIES:\n:ID: merge-target-id\n:END:\n"
+                     "#+TITLE: Target Note\n"
+                     "#+FILETAGS: :ttag:shared:\n\n"
+                     "- key :: target value\n\n"
+                     "Target body.\n"))
+           (with-temp-file linking-path
+             (insert ":PROPERTIES:\n:ID: merge-linking-id\n:END:\n"
+                     "#+TITLE: Linking Note\n\n"
+                     "See [[id:merge-source-id][the source]].\n"))
+           (dolist (path (list source-path target-path linking-path))
+             (vulpea-db-update-file path))
+           ,@body)
+       (dolist (buf (buffer-list))
+         (when-let* ((file (buffer-file-name buf)))
+           (when (string-prefix-p (file-name-as-directory root) file)
+             (with-current-buffer buf (set-buffer-modified-p nil))
+             (kill-buffer buf))))
+       (when (file-directory-p root)
+         (delete-directory root t)))))
+
+(defmacro vulpea-test--with-merge-vault (source-body &rest body)
+  "Execute BODY with a vault holding a source with SOURCE-BODY.
+
+Binds `root', `source-path' and `target-path'.  The source note is
+titled \"Src\" and the target \"Tgt\", both otherwise bare, for tests
+about a specific shape of source content."
+  (declare (indent 1))
+  `(let* ((root (make-temp-file "vulpea-test-" t))
+          (vulpea-db-sync-directories (list root))
+          (source-path (expand-file-name "src.org" root))
+          (target-path (expand-file-name "tgt.org" root)))
+     (unwind-protect
+         (progn
+           (with-temp-file source-path
+             (insert ":PROPERTIES:\n:ID: mv-source-id\n:END:\n"
+                     "#+TITLE: Src\n\n" ,source-body))
+           (with-temp-file target-path
+             (insert ":PROPERTIES:\n:ID: mv-target-id\n:END:\n"
+                     "#+TITLE: Tgt\n\nTarget body.\n"))
+           (dolist (path (list source-path target-path))
+             (vulpea-db-update-file path))
+           ,@body)
+       (dolist (buf (buffer-list))
+         (when-let* ((file (buffer-file-name buf)))
+           (when (string-prefix-p (file-name-as-directory root) file)
+             (with-current-buffer buf
+               (widen)
+               (set-buffer-modified-p nil))
+             (kill-buffer buf))))
+       (when (file-directory-p root)
+         (delete-directory root t)))))
+
+(defun vulpea-test--merged-body (target-path)
+  "Return the merged section of TARGET-PATH, from its `* Src' heading."
+  (with-temp-buffer
+    (insert-file-contents target-path)
+    (goto-char (point-min))
+    (if (re-search-forward "^\\* Src$" nil t)
+        (buffer-substring-no-properties (match-beginning 0) (point-max))
+      "")))
+
+(ert-deftest vulpea-merge-keeps-source-siblings-as-siblings ()
+  "Top-level source headings stay siblings of each other.
+
+Demoting one subtree at a time nests each sibling into the one before
+it, because demotion moves later siblings into an earlier subtree."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-merge-vault
+        "* One\n* Two\n** Two-a\n* Three\n"
+      (vulpea-merge "mv-source-id" "mv-target-id")
+      (let ((merged (vulpea-test--merged-body target-path)))
+        (should (string-match-p "^\\*\\* One$" merged))
+        (should (string-match-p "^\\*\\* Two$" merged))
+        (should (string-match-p "^\\*\\*\\* Two-a$" merged))
+        ;; The one that used to be a sibling of One and Two, not a
+        ;; great-grandchild of them.
+        (should (string-match-p "^\\*\\* Three$" merged))))))
+
+(ert-deftest vulpea-merge-keeps-content-around-meta ()
+  "Body on either side of the meta list survives the merge."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-merge-vault
+        "Intro must survive.\n\n- key :: v\n\nTail must survive.\n"
+      (vulpea-merge "mv-source-id" "mv-target-id")
+      (let ((merged (vulpea-test--merged-body target-path)))
+        (should (string-match-p "Intro must survive\\." merged))
+        (should (string-match-p "Tail must survive\\." merged))
+        ;; The meta itself was merged, not copied into the body.
+        (should-not (string-match-p "- key :: v" merged)))
+      (should (equal (vulpea-note-meta-get
+                      (vulpea-db-get-by-id "mv-target-id") "key")
+                     "v")))))
+
+(ert-deftest vulpea-merge-keeps-block-headers ()
+  "A block header line is body, not one of the note's own keywords.
+
+A pattern loose enough to skip `#+title:' also skips
+`#+begin_src elisp :tangle yes', which decapitates the block."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-merge-vault
+        "#+begin_src emacs-lisp :tangle yes\n(message \"hi\")\n#+end_src\n"
+      (vulpea-merge "mv-source-id" "mv-target-id")
+      (let ((merged (vulpea-test--merged-body target-path)))
+        (should (string-match-p "#\\+begin_src emacs-lisp :tangle yes" merged))
+        (should (string-match-p "(message \"hi\")" merged))))))
+
+(ert-deftest vulpea-merge-repoints-plain-links ()
+  "Plain `id:' links are re-pointed too, not only bracketed ones.
+
+Org treats them as links and the database records them, so leaving them
+alone leaves them pointing at a note that no longer exists."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-merge-vault "Body.\n"
+      (let ((linking-path (expand-file-name "linking.org" root)))
+        (with-temp-file linking-path
+          (insert ":PROPERTIES:\n:ID: mv-linking-id\n:END:\n"
+                  "#+TITLE: Linking\n\n"
+                  "Plain id:mv-source-id and [[id:mv-source-id][bracketed]].\n"))
+        (vulpea-db-update-file linking-path)
+        (vulpea-merge "mv-source-id" "mv-target-id")
+        (with-temp-buffer
+          (insert-file-contents linking-path)
+          (let ((text (buffer-string)))
+            (should (string-match-p "id:mv-target-id and" text))
+            (should (string-match-p "\\[\\[id:mv-target-id\\]\\[bracketed\\]\\]"
+                                    text))
+            (should-not (string-match-p "mv-source-id" text))))
+        ;; Nothing is left pointing at the note that is gone.
+        (should-not (vulpea-db-query-by-links-some (list "mv-source-id")))))))
+
+(ert-deftest vulpea-merge-writes-tags-and-aliases-at-file-level ()
+  "Tags and aliases land on the note, wherever the target buffer sits.
+
+Both are written at point, and widening does not move it, so a target
+buffer parked in a heading would take them instead."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-merge-fixture
+      ;; Park point inside a heading of the target, as an open buffer
+      ;; would be, and narrow for good measure.
+      (with-current-buffer (find-file-noselect target-path)
+        (goto-char (point-max))
+        (insert "\n* Existing Heading\nSome text.\n")
+        (save-buffer)
+        (goto-char (point-max))
+        (org-back-to-heading t)
+        (org-narrow-to-subtree))
+      (vulpea-db-update-file target-path)
+      (vulpea-merge "merge-source-id" "merge-target-id")
+      (let ((target (vulpea-db-get-by-id "merge-target-id")))
+        (should (member "stag" (vulpea-note-tags target)))
+        (should (member "ttag" (vulpea-note-tags target)))
+        (should (member "Source Note" (vulpea-note-aliases target))))
+      ;; The unrelated heading was not the one mutated.
+      (with-temp-buffer
+        (insert-file-contents target-path)
+        (goto-char (point-min))
+        (re-search-forward "^\\* Existing Heading")
+        (should-not (string-match-p
+                     ":ALIASES:"
+                     (buffer-substring-no-properties (point) (point-max))))))))
+
+(ert-deftest vulpea-merge-refuses-title-that-reads-as-heading-syntax ()
+  "A title that a heading would reinterpret is refused.
+
+`* TODO list' is a todo heading titled `list', which changes what the
+note means and cannot be split back out."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((root (make-temp-file "vulpea-test-" t)))
+      (unwind-protect
+          (let* ((vulpea-db-sync-directories (list root))
+                 (source (expand-file-name "todoish.org" root))
+                 (target (expand-file-name "target.org" root)))
+            (with-temp-file source
+              (insert ":PROPERTIES:\n:ID: todoish-id\n:END:\n"
+                      "#+TITLE: TODO list of things\n\nBody.\n"))
+            (with-temp-file target
+              (insert ":PROPERTIES:\n:ID: plain-target-id\n:END:\n"
+                      "#+TITLE: Target\n\nBody.\n"))
+            (dolist (p (list source target)) (vulpea-db-update-file p))
+            (should-error (vulpea-merge "todoish-id" "plain-target-id")
+                          :type 'user-error)
+            ;; Refused before anything moved.
+            (should (file-exists-p source))
+            (should (vulpea-db-get-by-id "todoish-id")))
+        (dolist (buf (buffer-list))
+          (when-let* ((file (buffer-file-name buf)))
+            (when (string-prefix-p (file-name-as-directory root) file)
+              (with-current-buffer buf (set-buffer-modified-p nil))
+              (kill-buffer buf))))
+        (delete-directory root t)))))
+
+(ert-deftest vulpea-merge-indexes-target-after-dropping-source ()
+  "The source's rows go before the target is indexed.
+
+The merged body carries the source's heading ids, and note inserts are
+ignored on conflict, so a row still claiming one of them would make the
+migrated heading silently fail to register."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-merge-fixture
+      (vulpea-merge "merge-source-id" "merge-target-id")
+      ;; The source's child heading is now a note inside the target.
+      (let ((child (vulpea-db-get-by-id "merge-source-child-id")))
+        (should child)
+        (should (equal (vulpea-note-path child) target-path))
+        (should (> (vulpea-note-level child) 0))))))
+
+(ert-deftest vulpea-merge-appends-body-under-heading ()
+  "The source body lands under a heading carrying its title."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-merge-fixture
+      (vulpea-merge "merge-source-id" "merge-target-id")
+      (with-temp-buffer
+        (insert-file-contents target-path)
+        (let ((text (buffer-string)))
+          (should (string-match-p "^\\* Source Note$" text))
+          (should (string-match-p "Source body\\." text))
+          ;; The target's own body is still there, and comes first.
+          (should (string-match-p "Target body\\." text))
+          (should (< (string-match "Target body\\." text)
+                     (string-match "Source body\\." text))))))))
+
+(ert-deftest vulpea-merge-demotes-source-headings ()
+  "Source headings nest under the heading that carries its title."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-merge-fixture
+      (vulpea-merge "merge-source-id" "merge-target-id")
+      (with-temp-buffer
+        (insert-file-contents target-path)
+        (should (string-match-p "^\\*\\* Source Heading$" (buffer-string))))
+      ;; The child note followed, and is still a note.
+      (let ((child (vulpea-db-get-by-id "merge-source-child-id")))
+        (should child)
+        (should (equal (vulpea-note-path child) target-path))
+        (should (= (vulpea-note-level child) 2))))))
+
+(ert-deftest vulpea-merge-removes-source ()
+  "The source file and its note are gone afterwards."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-merge-fixture
+      (vulpea-merge "merge-source-id" "merge-target-id")
+      (should-not (file-exists-p source-path))
+      (should-not (vulpea-db-get-by-id "merge-source-id")))))
+
+(ert-deftest vulpea-merge-repoints-incoming-links ()
+  "Links to the source point at the target, descriptions untouched."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-merge-fixture
+      (vulpea-merge "merge-source-id" "merge-target-id")
+      (with-temp-buffer
+        (insert-file-contents linking-path)
+        (should (string-match-p "\\[\\[id:merge-target-id\\]\\[the source\\]\\]"
+                                (buffer-string)))
+        (should-not (string-match-p "merge-source-id" (buffer-string))))
+      ;; And the database agrees.
+      (should (equal (seq-map #'vulpea-note-id
+                              (vulpea-db-query-by-links-some
+                               (list "merge-target-id")))
+                     (list "merge-linking-id"))))))
+
+(ert-deftest vulpea-merge-unions-tags ()
+  "The target ends up carrying both sets of tags, without duplicates."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-merge-fixture
+      (let ((note (vulpea-merge "merge-source-id" "merge-target-id")))
+        (should (equal (sort (vulpea-note-tags note) #'string<)
+                       '("shared" "stag" "ttag")))))))
+
+(ert-deftest vulpea-merge-keeps-source-title-as-alias ()
+  "The source title still resolves, as an alias of the target."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-merge-fixture
+      (let ((note (vulpea-merge "merge-source-id" "merge-target-id")))
+        (should (member "Source Note" (vulpea-note-aliases note)))
+        (should (equal (vulpea-note-title note) "Target Note"))))))
+
+(ert-deftest vulpea-merge-merges-meta-keeping-both ()
+  "Conflicting meta keys keep both values, source only keys travel."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-merge-fixture
+      (let ((note (vulpea-merge "merge-source-id" "merge-target-id")))
+        (should (equal (vulpea-note-meta-get-list note "key")
+                       '("target value" "source value")))
+        (should (equal (vulpea-note-meta-get note "only-source") "kept"))))))
+
+(ert-deftest vulpea-merge-meta-drops-exact-duplicates ()
+  "A value present on both sides is not written twice."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((root (make-temp-file "vulpea-test-" t)))
+      (unwind-protect
+          (let* ((vulpea-db-sync-directories (list root))
+                 (source (expand-file-name "dup-source.org" root))
+                 (target (expand-file-name "dup-target.org" root)))
+            (with-temp-file source
+              (insert ":PROPERTIES:\n:ID: dup-source-id\n:END:\n"
+                      "#+TITLE: Dup Source\n\n- key :: same\n\nBody.\n"))
+            (with-temp-file target
+              (insert ":PROPERTIES:\n:ID: dup-target-id\n:END:\n"
+                      "#+TITLE: Dup Target\n\n- key :: same\n\nBody.\n"))
+            (vulpea-db-update-file source)
+            (vulpea-db-update-file target)
+            (let ((note (vulpea-merge "dup-source-id" "dup-target-id")))
+              (should (equal (vulpea-note-meta-get-list note "key") '("same")))))
+        (dolist (buf (buffer-list))
+          (when-let* ((file (buffer-file-name buf)))
+            (when (string-prefix-p (file-name-as-directory root) file)
+              (with-current-buffer buf (set-buffer-modified-p nil))
+              (kill-buffer buf))))
+        (delete-directory root t)))))
+
+(ert-deftest vulpea-merge-refuses-heading-notes ()
+  "Both sides must be file-level notes."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-merge-fixture
+      ;; Source child is a heading note.
+      (should-error (vulpea-merge "merge-source-child-id" "merge-target-id")
+                    :type 'user-error)
+      (should-error (vulpea-merge "merge-target-id" "merge-source-child-id")
+                    :type 'user-error)
+      ;; Nothing happened.
+      (should (file-exists-p source-path))
+      (should (vulpea-db-get-by-id "merge-source-id")))))
+
+(ert-deftest vulpea-merge-refuses-self ()
+  "Merging a note into itself errors."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-merge-fixture
+      (should-error (vulpea-merge "merge-target-id" "merge-target-id")
+                    :type 'user-error)
+      (should (file-exists-p target-path)))))
+
+(ert-deftest vulpea-merge-refuses-unknown-notes ()
+  "An id that resolves to nothing errors."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-merge-fixture
+      (should-error (vulpea-merge "no-such-id" "merge-target-id")
+                    :type 'user-error)
+      (should-error (vulpea-merge "merge-source-id" "no-such-id")
+                    :type 'user-error)
+      (should (file-exists-p source-path)))))
+
+(ert-deftest vulpea-merge-rolls-back-target-when-it-fails ()
+  "A failure while writing the target puts the target back.
+
+Otherwise the target keeps a copy of the source's headings while the
+source still holds the same ids, which is a duplicate id across two
+files and only one of them survives the next index."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-merge-fixture
+      (let ((before (with-temp-buffer
+                      (insert-file-contents target-path)
+                      (buffer-string))))
+        (cl-letf (((symbol-function 'vulpea-buffer-alias-add)
+                   (lambda (&rest _) (error "boom"))))
+          (should-error (vulpea-merge "merge-source-id" "merge-target-id")))
+        ;; Both notes are exactly as they were.
+        (should (file-exists-p source-path))
+        (should (equal (with-temp-buffer
+                         (insert-file-contents target-path)
+                         (buffer-string))
+                       before))
+        (should (vulpea-db-get-by-id "merge-source-id"))
+        (should (= 1 (vulpea-note-level
+                      (vulpea-db-get-by-id "merge-source-child-id"))))))))
+
+(ert-deftest vulpea-merge-repoints-only-exact-ids ()
+  "An id that merely starts with the source's id is left alone.
+
+The link target is matched up to its end, so merging `note' cannot
+rewrite a link to `note-2' into a link to nothing."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((root (make-temp-file "vulpea-test-" t)))
+      (unwind-protect
+          (let* ((vulpea-db-sync-directories (list root))
+                 (source (expand-file-name "note.org" root))
+                 (other (expand-file-name "note-2.org" root))
+                 (target (expand-file-name "target.org" root))
+                 (linking (expand-file-name "linking.org" root)))
+            (with-temp-file source
+              (insert ":PROPERTIES:\n:ID: note\n:END:\n#+TITLE: Note\n\nBody.\n"))
+            (with-temp-file other
+              (insert ":PROPERTIES:\n:ID: note-2\n:END:\n#+TITLE: Note 2\n\nBody.\n"))
+            (with-temp-file target
+              (insert ":PROPERTIES:\n:ID: tgt\n:END:\n#+TITLE: Target\n\nBody.\n"))
+            (with-temp-file linking
+              (insert ":PROPERTIES:\n:ID: linker\n:END:\n#+TITLE: Linker\n\n"
+                      "One [[id:note][A]] and two [[id:note-2][B]].\n"))
+            (dolist (path (list source other target linking))
+              (vulpea-db-update-file path))
+            (vulpea-merge "note" "tgt")
+            (with-temp-buffer
+              (insert-file-contents linking)
+              (let ((text (buffer-string)))
+                (should (string-match-p "\\[\\[id:tgt\\]\\[A\\]\\]" text))
+                ;; The bystander link is untouched.
+                (should (string-match-p "\\[\\[id:note-2\\]\\[B\\]\\]" text))))
+            (should (vulpea-db-get-by-id "note-2")))
+        (dolist (buf (buffer-list))
+          (when-let* ((file (buffer-file-name buf)))
+            (when (string-prefix-p (file-name-as-directory root) file)
+              (with-current-buffer buf (set-buffer-modified-p nil))
+              (kill-buffer buf))))
+        (delete-directory root t)))))
+
+(ert-deftest vulpea-merge-carries-source-aliases ()
+  "Every name the source answered to still resolves."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((root (make-temp-file "vulpea-test-" t)))
+      (unwind-protect
+          (let* ((vulpea-db-sync-directories (list root))
+                 (source (expand-file-name "aliased.org" root))
+                 (target (expand-file-name "target.org" root)))
+            (with-temp-file source
+              (insert ":PROPERTIES:\n:ID: aliased-id\n"
+                      ":ALIASES: \"Old Name\" Nickname\n:END:\n"
+                      "#+TITLE: Aliased Source\n\nBody.\n"))
+            (with-temp-file target
+              (insert ":PROPERTIES:\n:ID: alias-target-id\n:END:\n"
+                      "#+TITLE: Target\n\nBody.\n"))
+            (vulpea-db-update-file source)
+            (vulpea-db-update-file target)
+            (let* ((note (vulpea-merge "aliased-id" "alias-target-id"))
+                   (aliases (vulpea-note-aliases note)))
+              (should (member "Aliased Source" aliases))
+              (should (member "Old Name" aliases))
+              (should (member "Nickname" aliases))))
+        (dolist (buf (buffer-list))
+          (when-let* ((file (buffer-file-name buf)))
+            (when (string-prefix-p (file-name-as-directory root) file)
+              (with-current-buffer buf (set-buffer-modified-p nil))
+              (kill-buffer buf))))
+        (delete-directory root t)))))
+
+(ert-deftest vulpea-merge-does-not-copy-meta-into-body ()
+  "Meta is merged as meta, never also left in the appended body.
+
+Where the meta ends comes from org rather than from a line pattern, so
+a wrapped item or meta that does not lead the section still counts."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((root (make-temp-file "vulpea-test-" t)))
+      (unwind-protect
+          (let* ((vulpea-db-sync-directories (list root))
+                 (source (expand-file-name "wrapped.org" root))
+                 (target (expand-file-name "target.org" root)))
+            (with-temp-file source
+              (insert ":PROPERTIES:\n:ID: wrapped-id\n:END:\n"
+                      "#+TITLE: Wrapped\n\n"
+                      "- one :: value that\n  wraps a line\n"
+                      "- two :: second\n\n"
+                      "Real body.\n"))
+            (with-temp-file target
+              (insert ":PROPERTIES:\n:ID: wrapped-target-id\n:END:\n"
+                      "#+TITLE: Target\n\nBody.\n"))
+            (vulpea-db-update-file source)
+            (vulpea-db-update-file target)
+            (let ((note (vulpea-merge "wrapped-id" "wrapped-target-id")))
+              (should (equal (vulpea-note-meta-get note "two") "second"))
+              (with-temp-buffer
+                (insert-file-contents (vulpea-note-path note))
+                (let ((lines (split-string (buffer-string) "\n")))
+                  ;; Each meta line appears once, as meta.
+                  (should (= 1 (seq-count
+                                (lambda (l) (string-match-p "^- two :: second" l))
+                                lines)))
+                  (should (= 1 (seq-count
+                                (lambda (l) (string-match-p "wraps a line" l))
+                                lines)))))))
+        (dolist (buf (buffer-list))
+          (when-let* ((file (buffer-file-name buf)))
+            (when (string-prefix-p (file-name-as-directory root) file)
+              (with-current-buffer buf (set-buffer-modified-p nil))
+              (kill-buffer buf))))
+        (delete-directory root t)))))
+
+(ert-deftest vulpea-merge-repoints-links-inside-target ()
+  "A link the target already had to the source is re-pointed too."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-merge-fixture
+      ;; The target refers to the note it is about to absorb.
+      (with-temp-file target-path
+        (insert ":PROPERTIES:\n:ID: merge-target-id\n:END:\n"
+                "#+TITLE: Target Note\n#+FILETAGS: :ttag:shared:\n\n"
+                "- key :: target value\n\n"
+                "Target body, see [[id:merge-source-id][the source]].\n"))
+      (vulpea-db-update-file target-path)
+      (vulpea-merge "merge-source-id" "merge-target-id")
+      (with-temp-buffer
+        (insert-file-contents target-path)
+        (let ((text (buffer-string)))
+          (should-not (string-match-p "id:merge-source-id" text))
+          (should (string-match-p "\\[\\[id:merge-target-id\\]\\[the source\\]\\]"
+                                  text)))))))
+
+(ert-deftest vulpea-merge-keeps-meta-key-order ()
+  "Merged meta keeps the order the source wrote it in.
+
+`vulpea-note-meta' hands keys back reversed (vulpea#409), so the merge
+reads them from the buffer instead."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((root (make-temp-file "vulpea-test-" t)))
+      (unwind-protect
+          (let* ((vulpea-db-sync-directories (list root))
+                 (source (expand-file-name "ordered.org" root))
+                 (target (expand-file-name "target.org" root)))
+            (with-temp-file source
+              (insert ":PROPERTIES:\n:ID: ordered-id\n:END:\n"
+                      "#+TITLE: Ordered\n\n"
+                      "- one :: 1\n- two :: 2\n- three :: 3\n\nBody.\n"))
+            (with-temp-file target
+              (insert ":PROPERTIES:\n:ID: ordered-target-id\n:END:\n"
+                      "#+TITLE: Target\n\nBody.\n"))
+            (vulpea-db-update-file source)
+            (vulpea-db-update-file target)
+            (let ((note (vulpea-merge "ordered-id" "ordered-target-id")))
+              (with-temp-buffer
+                (insert-file-contents (vulpea-note-path note))
+                (let ((lines (seq-filter
+                              (lambda (l) (string-prefix-p "- " l))
+                              (split-string (buffer-string) "\n"))))
+                  (should (equal lines
+                                 '("- one :: 1" "- two :: 2" "- three :: 3")))))))
+        (dolist (buf (buffer-list))
+          (when-let* ((file (buffer-file-name buf)))
+            (when (string-prefix-p (file-name-as-directory root) file)
+              (with-current-buffer buf (set-buffer-modified-p nil))
+              (kill-buffer buf))))
+        (delete-directory root t)))))
+
+(ert-deftest vulpea-merge-source-without-title ()
+  "A source with no `#+title' still contributes the name it had."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((root (make-temp-file "vulpea-test-" t)))
+      (unwind-protect
+          (let* ((vulpea-db-sync-directories (list root))
+                 (source (expand-file-name "untitled_source.org" root))
+                 (target (expand-file-name "target.org" root)))
+            (with-temp-file source
+              (insert ":PROPERTIES:\n:ID: untitled-id\n:END:\n\nBody here.\n"))
+            (with-temp-file target
+              (insert ":PROPERTIES:\n:ID: untitled-target-id\n:END:\n"
+                      "#+TITLE: Target\n\nBody.\n"))
+            (vulpea-db-update-file source)
+            (vulpea-db-update-file target)
+            (let* ((fallback (vulpea-note-title
+                              (vulpea-db-get-by-id "untitled-id")))
+                   (note (vulpea-merge "untitled-id" "untitled-target-id")))
+              (should fallback)
+              (should (member fallback (vulpea-note-aliases note)))
+              (with-temp-buffer
+                (insert-file-contents (vulpea-note-path note))
+                (let ((text (buffer-string)))
+                  (should (string-match-p (concat "^\\* " (regexp-quote fallback))
+                                          text))
+                  (should-not (string-match-p "Merged note" text))))))
+        (dolist (buf (buffer-list))
+          (when-let* ((file (buffer-file-name buf)))
+            (when (string-prefix-p (file-name-as-directory root) file)
+              (with-current-buffer buf (set-buffer-modified-p nil))
+              (kill-buffer buf))))
+        (delete-directory root t)))))
+
 ;;; Schema authoring (#330)
 
 (ert-deftest vulpea-schema-insert-field-values-writes-in-order ()

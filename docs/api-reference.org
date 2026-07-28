@@ -914,6 +914,39 @@ of that name already exists there.
 
 Called interactively, it works on the heading at point.
 
+** vulpea-merge
+
+Fold one file-level note into another:
+
+#+begin_src emacs-lisp
+(vulpea-merge source-or-id target-or-id)
+;; => the target vulpea-note, as it is after the merge
+#+end_src
+
+The source's body is appended to the target under a heading carrying
+the source's title, with the source's own headings demoted to sit under
+it. This is the inverse of =vulpea-split-heading=, so splitting that
+heading back out undoes the merge.
+
+Tags are unioned. Meta is merged key by key, keeping both values where
+they differ and dropping exact duplicates. The source's title and all
+of its aliases become aliases of the target, so every name it answered
+to still resolves.
+
+Links into the source are re-pointed at the target with their
+descriptions untouched, so nothing dangles and a link that read the old
+note's name still reads it. Plain =id:= links count as links here, the
+same as bracketed ones. The source file is then deleted.
+
+Both notes must be file-level. Merging heading-level notes is a
+different operation on each side and is refused.
+
+Signals a =user-error= when either note cannot be found, either is a
+heading-level note, they are the same note, either file is missing, the
+target is not writable, or the source's title would not read as itself
+once it becomes a heading (a title like "TODO list" is read as a todo
+keyword, one ending in =:word:= as tags).
+
 ** vulpea-title-change-detection-mode
 
 Minor mode that detects title changes on save:
