@@ -934,6 +934,51 @@ https://github.com/d12frosted/vulpea/issues/277."
           (should (member "[[id:grape-2][Grape Two]]" grape-vals)))
       (delete-file path))))
 
+(ert-deftest vulpea-db-extract-meta-key-order ()
+  "Test metadata keys are extracted in document order."
+  (let ((path (vulpea-test--create-temp-org-file
+               ":PROPERTIES:\n:ID: order-id\n:END:\n#+TITLE: Order\n\n- one :: 1\n- two :: 2\n- three :: 3\n")))
+    (unwind-protect
+        (let* ((ctx (vulpea-db--parse-file path))
+               (node (vulpea-parse-ctx-file-node ctx))
+               (meta (plist-get node :meta)))
+          (should (equal meta '(("one" "1") ("two" "2") ("three" "3")))))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-meta-key-order-repeated-key ()
+  "Test a repeated key keeps the position of its first occurrence."
+  (let ((path (vulpea-test--create-temp-org-file
+               ":PROPERTIES:\n:ID: order-repeat-id\n:END:\n#+TITLE: Order\n\n- grape :: Riesling\n- year :: 2019\n- grape :: Sylvaner\n- price :: 25\n")))
+    (unwind-protect
+        (let* ((ctx (vulpea-db--parse-file path))
+               (node (vulpea-parse-ctx-file-node ctx))
+               (meta (plist-get node :meta)))
+          (should (equal meta '(("grape" "Riesling" "Sylvaner")
+                                ("year" "2019")
+                                ("price" "25")))))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-meta-key-order-heading ()
+  "Test metadata keys of a heading note are in document order."
+  (let ((path (vulpea-test--create-temp-org-file
+               ":PROPERTIES:\n:ID: order-file-id\n:END:\n#+TITLE: Order\n\n* Heading\n:PROPERTIES:\n:ID: order-heading-id\n:END:\n\n- one :: 1\n- two :: 2\n- three :: 3\n")))
+    (unwind-protect
+        (let* ((vulpea-db-index-heading-level t)
+               (ctx (vulpea-db--parse-file path))
+               (node (seq-find (lambda (n) (equal (plist-get n :id) "order-heading-id"))
+                               (vulpea-parse-ctx-heading-nodes ctx)))
+               (meta (plist-get node :meta)))
+          (should (equal meta '(("one" "1") ("two" "2") ("three" "3")))))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-meta-key-order-survives-db ()
+  "Test key order survives a round trip through the database."
+  (vulpea-test--with-temp-db-and-file "order-db-id"
+      "#+TITLE: Order\n\n- one :: 1\n- two :: 2\n- three :: 3\n"
+    (let ((note (vulpea-db-get-by-id "order-db-id")))
+      (should (equal (vulpea-note-meta note)
+                     '(("one" "1") ("two" "2") ("three" "3")))))))
+
 ;;; Registry Tests
 
 (ert-deftest vulpea-db-extract-registry-basic ()
