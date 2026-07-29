@@ -149,6 +149,61 @@ NOTE can be either an ID or a `vulpea-note' object."
     ;; each term passed via -e
     (should (equal (seq-filter (lambda (x) (member x '("A" "B"))) cmd) '("A" "B")))))
 
+(ert-deftest vulpea-mentions--ignore-from ()
+  "Adding ignored note id to per note ignore property in various settings."
+  (require 'org)
+  (require 'vulpea-utils)
+  (vulpea-test--with-temp-db-and-files
+   `((:name "sets.org"
+            :content
+            ,(concat ":PROPERTIES:\n:ID: sets\n"
+                     ":END:\n#+title: Sets\n\n"
+                     "A contrived link to [[id:gone-with-the-wind][Gone with the Wind]].\n"
+                     "* Maps\n:PROPERTIES:\n:ID: maps\n:END:\n#+title: Maps\n\n"
+                     "A map is a functional relation...\n"))
+     (:name "gone-with-the-wind.org"
+            :content
+            ,(concat ":PROPERTIES:\n:ID: gone-with-the-wind\n:END:\n#+title: Gone with the Wind\n\n"
+                     "And I'm not denying that when he sets out to drink he can put even the Tarletons under the table."))
+     (:name "git.org"
+            :content
+            ,(concat ":PROPERTIES:\n:ID: git\n:END:\n#+title: Git\n\n"
+                     "This command also sets the local branch to track the remote branch."))
+     (:name "maptool.org"
+            :content
+            ,(concat ":PROPERTIES:\n:ID: maptool\n:END:\n#+title: MapTool\n\n"
+                     "MapTool helps you play DnD online with digital maps!")))
+   (let ((sets-note (vulpea-db-get-by-id "sets"))
+         (gw-note (vulpea-db-get-by-id "gone-with-the-wind"))
+         (git-note (vulpea-db-get-by-id "git"))
+         (maps-note (vulpea-db-get-by-id "maps"))
+         (maptool-note (vulpea-db-get-by-id "maptool")))
+
+     (vulpea-utils-with-note sets-note
+       ;; At the beginning, there is no such property
+       (should (null (org-find-property vulpea-mentions-per-note-ignore-property-key)))
+       (vulpea-mentions-ignore-from sets-note gw-note)
+       (should (org-entry-member-in-multivalued-property
+                (point)
+                vulpea-mentions-per-note-ignore-property-key
+                "gone-with-the-wind"))
+       (vulpea-mentions-ignore-from sets-note git-note)
+       (should (org-entry-member-in-multivalued-property
+                (point)
+                vulpea-mentions-per-note-ignore-property-key
+                "git"))
+       ;; The buffer should not change when we ignore an already-ignored note again
+       (let ((buffer-string-before (buffer-string)))
+         (vulpea-mentions-ignore-from sets-note git-note)
+         (let ((buffer-string-after (buffer-string)))
+           (should (equal buffer-string-before buffer-string-after)))))
+     (vulpea-mentions-ignore-from maps-note maptool-note)
+     (vulpea-utils-with-note maps-note
+       (should (org-entry-member-in-multivalued-property
+                (point)
+                vulpea-mentions-per-note-ignore-property-key
+                "maptool"))))))
+
 ;;; Collection (DB-backed)
 
 (ert-deftest vulpea-mentions--collect-maps-and-filters ()

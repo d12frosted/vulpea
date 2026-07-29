@@ -288,6 +288,16 @@ candidate dictionary."
         (mapc (lambda (id) (puthash id t result)) ignored-ids)))
     result))
 
+(defun vulpea-mentions-ignore-from (src-note dst-note)
+  "Add DST-NOTE's id to SRC-NOTE's per-note-ignore-property."
+  (require 'org)
+  (require 'vulpea-utils)
+  (vulpea-utils-with-note-sync src-note
+    (org-entry-add-to-multivalued-property
+     (point)
+     vulpea-mentions-per-note-ignore-property-key
+     (vulpea-note-id dst-note))))
+
 (defun vulpea-mentions--collect (output note own-path)
   "Collect unlinked mentions of NOTE from ripgrep OUTPUT.
 
