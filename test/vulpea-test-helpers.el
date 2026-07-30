@@ -19,7 +19,13 @@
 ;;
 ;;; Code:
 
+(require 'org)
 (require 'vulpea-db)
+;; `vulpea-default-notes-directory' lives in vulpea.el, and the macros below
+;; bind it.  Without the library loaded the symbol is not special yet, and in
+;; a lexical-binding file that binding would be lexical, so
+;; `vulpea--default-directory' would keep pointing at the caller's collection.
+(require 'vulpea)
 
 ;;; Database Helpers
 
@@ -27,28 +33,46 @@
   "Execute BODY with temporary database.
 
 Creates a fresh temporary database file, binds `vulpea-db-location'
-to it, and ensures cleanup after BODY completes (even on error)."
+to it, and ensures cleanup after BODY completes (even on error).
+
+Also points `vulpea-default-notes-directory' and `org-directory' at a
+fresh temporary directory, so that a BODY reaching `vulpea-create' - on
+its own, or through `vulpea-insert' with no candidates - writes into
+that directory instead of the collection of whoever runs the suite."
   (declare (indent 0))
   `(let* ((temp-file (make-temp-file "vulpea-test-" nil ".db"))
+          (temp-notes-dir (file-name-as-directory
+                           (make-temp-file "vulpea-test-notes-" t)))
           (vulpea-db-location temp-file)
-          (vulpea-db--connection nil))
+          (vulpea-db--connection nil)
+          (vulpea-default-notes-directory temp-notes-dir)
+          (org-directory temp-notes-dir))
      (unwind-protect
          (progn ,@body)
        (when vulpea-db--connection
          (vulpea-db-close))
        (when (file-exists-p temp-file)
-         (delete-file temp-file)))))
+         (delete-file temp-file))
+       (when (file-directory-p temp-notes-dir)
+         (delete-directory temp-notes-dir t)))))
 
 (defmacro vulpea-test--with-temp-db-and-file (id content &rest body)
   "Execute BODY with temporary database and org file.
 
 Creates a temp org file with ID and CONTENT, initializes a temp
 database, indexes the file, then executes BODY. Cleans up both
-the database and org file afterward."
+the database and org file afterward.
+
+Like `vulpea-test--with-temp-db', keeps note creation inside a
+temporary directory."
   (declare (indent 2))
   `(let* ((temp-db-file (make-temp-file "vulpea-test-" nil ".db"))
+          (temp-notes-dir (file-name-as-directory
+                           (make-temp-file "vulpea-test-notes-" t)))
           (vulpea-db-location temp-db-file)
           (vulpea-db--connection nil)
+          (vulpea-default-notes-directory temp-notes-dir)
+          (org-directory temp-notes-dir)
           (temp-org-file (make-temp-file "vulpea-test-" nil ".org")))
      (with-temp-file temp-org-file
        (insert (format ":PROPERTIES:\n:ID: %s\n:END:\n%s" ,id ,content)))
@@ -62,7 +86,9 @@ the database and org file afterward."
        (when (file-exists-p temp-db-file)
          (delete-file temp-db-file))
        (when (file-exists-p temp-org-file)
-         (delete-file temp-org-file)))))
+         (delete-file temp-org-file))
+       (when (file-directory-p temp-notes-dir)
+         (delete-directory temp-notes-dir t)))))
 
 (defmacro vulpea-test--with-temp-db-and-files (files &rest body)
   "Execute BODY with temporary database constructed upon FILES.
@@ -75,7 +101,9 @@ afterward."
   `(let* ((dir (make-temp-file "vulpea-mentions-" t))
           (vulpea-db-location (make-temp-file "vulpea-mentions-" nil ".db"))
           (vulpea-db--connection nil)
-          (vulpea-db-sync-directories (list dir)))
+          (vulpea-db-sync-directories (list dir))
+          (vulpea-default-notes-directory dir)
+          (org-directory dir))
      (unwind-protect
          (progn
            (vulpea-db)
@@ -102,7 +130,9 @@ BODY completes (even on error)."
                  (make-temp-file "vulpea-notes-" t)))
           (vulpea-db-location (make-temp-file "vulpea-test-" nil ".db"))
           (vulpea-db--connection nil)
-          (vulpea-db-sync-directories (list root)))
+          (vulpea-db-sync-directories (list root))
+          (vulpea-default-notes-directory root)
+          (org-directory root))
      (ignore root)
      (unwind-protect
          (progn
