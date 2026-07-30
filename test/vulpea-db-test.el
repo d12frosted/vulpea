@@ -391,6 +391,66 @@ written before and after any insert-path change are interchangeable."
                          [:select * :from meta :where (= note-id $s1)]
                          "test"))))
 
+(ert-deftest vulpea-db-forget-file-clears-change-detection ()
+  "Forgetting a file drops its notes and its change-detection row.
+
+The `files' row holds the hash used to answer \"has this changed since I
+last read it?\".  Left behind after the file is gone, it answers that
+question about a file that no longer exists, and a file restored at the
+same path with the same bytes is never indexed again."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((path "/tmp/vulpea-forget-test.org")
+          (other "/tmp/vulpea-forget-other.org"))
+      (vulpea-db--insert-note
+       :id "forget-id"
+       :path path
+       :level 0
+       :pos 0
+       :title "Forget"
+       :properties nil
+       :modified-at "2026-07-30")
+      (vulpea-db--insert-note
+       :id "other-id"
+       :path other
+       :level 0
+       :pos 0
+       :title "Other"
+       :properties nil
+       :modified-at "2026-07-30")
+      (vulpea-db--update-file-hash path "deadbeef" 1 2)
+      (vulpea-db--update-file-hash other "cafebabe" 3 4)
+      (should (vulpea-db--get-file-hash path))
+      (vulpea-db--forget-file path)
+      (should-not (vulpea-db--get-file-hash path))
+      (should-not (vulpea-db-get-by-id "forget-id"))
+      ;; Only that file is forgotten.  Clearing the whole table would
+      ;; force a re-extraction of every note in the vault, which is
+      ;; exactly the kind of thing nothing else would notice.
+      (should (vulpea-db--get-file-hash other))
+      (should (vulpea-db-get-by-id "other-id")))))
+
+(ert-deftest vulpea-db-delete-file-notes-keeps-change-detection ()
+  "Deleting a file's notes leaves its change-detection row alone.
+
+Most callers delete the rows only to write them again from a fresh
+parse, and dropping the hash there would force needless re-extraction."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((path "/tmp/vulpea-reindex-test.org"))
+      (vulpea-db--insert-note
+       :id "reindex-id"
+       :path path
+       :level 0
+       :pos 0
+       :title "Reindex"
+       :properties nil
+       :modified-at "2026-07-30")
+      (vulpea-db--update-file-hash path "deadbeef" 1 2)
+      (vulpea-db--delete-file-notes path)
+      (should-not (vulpea-db-get-by-id "reindex-id"))
+      (should (vulpea-db--get-file-hash path)))))
+
 (ert-deftest vulpea-db-delete-file-notes ()
   "Test deleting all notes from a file."
   (vulpea-test--with-temp-db
