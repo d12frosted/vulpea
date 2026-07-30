@@ -4676,9 +4676,10 @@ reads them from the buffer instead."
       (org-mode)
       (insert ":PROPERTIES:\n:ID: x\n:END:\n#+title: T\n\n"
               "- grapes :: Pinot\n- region :: Beaune\n")
-      (cl-letf (((symbol-function 'completing-read) (lambda (&rest _) "grapes"))
-                ((symbol-function 'read-string) (lambda (&rest _) "Gamay")))
-        (vulpea-schema-insert-field 'wine))
+      (let ((answers (list "Gamay" "")))
+        (cl-letf (((symbol-function 'completing-read) (lambda (&rest _) "grapes"))
+                  ((symbol-function 'read-string) (lambda (&rest _) (pop answers))))
+          (vulpea-schema-insert-field 'wine)))
       (let ((s (buffer-string)))
         (should (string-match-p "- grapes :: Pinot" s))
         (should (string-match-p "- grapes :: Gamay" s))
@@ -4690,16 +4691,22 @@ reads them from the buffer instead."
 
 (ert-deftest vulpea-schema-insert-field-appends-link-to-multiple ()
   "Appending to a :multiple note field leaves the existing link intact."
-  (let ((vulpea-schema--registry (make-hash-table :test 'eq)))
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq))
+        (n2 (make-vulpea-note :id "x2" :title "Two"))
+        (picks nil))
     (vulpea-schema-define 'journal :predicate #'ignore
       :fields '((:key "executes" :type note :multiple t)))
+    (setq picks (list n2 'quit))
     (with-temp-buffer
       (org-mode)
       (insert ":PROPERTIES:\n:ID: x\n:END:\n#+title: T\n\n"
               "- executes :: [[id:x1][One]]\n")
       (cl-letf (((symbol-function 'completing-read) (lambda (&rest _) "executes"))
-                ((symbol-function 'vulpea-select)
-                 (lambda (&rest _) (make-vulpea-note :id "x2" :title "Two"))))
+                ((symbol-function 'vulpea-db-query) (lambda (&optional _) (list n2)))
+                ((symbol-function 'vulpea-select-from)
+                 (lambda (&rest _)
+                   (let ((a (pop picks)))
+                     (if (eq a 'quit) (signal 'quit nil) a)))))
         (vulpea-schema-insert-field 'journal))
       (let ((s (buffer-string)))
         (should (string-match-p (regexp-quote "- executes :: [[id:x1][One]]") s))
@@ -4800,9 +4807,10 @@ reads them from the buffer instead."
       (org-mode)
       (insert ":PROPERTIES:\n:ID: x\n:END:\n#+title: T\n\n"
               "- links :: https://example.com/page\n")
-      (cl-letf (((symbol-function 'completing-read) (lambda (&rest _) "links"))
-                ((symbol-function 'read-string) (lambda (&rest _) "second")))
-        (vulpea-schema-insert-field 'w))
+      (let ((answers (list "second" "")))
+        (cl-letf (((symbol-function 'completing-read) (lambda (&rest _) "links"))
+                  ((symbol-function 'read-string) (lambda (&rest _) (pop answers))))
+          (vulpea-schema-insert-field 'w)))
       (let ((s (buffer-string)))
         ;; the hand-written plain URL is not rewritten into a bracket link
         (should (string-match-p
@@ -4819,9 +4827,10 @@ reads them from the buffer instead."
       (insert ":PROPERTIES:\n:ID: x\n:END:\n#+title: T\n\n"
               "- refs :: 2b2354a0-90f2-4b0e-8dd1-1c2b2354a090\n"
               "- refs :: keepme\n")
-      (cl-letf (((symbol-function 'completing-read) (lambda (&rest _) "refs"))
-                ((symbol-function 'read-string) (lambda (&rest _) "new")))
-        (vulpea-schema-insert-field 'w))
+      (let ((answers (list "new" "")))
+        (cl-letf (((symbol-function 'completing-read) (lambda (&rest _) "refs"))
+                  ((symbol-function 'read-string) (lambda (&rest _) (pop answers))))
+          (vulpea-schema-insert-field 'w)))
       (should (equal (vulpea-buffer-meta-get-list "refs" 'string)
                      '("2b2354a0-90f2-4b0e-8dd1-1c2b2354a090" "keepme" "new"))))))
 
@@ -4833,11 +4842,219 @@ reads them from the buffer instead."
     (with-temp-buffer
       (org-mode)
       (insert ":PROPERTIES:\n:ID: x\n:END:\n#+title: T\n\n- grapes ::\n")
-      (cl-letf (((symbol-function 'completing-read) (lambda (&rest _) "grapes"))
-                ((symbol-function 'read-string) (lambda (&rest _) "Pinot")))
-        (vulpea-schema-insert-field 'w))
+      (let ((answers (list "Pinot" "")))
+        (cl-letf (((symbol-function 'completing-read) (lambda (&rest _) "grapes"))
+                  ((symbol-function 'read-string) (lambda (&rest _) (pop answers))))
+          (vulpea-schema-insert-field 'w)))
       (should (equal (vulpea-buffer-meta-get-list "grapes" 'string)
                      '("Pinot"))))))
+
+;;; Schema authoring: multi-value prompting (#418)
+
+(defmacro vulpea-test--with-select-notes (notes picks &rest body)
+  "Run BODY with note selection backed by NOTES and scripted PICKS.
+
+NOTES is the list `vulpea-db-query' pretends to return.  PICKS is a
+list of one action per selection round: a `vulpea-note' to pick it, the
+symbol `quit' to press C-g, or `phantom' to confirm empty input (which
+yields a non-existing note).  The prompts and candidate lists passed to
+`vulpea-select-from' are recorded in `prompts' and `offered'."
+  (declare (indent 2))
+  `(let* ((script (copy-sequence ,picks))
+          (prompts nil)
+          (offered nil))
+     (ignore prompts offered)
+     (cl-letf (((symbol-function 'vulpea-db-query)
+                (lambda (&optional filter)
+                  (if filter (seq-filter filter ,notes) ,notes)))
+               ((symbol-function 'vulpea-select-from)
+                (lambda (prompt notes &rest _)
+                  (push prompt prompts)
+                  (push (mapcar #'vulpea-note-id notes) offered)
+                  (let ((action (pop script)))
+                    (pcase action
+                      (`quit (signal 'quit nil))
+                      (`phantom (make-vulpea-note :title "" :level 0))
+                      (_ action))))))
+       ,@body)))
+
+(ert-deftest vulpea-schema-prompt-field-note-multiple-collects ()
+  "A note :multiple field collects picks until C-g, in order."
+  (let ((n1 (make-vulpea-note :id "x1" :title "One"))
+        (n2 (make-vulpea-note :id "x2" :title "Two"))
+        (n3 (make-vulpea-note :id "x3" :title "Three")))
+    (vulpea-test--with-select-notes (list n1 n2 n3) (list n1 n3 'quit)
+      (should (equal (mapcar #'vulpea-note-id
+                             (vulpea--schema-prompt-field
+                              '(:key "grapes" :type note :multiple t)
+                              (make-vulpea-note) nil))
+                     '("x1" "x3"))))))
+
+(ert-deftest vulpea-schema-prompt-field-note-multiple-dedupes ()
+  "A picked note is not offered again in the next round."
+  (let ((n1 (make-vulpea-note :id "x1" :title "One"))
+        (n2 (make-vulpea-note :id "x2" :title "Two")))
+    (vulpea-test--with-select-notes (list n1 n2) (list n1 'quit)
+      (vulpea--schema-prompt-field
+       '(:key "grapes" :type note :multiple t) (make-vulpea-note) nil)
+      (should (equal (nreverse offered) '(("x1" "x2") ("x2")))))))
+
+(ert-deftest vulpea-schema-prompt-field-note-multiple-empty-input-stops ()
+  "Confirming empty input ends the collection instead of adding a phantom."
+  (let ((n1 (make-vulpea-note :id "x1" :title "One"))
+        (n2 (make-vulpea-note :id "x2" :title "Two")))
+    (vulpea-test--with-select-notes (list n1 n2) (list n1 'phantom)
+      (should (equal (mapcar #'vulpea-note-id
+                             (vulpea--schema-prompt-field
+                              '(:key "grapes" :type note :multiple t)
+                              (make-vulpea-note) nil))
+                     '("x1"))))))
+
+(ert-deftest vulpea-schema-prompt-field-note-multiple-quit-first-skips ()
+  "C-g before any pick returns nil, so the field is skipped."
+  (let ((n1 (make-vulpea-note :id "x1" :title "One")))
+    (vulpea-test--with-select-notes (list n1) (list 'quit)
+      (should-not (vulpea--schema-prompt-field
+                   '(:key "grapes" :type note :multiple t)
+                   (make-vulpea-note) nil)))))
+
+(ert-deftest vulpea-schema-prompt-field-note-multiple-target-tags ()
+  "The note pool honors :target-tags in every round."
+  (let ((n1 (make-vulpea-note :id "x1" :title "One" :tags '("person")))
+        (n2 (make-vulpea-note :id "x2" :title "Two" :tags '("place"))))
+    (vulpea-test--with-select-notes (list n1 n2) (list n1 'quit)
+      (vulpea--schema-prompt-field
+       '(:key "guests" :type note :multiple t :target-tags ("person"))
+       (make-vulpea-note) nil)
+      (should (equal (car (last offered)) '("x1"))))))
+
+(ert-deftest vulpea-schema-prompt-field-string-multiple-until-empty ()
+  "A free-form :multiple field reads strings until an empty answer."
+  (let ((answers (list "a" "b" "")))
+    (cl-letf (((symbol-function 'read-string)
+               (lambda (&rest _) (pop answers))))
+      (should (equal (vulpea--schema-prompt-field
+                      '(:key "tags" :multiple t) (make-vulpea-note) nil)
+                     '("a" "b"))))))
+
+(ert-deftest vulpea-schema-prompt-field-string-multiple-quit-keeps ()
+  "C-g during a string collection keeps the values entered so far."
+  (let ((answers (list "a" 'quit)))
+    (cl-letf (((symbol-function 'read-string)
+               (lambda (&rest _)
+                 (let ((a (pop answers)))
+                   (if (eq a 'quit) (signal 'quit nil) a)))))
+      (should (equal (vulpea--schema-prompt-field
+                      '(:key "tags" :multiple t) (make-vulpea-note) nil)
+                     '("a"))))))
+
+(ert-deftest vulpea-schema-prompt-field-single-note-empty-input-skips ()
+  "Confirming empty input on a single note field skips it, like quitting."
+  (let ((n1 (make-vulpea-note :id "x1" :title "One")))
+    (vulpea-test--with-select-notes (list n1) (list 'phantom)
+      (should-not (vulpea--schema-prompt-field
+                   '(:key "producer" :type note)
+                   (make-vulpea-note) nil)))))
+
+(ert-deftest vulpea-schema-insert-fields-note-empty-input-placeholder ()
+  "Empty input on a required note field leaves a placeholder, not [[id:]]."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq))
+        (n1 (make-vulpea-note :id "x1" :title "One")))
+    (vulpea-schema-define 'w :predicate #'ignore
+      :fields '((:key "producer" :type note :required t)))
+    (vulpea-test--with-select-notes (list n1) (list 'phantom)
+      (with-temp-buffer
+        (org-mode)
+        (insert ":PROPERTIES:\n:ID: x\n:END:\n#+title: T\n")
+        (vulpea-schema-insert-fields 'w)
+        (let ((s (buffer-string)))
+          (should (string-match-p "- producer ::" s))
+          (should-not (string-match-p (regexp-quote "[[id:") s)))))))
+
+(ert-deftest vulpea-schema-prompt-field-string-multiple-blank-stops ()
+  "A whitespace-only answer stops the string collection and is dropped."
+  (let ((answers (list "a" "  ")))
+    (cl-letf (((symbol-function 'read-string)
+               (lambda (&rest _)
+                 (or (pop answers) (error "Prompted past the scripted stop")))))
+      (should (equal (vulpea--schema-prompt-field
+                      '(:key "tags" :multiple t) (make-vulpea-note) nil)
+                     '("a"))))))
+
+(ert-deftest vulpea-schema-prompt-field-single-note-prompt-clean ()
+  "A single note prompt reaches selection without a doubled colon."
+  (let ((n1 (make-vulpea-note :id "x1" :title "One")))
+    (vulpea-test--with-select-notes (list n1) (list n1)
+      (vulpea--schema-prompt-field
+       '(:key "producer" :type note :required t) (make-vulpea-note) t)
+      (should (equal (car prompts) "producer (required)")))))
+
+(ert-deftest vulpea-schema-insert-fields-note-multiple ()
+  "The guided flow writes one link line per collected note."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq))
+        (n1 (make-vulpea-note :id "x1" :title "One"))
+        (n2 (make-vulpea-note :id "x2" :title "Two")))
+    (vulpea-schema-define 'w :predicate #'ignore
+      :fields '((:key "grapes" :type note :multiple t)))
+    (vulpea-test--with-select-notes (list n1 n2) (list n1 n2 'quit)
+      (with-temp-buffer
+        (org-mode)
+        (insert ":PROPERTIES:\n:ID: x\n:END:\n#+title: T\n")
+        (vulpea-schema-insert-fields 'w)
+        (let ((s (buffer-string)))
+          (should (string-match-p (regexp-quote "- grapes :: [[id:x1][One]]") s))
+          (should (string-match-p (regexp-quote "- grapes :: [[id:x2][Two]]") s)))))))
+
+(ert-deftest vulpea-schema-insert-fields-note-multiple-required-placeholder ()
+  "A required note :multiple field skipped outright keeps a placeholder."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq))
+        (n1 (make-vulpea-note :id "x1" :title "One")))
+    (vulpea-schema-define 'w :predicate #'ignore
+      :fields '((:key "grapes" :type note :multiple t :required t)))
+    (vulpea-test--with-select-notes (list n1) (list 'quit)
+      (with-temp-buffer
+        (org-mode)
+        (insert ":PROPERTIES:\n:ID: x\n:END:\n#+title: T\n")
+        (vulpea-schema-insert-fields 'w)
+        (should (string-match-p "- grapes ::" (buffer-string)))))))
+
+(ert-deftest vulpea-schema-insert-fields-string-multiple ()
+  "The guided flow writes one line per entered string."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq))
+        (answers (list "x" "y" "")))
+    (vulpea-schema-define 'w :predicate #'ignore
+      :fields '((:key "tags" :multiple t)))
+    (cl-letf (((symbol-function 'read-string)
+               (lambda (&rest _) (pop answers))))
+      (with-temp-buffer
+        (org-mode)
+        (insert ":PROPERTIES:\n:ID: x\n:END:\n#+title: T\n")
+        (vulpea-schema-insert-fields 'w)
+        (let ((s (buffer-string)))
+          (should (string-match-p "- tags :: x" s))
+          (should (string-match-p "- tags :: y" s)))))))
+
+(ert-deftest vulpea-schema-insert-field-note-multiple-appends ()
+  "The single-field command appends every collected note after existing ones."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq))
+        (n2 (make-vulpea-note :id "x2" :title "Two"))
+        (n3 (make-vulpea-note :id "x3" :title "Three")))
+    (vulpea-schema-define 'w :predicate #'ignore
+      :fields '((:key "executes" :type note :multiple t)))
+    (vulpea-test--with-select-notes (list n2 n3) (list n2 n3 'quit)
+      (with-temp-buffer
+        (org-mode)
+        (insert ":PROPERTIES:\n:ID: x\n:END:\n#+title: T\n\n"
+                "- executes :: [[id:x1][One]]\n")
+        (cl-letf (((symbol-function 'completing-read)
+                   (lambda (&rest _) "executes")))
+          (vulpea-schema-insert-field 'w))
+        (let ((s (buffer-string)))
+          (should (string-match-p (regexp-quote "- executes :: [[id:x1][One]]") s))
+          (should (< (string-match (regexp-quote "[[id:x2][Two]]") s)
+                     (string-match (regexp-quote "[[id:x3][Three]]") s)))
+          (should (< (string-match (regexp-quote "[[id:x1][One]]") s)
+                     (string-match (regexp-quote "[[id:x2][Two]]") s))))))))
 
 ;;; Schema quick-fix (#342)
 
