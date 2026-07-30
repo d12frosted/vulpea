@@ -652,6 +652,25 @@ one is returned. In case all values are required, use
 `vulpea-buffer-meta-get-list'."
   (car (vulpea-buffer-meta-get-list! meta prop type)))
 
+(defun vulpea-buffer-meta--list-append-point (pl)
+  "Move to the point where a new item is appended to plain list PL.
+
+That is the beginning of the line right after the last item.  The
+:end of PL is no good for this: it includes trailing blank lines,
+and subtracting :post-blank from it only works when every blank
+line is a lone newline, since :post-blank counts lines while :end
+is measured in characters.  So walk back from :end over whitespace
+instead.  When PL ends at the end of the buffer without a final
+newline, insert one so the new item starts on its own line.
+
+Return the resulting position."
+  (goto-char (org-element-property :end pl))
+  (skip-chars-backward " \t\n")
+  (forward-line 1)
+  (unless (bolp)
+    (insert "\n"))
+  (point))
+
 (defun vulpea-buffer-meta-set (prop value &optional append bound)
   "Set VALUE of PROP in current buffer.
 
@@ -703,14 +722,10 @@ heading's subtree."
         (let* ((items-all (org-element-map pl 'item #'identity))
                ;; we copy any item from the list so we don't need to
                ;; deal with :bullet and other properties
-               (img (org-element-copy (car items-all)))
-               (point (if append
-                          (- (org-element-property :end pl)
-                             (org-element-property :post-blank pl))
-                        (org-element-property :begin pl))))
-          ;; when APPEND and body is present, insert new item on the
-          ;; next line after the last item
-          (goto-char point)
+               (img (org-element-copy (car items-all))))
+          (goto-char (if append
+                         (vulpea-buffer-meta--list-append-point pl)
+                       (org-element-property :begin pl)))
           (seq-do
            (lambda (val)
              (insert
@@ -773,8 +788,7 @@ BOUND controls the scope - see `vulpea-buffer-meta' for details."
                    (org-element-copy last-item) :post-blank 0)))
         (goto-char (if next
                        (org-element-property :begin next)
-                     (- (org-element-property :end pl)
-                        (org-element-property :post-blank pl))))
+                     (vulpea-buffer-meta--list-append-point pl)))
         (seq-do
          (lambda (val)
            (insert

@@ -1541,6 +1541,45 @@ Body text.
      (should (equal (nreverse events)
                     '(("a" ("1") ("1" "2"))))))))
 
+;;; Appending after the last list item - regression tests
+
+(ert-deftest vulpea-buffer-meta-set-append-no-final-newline ()
+  "Appending a new key glues nothing when the list ends at EOF sans newline."
+  (vulpea-buffer-test--with-temp-buffer
+   "#+title: T\n\n- grapes :: a"
+   (vulpea-buffer-meta-set "new" "v" 'append)
+   (should (equal (substring-no-properties (buffer-string))
+                  "#+title: T\n\n- grapes :: a\n- new :: v\n"))))
+
+(ert-deftest vulpea-buffer-meta-add-no-final-newline ()
+  "Adding a value glues nothing when the list ends at EOF sans newline."
+  (vulpea-buffer-test--with-temp-buffer
+   "#+title: T\n\n- grapes :: a"
+   (vulpea-buffer-meta-add "grapes" "b")
+   (should (equal (vulpea-buffer-meta-get-list "grapes" 'string) '("a" "b")))
+   (should (equal (substring-no-properties (buffer-string))
+                  "#+title: T\n\n- grapes :: a\n- grapes :: b\n"))))
+
+(ert-deftest vulpea-buffer-meta-set-append-whitespace-blank-line ()
+  "Appending a new key is not fooled by whitespace on the blank line.
+
+:post-blank counts blank lines, not characters, so a blank line
+carrying whitespace used to pull the insertion point inside that
+whitespace, producing an indented (hence nested) item."
+  (vulpea-buffer-test--with-temp-buffer
+   "#+title: T\n\n- grapes :: a\n   \nBody\n"
+   (vulpea-buffer-meta-set "new" "v" 'append)
+   (should (equal (substring-no-properties (buffer-string))
+                  "#+title: T\n\n- grapes :: a\n- new :: v\n   \nBody\n"))))
+
+(ert-deftest vulpea-buffer-meta-add-whitespace-blank-line ()
+  "Adding a value is not fooled by whitespace on the blank line."
+  (vulpea-buffer-test--with-temp-buffer
+   "#+title: T\n\n- grapes :: a\n   \nBody\n"
+   (vulpea-buffer-meta-add "grapes" "b")
+   (should (equal (substring-no-properties (buffer-string))
+                  "#+title: T\n\n- grapes :: a\n- grapes :: b\n   \nBody\n"))))
+
 ;;; vulpea-buffer-meta-change-functions Tests
 
 (ert-deftest vulpea-buffer-meta-change-set-new-prop ()
