@@ -776,6 +776,28 @@ Cascades to normalized tables automatically via foreign keys."
            [:delete :from notes :where (= path $s1)]
            (vulpea-db-normalize-path path)))
 
+(defun vulpea-db--forget-file (path)
+  "Forget PATH entirely: its notes and its change-detection row.
+
+For callers that mean \"this file is gone\", as opposed to
+`vulpea-db--delete-file-notes', which leaves the `files' row in place
+for the re-index case: clearing a file's notes to write them again from
+a fresh parse must not throw away what is known about the file.
+
+The `files' row holds the hash, mtime and size used to decide whether a
+file changed since it was last read.  Kept after the file is gone, it
+answers that question about a file that no longer exists, so a file
+restored at the same path with the same content compares equal and is
+never indexed again.
+
+Both deletions happen together: dropping the notes while keeping the
+row is the very state this exists to avoid."
+  (emacsql-with-transaction (vulpea-db)
+    (vulpea-db--delete-file-notes path)
+    (emacsql (vulpea-db)
+             [:delete :from files :where (= path $s1)]
+             (vulpea-db-normalize-path path))))
+
 (defun vulpea-db--delete-note (id)
   "Delete note with ID.
 

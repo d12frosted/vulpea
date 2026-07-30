@@ -1801,8 +1801,11 @@ Returns NEW-PATH."
     (rename-file old-path new-path)
     ;; Update org-id location
     (org-id-add-location (vulpea-note-id note) new-path)
-    ;; Delete old file from database and add new one
-    (vulpea-db--delete-file-notes old-path)
+    ;; Forget the old path and add the new one.  Forget rather than
+    ;; just drop its notes: nothing is at the old path any more, so a
+    ;; file that later appears there is a new file, not an unchanged
+    ;; one.
+    (vulpea-db--forget-file old-path)
     (vulpea-db-update-file new-path)
     new-path))
 
@@ -2520,7 +2523,7 @@ the target is not writable."
             (with-current-buffer buf (set-buffer-modified-p nil))
             (kill-buffer buf)))
         (delete-file source-path)
-        (vulpea-db--delete-file-notes source-path)
+        (vulpea-db--forget-file source-path)
         (vulpea-db-update-file target-path)
         ;; Re-point last, including inside the target itself, since the
         ;; merged body may have brought links to the note it came from.

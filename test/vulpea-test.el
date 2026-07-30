@@ -2473,6 +2473,34 @@ indexes the note, and removes the whole tree afterwards."
         (should (file-exists-p expected))
         (should-not (file-exists-p old-path))))))
 
+(ert-deftest vulpea-move-file-forgets-the-old-path ()
+  "A note restored at the path a move emptied is indexed again.
+
+Change detection answers \"has this changed since I last read it?\" from
+a stored hash.  Leaving that row behind after the move makes an
+identical file appearing at the old path compare equal, so it is never
+read at all."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-move-fixture ("move-forget-id" "Forget Old Path")
+      (let ((original (with-temp-buffer
+                        (insert-file-contents old-path)
+                        (buffer-string)))
+            (moved (expand-file-name (file-name-nondirectory old-path)
+                                     dst-dir)))
+        (vulpea-move-file "move-forget-id" dst-dir)
+        (should-not (vulpea-db--get-file-hash old-path))
+        ;; The moved copy goes away, then the original comes back where
+        ;; it started, byte for byte: a restore from git, a backup, a
+        ;; sync client re-delivering it.
+        (delete-file moved)
+        (vulpea-db-sync--update-file-if-changed moved)
+        (with-temp-file old-path (insert original))
+        (vulpea-db-sync--update-file-if-changed old-path)
+        (let ((note (vulpea-db-get-by-id "move-forget-id")))
+          (should note)
+          (should (equal (vulpea-note-path note) old-path)))))))
+
 (ert-deftest vulpea-move-file-updates-db ()
   "Moving a note updates its path in the database."
   (vulpea-test--with-temp-db
@@ -3894,6 +3922,25 @@ migrated heading silently fail to register."
         (should child)
         (should (equal (vulpea-note-path child) target-path))
         (should (= (vulpea-note-level child) 2))))))
+
+(ert-deftest vulpea-merge-forgets-the-source-path ()
+  "A note restored at the merged-away source path is indexed again.
+
+Byte-identical, which is the case that matters: restoring the source
+from git after a merge is exactly how you would undo one."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-merge-fixture
+      (let ((original (with-temp-buffer
+                        (insert-file-contents source-path)
+                        (buffer-string))))
+        (vulpea-merge "merge-source-id" "merge-target-id")
+        (should-not (file-exists-p source-path))
+        (should-not (vulpea-db--get-file-hash source-path))
+        ;; Put it back exactly as it was.
+        (with-temp-file source-path (insert original))
+        (vulpea-db-sync--update-file-if-changed source-path)
+        (should (vulpea-db-get-by-id "merge-source-id"))))))
 
 (ert-deftest vulpea-merge-removes-source ()
   "The source file and its note are gone afterwards."
