@@ -805,10 +805,7 @@ file behind it."
         ;; them.  The removal event handler was a no-op if it ran
         ;; before the commit.
         ((null attrs)
-         (let ((db (vulpea-db)))
-           (emacsql-with-transaction db
-             (vulpea-db--delete-file-notes path)
-             (emacsql db [:delete :from files :where (= path $s1)] path)))
+         (vulpea-db--forget-file path)
          (run-hook-with-args 'vulpea-db-worker-done-functions
                              path 'missing nil))
         (t
@@ -1349,10 +1346,7 @@ database afterwards."
                 (insert "\nprotocol log:\n"
                         (with-current-buffer log (buffer-string))))))
         ;; Cleanup: temp note out of the database, worker down
-        (ignore-errors (vulpea-db--delete-file-notes path))
-        (ignore-errors
-          (emacsql (vulpea-db) [:delete :from files :where (= path $s1)]
-                   path))
+        (ignore-errors (vulpea-db--forget-file path))
         (delete-file path)
         (vulpea-db-worker-stop)))
     (pop-to-buffer report)))

@@ -791,12 +791,31 @@ restored at the same path with the same content compares equal and is
 never indexed again.
 
 Both deletions happen together: dropping the notes while keeping the
-row is the very state this exists to avoid."
-  (emacsql-with-transaction (vulpea-db)
-    (vulpea-db--delete-file-notes path)
-    (emacsql (vulpea-db)
-             [:delete :from files :where (= path $s1)]
-             (vulpea-db-normalize-path path))))
+row is the very state this exists to avoid.
+
+A transaction is opened only when there is not one already.
+`emacsql-with-transaction' claims to nest, and it does until the
+database is locked: its retry issues a rollback without looking at the
+nesting level, so at depth two a transient SQLITE_BUSY throws away the
+outer transaction's work and then retries the inner body alone, leaving
+the caller to finish in autocommit and report success.  A cleanup loop
+that forgets several files would announce them all and leave some of
+their rows behind, which is the exact state this function exists to
+prevent."
+  (if (> emacsql--transaction-level 0)
+      (vulpea-db--forget-file-1 path)
+    (emacsql-with-transaction (vulpea-db)
+      (vulpea-db--forget-file-1 path))))
+
+(defun vulpea-db--forget-file-1 (path)
+  "Delete PATH's notes and its change-detection row.
+
+The body of `vulpea-db--forget-file', without a transaction of its own.
+Call that instead unless you already hold one."
+  (vulpea-db--delete-file-notes path)
+  (emacsql (vulpea-db)
+           [:delete :from files :where (= path $s1)]
+           (vulpea-db-normalize-path path)))
 
 (defun vulpea-db--delete-note (id)
   "Delete note with ID.

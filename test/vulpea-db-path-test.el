@@ -102,6 +102,18 @@
       (vulpea-db--delete-file-notes vulpea-db-path-test--nfd)
       (should-not (emacsql (vulpea-db) [:select * :from notes])))))
 
+(ert-deftest vulpea-db-forget-file/normalizes-path ()
+  "Forgetting by NFD path drops both rows stored under NFC path."
+  (vulpea-test--with-temp-db
+    (let ((vulpea-db-path-normalization 'nfc))
+      (vulpea-db)
+      (vulpea-test--insert-test-note "id-1" "note"
+                                     :path vulpea-db-path-test--nfc)
+      (vulpea-db--update-file-hash vulpea-db-path-test--nfc "deadbeef" 1 2)
+      (vulpea-db--forget-file vulpea-db-path-test--nfd)
+      (should-not (emacsql (vulpea-db) [:select * :from notes]))
+      (should-not (emacsql (vulpea-db) [:select * :from files])))))
+
 (ert-deftest vulpea-db-query-by-file-path/normalizes-path ()
   "Querying by NFD path finds notes stored under NFC path."
   (vulpea-test--with-temp-db

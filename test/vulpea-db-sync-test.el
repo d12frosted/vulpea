@@ -87,6 +87,38 @@
               (should (equal (elt row 1) "Test"))))
         (delete-file path)))))
 
+(ert-deftest vulpea-db-sync-cleanup-deleted-files-forgets-rows ()
+  "Cleaning up a deleted file drops its change-detection row too.
+
+Leaving that row behind makes a file restored at the same path compare
+unchanged, so it is never indexed again."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((path (vulpea-test--create-temp-org-file
+                 ":PROPERTIES:\n:ID: cleanup-id\n:END:\n#+TITLE: Cleanup\n")))
+      (vulpea-db-update-file path)
+      (should (vulpea-db--get-file-hash path))
+      (delete-file path)
+      (should (= 1 (vulpea-db-sync--cleanup-deleted-files)))
+      (should-not (vulpea-db-get-by-id "cleanup-id"))
+      (should-not (vulpea-db--get-file-hash path)))))
+
+(ert-deftest vulpea-db-sync-cleanup-deleted-files-using-forgets-rows ()
+  "The listed-files variant forgets the rows of anything not listed."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((path (vulpea-test--create-temp-org-file
+                 ":PROPERTIES:\n:ID: cleanup-using-id\n:END:\n#+TITLE: U\n")))
+      (unwind-protect
+          (progn
+            (vulpea-db-update-file path)
+            ;; The scan came back without this file, so it is gone as far
+            ;; as the database is concerned.
+            (should (= 1 (vulpea-db-sync--cleanup-deleted-files-using nil)))
+            (should-not (vulpea-db-get-by-id "cleanup-using-id"))
+            (should-not (vulpea-db--get-file-hash path)))
+        (when (file-exists-p path) (delete-file path))))))
+
 (ert-deftest vulpea-db-sync-process-queue-batch-limit ()
   "Test queue respects batch size limit."
   (vulpea-test--with-temp-db

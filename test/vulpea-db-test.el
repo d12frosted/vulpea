@@ -430,6 +430,46 @@ same path with the same bytes is never indexed again."
       (should (vulpea-db--get-file-hash other))
       (should (vulpea-db-get-by-id "other-id")))))
 
+(ert-deftest vulpea-db-forget-file-nested-survives-locked-database ()
+  "Forgetting inside a transaction does not discard the outer one.
+
+`emacsql-with-transaction' retries a locked database by rolling back
+without checking the nesting level, so a transaction opened here would
+throw away the work of the transaction already in progress and then
+retry only its own body.  A cleanup loop would report files removed and
+leave their rows behind, which is the state this function prevents."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((first "/tmp/vulpea-nested-first.org")
+          (second "/tmp/vulpea-nested-second.org")
+          (locked nil))
+      (dolist (path (list first second))
+        (vulpea-db--insert-note
+         :id (concat "id" path)
+         :path path
+         :level 0
+         :pos 0
+         :title "Note"
+         :properties nil
+         :modified-at "2026-07-30")
+        (vulpea-db--update-file-hash path "deadbeef" 1 2))
+      (let ((real (symbol-function 'vulpea-db--forget-file-1)))
+        (cl-letf (((symbol-function 'vulpea-db--forget-file-1)
+                   (lambda (path)
+                     ;; The database is busy once, while the second file
+                     ;; is being forgotten.
+                     (when (and (equal path second) (not locked))
+                       (setq locked t)
+                       (signal 'emacsql-locked (list "database is locked")))
+                     (funcall real path))))
+          (emacsql-with-transaction (vulpea-db)
+            (vulpea-db--forget-file first)
+            (ignore-errors (vulpea-db--forget-file second)))))
+      ;; The first file was forgotten before the lock, and stays
+      ;; forgotten: both of its rows are gone, not just its notes.
+      (should-not (vulpea-db--get-file-hash first))
+      (should-not (vulpea-db-get-by-id (concat "id" first))))))
+
 (ert-deftest vulpea-db-delete-file-notes-keeps-change-detection ()
   "Deleting a file's notes leaves its change-detection row alone.
 
