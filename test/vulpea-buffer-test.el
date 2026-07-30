@@ -1398,6 +1398,149 @@ It rewrites the genuine filetags and leaves the quoted example alone."
    (goto-char (point-min))
    (should (equal (vulpea-buffer-tags-get) '("newtag")))))
 
+;;; vulpea-buffer-meta-add Tests
+
+(ert-deftest vulpea-buffer-meta-add-appends-after-existing ()
+  "The value lands right after the key's existing items, inside the list."
+  (vulpea-buffer-test--with-temp-buffer
+   "#+title: T
+
+- a :: 1
+- grapes :: X
+- b :: 2
+"
+   (vulpea-buffer-meta-add "grapes" "Y")
+   (should (equal (vulpea-buffer-meta-get-list "grapes" 'string) '("X" "Y")))
+   (should (string-match-p "- grapes :: X\n- grapes :: Y\n- b :: 2"
+                           (buffer-string)))))
+
+(ert-deftest vulpea-buffer-meta-add-existing-values-untouched ()
+  "Existing values are not re-formatted on the way."
+  (vulpea-buffer-test--with-temp-buffer
+   "#+title: T
+
+- links :: https://example.com/page
+"
+   (vulpea-buffer-meta-add "links" "second")
+   (let ((s (buffer-string)))
+     ;; a hand-written plain URL is not rewritten into a bracket link
+     (should (string-match-p
+              (regexp-quote "- links :: https://example.com/page\n") s))
+     (should (string-match-p "- links :: second" s)))))
+
+(ert-deftest vulpea-buffer-meta-add-dangling-ref-untouched ()
+  "A bare-uuid value pointing at a missing note neither errors nor is lost."
+  (vulpea-buffer-test--with-temp-buffer
+   "#+title: T
+
+- refs :: 2b2354a0-90f2-4b0e-8dd1-1c2b2354a090
+- refs :: keepme
+"
+   (vulpea-buffer-meta-add "refs" "new")
+   (should (equal (vulpea-buffer-meta-get-list "refs" 'string)
+                  '("2b2354a0-90f2-4b0e-8dd1-1c2b2354a090" "keepme" "new")))))
+
+(ert-deftest vulpea-buffer-meta-add-absent-key ()
+  "When the key is not present, the value is appended to the meta list."
+  (vulpea-buffer-test--with-temp-buffer
+   "#+title: T
+
+- a :: 1
+"
+   (vulpea-buffer-meta-add "b" "2")
+   (should (equal (vulpea-buffer-meta-get-list "b" 'string) '("2")))
+   (should (string-match-p "- a :: 1\n- b :: 2" (buffer-string)))))
+
+(ert-deftest vulpea-buffer-meta-add-list-value ()
+  "A list value adds each element, in order."
+  (vulpea-buffer-test--with-temp-buffer
+   "#+title: T
+
+- grapes :: a
+"
+   (vulpea-buffer-meta-add "grapes" '("x" "y"))
+   (should (equal (vulpea-buffer-meta-get-list "grapes" 'string)
+                  '("a" "x" "y")))))
+
+(ert-deftest vulpea-buffer-meta-add-keeps-blank-line-before-body ()
+  "Adding to the only key does not eat the blank line before the body."
+  (vulpea-buffer-test--with-temp-buffer
+   "#+title: T
+
+- grapes :: a
+
+Body text.
+"
+   (vulpea-buffer-meta-add "grapes" "b")
+   (should (string-match-p "- grapes :: a\n- grapes :: b\n\nBody text."
+                           (buffer-string)))))
+
+(ert-deftest vulpea-buffer-meta-add-note-value ()
+  "A `vulpea-note' value is formatted as a link, existing links intact."
+  (vulpea-buffer-test--with-temp-buffer
+   "#+title: T
+
+- executes :: [[id:x1][One]]
+"
+   (vulpea-buffer-meta-add "executes" (make-vulpea-note :id "x2" :title "Two"))
+   (let ((s (buffer-string)))
+     (should (string-match-p (regexp-quote "- executes :: [[id:x1][One]]") s))
+     (should (string-match-p (regexp-quote "- executes :: [[id:x2][Two]]") s)))))
+
+(ert-deftest vulpea-buffer-meta-add-with-bound-heading ()
+  "With bound \\='heading the value is added in the heading's scope only."
+  (vulpea-buffer-test--with-temp-buffer
+   ":PROPERTIES:
+:ID: file-id
+:END:
+#+title: Test
+
+- grapes :: file
+
+* Heading
+:PROPERTIES:
+:ID: heading-id
+:END:
+
+- grapes :: h1
+"
+   (goto-char (point-min))
+   (re-search-forward "^\\* Heading")
+   (vulpea-buffer-meta-add "grapes" "h2" 'heading)
+   (should (equal (vulpea-buffer-meta-get-list "grapes" 'string 'heading)
+                  '("h1" "h2")))
+   (goto-char (point-min))
+   (should (equal (vulpea-buffer-meta-get-list "grapes" 'string 'heading)
+                  '("file")))))
+
+(ert-deftest vulpea-buffer-meta-add-after-value-with-nested-list ()
+  "The value lands after the key's whole item, not inside its nested content."
+  (vulpea-buffer-test--with-temp-buffer
+   "#+title: T
+
+- grapes :: X
+  - origin :: N
+- b :: 2
+"
+   (vulpea-buffer-meta-add "grapes" "Y")
+   (let ((s (buffer-string)))
+     ;; the nested sub-list stays attached to X, Y comes after it
+     (should (string-match-p "- grapes :: X\n  - origin :: N\n- grapes :: Y\n- b :: 2" s)))))
+
+(ert-deftest vulpea-buffer-meta-change-add-fires-once ()
+  "Adding a value fires the change hook once, with full OLD and NEW."
+  (vulpea-buffer-test--with-temp-buffer
+   "#+title: T
+
+- a :: 1
+"
+   (let* ((events nil)
+          (vulpea-buffer-meta-change-functions
+           (list (lambda (prop old new) (push (list prop old new) events)))))
+     (vulpea-buffer-meta-add "a" "2")
+     (should (equal (nreverse events)
+                    '(("a" ("1") ("1" "2"))))))))
+
 ;;; vulpea-buffer-meta-change-functions Tests
 
 (ert-deftest vulpea-buffer-meta-change-set-new-prop ()

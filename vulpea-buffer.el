@@ -738,6 +738,55 @@ heading's subtree."
       (vulpea-buffer-meta--notify
        prop old (vulpea-buffer-meta-get-list prop 'string bound)))))
 
+(defun vulpea-buffer-meta-add (prop value &optional bound)
+  "Add VALUE to PROP in current buffer, keeping existing values.
+
+Unlike `vulpea-buffer-meta-set', which removes and re-writes every
+occurrence of PROP, the existing items are left untouched - they do
+not pass through `vulpea-buffer-meta-format' again, so hand-written
+content is not normalized or re-resolved - and VALUE is inserted
+right after the last of them.  When PROP has no item at the list's
+top level, this falls back to `vulpea-buffer-meta-set' with APPEND,
+which replaces every occurrence, nested ones included.
+
+If VALUE is a list, each element is inserted separately.
+
+BOUND controls the scope - see `vulpea-buffer-meta' for details."
+  (let* ((meta (vulpea-buffer-meta--get (vulpea-buffer-meta bound) prop))
+         (pl (plist-get meta :pl))
+         (items (plist-get meta :items))
+         ;; only the list's direct children: a value may nest a list of
+         ;; its own, and insertion points must never land inside one
+         (tops (and pl (org-element-contents pl)))
+         (own (seq-filter (lambda (it) (memq it items)) tops)))
+    (if (null own)
+        (vulpea-buffer-meta-set prop value 'append bound)
+      (let* ((notify (vulpea-buffer-meta--notify-p))
+             (old (and notify (vulpea-buffer-meta-get-list prop 'string bound)))
+             (vulpea-buffer-meta--inhibit-change t)
+             (values (if (listp value) value (list value)))
+             (last-item (car (last own)))
+             (next (cadr (memq last-item tops)))
+             ;; :post-blank is dropped so a copied last item does not
+             ;; carry the list's trailing blank line into every value
+             (img (org-element-put-property
+                   (org-element-copy last-item) :post-blank 0)))
+        (goto-char (if next
+                       (org-element-property :begin next)
+                     (- (org-element-property :end pl)
+                        (org-element-property :post-blank pl))))
+        (seq-do
+         (lambda (val)
+           (insert
+            (org-element-interpret-data
+             (org-element-set-contents
+              (org-element-copy img)
+              (vulpea-buffer-meta-format val)))))
+         values)
+        (when notify
+          (vulpea-buffer-meta--notify
+           prop old (vulpea-buffer-meta-get-list prop 'string bound)))))))
+
 (defun vulpea-buffer-meta--insertion-point (buffer bound)
   "Find the insertion point for new metadata.
 BUFFER is the parsed org buffer.
