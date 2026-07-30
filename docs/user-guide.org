@@ -668,6 +668,48 @@ Integrate with org-capture for quick note creation:
          "%?")))
 #+end_src
 
+** Refiling into Your Notes
+
+Vulpea does not need a refile command of its own. =org-refile-targets= accepts a function in its FILES slot, so refile targets can come straight from a vulpea query and stay in sync with your vault:
+
+#+begin_src emacs-lisp
+(defun my-vulpea-refile-files ()
+  "Return the paths of all file-level notes."
+  (seq-map #'vulpea-note-path (vulpea-db-query-by-level 0)))
+
+(defun my-vulpea-refile-verify ()
+  "Keep archived subtrees out of refile targets."
+  (not (member org-archive-tag (org-get-tags))))
+
+(setq org-refile-targets '((my-vulpea-refile-files :maxlevel . 3))
+      org-refile-use-outline-path 'file
+      org-outline-path-complete-in-steps nil
+      org-refile-target-verify-function #'my-vulpea-refile-verify)
+#+end_src
+
+With that in place, =C-c C-w= on any heading offers every note in the vault as a destination, headings up to level 3 included. What each piece buys you:
+
+- =org-refile-use-outline-path 'file= prefixes candidates with the file name and makes the file itself a valid target, so you can refile a heading to the top level of a note, not only under an existing heading.
+- =org-outline-path-complete-in-steps nil= hands the whole path to completion at once, which is what interior-matching styles (=vertico=, =orderless= and friends) expect.
+- The verify function runs with point on each candidate, and =org-get-tags= includes inherited tags, so children of an archived heading are excluded along with it.
+
+"Every note in the vault" is rarely what you want as you grow past a few hundred notes. Since targets come from a query, narrow the query. For example, refile only into project notes like the ones above:
+
+#+begin_src emacs-lisp
+(defun my-vulpea-refile-files ()
+  "Return the paths of file-level notes tagged as projects."
+  (seq-keep (lambda (note)
+              (when (= 0 (vulpea-note-level note))
+                (vulpea-note-path note)))
+            (vulpea-db-query-by-tags-some '("project"))))
+#+end_src
+
+The level check matters: tag queries return heading-level notes too (a heading under =#+filetags: :project:= inherits the tag), so mapping over paths naively yields the same file more than once.
+
+Candidates are collected in the order the function returns them, so sort the query result (say, =seq-sort-by #'vulpea-note-title #'string<=) to put favorite destinations first; whether the completion UI preserves that order depends on its own sorting settings.
+
+Two practical notes. Org visits every target file to collect headings, so on a large vault the first =C-c C-w= takes a moment; setting =org-refile-use-cache= to t caches the targets, and =C-0 C-c C-w= rebuilds the cache when it goes stale. And refile always moves a subtree as a subtree: turning a heading into a file-level note of its own is =vulpea-split-heading=, and folding one note into another is =vulpea-merge= (see [[*Moving, Splitting and Merging Notes][Moving, Splitting and Merging Notes]]).
+
 ** Untitled Micro-Notes
 
 Some notes have no meaningful title: quick capture scratchpads, daily
