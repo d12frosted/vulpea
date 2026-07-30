@@ -2649,6 +2649,21 @@ placeholder, so the author is still reminded of it."
          (required (push (cons key "") values)))))
     (nreverse values)))
 
+(defun vulpea--schema-ensure-id ()
+  "Ensure the note at point carries an id, creating one when missing.
+
+The target matches the authoring scope of the schema commands: the
+heading at point, or the file when point is before the first heading.
+A created id is registered in `org-id-locations' when the buffer
+visits a file.  A blank `:ID:' property counts as missing, matching
+`org-id-get-create'.  Returns the id."
+  (or (org-string-nw-p (org-entry-get (point) "ID"))
+      (let ((id (org-id-new)))
+        (org-entry-put (point) "ID" id)
+        (when-let* ((file (buffer-file-name (buffer-base-buffer))))
+          (org-id-add-location id file))
+        id)))
+
 (defun vulpea--schema-insert-field-values (fields values &optional bound)
   "Write FIELDS into the current buffer, taking values from VALUES.
 
@@ -2678,18 +2693,26 @@ prefix argument (SKELETON non-nil), skip prompting and insert empty
 placeholders for every missing field instead.
 
 The fields are inserted into the note at point: the heading's subtree
-when point is inside one, otherwise the file-level metadata."
+when point is inside one, otherwise the file-level metadata.  A
+target that lacks an `:ID:' gets one created right before the fields
+are written - fields on something that is not a note would be
+invisible to the database - and stays untouched when nothing ends up
+written."
   (interactive (list nil current-prefix-arg))
   (let* ((schema (or schema-or-name
                      (vulpea--schema-read-schema (vulpea--schema-buffer-note))))
          (note (vulpea--schema-buffer-note schema))
          (fields (vulpea-schema-missing-fields note schema)))
     (if skeleton
-        (vulpea--schema-insert-field-values fields nil 'heading)
+        (when fields
+          (vulpea--schema-ensure-id)
+          (vulpea--schema-insert-field-values fields nil 'heading))
       (let ((values (vulpea--schema-prompt-fields fields note)))
-        (vulpea--schema-insert-field-values
-         (cl-remove-if-not (lambda (f) (assoc (plist-get f :key) values)) fields)
-         values 'heading)))))
+        (when values
+          (vulpea--schema-ensure-id)
+          (vulpea--schema-insert-field-values
+           (cl-remove-if-not (lambda (f) (assoc (plist-get f :key) values)) fields)
+           values 'heading))))))
 
 ;;;###autoload
 (defun vulpea-schema-insert-field (&optional schema-or-name)
@@ -2711,8 +2734,10 @@ field marked :multiple keeps its existing values and the answer is
 appended after them, except when it holds nothing but empty
 placeholders (as left by the skeleton flow) - those are replaced by
 the answer; any other field is replaced when already present.  An
-empty answer (or quitting a note prompt) writes nothing.  Returns
-the value written, or nil when skipped.
+empty answer (or quitting a note prompt) writes nothing.  A target
+that lacks an `:ID:' gets one created right before the write, as in
+`vulpea-schema-insert-fields'.  Returns the value written, or nil
+when skipped.
 
 This is the one-field counterpart of `vulpea-schema-insert-fields' -
 for adding an optional field that was skipped during the guided
@@ -2748,6 +2773,7 @@ flow, or one more value to a :multiple field."
            (value (vulpea--schema-prompt-field field note required))
            (value (if (listp value) (remove "" value) value)))
       (when (and value (not (equal value "")))
+        (vulpea--schema-ensure-id)
         (if (and (plist-get field :multiple)
                  (seq-remove #'string-blank-p
                              (vulpea-buffer-meta-get-list key 'string 'heading)))

@@ -1530,7 +1530,13 @@ metadata:
 
 Existing fields are never overwritten, and a =note= value is stored as a
 proper =id:= link. Because it operates on the schema's merged fields,
-inherited fields (=:include=) are offered too.
+inherited fields (=:include=) are offered too. When the target has no
+=:ID:= yet, one is created right before the fields are written (both
+here and in =vulpea-schema-insert-field=), so the authored note is
+immediately real: without an id the fields would be invisible to the
+database, collections and =vulpea-select= until you run
+=org-id-get-create= yourself. When nothing ends up written, the target
+is left untouched.
 
 For a single field there is =vulpea-schema-insert-field= (singular): it
 prompts for one of the schema's fields - the ones the note does not

@@ -5056,6 +5056,136 @@ yields a non-existing note).  The prompts and candidate lists passed to
           (should (< (string-match (regexp-quote "[[id:x1][One]]") s)
                      (string-match (regexp-quote "[[id:x2][Two]]") s))))))))
 
+;;; Schema authoring: ensure id (#419)
+
+(ert-deftest vulpea-schema-insert-fields-creates-heading-id ()
+  "Writing fields into an id-less heading creates its ID first."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq)))
+    (vulpea-schema-define 'execution :predicate #'ignore
+      :fields '((:key "efficacy" :required t)))
+    (with-temp-buffer
+      (org-mode)
+      (insert ":PROPERTIES:\n:ID: file\n:END:\n#+title: Journal\n\n"
+              "* Target :execution:\n")
+      (goto-char (point-max))
+      (vulpea-schema-insert-fields 'execution t)
+      (goto-char (point-min))
+      (re-search-forward "^\\* Target")
+      (should (org-entry-get (point) "ID"))
+      (let ((s (buffer-string)))
+        ;; drawer sits between the heading and the field
+        (should (< (string-match "\\* Target" s)
+                   (string-match ":ID:" s (string-match "\\* Target" s))))
+        (should (< (string-match ":ID:" s (string-match "\\* Target" s))
+                   (string-match "- efficacy ::" s)))))))
+
+(ert-deftest vulpea-schema-insert-fields-creates-file-id ()
+  "Writing fields at file level creates the file's ID when missing."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq)))
+    (vulpea-schema-define 'w :predicate #'ignore
+      :fields '((:key "efficacy" :required t)))
+    (with-temp-buffer
+      (org-mode)
+      (insert "#+title: T\n")
+      (goto-char (point-max))
+      (vulpea-schema-insert-fields 'w t)
+      (goto-char (point-min))
+      (should (org-entry-get (point) "ID"))
+      (should (string-prefix-p ":PROPERTIES:" (buffer-string)))
+      (should (string-match-p "- efficacy ::" (buffer-string))))))
+
+(ert-deftest vulpea-schema-insert-fields-keeps-existing-id ()
+  "A target that already has an ID keeps it, no second drawer appears."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq)))
+    (vulpea-schema-define 'w :predicate #'ignore
+      :fields '((:key "efficacy" :required t)))
+    (with-temp-buffer
+      (org-mode)
+      (insert ":PROPERTIES:\n:ID: file\n:END:\n#+title: Journal\n\n"
+              "* Target\n:PROPERTIES:\n:ID: existing-h\n:END:\n")
+      (goto-char (point-max))
+      (vulpea-schema-insert-fields 'w t)
+      (goto-char (point-min))
+      (re-search-forward "^\\* Target")
+      (should (equal (org-entry-get (point) "ID") "existing-h"))
+      ;; still exactly two ID lines: the file's and the heading's
+      (should (= 2 (let ((s (buffer-string)) (n 0) (from 0))
+                     (while (string-match "^:ID:" s from)
+                       (setq n (1+ n) from (match-end 0)))
+                     n))))))
+
+(ert-deftest vulpea-schema-insert-fields-skip-all-creates-no-id ()
+  "When nothing is written, no ID is created either."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq)))
+    (vulpea-schema-define 'w :predicate #'ignore
+      :fields '((:key "vintage")))
+    (with-temp-buffer
+      (org-mode)
+      (insert ":PROPERTIES:\n:ID: file\n:END:\n#+title: Journal\n\n"
+              "* Target :execution:\n")
+      (goto-char (point-max))
+      (cl-letf (((symbol-function 'read-string) (lambda (&rest _) "")))
+        (vulpea-schema-insert-fields 'w))
+      (goto-char (point-min))
+      (re-search-forward "^\\* Target")
+      (should-not (org-entry-get (point) "ID"))
+      (should-not (string-match-p "- vintage ::" (buffer-string))))))
+
+(ert-deftest vulpea-schema-insert-field-creates-id ()
+  "The single-field command also ensures an ID before writing."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq)))
+    (vulpea-schema-define 'w :predicate #'ignore
+      :fields '((:key "efficacy")))
+    (with-temp-buffer
+      (org-mode)
+      (insert ":PROPERTIES:\n:ID: file\n:END:\n#+title: Journal\n\n"
+              "* Target :execution:\n")
+      (goto-char (point-max))
+      (cl-letf (((symbol-function 'completing-read) (lambda (&rest _) "efficacy"))
+                ((symbol-function 'read-string) (lambda (&rest _) "done")))
+        (vulpea-schema-insert-field 'w))
+      (goto-char (point-min))
+      (re-search-forward "^\\* Target")
+      (should (org-entry-get (point) "ID"))
+      (should (string-match-p "- efficacy :: done" (buffer-string))))))
+
+(ert-deftest vulpea-schema-insert-fields-replaces-blank-id ()
+  "A blank :ID: property counts as missing and gets a real id in place."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq)))
+    (vulpea-schema-define 'w :predicate #'ignore
+      :fields '((:key "efficacy" :required t)))
+    (with-temp-buffer
+      (org-mode)
+      (insert ":PROPERTIES:\n:ID: file\n:END:\n#+title: Journal\n\n"
+              "* Target\n:PROPERTIES:\n:ID:\n:END:\n")
+      (goto-char (point-max))
+      (vulpea-schema-insert-fields 'w t)
+      (goto-char (point-min))
+      (re-search-forward "^\\* Target")
+      (should (org-string-nw-p (org-entry-get (point) "ID")))
+      ;; replaced in place: still exactly two ID lines in the buffer
+      (should (= 2 (let ((s (buffer-string)) (n 0) (from 0))
+                     (while (string-match "^:ID:" s from)
+                       (setq n (1+ n) from (match-end 0)))
+                     n))))))
+
+(ert-deftest vulpea-schema-insert-field-skip-creates-no-id ()
+  "The single-field command leaves an id-less target alone when skipped."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq)))
+    (vulpea-schema-define 'w :predicate #'ignore
+      :fields '((:key "efficacy")))
+    (with-temp-buffer
+      (org-mode)
+      (insert ":PROPERTIES:\n:ID: file\n:END:\n#+title: Journal\n\n"
+              "* Target :execution:\n")
+      (goto-char (point-max))
+      (cl-letf (((symbol-function 'completing-read) (lambda (&rest _) "efficacy"))
+                ((symbol-function 'read-string) (lambda (&rest _) "")))
+        (vulpea-schema-insert-field 'w))
+      (goto-char (point-min))
+      (re-search-forward "^\\* Target")
+      (should-not (org-entry-get (point) "ID")))))
+
 ;;; Schema quick-fix (#342)
 
 (ert-deftest vulpea-schema-fix-violation-missing ()
