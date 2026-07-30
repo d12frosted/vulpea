@@ -699,8 +699,7 @@ all files under that directory are removed."
   (let ((db (vulpea-db)))
     (emacsql-with-transaction db
       ;; Try exact match first
-      (vulpea-db--delete-file-notes path)
-      (emacsql db [:delete :from files :where (= path $s1)] path)
+      (vulpea-db--forget-file path)
       ;; Also handle directory removal - delete all files under this path
       ;; This handles the case when a directory is deleted externally
       ;; Use GLOB instead of LIKE - GLOB uses * and ? as wildcards,
@@ -1146,8 +1145,7 @@ Returns count of removed files."
     (emacsql-with-transaction db
       (dolist (path all-paths)
         (unless (file-exists-p path)
-          (vulpea-db--delete-file-notes path)
-          (emacsql db [:delete :from files :where (= path $s1)] path)
+          (vulpea-db--forget-file path)
           (setq deleted (1+ deleted)))))
     (when (> deleted 0)
       (vulpea-db-sync--message "Vulpea: Removed %d deleted file%s from database"
@@ -1175,8 +1173,7 @@ Returns count of removed files."
     (emacsql-with-transaction db
       (dolist (path all-paths)
         (unless (gethash path existing-set)
-          (vulpea-db--delete-file-notes path)
-          (emacsql db [:delete :from files :where (= path $s1)] path)
+          (vulpea-db--forget-file path)
           (setq deleted (1+ deleted)))))
     (when (> deleted 0)
       (vulpea-db-sync--message "Vulpea: Removed %d deleted file%s from database"
@@ -1217,6 +1214,12 @@ directories will be removed.
 This is useful when narrowing `vulpea-db-sync-directories' to a
 subdirectory - files outside that subdirectory will be cleaned up.
 
+Rows keyed by a non-canonical path are not reached from here, because
+`vulpea-db--forget-file' matches the canonical spelling.  Unlike its
+sibling cleanups this one does not purge them itself, so it relies on
+running after `vulpea-db-sync--purge-denormalized-rows', as it does in
+the startup scan.
+
 Returns count of removed files."
   (if (null vulpea-db-sync-directories)
       0  ; No cleanup if no directories configured
@@ -1226,8 +1229,7 @@ Returns count of removed files."
       (emacsql-with-transaction db
         (dolist (path all-paths)
           (unless (vulpea-db-sync-tracked-file-p path)
-            (vulpea-db--delete-file-notes path)
-            (emacsql db [:delete :from files :where (= path $s1)] path)
+            (vulpea-db--forget-file path)
             (setq removed (1+ removed)))))
       (when (> removed 0)
         (vulpea-db-sync--message "Vulpea: Removed %d untracked file%s from database"
