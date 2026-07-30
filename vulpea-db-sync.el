@@ -1063,8 +1063,10 @@ Returns t if file was updated, nil if unchanged, \\='deleted if file
 no longer exists."
   (let ((attrs (file-attributes path)))
     (unless attrs
-      ;; File was deleted between queue and processing
-      (vulpea-db--delete-file-notes path)
+      ;; File was deleted between queue and processing, so forget it
+      ;; rather than only dropping its notes: a file appearing at this
+      ;; path later is a new file, not an unchanged one.
+      (vulpea-db--forget-file path)
       (cl-return-from vulpea-db-sync--update-file-if-changed 'deleted))
     (let* ((current-mtime (float-time (file-attribute-modification-time attrs)))
            (current-size (file-attribute-size attrs))
