@@ -2577,35 +2577,55 @@ prompts over all registered schemas when none match."
   "Prompt for a value for FIELD.
 
 NOTE gives context and REQUIRED is non-nil when the field is required.
-Honors :type (note selection for `note' / `link'), :one-of (completion),
-:one-of with :multiple (multi-selection), and :target-tags (restricting
-note selection to notes carrying every listed tag).  Quitting a note
-prompt skips that field.  Returns the entered value, a list of values,
-or an empty value when skipped."
+Honors :type (note selection for `note' / `link'), :one-of (completion)
+and :target-tags (restricting note selection to notes carrying every
+listed tag).  A field marked :multiple collects several values: note
+fields select repeatedly - each pick leaves the candidate pool, and
+quitting via `keyboard-quit' or confirming empty input ends the
+collection - :one-of fields use `completing-read-multiple', and
+free-form fields read strings until a blank answer.  Quitting a note
+prompt (or confirming empty input) before the first pick skips that
+field.  Returns the entered value, a list of values, or an empty value
+when skipped."
   (let* ((type (or (plist-get field :type) 'string))
          (one-of (vulpea-schema--call-or-value (plist-get field :one-of) note))
          (multiple (plist-get field :multiple))
          (target-tags (plist-get field :target-tags))
-         (prompt (format "%s%s: " (plist-get field :key)
-                         (if required " (required)" "")))
+         (label (format "%s%s" (plist-get field :key)
+                        (if required " (required)" "")))
+         (filter-fn (when target-tags
+                      (lambda (n)
+                        (cl-every (lambda (tag)
+                                    (member tag (vulpea-note-tags n)))
+                                  target-tags))))
          (candidates (lambda () (mapcar (lambda (v) (format "%s" v)) one-of))))
     (cond
+     ((and (memq type '(note link)) multiple)
+      (vulpea-select-multiple-from
+       label (vulpea-db-query filter-fn)
+       :require-match t
+       :select-fn
+       (lambda (prompt notes &rest args)
+         ;; confirming empty input yields a non-existing note; treat it
+         ;; as "done" rather than collecting a phantom
+         (let ((pick (apply #'vulpea-select-from prompt notes args)))
+           (if (vulpea-note-id pick) pick (keyboard-quit))))))
      ((memq type '(note link))
       (condition-case nil
-          (if target-tags
-              (vulpea-select prompt :require-match t
-                             :filter-fn
-                             (lambda (n)
-                               (cl-every (lambda (tag)
-                                           (member tag (vulpea-note-tags n)))
-                                         target-tags)))
-            (vulpea-select prompt :require-match t))
+          (let ((pick (vulpea-select label :require-match t :filter-fn filter-fn)))
+            ;; confirming empty input yields a non-existing note; skip
+            ;; the field rather than writing a broken link
+            (when (vulpea-note-id pick) pick))
         (quit nil)))
      ((and one-of multiple)
-      (completing-read-multiple prompt (funcall candidates)))
+      (completing-read-multiple (concat label ": ") (funcall candidates)))
      (one-of
-      (completing-read prompt (funcall candidates)))
-     (t (read-string prompt)))))
+      (completing-read (concat label ": ") (funcall candidates)))
+     (multiple
+      (vulpea-utils-collect-while
+       (lambda () (read-string (format "%s (empty to stop): " label)))
+       (lambda (s) (not (string-blank-p s)))))
+     (t (read-string (concat label ": "))))))
 
 (defun vulpea--schema-prompt-fields (fields note)
   "Prompt for each field in FIELDS, returning a (KEY . VALUE) alist.
@@ -2747,8 +2767,10 @@ Resolves the violated field from VIOLATION's schema and prompts for a
 value the way `vulpea-schema-insert-fields' does - offering :one-of
 values as completion, selecting a note for `note' fields, restricting to
 :target-tags - then writes it, replacing the offending value or
-inserting the field when it was missing.  Returns the value written, or
-nil when the prompt is skipped.
+inserting the field when it was missing.  For a :multiple field every
+value of the key is replaced by the collected answer, since the write
+has set semantics.  Returns the value written, or nil when the prompt
+is skipped.
 
 BOUND limits the scope as in `vulpea-buffer-meta-set' and defaults to
 \\='heading, so the fix is written into the note at point - the heading's
