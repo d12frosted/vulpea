@@ -50,18 +50,20 @@ NOTE can be either an ID or a `vulpea-note' object."
         (progn
           (unless (vulpea-note-p note)
             (setq note (vulpea-db-get-by-id note)))
-          (with-temp-file patterns (insert (mapconcat #'identity terms "\n") "\n"))
+          (with-temp-file patterns
+            (insert (mapconcat #'vulpea-mentions--rg-pattern terms "\n") "\n"))
           (let* (linked-ids
+                 (cmd (vulpea-mentions--rg-stdin-command
+                       (executable-find "rg") patterns))
                  (note-path (expand-file-name (vulpea-note-path note)))
                  (output (with-temp-buffer
                            (insert-file-contents note-path)
                            (setq linked-ids
                                  (vulpea-mentions--buffer-link-ids))
                            (let ((out (generate-new-buffer " *rg*")))
-                             (call-process-region
-                              (point-min) (point-max) (executable-find "rg")
-                              nil out nil "--json" "--fixed-strings" "--ignore-case"
-                              "--word-regexp" "-f" patterns "-")
+                             (apply #'call-process-region
+                                    (point-min) (point-max) (car cmd)
+                                    nil out nil (cdr cmd))
                              (prog1 (with-current-buffer out (buffer-string))
                                (kill-buffer out)))))
                  (self-ids (mapcar #'vulpea-note-id
@@ -86,6 +88,27 @@ NOTE can be either an ID or a `vulpea-note' object."
   (let ((vulpea-mentions-min-term-length 3)
         (note (make-vulpea-note :title "Ok" :aliases '("Fine"))))
     (should (equal (vulpea-mentions--note-terms note) '("Fine")))))
+
+(ert-deftest vulpea-mentions--note-terms-measures-width ()
+  "The minimum length measures display width, so short CJK titles pass.
+A CJK character is two columns wide, so 北京 (width 4) clears the
+default minimum of 3 while a 2-letter Latin title does not."
+  (let ((vulpea-mentions-min-term-length 3)
+        (note (make-vulpea-note :title "北京" :aliases '("Ok"))))
+    (should (equal (vulpea-mentions--note-terms note) '("北京")))))
+
+(ert-deftest vulpea-mentions--title-dictionary-measures-width ()
+  "The candidate dictionary applies the same width-based minimum."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "bj" "北京")
+    (vulpea-test--insert-test-note "ok" "Ok")
+    (let* ((dt (vulpea-mentions--title-dictionary))
+           (dict (car dt))
+           (terms (cdr dt)))
+      (should (equal (gethash "北京" dict) '("bj")))
+      (should-not (gethash "ok" dict))
+      (should (equal terms '("北京"))))))
 
 (ert-deftest vulpea-mentions--parse-rg-json-extracts-matches ()
   "Match events are parsed; other events and junk are ignored."
@@ -124,6 +147,23 @@ NOTE can be either an ID or a `vulpea-note' object."
     ;; no term at all
     (should-not (vulpea-mentions--line-unlinked-p "nothing here" terms))))
 
+(ert-deftest vulpea-mentions--line-unlinked-p-script-aware ()
+  "Boundaries are enforced per script: spaceless scripts match as substrings."
+  ;; CJK term inside CJK prose: no word separators, so it counts
+  (should (vulpea-mentions--line-unlinked-p "鹿苑寺，又名金阁寺" '("金阁寺")))
+  ;; the same term inside a link does not
+  (should-not (vulpea-mentions--line-unlinked-p "看[[id:x][金阁寺]]" '("金阁寺")))
+  ;; a Latin term embedded in CJK prose counts too
+  (should (vulpea-mentions--line-unlinked-p "我爱用Emacs写作" '("Emacs")))
+  ;; mixed-script terms match with CJK neighbors on their CJK edge
+  (should (vulpea-mentions--line-unlinked-p "我的Emacs入门笔记" '("Emacs入门")))
+  ;; spaced scripts keep strict boundaries: Cyrillic
+  (should (vulpea-mentions--line-unlinked-p "місто Київ." '("Київ")))
+  (should-not (vulpea-mentions--line-unlinked-p "розмова триває" '("мова")))
+  (should-not (vulpea-mentions--line-unlinked-p "Київський вокзал" '("Київ")))
+  ;; and Latin glued to Latin still does not match
+  (should-not (vulpea-mentions--line-unlinked-p "smart move" '("art"))))
+
 (ert-deftest vulpea-mentions--metadata-line-p ()
   "Org keyword and property-drawer lines are recognized as metadata."
   ;; keyword lines
@@ -139,15 +179,75 @@ NOTE can be either an ID or a `vulpea-note' object."
   (should-not (vulpea-mentions--metadata-line-p "- a list item")))
 
 (ert-deftest vulpea-mentions--rg-command-shape ()
-  "The ripgrep command carries the fixed-string, word, org-glob flags."
-  (let ((cmd (vulpea-mentions--rg-command "rg" '("A" "B") '("/dir"))))
+  "The ripgrep command carries regex patterns and the org glob."
+  (let ((cmd (vulpea-mentions--rg-command "rg" '("Wine" "金阁寺") '("/dir"))))
     (should (equal (car cmd) "rg"))
-    (should (member "--fixed-strings" cmd))
-    (should (member "--word-regexp" cmd))
     (should (member "--json" cmd))
+    (should (member "--ignore-case" cmd))
     (should (member "/dir" cmd))
-    ;; each term passed via -e
-    (should (equal (seq-filter (lambda (x) (member x '("A" "B"))) cmd) '("A" "B")))))
+    ;; terms are compiled to regexes, so fixed-string and global word
+    ;; modes are gone
+    (should-not (member "--fixed-strings" cmd))
+    (should-not (member "--word-regexp" cmd))
+    ;; each term passed via -e as a pattern with script-aware boundaries
+    (should (member "(?-u:\\b)Wine(?-u:\\b)" cmd))
+    (should (member "金阁寺" cmd))))
+
+(ert-deftest vulpea-mentions--rg-stdin-command-shape ()
+  "The stdin ripgrep command reads patterns from a file and input from -."
+  (let ((cmd (vulpea-mentions--rg-stdin-command "rg" "/tmp/patterns")))
+    (should (equal (car cmd) "rg"))
+    (should (member "--json" cmd))
+    (should (member "--ignore-case" cmd))
+    (should-not (member "--fixed-strings" cmd))
+    (should-not (member "--word-regexp" cmd))
+    (should (equal (last cmd 3) '("-f" "/tmp/patterns" "-")))))
+
+(ert-deftest vulpea-mentions--rg-quote-escapes-metacharacters ()
+  "Rust regex metacharacters are escaped; plain text is untouched."
+  (should (equal (vulpea-mentions--rg-quote "plain text") "plain text"))
+  (should (equal (vulpea-mentions--rg-quote "C++") "C\\+\\+"))
+  (should (equal (vulpea-mentions--rg-quote "Foo (Bar)") "Foo \\(Bar\\)"))
+  (should (equal (vulpea-mentions--rg-quote "a.b|c") "a\\.b\\|c"))
+  (should (equal (vulpea-mentions--rg-quote "x[1]{2}^$?*\\")
+                 "x\\[1\\]\\{2\\}\\^\\$\\?\\*\\\\")))
+
+(ert-deftest vulpea-mentions--rg-pattern-script-aware ()
+  "Boundary assertions are chosen per side from the edge character."
+  ;; ASCII alphanumeric edges get the fast ASCII assertion
+  (should (equal (vulpea-mentions--rg-pattern "Wine")
+                 "(?-u:\\b)Wine(?-u:\\b)"))
+  ;; non-ASCII spaced edges (Cyrillic) rely on the Emacs re-check:
+  ;; a Unicode \\b here would force the regex engine off its fast path
+  (should (equal (vulpea-mentions--rg-pattern "Київ") "Київ"))
+  ;; punctuation edges get no assertion (a \\b next to punctuation
+  ;; inverts into demanding adjacent text); escaping still applies
+  (should (equal (vulpea-mentions--rg-pattern "C++") "(?-u:\\b)C\\+\\+"))
+  ;; spaceless scripts match as substrings
+  (should (equal (vulpea-mentions--rg-pattern "金阁寺") "金阁寺"))
+  ;; mixed terms keep the assertion only on the ASCII edge
+  (should (equal (vulpea-mentions--rg-pattern "Emacs入门")
+                 "(?-u:\\b)Emacs入门"))
+  (should (equal (vulpea-mentions--rg-pattern "入门Emacs")
+                 "入门Emacs(?-u:\\b)")))
+
+(ert-deftest vulpea-mentions--rg-pattern-respects-configuration ()
+  "The boundary strategy and script list are customizable."
+  ;; always: strict Unicode boundaries, the old behavior
+  (let ((vulpea-mentions-word-boundaries t))
+    (should (equal (vulpea-mentions--rg-pattern "金阁寺") "\\b金阁寺\\b")))
+  ;; never
+  (let ((vulpea-mentions-word-boundaries nil))
+    (should (equal (vulpea-mentions--rg-pattern "Wine") "Wine")))
+  ;; an empty script list makes CJK behave like a spaced script: the
+  ;; pre-filter stays substring (non-ASCII edge), but the Emacs
+  ;; re-check now demands standalone words, so embedded CJK mentions
+  ;; are rejected again - the old semantics, enforced in the layer
+  ;; that owns semantics
+  (let ((vulpea-mentions-spaceless-scripts nil))
+    (should (equal (vulpea-mentions--rg-pattern "金阁寺") "金阁寺"))
+    (should-not (vulpea-mentions--line-unlinked-p
+                 "鹿苑寺，又名金阁寺" '("金阁寺")))))
 
 ;;; Collection (DB-backed)
 
@@ -262,6 +362,71 @@ NOTE can be either an ID or a `vulpea-note' object."
               (should (= (length mentions) 2)))))
       (when vulpea-db--connection (vulpea-db-close))
       (when (file-exists-p vulpea-db-location) (delete-file vulpea-db-location))
+      (delete-directory dir t))))
+
+(ert-deftest vulpea-mentions-collect-cjk-with-real-rg ()
+  "A CJK title embedded in CJK prose is found; the linking file is excluded."
+  (skip-unless (executable-find "rg"))
+  (let* ((dir (make-temp-file "vulpea-mentions-" t))
+         (target (expand-file-name "target.org" dir))
+         (mention (expand-file-name "mention.org" dir))
+         (linked (expand-file-name "linked.org" dir))
+         (vulpea-db-location (make-temp-file "vulpea-mentions-" nil ".db"))
+         (vulpea-db--connection nil)
+         (vulpea-db-sync-directories (list dir)))
+    (unwind-protect
+        (progn
+          (with-temp-file target
+            (insert ":PROPERTIES:\n:ID: target\n:END:\n#+title: 金阁寺\n"))
+          (with-temp-file mention
+            (insert ":PROPERTIES:\n:ID: mention\n:END:\n#+title: 京都游记\n\n"
+                    "鹿苑寺，又名金阁寺。\n"))
+          (with-temp-file linked
+            (insert ":PROPERTIES:\n:ID: linked\n:END:\n#+title: 链接\n\n"
+                    "参观[[id:target][金阁寺]]。\n"))
+          (vulpea-db)
+          (vulpea-db-update-file target)
+          (vulpea-db-update-file mention)
+          (vulpea-db-update-file linked)
+          (let* ((note (vulpea-db-get-by-id "target"))
+                 (cmd (vulpea-mentions--rg-command
+                       (executable-find "rg")
+                       (vulpea-mentions--note-terms note)
+                       (list dir)))
+                 (output (with-temp-buffer
+                           (apply #'call-process (car cmd) nil t nil (cdr cmd))
+                           (buffer-string)))
+                 (mentions (vulpea-mentions--collect
+                            output note (expand-file-name target))))
+            (should (= (length mentions) 1))
+            (should (equal (vulpea-note-id (plist-get (car mentions) :note))
+                           "mention"))
+            (should (string-match-p "又名金阁寺"
+                                    (plist-get (car mentions) :context)))))
+      (when vulpea-db--connection (vulpea-db-close))
+      (when (file-exists-p vulpea-db-location) (delete-file vulpea-db-location))
+      (delete-directory dir t))))
+
+(ert-deftest vulpea-mentions-latin-in-cjk-prefilter-with-real-rg ()
+  "The default pre-filter surfaces a Latin title glued into CJK prose.
+The ASCII assertion treats non-ASCII text as a boundary, so this works
+under `auto' without dropping boundaries entirely; the post-filter
+agrees.  Pins the behavior the docs promise for 我爱用Emacs写作."
+  (skip-unless (executable-find "rg"))
+  (let* ((dir (make-temp-file "vulpea-mentions-" t))
+         (file (expand-file-name "prose.org" dir)))
+    (unwind-protect
+        (progn
+          (with-temp-file file (insert "我爱用Emacs写作\n"))
+          (let* ((cmd (vulpea-mentions--rg-command
+                       (executable-find "rg") '("Emacs") (list dir)))
+                 (output (with-temp-buffer
+                           (apply #'call-process (car cmd) nil t nil (cdr cmd))
+                           (buffer-string)))
+                 (hits (vulpea-mentions--parse-rg-json output)))
+            (should (= (length hits) 1))
+            (should (vulpea-mentions--line-unlinked-p
+                     (plist-get (car hits) :line-text) '("Emacs")))))
       (delete-directory dir t))))
 
 (ert-deftest vulpea-mentions-ignore-note-with-property ()
@@ -478,18 +643,20 @@ NOTE can be either an ID or a `vulpea-note' object."
                             "More Merlot and Syrah later.\n")))
       (unwind-protect
           (progn
-            (with-temp-file patterns (insert (mapconcat #'identity terms "\n") "\n"))
+            (with-temp-file patterns
+              (insert (mapconcat #'vulpea-mentions--rg-pattern terms "\n") "\n"))
             (let* (linked-ids-exclude-linked
                    (linked-ids-no-exclude-linked (make-hash-table :test 'equal))
+                   (cmd (vulpea-mentions--rg-stdin-command
+                         (executable-find "rg") patterns))
                    (output (with-temp-buffer
                              (insert content)
                              (setq linked-ids-exclude-linked
                                    (vulpea-mentions--buffer-link-ids))
                              (let ((out (generate-new-buffer " *rg*")))
-                               (call-process-region
-                                (point-min) (point-max) (executable-find "rg")
-                                nil out nil "--json" "--fixed-strings" "--ignore-case"
-                                "--word-regexp" "-f" patterns "-")
+                               (apply #'call-process-region
+                                      (point-min) (point-max) (car cmd)
+                                      nil out nil (cdr cmd))
                                (prog1 (with-current-buffer out (buffer-string))
                                  (kill-buffer out))))))
               ;; when `vulpea-mentions-exclude-linked' is non-nil
@@ -521,6 +688,29 @@ NOTE can be either an ID or a `vulpea-note' object."
                   (should (equal (plist-get merlot :matched) "Merlot"))
                   (should (equal (plist-get merlot :context) "More Merlot and Syrah later."))))))
         (delete-file patterns)))))
+
+(ert-deftest vulpea-mentions-outgoing-cjk-with-real-rg ()
+  "The outgoing scan finds CJK candidates mentioned inline in prose.
+Cyrillic candidates keep strict word boundaries: an inflected or glued
+occurrence is not a mention."
+  (skip-unless (executable-find "rg"))
+  (vulpea-test--with-temp-db-and-files
+    `((:name "kinkakuji.org"
+       :content ,(concat ":PROPERTIES:\n:ID: kinkakuji\n:END:\n"
+                         "#+title: 金阁寺\n\n"))
+      (:name "kyiv.org"
+       :content ,(concat ":PROPERTIES:\n:ID: kyiv\n:END:\n"
+                         "#+title: Київ\n\n"))
+      (:name "diary.org"
+       :content ,(concat ":PROPERTIES:\n:ID: diary\n:END:\n#+title: 日记\n\n"
+                         "鹿苑寺，又名金阁寺。\n"
+                         "Київський вокзал.\n")))
+    (let ((mentions (vulpea-mentions-test--collect-outgoing-mentions-for-note
+                     "diary")))
+      (should (= (length mentions) 1))
+      (should (equal (vulpea-note-id (plist-get (car mentions) :note))
+                     "kinkakuji"))
+      (should (equal (plist-get (car mentions) :matched) "金阁寺")))))
 
 (ert-deftest vulpea-mentions-outgoing-rejects-without-rg ()
   "When ripgrep is unavailable, the outgoing search REJECTs."

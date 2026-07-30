@@ -41,6 +41,14 @@
 ;; inside an Org link are dropped, the note's own file is skipped, and
 ;; each hit is mapped back to the mentioning note.
 ;;
+;; Word boundaries are script-aware.  Scripts that separate words with
+;; spaces (Latin, Cyrillic, ...) require a match to stand on its own:
+;; "art" does not match inside "smart".  Scripts without word
+;; separators (Han, Kana, Thai, ...) match as substrings: 金阁寺 is
+;; found inside 又名金阁寺, since there is no boundary to respect.  See
+;; `vulpea-mentions-word-boundaries' and
+;; `vulpea-mentions-spaceless-scripts'.
+;;
 ;; The entry point is asynchronous and follows a promise-style contract
 ;; (RESOLVE / REJECT callbacks), so it drops directly into reactive UIs -
 ;; e.g. as a `vui-use-async' loader via
@@ -68,8 +76,64 @@
 
 Very short titles (e.g. \"a\") produce too much noise, so titles and
 aliases shorter than this are ignored when looking for unlinked
-mentions."
+mentions.
+
+Length is measured with `string-width', not `length': a CJK character
+occupies two columns, so a 2-character title like 北京 (width 4)
+clears the default of 3, while a 2-letter Latin title does not.  This
+matters because 2-character titles are the norm in Chinese and
+Japanese."
   :type 'integer
+  :group 'vulpea-mentions)
+
+(defcustom vulpea-mentions-word-boundaries 'auto
+  "How word boundaries apply in the ripgrep pre-filter.
+
+This tunes recall and speed of the ripgrep pass only.  The exact
+matching semantics - \"Wine\" counts only as a standalone word, 金阁寺
+counts anywhere inside CJK text - are enforced in Emacs on every
+candidate line either way (see `vulpea-mentions--line-unlinked-p' and
+`vulpea-mentions-spaceless-scripts').
+
+- `auto': each term edge gets a boundary assertion only when it can
+  glue to neighboring text at all (see
+  `vulpea-mentions--edge-boundary'): ASCII alphanumeric edges get a
+  fast ASCII assertion, while spaceless-script edges (金阁寺),
+  punctuation edges and non-ASCII spaced edges (Київ) get none and
+  rely on the Emacs re-check.  A mixed term like Emacs入门 keeps the
+  assertion only on its Latin edge.  The ASCII assertion treats
+  non-ASCII text as a boundary, so a Latin title glued into CJK
+  prose (\"Emacs\" inside 我爱用Emacs写作) is found as well.
+
+- t: a strict Unicode \\=\\b on both sides of every term, the old
+  behavior.  It misses mentions embedded in CJK prose, and on large
+  title dictionaries it is also an order of magnitude slower than
+  `auto', because a Unicode \\=\\b over non-ASCII text forces the
+  regex engine off its fast literal path.
+
+- nil: no boundaries in the pre-filter at all.  Over `auto' this
+  only adds matches next to an underscore (\"foo\" inside
+  \"foo_bar\"), which `auto' leaves behind because ripgrep counts _
+  as a word character.  The cost is that every glued occurrence of
+  every Latin title (\"art\" inside \"smart\") travels to the Emacs
+  re-check just to be rejected there."
+  :type '(choice (const :tag "Per term edge (script-aware)" auto)
+                 (const :tag "Always" t)
+                 (const :tag "Never" nil))
+  :group 'vulpea-mentions)
+
+(defcustom vulpea-mentions-spaceless-scripts
+  '(han kana cjk-misc bopomofo hangul thai lao khmer burmese)
+  "Scripts whose text does not separate words with spaces.
+
+Symbols are compared against `char-script-table'.  A term edge or a
+neighboring character in one of these scripts never demands a word
+boundary: boundaries are meaningless between, say, two Han characters,
+and requiring them loses legitimate mentions (金阁寺 inside
+又名金阁寺).  Hangul is included because Korean particles attach
+directly to nouns.  Set to nil to demand strict word boundaries
+everywhere, restoring the old behavior."
+  :type '(repeat symbol)
   :group 'vulpea-mentions)
 
 (defun vulpea-mentions-file-level-note-p (note)
@@ -133,31 +197,93 @@ Mentions from those notes to this note are excluded from mention lists."
 (defun vulpea-mentions--note-terms (note)
   "Return the search terms for NOTE: its title and aliases.
 
-Terms are trimmed, de-duplicated case-insensitively, and those shorter
-than `vulpea-mentions-min-term-length' are dropped."
+Terms are trimmed, de-duplicated case-insensitively, and those
+narrower than `vulpea-mentions-min-term-length' are dropped."
   (let ((seen (make-hash-table :test 'equal))
         (result nil))
     (dolist (term (cons (vulpea-note-title note)
                         (vulpea-note-aliases note)))
       (let ((trimmed (and term (string-trim term))))
         (when (and trimmed
-                   (>= (length trimmed) vulpea-mentions-min-term-length))
+                   (> (length trimmed) 0)
+                   (>= (string-width trimmed) vulpea-mentions-min-term-length))
           (let ((key (downcase trimmed)))
             (unless (gethash key seen)
               (puthash key t seen)
               (push trimmed result))))))
     (nreverse result)))
 
+(defun vulpea-mentions--spaceless-char-p (char)
+  "Return non-nil when CHAR belongs to a script without word separators.
+See `vulpea-mentions-spaceless-scripts'."
+  (and char
+       (memq (aref char-script-table char)
+             vulpea-mentions-spaceless-scripts)))
+
+(defun vulpea-mentions--rg-quote (term)
+  "Escape TERM for literal use in a ripgrep (Rust) regular expression."
+  (replace-regexp-in-string "[][\\^$.|?*+(){}]" "\\\\\\&" term))
+
+(defun vulpea-mentions--edge-boundary (edge-char)
+  "Return the boundary assertion to place next to EDGE-CHAR, or nil.
+
+Under `auto' (see `vulpea-mentions-word-boundaries') an edge gets an
+assertion only when gluing is possible at all: the edge must be
+alphanumeric - next to punctuation a \\=\\b inverts into demanding
+adjacent text - and must not belong to a spaceless script, where a
+boundary loses embedded mentions.
+
+ASCII edges get the ASCII assertion (?-u:\\=\\b) rather than the
+Unicode one.  It matches everywhere the Unicode assertion does (ASCII
+word characters are a subset of Unicode word characters, so the
+negated neighbor test is weaker), and it keeps ripgrep on its fast
+literal engine: a Unicode \\=\\b over a non-ASCII haystack forces a
+slow fallback, an order of magnitude on a large title dictionary.
+Non-ASCII spaced edges (Cyrillic, Greek, ...) get no pre-filter
+assertion for the same reason.  Either way the pre-filter only
+over-approximates; `vulpea-mentions--line-unlinked-p' enforces the
+exact boundary rules on every candidate line."
+  (pcase vulpea-mentions-word-boundaries
+    ('auto (cond
+            ((vulpea-mentions--spaceless-char-p edge-char) nil)
+            ((not (string-match-p "[[:alnum:]]" (char-to-string edge-char)))
+             nil)
+            ((< edge-char 128) "(?-u:\\b)")
+            (t nil)))
+    ('nil nil)
+    (_ "\\b")))
+
+(defun vulpea-mentions--rg-pattern (term)
+  "Return the ripgrep regex searching for TERM.
+
+The literal is escaped with `vulpea-mentions--rg-quote' and each side
+gets the boundary assertion `vulpea-mentions--edge-boundary' picks for
+its edge character."
+  (concat
+   (or (vulpea-mentions--edge-boundary (aref term 0)) "")
+   (vulpea-mentions--rg-quote term)
+   (or (vulpea-mentions--edge-boundary (aref term (1- (length term)))) "")))
+
 (defun vulpea-mentions--rg-command (rg terms dirs)
   "Build the ripgrep command, run as RG, for TERMS over DIRS.
 
-Produces a JSON stream of fixed-string, case-insensitive,
-word-boundary matches restricted to Org files."
+Produces a JSON stream of case-insensitive matches restricted to Org
+files.  Each term is compiled to a regex by
+`vulpea-mentions--rg-pattern', which applies script-aware word
+boundaries."
   (append
-   (list rg "--json" "--fixed-strings" "--ignore-case" "--word-regexp"
-         "--glob" "*.org")
-   (mapcan (lambda (term) (list "-e" term)) terms)
+   (list rg "--json" "--ignore-case" "--glob" "*.org")
+   (mapcan (lambda (term)
+             (list "-e" (vulpea-mentions--rg-pattern term)))
+           terms)
    dirs))
+
+(defun vulpea-mentions--rg-stdin-command (rg patterns-file)
+  "Build the ripgrep command, run as RG, over standard input.
+
+PATTERNS-FILE holds one regex per line (see
+`vulpea-mentions--rg-pattern'); the text to search arrives on stdin."
+  (list rg "--json" "--ignore-case" "-f" patterns-file "-"))
 
 (defun vulpea-mentions--parse-rg-json (output)
   "Parse ripgrep --json OUTPUT into a list of raw hit plists.
@@ -209,21 +335,45 @@ declare a note's own metadata rather than prose, so a title that appears
 on them (often a same-titled note's own #+title:) is not a real mention."
   (string-match-p "\\`[ \t]*\\(#\\+\\|:[A-Za-z0-9_@%-]+:\\)" line))
 
+(defun vulpea-mentions--glued-p (edge neighbor)
+  "Return non-nil when NEIGHBOR glues to EDGE into one word.
+
+EDGE is the first or last character of a match, NEIGHBOR the character
+just outside it (nil at the start or end of a line).  They glue - the
+match is not a standalone word - only when both are alphanumeric and
+neither belongs to `vulpea-mentions-spaceless-scripts', whose scripts
+have no word separators to respect."
+  (and neighbor
+       (not (vulpea-mentions--spaceless-char-p edge))
+       (not (vulpea-mentions--spaceless-char-p neighbor))
+       (string-match-p "[[:alnum:]]" (char-to-string edge))
+       (string-match-p "[[:alnum:]]" (char-to-string neighbor))))
+
 (defun vulpea-mentions--line-unlinked-p (line terms)
   "Return non-nil when some term in TERMS occurs in LINE outside any link.
 
-Matching is case-insensitive and at word boundaries, mirroring the
-ripgrep pre-filter; occurrences inside an Org link are not counted."
+Matching is case-insensitive.  A match must stand on its own where its
+edges touch spaced-script text (see `vulpea-mentions--glued-p'), while
+spaceless scripts match as substrings; occurrences inside an Org link
+are not counted."
   (let ((spans (vulpea-mentions--link-spans line))
-        (case-fold-search t))
+        (case-fold-search t)
+        (len (length line)))
     (catch 'found
       (dolist (term terms)
-        (let ((re (concat "\\b" (regexp-quote term) "\\b"))
-              (start 0))
-          (while (string-match re line start)
-            (setq start (match-end 0))
-            (unless (vulpea-mentions--in-link-p (match-beginning 0) spans)
-              (throw 'found t)))))
+        (unless (string-empty-p term)
+          (let ((re (regexp-quote term))
+                (start 0))
+            (while (and (<= start len) (string-match re line start))
+              (let* ((beg (match-beginning 0))
+                     (end (match-end 0))
+                     (before (and (> beg 0) (aref line (1- beg))))
+                     (after (and (< end len) (aref line end))))
+                (setq start (1+ beg))
+                (unless (or (vulpea-mentions--in-link-p beg spans)
+                            (vulpea-mentions--glued-p (aref line beg) before)
+                            (vulpea-mentions--glued-p (aref line (1- end)) after))
+                  (throw 'found t)))))))
       nil)))
 
 (defun vulpea-mentions--file-note (path cache)
@@ -349,7 +499,9 @@ to search for."
         (dolist (name names)
           (when (stringp name)
             (let ((trimmed (string-trim name)))
-              (when (>= (length trimmed) vulpea-mentions-min-term-length)
+              (when (and (> (length trimmed) 0)
+                         (>= (string-width trimmed)
+                             vulpea-mentions-min-term-length))
                 (push trimmed terms)
                 (push id (gethash (downcase trimmed) dict))))))))
     (cons dict (delete-dups terms))))
@@ -529,12 +681,11 @@ target a specific buffer."
           (let ((patterns-file (make-temp-file "vulpea-mentions-pat-"))
                 (output ""))
             (with-temp-file patterns-file
-              (insert (mapconcat #'identity terms "\n") "\n"))
+              (insert (mapconcat #'vulpea-mentions--rg-pattern terms "\n") "\n"))
             (let ((proc (make-process
                          :name "vulpea-mentions-out"
-                         :command (list rg "--json" "--fixed-strings"
-                                        "--ignore-case" "--word-regexp"
-                                        "-f" patterns-file "-")
+                         :command (vulpea-mentions--rg-stdin-command
+                                   rg patterns-file)
                          :connection-type 'pipe
                          :noquery t
                          :filter (lambda (_proc chunk)
