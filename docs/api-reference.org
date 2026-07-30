@@ -375,6 +375,36 @@ exclusions (an occurrence inside an Org link or on an Org metadata line
 is never a mention) and both return the ripgrep process, so a caller can
 wait on or cancel the scan.
 
+Matching is script-aware. Titles in scripts that separate words with
+spaces (Latin, Cyrillic, ...) match only as standalone words: =art=
+does not match inside =smart=. Titles in scripts without word
+separators (Han, Kana, Thai, ...) match as substrings: =金阁寺= is
+found inside =又名金阁寺=, since there is no word boundary between two
+Han characters to respect. A mixed title like =Emacs入门= keeps the
+boundary only on its Latin edge, and a Latin title glued into CJK
+prose counts too: =Emacs= is found inside =我爱用Emacs写作=. The
+pre-filter strategy is controlled by
+=vulpea-mentions-word-boundaries=: =auto= (the default) decides per
+term edge, =t= demands strict boundaries everywhere (the historical
+behavior - also markedly slower on large title dictionaries, since a
+Unicode =\b= over non-ASCII text forces ripgrep off its fast literal
+path), and =nil= drops boundaries from the ripgrep pre-filter
+entirely - over =auto= this only adds matches next to an
+underscore (=foo= inside =foo_bar=, ripgrep counts =_= as a word
+character), and its cost is that every glued occurrence of every
+Latin title travels to the Emacs re-check just to be rejected there.
+Which scripts count as spaceless lives in
+=vulpea-mentions-spaceless-scripts=. The minimum
+searchable length (=vulpea-mentions-min-term-length=, default 3)
+measures display width, so a 2-character CJK title like =北京= (width
+4) is searched for while a 2-letter Latin one is not.
+
+One practical caveat for CJK notes: keep them soft-wrapped
+(=visual-line-mode= with =word-wrap-by-category= set to =t=) rather
+than hard-filled. =auto-fill-mode= and =M-q= insert real newlines
+between CJK characters, and a title split across a line break is
+invisible to any line-based search, mentions included.
+
 * Statistics
 
 #+begin_src emacs-lisp
