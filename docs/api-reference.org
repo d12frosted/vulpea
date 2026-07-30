@@ -600,6 +600,9 @@ These operate on the current buffer (must be an org file).
 (vulpea-buffer-meta-set "key" "value")
 (vulpea-buffer-meta-set "rating" "95")
 
+;; Add one more value to a key, keeping the existing ones
+(vulpea-buffer-meta-add "grapes" "Gamay")
+
 ;; Set multiple properties efficiently (parses buffer once)
 (vulpea-buffer-meta-set-batch
  '(("status" . "active")
@@ -618,7 +621,9 @@ These operate on the current buffer (must be an org file).
 
 When setting multiple metadata properties, prefer =vulpea-meta-set-batch= over multiple =vulpea-meta-set= calls - it's significantly faster (up to 10x for 20 properties) since it only parses the file once.
 
-To observe metadata mutations without advising the buffer API, add a function to the abnormal hook =vulpea-buffer-meta-change-functions=. It runs whenever metadata changes through =vulpea-buffer-meta-set=, =vulpea-buffer-meta-set-batch=, =vulpea-buffer-meta-remove= or =vulpea-buffer-meta-clean=:
+=vulpea-buffer-meta-set= replaces every occurrence of the key, re-formatting the values on the way. To grow a multi-value key use =vulpea-buffer-meta-add= instead: the existing items are left byte-for-byte as written (nothing passes through =vulpea-buffer-meta-format= again) and the new value is inserted right after the last of them. When the key is absent it behaves like set with append.
+
+To observe metadata mutations without advising the buffer API, add a function to the abnormal hook =vulpea-buffer-meta-change-functions=. It runs whenever metadata changes through =vulpea-buffer-meta-set=, =vulpea-buffer-meta-add=, =vulpea-buffer-meta-set-batch=, =vulpea-buffer-meta-remove= or =vulpea-buffer-meta-clean=:
 
 #+begin_src emacs-lisp
 ;; Log every metadata change during a batch operation
@@ -1522,7 +1527,16 @@ Existing fields are never overwritten, and a =note= value is stored as a
 proper =id:= link. Because it operates on the schema's merged fields,
 inherited fields (=:include=) are offered too.
 
-Two headless primitives back the command and are useful on their own -
+For a single field there is =vulpea-schema-insert-field= (singular): it
+prompts for one of the schema's fields - the ones the note does not
+carry yet come first - and then for its value, the same way the guided
+flow does. Use it to add an optional field that was skipped earlier, or
+one more value to a =:multiple= field: a =:multiple= field keeps its
+existing values and the answer is appended after them (an empty
+skeleton placeholder is filled rather than kept), while any other
+field is replaced when already present. An empty answer writes nothing.
+
+Two headless primitives back the commands and are useful on their own -
 for example to build a "what's missing" view:
 
 | Function                       | Description                                         |
@@ -1530,6 +1544,7 @@ for example to build a "what's missing" view:
 | =vulpea-schema-applicable=     | Names of schemas whose predicate matches a note     |
 | =vulpea-schema-missing-fields= | A schema's fields a note lacks, required ones first |
 | =vulpea-schema-insert-fields=  | Interactive: insert an applicable schema's fields   |
+| =vulpea-schema-insert-field=   | Interactive: insert or extend one field             |
 | =vulpea-schema-fix-violation=  | Prompt to fix one violation in the current buffer   |
 
 Once a note's violations are known, =vulpea-schema-fix-violation= applies
@@ -1712,6 +1727,7 @@ package - it flags the same violations inline as you edit.)
 | =vulpea-buffer-alias-add=      | Add alias                 |
 | =vulpea-buffer-alias-remove=   | Remove alias              |
 | =vulpea-buffer-meta-set=       | Set metadata value        |
+| =vulpea-buffer-meta-add=       | Add value, keep existing  |
 | =vulpea-buffer-meta-set-batch= | Set multiple meta values  |
 | =vulpea-buffer-meta-sort=      | Sort metadata keys        |
 
