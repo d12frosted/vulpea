@@ -628,6 +628,11 @@ Returns the ripgrep process, so the caller can wait on or
              :command (vulpea-mentions--rg-command rg terms dirs)
              :connection-type 'pipe
              :noquery t
+             ;; Emacs encodes the :command arguments with the process
+             ;; coding system, so this pins both the non-ASCII search
+             ;; terms and the JSON output to UTF-8 no matter what
+             ;; `default-process-coding-system' says.
+             :coding 'utf-8
              :filter (lambda (_proc chunk)
                        (setq output (concat output chunk)))
              :sentinel
@@ -689,14 +694,21 @@ target a specific buffer."
             (progn (funcall resolve nil) nil)
           (let ((patterns-file (make-temp-file "vulpea-mentions-pat-"))
                 (output ""))
-            (with-temp-file patterns-file
-              (insert (mapconcat #'vulpea-mentions--rg-pattern terms "\n") "\n"))
+            ;; rg rejects a patterns file that is not valid UTF-8, so
+            ;; the user's `coding-system-for-write' must not leak in.
+            (let ((coding-system-for-write 'utf-8))
+              (with-temp-file patterns-file
+                (insert (mapconcat #'vulpea-mentions--rg-pattern terms "\n") "\n")))
             (let ((proc (make-process
                          :name "vulpea-mentions-out"
                          :command (vulpea-mentions--rg-stdin-command
                                    rg patterns-file)
                          :connection-type 'pipe
                          :noquery t
+                         ;; Pin the buffer content sent on stdin and
+                         ;; the JSON output to UTF-8 no matter what
+                         ;; `default-process-coding-system' says.
+                         :coding 'utf-8
                          :filter (lambda (_proc chunk)
                                    (setq output (concat output chunk)))
                          :sentinel
