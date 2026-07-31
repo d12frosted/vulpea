@@ -89,6 +89,99 @@
     (should-not (vulpea-schema-applies-p
                  (make-vulpea-note :tags '("beer")) 'tagged-wine))))
 
+;;; Abstract schemas / mixins (#421)
+
+(ert-deftest vulpea-schema-define-abstract-without-predicate ()
+  "A schema defined without :predicate registers as abstract."
+  (vulpea-schema-test--with-registry
+    (let ((schema (vulpea-schema-define 'common
+                    :fields '((:key "duration" :type number)))))
+      (should (vulpea-schema-p schema))
+      (should (vulpea-schema-abstract-p schema))
+      (should (vulpea-schema-abstract-p 'common))
+      (should-not (vulpea-schema-abstract-p
+                   (vulpea-schema-define 'concrete
+                     :predicate #'ignore :fields nil))))))
+
+(ert-deftest vulpea-schema-define-still-rejects-non-function-predicate ()
+  "A non-nil, non-function :predicate is still rejected."
+  (vulpea-schema-test--with-registry
+    (should-error (vulpea-schema-define 'x :predicate "nope"))))
+
+(ert-deftest vulpea-schema-abstract-applies-to-nothing ()
+  "An abstract schema applies to no note, without erroring."
+  (vulpea-schema-test--with-registry
+    (vulpea-schema-define 'common :fields '((:key "duration")))
+    (should-not (vulpea-schema-applies-p
+                 (make-vulpea-note :tags '("any")) 'common))))
+
+(ert-deftest vulpea-schema-abstract-excluded-from-applicable ()
+  "Applicable schemas never include abstract ones."
+  (vulpea-schema-test--with-registry
+    (vulpea-schema-define 'common :fields '((:key "duration")))
+    (vulpea-schema-define 'diary
+      :predicate (lambda (n) (member "diary" (vulpea-note-tags n)))
+      :include 'common
+      :fields '((:key "mood")))
+    (should (equal (vulpea-schema-applicable
+                    (make-vulpea-note :tags '("diary")))
+                   '(diary)))))
+
+(ert-deftest vulpea-schema-abstract-include-and-override ()
+  "A mixin's fields are inherited and a concrete schema can override them."
+  (vulpea-schema-test--with-registry
+    (vulpea-schema-define 'common
+      :fields '((:key "status" :one-of (todo done))
+                (:key "duration" :type number)))
+    (vulpea-schema-define 'book
+      :predicate #'ignore
+      :include 'common
+      :fields '((:key "status" :one-of (unread read))))
+    (let* ((fields (vulpea-schema-fields (vulpea-schema-get 'book)))
+           (status (cl-find "status" fields
+                            :key (lambda (f) (plist-get f :key))
+                            :test #'equal)))
+      (should (equal (plist-get status :one-of) '(unread read)))
+      (should (cl-find "duration" fields
+                       :key (lambda (f) (plist-get f :key))
+                       :test #'equal)))))
+
+(ert-deftest vulpea-schema-abstract-note-violations-skips ()
+  "Note violations never validate against an abstract schema."
+  (vulpea-schema-test--with-registry
+    (vulpea-schema-define 'common :fields '((:key "duration" :required t)))
+    (should-not (vulpea-schema-note-violations
+                 (make-vulpea-note :tags '("x"))))))
+
+(ert-deftest vulpea-schema-abstract-validate-all-empty ()
+  "Validate-all over an abstract schema matches no notes."
+  (vulpea-schema-test--with-registry
+    (vulpea-schema-define 'common :fields '((:key "duration" :required t)))
+    (cl-letf (((symbol-function 'vulpea-db-query)
+               (lambda (&optional pred)
+                 (seq-filter pred (list (make-vulpea-note :tags '("x")))))))
+      (should-not (vulpea-schema-validate-all 'common)))))
+
+(ert-deftest vulpea-schema-abstract-direct-validate-works ()
+  "Direct validation against a mixin still checks its fields."
+  (vulpea-schema-test--with-registry
+    (vulpea-schema-define 'common :fields '((:key "duration" :required t)))
+    (let ((vs (vulpea-schema-validate (make-vulpea-note :title "T") 'common)))
+      (should (= 1 (length vs)))
+      (should (eq (vulpea-violation-type (car vs)) 'missing-required)))))
+
+(ert-deftest vulpea-schema-abstract-collection-health-row ()
+  "Health lists a mixin with zero coverage and its included-by relation."
+  (vulpea-schema-test--with-registry
+    (vulpea-schema-define 'common :fields '((:key "duration")))
+    (vulpea-schema-define 'diary :predicate #'ignore :include 'common :fields nil)
+    (let* ((health (vulpea-schema-collection-health
+                    (list (make-vulpea-note :tags '("diary")))))
+           (row (cl-find 'common health :key #'vulpea-schema-health-schema)))
+      (should row)
+      (should (= 0 (vulpea-schema-health-covered row)))
+      (should (equal (vulpea-schema-health-included-by row) '(diary))))))
+
 ;;; Field access
 
 (ert-deftest vulpea-schema-field-value-reads-typed ()

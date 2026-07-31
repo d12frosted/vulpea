@@ -5186,6 +5186,23 @@ yields a non-existing note).  The prompts and candidate lists passed to
       (re-search-forward "^\\* Target")
       (should-not (org-entry-get (point) "ID")))))
 
+;;; Schema authoring: mixin schemas (#421)
+
+(ert-deftest vulpea-schema-insert-fields-offers-abstract-in-fallback ()
+  "With no applicable schema, the fallback prompt offers mixins too."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq))
+        (offered nil))
+    (vulpea-schema-define 'common :fields '((:key "duration")))
+    (with-temp-buffer
+      (org-mode)
+      (insert ":PROPERTIES:\n:ID: x\n:END:\n#+title: T\n")
+      (cl-letf (((symbol-function 'completing-read)
+                 (lambda (_prompt coll &rest _) (setq offered coll) "common"))
+                ((symbol-function 'read-string) (lambda (&rest _) "5")))
+        (vulpea-schema-insert-fields))
+      (should (member "common" offered))
+      (should (string-match-p "- duration :: 5" (buffer-string))))))
+
 ;;; Schema quick-fix (#342)
 
 (ert-deftest vulpea-schema-fix-violation-missing ()
