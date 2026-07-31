@@ -75,6 +75,16 @@ NOTE can be either an ID or a `vulpea-note' object."
              linked-ids)))
       (delete-file patterns))))
 
+(defun vulpea-mentions-test--await (state-fn &optional timeout)
+  "Pump process output until STATE-FN returns non-nil.
+
+Give up after TIMEOUT seconds (default 10); the caller's assertions
+then see whatever state the search reached."
+  (let ((deadline (+ (float-time) (or timeout 10))))
+    (while (and (not (funcall state-fn))
+                (< (float-time) deadline))
+      (accept-process-output nil 0.05))))
+
 (ert-deftest vulpea-mentions--note-terms-title-and-aliases ()
   "Terms are the title and aliases, trimmed and de-duplicated."
   (let ((note (make-vulpea-note :title "Cabernet Sauvignon"
@@ -650,6 +660,39 @@ agrees.  Pins the behavior the docs promise for 我爱用Emacs写作."
        (lambda (_e) (setq rejected t)))
       (should (eq rejected t)))))
 
+(ert-deftest vulpea-mentions-async-cjk-hostile-process-coding ()
+  "CJK mentions survive a non-UTF-8 process coding configuration.
+
+The entry point pins UTF-8 on the ripgrep process itself, so a hostile
+`default-process-coding-system' (say, latin-1 from a user's setup) must
+mangle neither the CJK terms passed as arguments nor the JSON output
+coming back."
+  (skip-unless (executable-find "rg"))
+  (vulpea-test--with-temp-db-and-files
+      `((:name "target.org"
+         :content ,(concat ":PROPERTIES:\n:ID: target\n:END:\n"
+                           "#+title: 金阁寺\n"))
+        (:name "mention.org"
+         :content ,(concat ":PROPERTIES:\n:ID: mention\n:END:\n"
+                           "#+title: 京都游记\n\n"
+                           "鹿苑寺，又名金阁寺。\n")))
+    (let* ((note (vulpea-db-get-by-id "target"))
+           (state nil)
+           (result nil)
+           (default-process-coding-system '(latin-1 . latin-1))
+           (coding-system-for-write 'latin-1))
+      (vulpea-note-unlinked-mentions-async
+       note
+       (lambda (ms) (setq state 'resolved result ms))
+       (lambda (err) (setq state (list 'rejected err))))
+      (vulpea-mentions-test--await (lambda () state))
+      (should (eq state 'resolved))
+      (should (= (length result) 1))
+      (should (equal (vulpea-note-id (plist-get (car result) :note))
+                     "mention"))
+      (should (string-match-p "又名金阁寺"
+                              (plist-get (car result) :context))))))
+
 ;;; Outgoing (what a buffer mentions)
 
 (ert-deftest vulpea-mentions--title-dictionary ()
@@ -837,6 +880,37 @@ occurrence is not a mention."
       (should (equal (vulpea-note-id (plist-get (car mentions) :note))
                      "kinkakuji"))
       (should (equal (plist-get (car mentions) :matched) "金阁寺")))))
+
+(ert-deftest vulpea-mentions-outgoing-cjk-hostile-process-coding ()
+  "Outgoing CJK and Cyrillic mentions survive a non-UTF-8 coding setup.
+
+The patterns file and the ripgrep stdin/stdout must stay UTF-8 even
+when `coding-system-for-write' and `default-process-coding-system'
+say otherwise."
+  (skip-unless (executable-find "rg"))
+  (vulpea-test--with-temp-db-and-files
+      `((:name "kinkakuji.org"
+         :content ,(concat ":PROPERTIES:\n:ID: kinkakuji\n:END:\n"
+                           "#+title: 金阁寺\n\n"))
+        (:name "kyiv.org"
+         :content ,(concat ":PROPERTIES:\n:ID: kyiv\n:END:\n"
+                           "#+title: Київ\n\n")))
+    (with-temp-buffer
+      (insert "鹿苑寺，又名金阁寺。\n"
+              "Їдемо в Київ.\n")
+      (let* ((state nil)
+             (result nil)
+             (default-process-coding-system '(latin-1 . latin-1))
+             (coding-system-for-write 'latin-1))
+        (vulpea-buffer-unlinked-mentions-async
+         (lambda (ms) (setq state 'resolved result ms))
+         (lambda (err) (setq state (list 'rejected err))))
+        (vulpea-mentions-test--await (lambda () state))
+        (should (eq state 'resolved))
+        (should (equal (sort (mapcar (lambda (m) (plist-get m :matched))
+                                     result)
+                             #'string<)
+                       '("Київ" "金阁寺")))))))
 
 (ert-deftest vulpea-mentions-outgoing-rejects-without-rg ()
   "When ripgrep is unavailable, the outgoing search REJECTs."
