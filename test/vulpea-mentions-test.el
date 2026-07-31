@@ -125,6 +125,31 @@ default minimum of 3 while a 2-letter Latin title does not."
       (should (equal (plist-get (car hits) :line-text) "see Cabernet here"))
       (should (equal (plist-get (car hits) :matched) '("Cabernet"))))))
 
+(ert-deftest vulpea-mentions--parse-rg-json-drops-bytes-values ()
+  "Values ripgrep encodes as base64 bytes are dropped, not read as nil.
+ripgrep emits {\"bytes\": ...} instead of {\"text\": ...} when a path,
+line, or match is not valid UTF-8.  A bytes path or line drops the hit;
+a bytes submatch is dropped from :matched while text ones survive."
+  (let ((output (concat
+                 ;; path is not valid UTF-8 -> hit dropped
+                 "{\"type\":\"match\",\"data\":{\"path\":{\"bytes\":\"L24vY2Fm6S5vcmc=\"},"
+                 "\"lines\":{\"text\":\"see Cabernet here\\n\"},\"line_number\":3,"
+                 "\"submatches\":[{\"match\":{\"text\":\"Cabernet\"},\"start\":4,\"end\":12}]}}\n"
+                 ;; line content is not valid UTF-8 -> hit dropped
+                 "{\"type\":\"match\",\"data\":{\"path\":{\"text\":\"/n/a.org\"},"
+                 "\"lines\":{\"bytes\":\"Y2Fm6SBub3RlCg==\"},\"line_number\":5,"
+                 "\"submatches\":[{\"match\":{\"text\":\"Cabernet\"},\"start\":0,\"end\":8}]}}\n"
+                 ;; one submatch is bytes -> that submatch alone is dropped
+                 "{\"type\":\"match\",\"data\":{\"path\":{\"text\":\"/n/a.org\"},"
+                 "\"lines\":{\"text\":\"Cabernet and more\\n\"},\"line_number\":7,"
+                 "\"submatches\":[{\"match\":{\"bytes\":\"Q2Fm6Q==\"},\"start\":0,\"end\":4},"
+                 "{\"match\":{\"text\":\"Cabernet\"},\"start\":0,\"end\":8}]}}\n")))
+    (let ((hits (vulpea-mentions--parse-rg-json output)))
+      (should (= (length hits) 1))
+      (should (equal (plist-get (car hits) :path) "/n/a.org"))
+      (should (equal (plist-get (car hits) :line) 7))
+      (should (equal (plist-get (car hits) :matched) '("Cabernet"))))))
+
 (ert-deftest vulpea-mentions--link-spans-and-in-link-p ()
   "Link spans are found and positions tested against them."
   (let* ((line "[[id:abc][Cabernet]] and bare Cabernet")
@@ -360,6 +385,28 @@ default minimum of 3 while a 2-letter Latin title does not."
       (should (equal (vulpea-note-id (plist-get (car mentions) :note)) "mentioner"))
       (should (equal (plist-get (car mentions) :line) 3))
       (should (equal (plist-get (car mentions) :context) "a lovely Cabernet")))))
+
+(ert-deftest vulpea-mentions--collect-survives-bytes-path ()
+  "A hit in a file with a non-UTF-8 name must not sink the whole scan.
+ripgrep encodes such a path as {\"bytes\": ...}; the hit is dropped and
+the remaining hits are still collected, instead of a nil path blowing
+up in `expand-file-name' and rejecting the entire result."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "target" "Cabernet" :path "/n/target.org")
+    (vulpea-test--insert-test-note "mentioner" "Tasting" :path "/n/tasting.org")
+    (let* ((note (vulpea-db-get-by-id "target"))
+           (own (expand-file-name "/n/target.org"))
+           (output (concat
+                    ;; a file whose name is not valid UTF-8 -> dropped
+                    "{\"type\":\"match\",\"data\":{\"path\":{\"bytes\":\"L24vY2Fm6S5vcmc=\"},"
+                    "\"lines\":{\"text\":\"a lovely Cabernet\\n\"},\"line_number\":1}}\n"
+                    ;; a genuine unlinked mention -> still collected
+                    "{\"type\":\"match\",\"data\":{\"path\":{\"text\":\"/n/tasting.org\"},"
+                    "\"lines\":{\"text\":\"a lovely Cabernet\\n\"},\"line_number\":3}}\n"))
+           (mentions (vulpea-mentions--collect output note own)))
+      (should (= (length mentions) 1))
+      (should (equal (vulpea-note-id (plist-get (car mentions) :note)) "mentioner")))))
 
 (ert-deftest vulpea-mentions--shares-name-p ()
   "A note that shares a title or alias with the search terms is detected."

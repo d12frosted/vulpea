@@ -292,7 +292,10 @@ PATTERNS-FILE holds one regex per line (see
 
 Each hit is a plist with :path, :line, :line-text, and :matched (the
 list of matched substrings on the line).  Non-match events and
-unparseable lines are ignored."
+unparseable lines are ignored, as are hits whose path or line content
+ripgrep encodes as base64 bytes rather than text (the value was not
+valid UTF-8, e.g. a mis-encoded file name); one such file must not
+take down the rest of the scan."
   (let ((result nil))
     (dolist (line (split-string output "\n" t))
       (let ((obj (ignore-errors (json-parse-string line :object-type 'alist))))
@@ -307,7 +310,13 @@ unparseable lines are ignored."
                                      (mapcar (lambda (sm)
                                                (alist-get 'text (alist-get 'match sm)))
                                              (append submatches nil))))))
-            (when text
+            ;; A value that is not valid UTF-8 arrives as {"bytes":
+            ;; base64} instead of {"text": ...}, leaving the binding
+            ;; nil.  Such a path cannot name an indexed note (the
+            ;; database holds decoded strings, and reconstructing a
+            ;; file name from raw bytes means guessing its encoding),
+            ;; so the hit is dropped rather than decoded.
+            (when (and path text)
               (push (list :path path
                           :line line-no
                           :line-text (string-trim-right text "[\n\r]+")
