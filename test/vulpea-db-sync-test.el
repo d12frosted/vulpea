@@ -895,6 +895,13 @@ comparing."
               (vulpea-db-sync--enqueue file)
               (should (= (length vulpea-db-sync--queue) 1))
               (should (equal (caar vulpea-db-sync--queue) file))))
+        ;; The watches are real and the watcher list is let-bound, so
+        ;; remove them before this scope (and the directories) go away.
+        ;; A leaked watch on a deleted directory lives on for the rest
+        ;; of the session, and on Emacs 30 its stale state starves
+        ;; sentinel delivery for every later asynchronous process.
+        (dolist (entry vulpea-db-sync--watchers)
+          (ignore-errors (file-notify-rm-watch (cdr entry))))
         (when (file-directory-p root)
           (delete-directory root t))))))
 
