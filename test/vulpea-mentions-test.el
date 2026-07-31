@@ -149,10 +149,8 @@ NOTE can be either an ID or a `vulpea-note' object."
     ;; each term passed via -e
     (should (equal (seq-filter (lambda (x) (member x '("A" "B"))) cmd) '("A" "B")))))
 
-(ert-deftest vulpea-mentions--ignore-from ()
+(ert-deftest vulpea-mentions-ignore-from ()
   "Adding ignored note id to per note ignore property in various settings."
-  (require 'org)
-  (require 'vulpea-utils)
   (vulpea-test--with-temp-db-and-files
    `((:name "sets.org"
             :content
@@ -183,20 +181,33 @@ NOTE can be either an ID or a `vulpea-note' object."
        ;; At the beginning, there is no such property
        (should (null (org-find-property vulpea-mentions-per-note-ignore-property-key)))
        (vulpea-mentions-ignore-from sets-note gw-note)
+       ;; After we ignore Gone with the Wind, its id should appear as one of the property values
        (should (org-entry-member-in-multivalued-property
                 (point)
                 vulpea-mentions-per-note-ignore-property-key
                 "gone-with-the-wind"))
        (vulpea-mentions-ignore-from sets-note git-note)
+       ;; After we ignore Git, both its id and previously ignored id should be both part of the value list
        (should (org-entry-member-in-multivalued-property
                 (point)
                 vulpea-mentions-per-note-ignore-property-key
                 "git"))
+       (should (org-entry-member-in-multivalued-property
+                (point)
+                vulpea-mentions-per-note-ignore-property-key
+                "gone-with-the-wind"))
+       ;; The database should also have the property updated right now
+       (should (let* ((properties (vulpea-note-properties (vulpea-db-get-by-id "sets")))
+                      (prop-value (cdr (assoc vulpea-mentions-per-note-ignore-property-key properties))))
+                 (and (string-match-p "gone-with-the-wind" prop-value)
+                      (string-match-p "git" prop-value))))
        ;; The buffer should not change when we ignore an already-ignored note again
        (let ((buffer-string-before (buffer-string)))
          (vulpea-mentions-ignore-from sets-note git-note)
          (let ((buffer-string-after (buffer-string)))
            (should (equal buffer-string-before buffer-string-after)))))
+     ;; If we ignore from a heading note, then the property should be
+     ;; created for it rather than the file level property drawer
      (vulpea-mentions-ignore-from maps-note maptool-note)
      (vulpea-utils-with-note maps-note
        (should (org-entry-member-in-multivalued-property

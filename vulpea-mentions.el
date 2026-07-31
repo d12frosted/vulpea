@@ -53,9 +53,11 @@
 (require 'subr-x)
 (require 'json)
 (require 'ol)
+(require 'org)
 (require 'vulpea-note)
 (require 'vulpea-db-query)
 (require 'vulpea-db-extract)
+(require 'vulpea-utils)
 
 (defvar vulpea-db-sync-directories)     ; defined in vulpea-db-sync
 
@@ -288,15 +290,28 @@ candidate dictionary."
         (mapc (lambda (id) (puthash id t result)) ignored-ids)))
     result))
 
-(defun vulpea-mentions-ignore-from (src-note dst-note)
-  "Add DST-NOTE's id to SRC-NOTE's per-note-ignore-property."
-  (require 'org)
-  (require 'vulpea-utils)
-  (vulpea-utils-with-note-sync src-note
-    (org-entry-add-to-multivalued-property
-     (point)
-     vulpea-mentions-per-note-ignore-property-key
-     (vulpea-note-id dst-note))))
+(defun vulpea-mentions-ignore-from (note-or-id from-note-or-id)
+  "Silence mentions of NOTE-OR-ID coming from FROM-NOTE-OR-ID.
+
+Add the file level note id to which NOTE-OR-ID belongs to
+`vulpea-mentions-per-note-ignore-property-key' in NOTE-OR-ID's property
+drawer, saves the file and syncs the database."
+  (let* ((note (if (stringp note-or-id)
+                   (vulpea-db-get-by-id note-or-id)
+                 note-or-id))
+         (from-note (if (stringp from-note-or-id)
+                        (vulpea-db-get-by-id from-note-or-id)
+                      from-note-or-id))
+         (from-file-note (if (vulpea-mentions-file-level-note-p
+                              from-note)
+                             from-note
+                           (vulpea-db-query-by-file-path
+                            (vulpea-note-path from-note)))))
+    (vulpea-utils-with-note-sync note
+      (org-entry-add-to-multivalued-property
+       (point)
+       vulpea-mentions-per-note-ignore-property-key
+       (vulpea-note-id from-file-note)))))
 
 (defun vulpea-mentions--collect (output note own-path)
   "Collect unlinked mentions of NOTE from ripgrep OUTPUT.
