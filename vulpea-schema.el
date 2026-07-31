@@ -81,6 +81,24 @@
 ;; schema's own field overrides an included one.  See
 ;; `vulpea-schema-define' for the full merge rules.
 ;;
+;; A schema may omit :predicate entirely.  Such a schema is abstract:
+;; it applies to no note and exists to be included - the way to share
+;; a set of fields between schemas:
+;;
+;;   (vulpea-schema-define 'common
+;;     :fields '((:key "status" :one-of (todo done))
+;;               (:key "duration" :type number)))
+;;
+;;   (vulpea-schema-define 'book
+;;     :predicate (lambda (note) (member "book" (vulpea-note-tags note)))
+;;     :include 'common
+;;     :fields '((:key "status" :one-of (unread read))))
+;;
+;; Two schemas can share a key yet differ in detail, since the later
+;; definition wins.  Includes resolve at definition time: define
+;; mixins first, and re-defining a mixin does not update schemas that
+;; already included it - re-evaluate them too.
+;;
 ;;; Code:
 
 (require 'cl-lib)
@@ -131,8 +149,11 @@ schemas into a schema that names them in :include."
   "Define and register a schema called NAME.
 
 PREDICATE is a function (note) -> non-nil when the schema applies to
-the note.  FIELDS is a list of field spec plists (see Commentary for
-the supported keys).
+the note.  It may be omitted: a schema without a predicate is
+abstract - it applies to no note and exists to be named in another
+schema's INCLUDE, as a mixin of shared fields (see
+`vulpea-schema-abstract-p').  FIELDS is a list of field spec plists
+\(see Commentary for the supported keys).
 
 INCLUDE names another schema to inherit fields from - a schema name
 symbol, a `vulpea-schema' object, or a list of either.  The included
@@ -148,7 +169,7 @@ Registering a schema with an existing NAME replaces it.  Returns the
 `vulpea-schema' object."
   (unless (symbolp name)
     (error "Schema name must be a symbol: %S" name))
-  (unless (functionp predicate)
+  (unless (or (null predicate) (functionp predicate))
     (error "Schema :predicate must be a function"))
   (dolist (field fields)
     (unless (and (plist-member field :key)
@@ -222,9 +243,22 @@ spec is :multiple, returns a list of values."
 (defun vulpea-schema-applies-p (note schema-or-name)
   "Return non-nil when SCHEMA-OR-NAME's predicate matches NOTE.
 
-SCHEMA-OR-NAME is a `vulpea-schema' object or a registered schema name."
-  (let ((schema (vulpea-schema--resolve schema-or-name)))
-    (funcall (vulpea-schema-predicate schema) note)))
+SCHEMA-OR-NAME is a `vulpea-schema' object or a registered schema
+name.  An abstract schema (one defined without a predicate) applies
+to nothing."
+  (let* ((schema (vulpea-schema--resolve schema-or-name))
+         (predicate (vulpea-schema-predicate schema)))
+    (and predicate (funcall predicate note))))
+
+(defun vulpea-schema-abstract-p (schema-or-name)
+  "Return non-nil when SCHEMA-OR-NAME is abstract (has no predicate).
+
+An abstract schema applies to no note; it exists to be included by
+other schemas as a mixin of shared fields.  It can still be validated
+against directly (`vulpea-schema-validate' never consults the
+predicate) and is offered by `vulpea-schema-insert-fields' when no
+schema applies to the buffer."
+  (null (vulpea-schema-predicate (vulpea-schema--resolve schema-or-name))))
 
 ;;; Validation
 

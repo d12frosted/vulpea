@@ -1461,6 +1461,34 @@ schema declares its own. The merged field list is what validation and
 =vulpea-schema-field-value= operate on, so inherited fields behave
 exactly like native ones.
 
+=:predicate= itself is optional. A schema defined without one is
+abstract: it applies to no note and exists to be included - the way to
+keep a registry of fields shared between schemas:
+
+#+begin_src emacs-lisp
+(vulpea-schema-define 'common
+  :fields '((:key "status" :one-of (todo done))
+            (:key "duration" :type number)))
+
+(vulpea-schema-define 'book
+  :predicate (lambda (note) (member "book" (vulpea-note-tags note)))
+  :include 'common
+  :fields '((:key "status" :one-of (unread read))))
+#+end_src
+
+Two schemas can share a key yet differ in detail, since the later
+definition wins (here =book= narrows =status= to its own values while
+inheriting =duration= untouched). Change a shared field once, in the
+mixin, and every schema that includes it picks the change up on its next
+definition - remember the eager resolve above: define mixins first, and
+re-evaluate the including schemas after changing a mixin. Test for
+abstractness with =vulpea-schema-abstract-p=. An abstract schema is
+skipped by everything predicate-driven (=vulpea-schema-applicable=,
+=vulpea-schema-validate-all=, collection health coverage), can still be
+validated against directly, and is offered by
+=vulpea-schema-insert-fields= when no schema applies to the buffer, so
+inserting a mixin's fields by hand works.
+
 ** Validation
 
 Validate notes against a schema, getting back a list of =vulpea-violation=
