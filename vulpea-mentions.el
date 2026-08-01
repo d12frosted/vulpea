@@ -302,16 +302,19 @@ drawer, saves the file and syncs the database."
          (from-note (if (stringp from-note-or-id)
                         (vulpea-db-get-by-id from-note-or-id)
                       from-note-or-id))
-         (from-file-note (if (vulpea-mentions-file-level-note-p
-                              from-note)
+         (from-file-note (if (vulpea-mentions-file-level-note-p from-note)
                              from-note
-                           (vulpea-db-query-by-file-path
-                            (vulpea-note-path from-note)))))
-    (vulpea-utils-with-note-sync note
-      (org-entry-add-to-multivalued-property
-       (point)
-       vulpea-mentions-per-note-ignore-property-key
-       (vulpea-note-id from-file-note)))))
+                           (let ((from-notes (vulpea-db-query-by-file-path
+                                              (vulpea-note-path from-note) 0)))
+                             (unless (null from-notes)
+                               (car from-notes))))))
+    (if from-file-note
+        (vulpea-utils-with-note-sync note
+          (org-entry-add-to-multivalued-property
+           (point)
+           vulpea-mentions-per-note-ignore-property-key
+           (vulpea-note-id from-file-note)))
+      (message "No file level note found for note %s" (vulpea-note-title from-note)))))
 
 (defun vulpea-mentions--collect (output note own-path)
   "Collect unlinked mentions of NOTE from ripgrep OUTPUT.

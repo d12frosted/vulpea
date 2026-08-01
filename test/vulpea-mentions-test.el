@@ -158,7 +158,8 @@ NOTE can be either an ID or a `vulpea-note' object."
                      ":END:\n#+title: Sets\n\n"
                      "A contrived link to [[id:gone-with-the-wind][Gone with the Wind]].\n"
                      "* Maps\n:PROPERTIES:\n:ID: maps\n:END:\n#+title: Maps\n\n"
-                     "A map is a functional relation...\n"))
+                     "A map is a functional relation...\n"
+                     "A contrived mention to MapTool.\n"))
      (:name "gone-with-the-wind.org"
             :content
             ,(concat ":PROPERTIES:\n:ID: gone-with-the-wind\n:END:\n#+title: Gone with the Wind\n\n"
@@ -213,7 +214,19 @@ NOTE can be either an ID or a `vulpea-note' object."
        (should (org-entry-member-in-multivalued-property
                 (point)
                 vulpea-mentions-per-note-ignore-property-key
-                "maptool"))))))
+                "maptool")))
+     ;; If we ignore mentions from a heading note, we should add its
+     ;; file level note id to the property value list
+     (let ((mentions-before (vulpea-mentions-test--collect-incoming-mentions-for-note "maptool")))
+       (should (equal (length mentions-before) 1)))
+     (vulpea-mentions-ignore-from maptool-note maps-note)
+     (vulpea-utils-with-note maptool-note
+       (should (org-entry-member-in-multivalued-property
+                (point)
+                vulpea-mentions-per-note-ignore-property-key
+                "sets")))
+     (let ((mentions-after (vulpea-mentions-test--collect-incoming-mentions-for-note "maptool")))
+       (should (equal (length mentions-after) 0))))))
 
 ;;; Collection (DB-backed)
 
