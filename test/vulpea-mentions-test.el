@@ -311,27 +311,23 @@ a bytes submatch is dropped from :matched while text ones survive."
          (gw-note (vulpea-db-get-by-id "gone-with-the-wind"))
          (git-note (vulpea-db-get-by-id "git"))
          (maps-note (vulpea-db-get-by-id "maps"))
-         (maptool-note (vulpea-db-get-by-id "maptool")))
+         (maptool-note (vulpea-db-get-by-id "maptool"))
+         (id-in-property-p (lambda (id)
+                                 (org-entry-member-in-multivalued-property
+                                  (point)
+                                  vulpea-mentions-per-note-ignore-property-key
+                                  id))))
 
      (vulpea-utils-with-note sets-note
        ;; At the beginning, there is no such property
        (should (null (org-find-property vulpea-mentions-per-note-ignore-property-key)))
        (vulpea-mentions-ignore-from sets-note gw-note)
        ;; After we ignore Gone with the Wind, its id should appear as one of the property values
-       (should (org-entry-member-in-multivalued-property
-                (point)
-                vulpea-mentions-per-note-ignore-property-key
-                "gone-with-the-wind"))
+       (should (funcall id-in-property-p "gone-with-the-wind"))
        (vulpea-mentions-ignore-from sets-note git-note)
        ;; After we ignore Git, both its id and previously ignored id should be both part of the value list
-       (should (org-entry-member-in-multivalued-property
-                (point)
-                vulpea-mentions-per-note-ignore-property-key
-                "git"))
-       (should (org-entry-member-in-multivalued-property
-                (point)
-                vulpea-mentions-per-note-ignore-property-key
-                "gone-with-the-wind"))
+       (should (funcall id-in-property-p "git"))
+       (should (funcall id-in-property-p "gone-with-the-wind"))
        ;; The database should also have the property updated right now
        (should (let* ((properties (vulpea-note-properties (vulpea-db-get-by-id "sets")))
                       (prop-value (cdr (assoc vulpea-mentions-per-note-ignore-property-key properties))))
@@ -346,22 +342,41 @@ a bytes submatch is dropped from :matched while text ones survive."
      ;; created for it rather than the file level property drawer
      (vulpea-mentions-ignore-from maps-note maptool-note)
      (vulpea-utils-with-note maps-note
-       (should (org-entry-member-in-multivalued-property
-                (point)
-                vulpea-mentions-per-note-ignore-property-key
-                "maptool")))
+       (should (funcall id-in-property-p "maptool")))
      ;; If we ignore mentions from a heading note, we should add its
      ;; file level note id to the property value list
      (let ((mentions-before (vulpea-mentions-test--collect-incoming-mentions-for-note "maptool")))
        (should (equal (length mentions-before) 1)))
      (vulpea-mentions-ignore-from maptool-note maps-note)
      (vulpea-utils-with-note maptool-note
-       (should (org-entry-member-in-multivalued-property
-                (point)
-                vulpea-mentions-per-note-ignore-property-key
-                "sets")))
+       (should (funcall id-in-property-p "sets")))
      (let ((mentions-after (vulpea-mentions-test--collect-incoming-mentions-for-note "maptool")))
-       (should (equal (length mentions-after) 0))))))
+       (should (equal (length mentions-after) 0)))
+
+     ;; Reverse the process to test the unignore part
+     (vulpea-mentions-unignore-from maptool-note maps-note)
+     (let ((mentions (vulpea-mentions-test--collect-incoming-mentions-for-note "maptool")))
+       (should (equal (length mentions) 1)))
+     (vulpea-utils-with-note maptool-note
+       (should (not (funcall id-in-property-p "sets"))))
+     ;; Unignore from a heading note only affects its own property
+     (vulpea-mentions-unignore-from maps-note maptool-note)
+     (vulpea-utils-with-note maps-note
+       (should (not (funcall id-in-property-p "maptool"))))
+     (vulpea-utils-with-note sets-note
+       (vulpea-mentions-unignore-from sets-note git-note)
+       (vulpea-mentions-unignore-from sets-note gw-note)
+       ;; Idempotence test
+       (let ((string-before (buffer-string)))
+         (vulpea-mentions-unignore-from sets-note gw-note)
+         (let ((string-after (buffer-string)))
+           (should (equal string-before string-after))))
+       ;; Property should be gone in the database now
+       (let* ((properties (vulpea-note-properties (vulpea-db-get-by-id "sets")))
+              (prop-record (assoc vulpea-mentions-per-note-ignore-property-key properties)))
+         (should (null prop-record)))
+       ;; Property should also be cleared
+       (should (null (org-find-property vulpea-mentions-per-note-ignore-property-key)))))))
 
 ;;; Collection (DB-backed)
 
