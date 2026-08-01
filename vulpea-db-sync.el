@@ -519,9 +519,11 @@ a subprocess.  The `blocking' mode still scans synchronously."
 
 (defun vulpea-db-sync--stop ()
   "Stop file watching and clear queue."
-  ;; Remove all watchers
+  ;; Remove all watchers.  A watch whose directory was deleted or
+  ;; unmounted has a dead descriptor and removal can signal; one
+  ;; stale watch must not abort the rest.
   (dolist (entry vulpea-db-sync--watchers)
-    (file-notify-rm-watch (cdr entry)))
+    (ignore-errors (file-notify-rm-watch (cdr entry))))
   (setq vulpea-db-sync--watchers nil)
 
   ;; Stop async scan subprocess if running
@@ -586,9 +588,29 @@ a subprocess.  The `blocking' mode still scans synchronously."
 (defun vulpea-db-sync--unwatch-file (path)
   "Stop watching file at PATH."
   (when-let* ((entry (assoc path vulpea-db-sync--watchers)))
-    (file-notify-rm-watch (cdr entry))
+    ;; PATH is typically already deleted, so its descriptor may be
+    ;; dead; the entry must be pruned either way.
+    (ignore-errors (file-notify-rm-watch (cdr entry)))
     (setq vulpea-db-sync--watchers
           (delq entry vulpea-db-sync--watchers))))
+
+(defun vulpea-db-sync--unwatch-directory (dir)
+  "Stop watching DIR and every watched directory beneath it.
+
+Meant for a directory that was deleted or whose volume was
+unmounted: the descriptors may already be dead, so each removal is
+wrapped in `ignore-errors' and the entries are pruned regardless.
+A path with no matching watch is a no-op."
+  (let* ((dir (directory-file-name (expand-file-name dir)))
+         (prefix (file-name-as-directory dir))
+         kept)
+    (dolist (entry vulpea-db-sync--watchers)
+      (let ((path (directory-file-name (expand-file-name (car entry)))))
+        (if (or (string= path dir)
+                (string-prefix-p prefix path))
+            (ignore-errors (file-notify-rm-watch (cdr entry)))
+          (push entry kept))))
+    (setq vulpea-db-sync--watchers (nreverse kept))))
 
 (defun vulpea-db-sync--org-file-p (path)
   "Return non-nil when PATH points to a tracked org file.
@@ -724,7 +746,7 @@ all files under that directory are removed."
 
 (defun vulpea-db-sync--file-notify-callback (event)
   "Handle file notification EVENT."
-  (pcase-let ((`(,_descriptor ,action ,file . ,rest) event))
+  (pcase-let ((`(,descriptor ,action ,file . ,rest) event))
     (pcase action
       ((or 'changed 'created 'attribute-changed)
        (cond
@@ -739,7 +761,25 @@ all files under that directory are removed."
         ((vulpea-db-sync--dir-locals-file-p file)
          (vulpea-db-sync--handle-dir-locals-event file))
         ((vulpea-db-sync--org-file-p file)
-         (vulpea-db-sync--handle-removed-file file))))
+         (vulpea-db-sync--handle-removed-file file))
+        ;; Anything else may be a watched directory.  It is gone from
+        ;; disk, so membership in the watcher table is the only way to
+        ;; tell; its own watch and any child watches are dead now.
+        (file
+         (vulpea-db-sync--unwatch-directory file))))
+      ('stopped
+       ;; The watch is dead: its directory was deleted or its volume
+       ;; unmounted.  Drop the entry so the dead descriptor is not
+       ;; kept around and removed again on `vulpea-db-sync--stop'.
+       ;; The path must agree too: on Emacs 31 this event is
+       ;; delivered asynchronously, and by then the backend may have
+       ;; reused the descriptor for a newer watch that must survive.
+       (when-let* ((entry (rassoc descriptor vulpea-db-sync--watchers)))
+         (when (or (null file)
+                   (equal (directory-file-name (expand-file-name (car entry)))
+                          (directory-file-name (expand-file-name file))))
+           (setq vulpea-db-sync--watchers
+                 (delq entry vulpea-db-sync--watchers)))))
       ('renamed
        (pcase rest
          (`(,new-path)
