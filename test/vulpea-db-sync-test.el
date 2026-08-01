@@ -905,6 +905,75 @@ comparing."
         (when (file-directory-p root)
           (delete-directory root t))))))
 
+(ert-deftest vulpea-db-sync-file-notify-stopped-prunes-watcher ()
+  "A stopped watch is pruned from the watcher table.
+
+File-notify delivers `stopped' when a watched directory is deleted
+or its volume is unmounted.  Keeping the entry would leave a dead
+descriptor behind for `vulpea-db-sync--stop' to trip over.
+
+The entry is matched by descriptor with `equal' (inotify
+descriptors are conses, and the event carries a fresh copy) and by
+the watched path: on Emacs 31 the event is delivered
+asynchronously, so a late `stopped' for a descriptor the backend
+has since reused must not drop the newer watch."
+  (let ((vulpea-db-sync--watchers
+         (list (cons "/vulpea-fake/root" (cons 'kq 1))
+               (cons "/vulpea-fake/root/sub" (cons 'kq 2)))))
+    ;; Same descriptor, different path: stale event for a reused
+    ;; descriptor.  Nothing may be pruned.
+    (vulpea-db-sync--file-notify-callback
+     (list (cons 'kq 2) 'stopped "/vulpea-fake/gone"))
+    (should (= 2 (length vulpea-db-sync--watchers)))
+    ;; Fresh `equal' (not `eq') descriptor with the matching path.
+    (vulpea-db-sync--file-notify-callback
+     (list (cons 'kq 2) 'stopped "/vulpea-fake/root/sub"))
+    (should (equal vulpea-db-sync--watchers
+                   (list (cons "/vulpea-fake/root" (cons 'kq 1)))))))
+
+(ert-deftest vulpea-db-sync-file-notify-deleted-directory-prunes-watchers ()
+  "Deleting a watched directory prunes it and every child watch.
+
+The event arrives on the parent directory's watch; the deleted
+directory no longer exists on disk, so only the watcher table can
+identify it as a directory.  Descriptors under it may already be
+dead, which must not signal."
+  (let ((vulpea-db-sync--watchers
+         (list (cons "/vulpea-fake/root" 'desc-root)
+               (cons "/vulpea-fake/root/sub" 'desc-sub)
+               (cons "/vulpea-fake/root/sub/inner" 'desc-inner)
+               (cons "/vulpea-fake/root/sub-other" 'desc-other))))
+    (vulpea-db-sync--file-notify-callback
+     (list 'desc-root 'deleted "/vulpea-fake/root/sub"))
+    (should-not (assoc "/vulpea-fake/root/sub" vulpea-db-sync--watchers))
+    (should-not (assoc "/vulpea-fake/root/sub/inner" vulpea-db-sync--watchers))
+    ;; A sibling that merely shares the name prefix is not a child.
+    (should (assoc "/vulpea-fake/root/sub-other" vulpea-db-sync--watchers))
+    (should (assoc "/vulpea-fake/root" vulpea-db-sync--watchers))))
+
+(ert-deftest vulpea-db-sync-stop-survives-stale-watch-descriptors ()
+  "One stale descriptor must not abort removal of remaining watches.
+
+A watch whose directory was deleted or unmounted has a dead
+descriptor; `file-notify-rm-watch' on it can signal, and the other
+watches still have to be removed."
+  (let ((vulpea-db-sync--watchers
+         (list (cons "/vulpea-fake/dead" 'desc-dead)
+               (cons "/vulpea-fake/live" 'desc-live)))
+        (vulpea-db-sync--timer nil)
+        (vulpea-db-sync--idle-timer nil)
+        (vulpea-db-sync--queue nil)
+        (vulpea-db-sync--queue-tail nil)
+        (removed nil))
+    (cl-letf (((symbol-function 'file-notify-rm-watch)
+               (lambda (descriptor)
+                 (when (eq descriptor 'desc-dead)
+                   (error "Stale watch descriptor"))
+                 (push descriptor removed))))
+      (vulpea-db-sync--stop))
+    (should (memq 'desc-live removed))
+    (should (null vulpea-db-sync--watchers))))
+
 (ert-deftest vulpea-db-sync-polling-detects-deletions ()
   "Polling fallback removes files that disappear outside Emacs."
   (vulpea-test--with-temp-db
