@@ -86,19 +86,19 @@ to `it-index' before evaluating BODY.
 This function can be used for simple migrations as it provides some
 useful features and properties:
 
-- Visibility.  Each step is logged, so the progress is visible.
+- Visibility. Each step is logged, so the progress is visible.
 
 - While result of BODY evaluation is discarded, any changes to the
-  buffer are saved.  For better performance, *all* Org mode buffers are
-  *killed* after each step.  Based on benchmarks, saving and killing
+  buffer are saved. For better performance, *all* Org mode buffers are
+  *killed* after each step. Based on benchmarks, saving and killing
   buffers after each step is times faster than saving after all
   modifications.
 
 - Each (id . file) pair is processed only once, meaning that BODY is not
-  called multiple times on the same node.  Despite this, keep your BODY
+  called multiple times on the same node. Despite this, keep your BODY
   idempotent.
 
-- Point is placed at the beginning of note.  Meaning that for
+- Point is placed at the beginning of note. Meaning that for
   file-level notes the point is at the beginning of buffer; and
   for heading-level notes the point is at the beginning of
   heading."
@@ -154,7 +154,7 @@ that macro properly handles notes with level greater than 0."
   "Execute BODY in with buffer visiting NOTE.
 
 If note level is equal to 0, then the point is placed at the
-beginning of the buffer.  Otherwise at the heading with note id."
+beginning of the buffer. Otherwise at the heading with note id."
   (declare (indent 1) (debug t))
   `(with-current-buffer (find-file-noselect (vulpea-note-path ,note))
     (if (> (vulpea-note-level ,note) 0)
@@ -170,7 +170,7 @@ Like `vulpea-utils-with-note', but after BODY completes:
 2. Synchronously updates the database
 
 This is the idiomatic way to modify a note and ensure the
-database reflects those changes immediately.  Use this when you
+database reflects those changes immediately. Use this when you
 need to query the updated data right after modification.
 
 Example:
@@ -254,13 +254,13 @@ ARGS are passed to FN."
     (when (null continue)
       value)))
 
-(defun vulpea-utils-normalize-id-note (id-or-note)
-  "Return the note whose id is ID-OR-NOTE if it is a string.
+(defun vulpea-utils-ensure-note (note-or-id)
+  "Return the note whose id is NOTE-OR-ID if it is a string.
 
-Otherwise, return ID-OR-NOTE."
-  (if (stringp id-or-note)
-      (vulpea-db-get-by-id id-or-note)
-    id-or-note))
+Otherwise, return NOTE-OR-ID."
+  (if (stringp note-or-id)
+      (vulpea-db-get-by-id note-or-id)
+    note-or-id))
 
 (provide 'vulpea-utils)
 ;;; vulpea-utils.el ends here

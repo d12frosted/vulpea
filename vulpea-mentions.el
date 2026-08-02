@@ -449,20 +449,19 @@ candidate dictionary."
         (mapc (lambda (id) (puthash id t result)) ignored-ids)))
     result))
 
-(defun vulpea-mentions-ignore-from (note-or-id from-note-or-id &optional revert)
-  "Silence mentions of NOTE-OR-ID coming from FROM-NOTE-OR-ID.
+(defun vulpea-mentions--ignore-unignore-from (note-or-id from-note-or-id &optional unignore-p)
+  "Ignore or unignore mentions of NOTE-OR-ID from FROM-NOTE-OR-ID.
 
-Add FROM-NOTE-OR-ID's file level note id to
-`vulpea-mentions-per-note-ignore-property-key' in NOTE-OR-ID's property
-drawer, saves the file and syncs the database.  If REVERT is non-nil,
-then remove the id from the property value list."
-  (let* ((note (vulpea-utils-normalize-id-note note-or-id))
-         (from-note (vulpea-utils-normalize-id-note from-note-or-id))
+Add or remove (when UNIGNORE-P is non-nil) FROM-NOTE-OR-ID's file level
+note id to `vulpea-mentions-per-note-ignore-property-key' in
+NOTE-OR-ID's property drawer, save the file and sync the database."
+  (let* ((note (vulpea-utils-ensure-note note-or-id))
+         (from-note (vulpea-utils-ensure-note from-note-or-id))
          (from-file-note (vulpea-mentions--file-note
                           (vulpea-note-path from-note)
                           (make-hash-table :test 'equal))))
     (vulpea-utils-with-note-sync note
-      (let ((func (if revert
+      (let ((func (if unignore-p
                       #'org-entry-remove-from-multivalued-property
                     #'org-entry-add-to-multivalued-property)))
         (funcall func
@@ -470,19 +469,19 @@ then remove the id from the property value list."
                  vulpea-mentions-per-note-ignore-property-key
                  (vulpea-note-id from-file-note))
         ;; Clean up the property line
-        (when revert
+        (when unignore-p
           (when (null (org-entry-get-multivalued-property
                        (point)
                        vulpea-mentions-per-note-ignore-property-key))
             (org-delete-property vulpea-mentions-per-note-ignore-property-key)))))))
 
-(defun vulpea-mentions-unignore-from (note-or-id from-note-or-id)
-  "Make mentions from FROM-NOTE-OR-ID to NOTE-OR-ID visible.
+(defun vulpea-mentions-ignore-from (note-or-id from-note-or-id)
+  "Ignore mentions of NOTE-OR-ID coming from FROM-NOTE-OR-ID."
+  (vulpea-mentions--ignore-unignore-from note-or-id from-note-or-id))
 
-Remove the file level note id of FROM-NOTE-OR-ID from the
-`vulpea-mentions-per-note-ignore-property-key' value list of NOTE-OR-ID,
-saves the file and syncs the database."
-  (vulpea-mentions-ignore-from note-or-id from-note-or-id t))
+(defun vulpea-mentions-unignore-from (note-or-id from-note-or-id)
+  "Unignore mentions from FROM-NOTE-OR-ID to NOTE-OR-ID visible."
+  (vulpea-mentions--ignore-unignore-from note-or-id from-note-or-id t))
 
 (defun vulpea-mentions--collect (output note own-path)
   "Collect unlinked mentions of NOTE from ripgrep OUTPUT.
