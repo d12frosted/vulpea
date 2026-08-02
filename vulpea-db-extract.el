@@ -172,6 +172,52 @@ Returns non-nil if the element is archived, which means:
           (when element
             (vulpea-db--headline-has-tag-p element archive-tag))))))))
 
+(defun vulpea-db--exclude-children-name ()
+  "Return `vulpea-db-exclude-children-property' upcased, or nil.
+
+Property keys are compared upcased throughout extraction, so the
+configured name is normalized once here and both the file-level
+lookup and the ancestor walk agree on a lowercase or mixed-case
+setting.
+
+Nil when no name is configured, which turns subtree exclusion off
+rather than failing on every file that has a heading."
+  (when (and (stringp vulpea-db-exclude-children-property)
+             (not (string-empty-p vulpea-db-exclude-children-property)))
+    (upcase vulpea-db-exclude-children-property)))
+
+(defun vulpea-db--file-excludes-headings-p (ast)
+  "Check if AST's file-level drawer excludes every heading in the file.
+
+The file-level form of `vulpea-db-exclude-children-property': the
+file-level note is still indexed, no heading in the file is."
+  (when-let* ((name (vulpea-db--exclude-children-name)))
+    (org-not-nil
+     (cdr (assoc name (vulpea-db--extract-properties ast nil))))))
+
+(defun vulpea-db--children-excluded-p (headline key)
+  "Check if an ancestor of HEADLINE excludes its descendants.
+
+KEY is the marker property as an `org-element' keyword, built once
+per file from `vulpea-db--exclude-children-name'; nil skips the
+check.  An ancestor excludes the descendants by carrying it with a
+value `org-not-nil' reads as true.
+
+HEADLINE's own property is deliberately not consulted: the marker
+says nothing about the heading carrying it, which is the whole point
+of keeping the container indexed.
+
+The file-level drawer is handled by the caller, which skips heading
+extraction outright when it carries the property."
+  (when key
+    (let ((current (org-element-property :parent headline))
+          (excluded nil))
+      (while (and current (not excluded))
+        (when (eq (org-element-type current) 'headline)
+          (setq excluded (org-not-nil (org-element-property key current))))
+        (setq current (org-element-property :parent current)))
+      excluded)))
+
 (defun vulpea-db--headline-has-tag-p (headline tag)
   "Check if HEADLINE has TAG directly or inherited from ancestors."
   (or
@@ -840,10 +886,15 @@ Each plist has same structure as file-node.
 Skips headings that:
 - Have no ID property
 - Have `vulpea-db-exclude-property' set to non-nil value.
+- Sit under a heading (or in a file) whose
+  `vulpea-db-exclude-children-property' is set to a non-nil value.
 - Are archived (when `vulpea-db-exclude-archived' is non-nil)
 
 Respects `vulpea-db-index-heading-level' setting."
-  (when (vulpea-db--should-index-headings-p path)
+  (when (and (vulpea-db--should-index-headings-p path)
+             ;; A file-level marker takes every heading with it, so
+             ;; there is nothing to walk.
+             (not (vulpea-db--file-excludes-headings-p ast)))
     ;; Extract filetags once for archive checking and tag inheritance
     (let* ((filetags (apply #'append
                             (org-element-map ast 'keyword
@@ -855,15 +906,19 @@ Respects `vulpea-db-index-heading-level' setting."
                                    ":" t))))))
            ;; One scan for DIR/ATTACH_DIR properties gates the cheap
            ;; ID-derived attach-dir path for every heading
-           (attach-props-p (vulpea-db--attach-dir-props-p buffer)))
+           (attach-props-p (vulpea-db--attach-dir-props-p buffer))
+           ;; Interned once rather than per heading in the ancestor walk
+           (children-key (when-let* ((name (vulpea-db--exclude-children-name)))
+                           (intern (concat ":" name)))))
       (org-element-map ast 'headline
         (lambda (headline)
           (when-let* ((id (org-element-property :ID headline)))
             (let* ((properties (vulpea-db--extract-properties ast headline))
                    (ignored (org-not-nil (cdr (assoc vulpea-db-exclude-property properties))))
+                   (disowned (vulpea-db--children-excluded-p headline children-key))
                    (archived (vulpea-db--archived-p headline properties filetags)))
               ;; Only index if not explicitly ignored and not archived
-              (unless (or ignored archived)
+              (unless (or ignored disowned archived)
                 (let* ((title (vulpea-db--strip-emphasis
                                (org-link-display-format
                                 (vulpea-db--string-no-properties

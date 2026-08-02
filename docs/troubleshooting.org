@@ -84,6 +84,33 @@ By default that property is =VULPEA_IGNORE= (configurable through
 *Fix:* Remove the property, or set it to =nil=, if you want the note
 indexed.
 
+*** Note is ignored because of an ancestor
+
+A note can also be excluded without carrying any property itself, when
+something above it excludes its descendants. This is the case where the
+marker is not on the note you are looking at, so it is easy to miss.
+
+*Check:* Look for =VULPEA_IGNORE_CHILDREN= (configurable through
+=vulpea-db-exclude-children-property=) on any ancestor heading of the
+missing note, and in the file-level property drawer, which applies to
+every heading in the file:
+
+#+begin_src org
+,* Meetings
+:PROPERTIES:
+:VULPEA_IGNORE_CHILDREN: t
+:END:
+
+,** This heading is not indexed, however deep it sits
+#+end_src
+
+Note that the ancestor carrying it does not have to be a note itself: a
+heading with no =ID= still excludes everything below it.
+
+*Fix:* Remove the property, or set it to =nil=. If you want the
+container excluded but its children indexed, use =VULPEA_IGNORE= on the
+container instead: that is the other property.
+
 *** Note not found by alias
 
 By default, vulpea uses the property =ALIASES=. When migrating from org-roam, you

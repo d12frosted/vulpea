@@ -315,6 +315,36 @@ still decides what is indexed."
                                      :from notes :where (= id $s1)]
                                     "rejected-note"))))))))
 
+(ert-deftest vulpea-db-worker-honors-exclude-children-property ()
+  "The worker mirrors `vulpea-db-exclude-children-property'.
+Subtree exclusion happens during extraction, so it has to work in the
+worker too.  A non-default property name is used deliberately: the
+default would be honored by the worker's own defaults even if the
+setting were never sent across."
+  (vulpea-db-worker-test--with-file
+      (concat ":PROPERTIES:\n:ID: w-ic-file\n:END:\n#+TITLE: Area\n\n"
+              "* Container\n"
+              ":PROPERTIES:\n:ID: w-ic-container\n:NO_KIDS: t\n:END:\n\n"
+              "** Child\n:PROPERTIES:\n:ID: w-ic-child\n:END:\n")
+    (vulpea-test--with-temp-db
+      (vulpea-db)
+      (let ((vulpea-db-index-heading-level t)
+            (vulpea-db-exclude-children-property "NO_KIDS")
+            (vulpea-db-async-extraction 'full)
+            (vulpea-db-note-index-filter-functions nil))
+        (vulpea-db-worker-refresh-settings)
+        (vulpea-db-worker-request path)
+        (vulpea-db-worker-test--wait)
+        (dolist (id '("w-ic-file" "w-ic-container"))
+          (should (= 1 (caar (emacsql (vulpea-db)
+                                      [:select (funcall count *)
+                                       :from notes :where (= id $s1)]
+                                      id)))))
+        (should (= 0 (caar (emacsql (vulpea-db)
+                                    [:select (funcall count *)
+                                     :from notes :where (= id $s1)]
+                                    "w-ic-child"))))))))
+
 (ert-deftest vulpea-db-worker-full-write-unchanged-content-stamps ()
   "Full-write mode also short-circuits unchanged content."
   (vulpea-db-worker-test--with-file
