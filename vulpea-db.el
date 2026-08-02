@@ -136,6 +136,36 @@ collection."
   :type 'string
   :group 'vulpea-db)
 
+(defcustom vulpea-db-exclude-children-property "VULPEA_IGNORE_CHILDREN"
+  "Property name that keeps a node's descendants out of the database.
+
+The node carrying it is indexed as usual; every heading below it is
+skipped, however deep.  This is the marker for a container whose
+children are noise: a Meetings heading worth finding by itself, holding
+hundreds of individual meetings that are not.
+
+In a file-level property drawer it applies to the whole file, so the
+file-level note is indexed and no heading in it is - a per-file version
+of `vulpea-db-index-heading-level' set to nil.
+
+The value is read with `org-not-nil', like `vulpea-db-exclude-property',
+so any value other than nil excludes the descendants and can double as a
+human-readable reason.  The two properties are independent: this one
+says nothing about the node carrying it, and
+`vulpea-db-exclude-property' says nothing about its descendants.
+
+Skipped headings keep whatever IDs they have, so `org-id' still resolves
+links to them; they are simply absent from the database, which means no
+backlinks, no `vulpea-db-get-by-id' and no query results.  Only indexed
+IDs are registered with `org-id', so resolving one of these costs a
+rescan the first time.  Links written inside them
+go too, so notes they used to link to lose those backlinks - the
+subtree leaves the graph in both directions.  A skipped heading without
+an ID of its own is not a note boundary, so its links belong to the
+nearest indexed ancestor and stay in the database as that ancestor's."
+  :type 'string
+  :group 'vulpea-db)
+
 (defcustom vulpea-db-extra-extensions nil
   "List of extra file extensions to track besides .org files.
 

@@ -197,6 +197,7 @@ This is an extension point, not a setting: attach to it with
     vulpea-db-index-heading-level
     vulpea-db-exclude-archived
     vulpea-db-exclude-property
+    vulpea-db-exclude-children-property
     org-archive-tag
     org-use-tag-inheritance
     org-tags-exclude-from-inheritance

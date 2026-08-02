@@ -416,7 +416,7 @@ The note carries the fields needed to decide without querying the database: id, 
 Three things to keep in mind:
 
 - Handlers run in the main process, so while any is registered =vulpea-db-async-extraction= set to =full= degrades to extract-only (see [[*Async Extraction][Async Extraction]]).
-- They run after extraction, so they keep rows out of the database but do not save parsing work. To skip work rather than results, reach for =vulpea-db-index-heading-level= or leave the files out of =vulpea-db-sync-directories=.
+- They run after extraction, so they keep rows out of the database but do not save parsing work. To skip work rather than results, reach for =vulpea-db-index-heading-level=, the =VULPEA_IGNORE_CHILDREN= property (see [[file:getting-started.org::*Excluding a Whole Subtree][Excluding a Whole Subtree]]), or leave the files out of =vulpea-db-sync-directories=.
 - They run before extractor plugins, so a field an extractor rewrites may be stored with a different value than the handler saw.
 
 Adding or changing a filter does not touch notes that are already indexed - files are only re-read when they change. Apply it to the whole collection with a forced scan:
