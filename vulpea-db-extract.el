@@ -1503,12 +1503,27 @@ indexed only when every function allows it
 Handlers see the note built from the file currently being synced, so
 they observe the live on-disk content.  This is the supported way to
 react to a note as it enters the database - for example to surface
-schema violations (see `vulpea-db-schema-validation-action').")
+schema violations (see `vulpea-db-schema-validation-action') or to keep
+whole regions of a file out of it.
+
+The note carries the fields needed to reason about it without touching
+the database: `vulpea-note-id', `vulpea-note-path',
+`vulpea-note-level' (0 for file-level notes),
+`vulpea-note-outline-path', `vulpea-note-title',
+`vulpea-note-title-source', `vulpea-note-tags',
+`vulpea-note-aliases', `vulpea-note-meta', `vulpea-note-links',
+`vulpea-note-properties', `vulpea-note-category' and
+`vulpea-note-file-title'.  Other fields are unset.
+
+Values are the ones extraction produced.  Handlers run before
+extractors do, so a field an extractor rewrites (see
+`vulpea-db--extractor-persisted-fields') can end up stored with a
+different value than the one the handler saw.")
 
 (defun vulpea-db--note-from-data (data path level)
   "Build a `vulpea-note' from extraction DATA for PATH at LEVEL.
-Only the fields needed to reason about a note (identity, tags, meta,
-links) are populated.  Used to present the note to
+Only the fields needed to reason about a note (identity, place in the
+outline, tags, meta, links) are populated.  Used to present the note to
 `vulpea-db-note-index-filter-functions' before insertion."
   (make-vulpea-note
    :id (plist-get data :id)
@@ -1522,6 +1537,9 @@ links) are populated.  Used to present the note to
    :links (plist-get data :links)
    :properties (plist-get data :properties)
    :category (plist-get data :category)
+   ;; File-level data carries no :outline-path, which is also the
+   ;; right value for a note that is not nested under anything.
+   :outline-path (plist-get data :outline-path)
    :file-title (plist-get data :file-title)))
 
 (defun vulpea-db--note-allowed-p (data path level)
