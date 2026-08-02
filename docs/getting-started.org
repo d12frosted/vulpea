@@ -269,6 +269,14 @@ of an existing org-roam collection:
 (setq vulpea-db-exclude-property "ROAM_EXCLUDE")
 #+end_src
 
+The name is matched case-insensitively, the way Org treats property
+names, so =roam_exclude= and =ROAM_EXCLUDE= mean the same thing.
+
+Adding or removing the property in a file takes effect on the next sync,
+like any other edit. Changing =vulpea-db-exclude-property= itself does
+not, since the files have not changed - apply that to an existing
+collection with =C-u M-x vulpea-db-sync-full-scan=.
+
 ** Excluding a Whole Subtree
 
 =VULPEA_IGNORE_CHILDREN= works the other way around: the note carrying
@@ -311,7 +319,8 @@ file-level note is indexed and none of its headings are:
 Value handling matches =VULPEA_IGNORE=: any non-nil value excludes, so
 it can carry a reason, and =nil= or an absent property changes nothing.
 The property name is configurable through
-=vulpea-db-exclude-children-property=.
+=vulpea-db-exclude-children-property=, and is matched
+case-insensitively as well.
 
 Excluded headings keep their IDs, and links to them still resolve in Org,
 since =org-id= reads the files directly. But the notes are not in the

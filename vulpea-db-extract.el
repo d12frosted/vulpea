@@ -775,7 +775,7 @@ Returns nil if:
                               (org-element-property :value kw))))))
          (properties (vulpea-db--extract-properties ast nil))
          (id (cdr (assoc "ID" properties)))
-         (ignored (org-not-nil (cdr (assoc vulpea-db-exclude-property properties))))
+         (ignored (vulpea-db--excluded-p properties))
          (filetags (cl-mapcan (lambda (kw)
                                 (when (string= "FILETAGS" (car kw))
                                   (split-string (cdr kw) ":" t)))
@@ -914,7 +914,7 @@ Respects `vulpea-db-index-heading-level' setting."
         (lambda (headline)
           (when-let* ((id (org-element-property :ID headline)))
             (let* ((properties (vulpea-db--extract-properties ast headline))
-                   (ignored (org-not-nil (cdr (assoc vulpea-db-exclude-property properties))))
+                   (ignored (vulpea-db--excluded-p properties))
                    (disowned (vulpea-db--children-excluded-p headline children-key))
                    (archived (vulpea-db--archived-p headline properties filetags)))
               ;; Only index if not explicitly ignored and not archived
@@ -1051,11 +1051,11 @@ Looks for property defined by `vulpea-buffer-alias-property'.
 Handles both quoted aliases (with spaces) and unquoted aliases properly.
 Strips org links and emphasis markers from each alias.
 
-The property name is upcased before lookup because PROPERTIES keys
-are stored upcased, so a lowercase or mixed-case
+The property name is matched case-insensitively (see
+`vulpea-db--property-value'), so a lowercase or mixed-case
 `vulpea-buffer-alias-property' still matches."
-  (when-let* ((aliases-str (cdr (assoc (upcase vulpea-buffer-alias-property)
-                                       properties))))
+  (when-let* ((aliases-str (vulpea-db--property-value
+                            vulpea-buffer-alias-property properties)))
     (setq aliases-str (string-trim aliases-str))
     (let ((result nil)
           (pos 0))
@@ -1110,6 +1110,30 @@ Returns alist of (key . value) pairs."
       ;; headlines — otherwise the first heading's property drawer
       ;; is mistakenly returned as the file-level one.
       (unless headline 'headline))))
+
+(defun vulpea-db--property-value (name properties)
+  "Return value of property NAME from PROPERTIES alist.
+
+PROPERTIES comes from `vulpea-db--extract-properties', which
+upcases every key.  NAME is upcased before lookup, so a lowercase
+or mixed-case configured property name still matches, the same way
+org itself treats property names.  This is the same normalization
+`vulpea-db--exclude-children-name' does for the subtree marker.
+
+A NAME that is not a non-empty string returns nil rather than
+signaling, so a property name customized to nil turns its feature
+off instead of breaking extraction for every file."
+  (when (and (stringp name) (not (string-empty-p name)))
+    (cdr (assoc (upcase name) properties))))
+
+(defun vulpea-db--excluded-p (properties)
+  "Return non-nil when PROPERTIES exclude the note from indexing.
+
+Checks the property named by `vulpea-db-exclude-property',
+case-insensitively.  Any non-nil value excludes, so the property
+may carry a reason instead of a plain t."
+  (org-not-nil (vulpea-db--property-value vulpea-db-exclude-property
+                                          properties)))
 
 (defun vulpea-db--extract-links (ast-or-node &optional no-recursion)
   "Extract all links from AST-OR-NODE.
