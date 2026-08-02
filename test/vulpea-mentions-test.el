@@ -306,12 +306,19 @@ a bytes submatch is dropped from :matched while text ones survive."
      (:name "maptool.org"
             :content
             ,(concat ":PROPERTIES:\n:ID: maptool\n:END:\n#+title: MapTool\n\n"
-                     "MapTool helps you play DnD online with digital maps!")))
+                     "MapTool helps you play DnD online with digital maps!"))
+     (:name "fileless.org"
+            :content
+            ,(concat "A file contains no file level note id!\n"
+                     "* Heading\n"
+                     ":PROPERTIES:\n:ID: fileless\n:END:\n"
+                     "Git rebasing sometimes can be confusing.\n")))
    (let ((sets-note (vulpea-db-get-by-id "sets"))
          (gw-note (vulpea-db-get-by-id "gone-with-the-wind"))
          (git-note (vulpea-db-get-by-id "git"))
          (maps-note (vulpea-db-get-by-id "maps"))
          (maptool-note (vulpea-db-get-by-id "maptool"))
+         (fileless-note (vulpea-db-get-by-id "fileless"))
          (id-in-property-p (lambda (id)
                                  (org-entry-member-in-multivalued-property
                                   (point)
@@ -376,7 +383,15 @@ a bytes submatch is dropped from :matched while text ones survive."
               (prop-record (assoc vulpea-mentions-per-note-ignore-property-key properties)))
          (should (null prop-record)))
        ;; Property should also be cleared
-       (should (null (org-find-property vulpea-mentions-per-note-ignore-property-key)))))))
+       (should (null (org-find-property vulpea-mentions-per-note-ignore-property-key)))
+       ;; When we ignore from a heading note which does not reside in a file level note
+       (let ((mentions (vulpea-mentions-test--collect-incoming-mentions-for-note "git")))
+         (should (equal 1 (length mentions))))
+       (vulpea-mentions-ignore-from git-note fileless-note)
+       (vulpea-utils-with-note git-note
+         (should (funcall id-in-property-p "fileless")))
+       (let ((mentions (vulpea-mentions-test--collect-incoming-mentions-for-note "git")))
+         (should (equal 0 (length mentions))))))))
 
 ;;; Collection (DB-backed)
 

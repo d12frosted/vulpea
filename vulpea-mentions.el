@@ -458,23 +458,23 @@ drawer, saves the file and syncs the database.  If REVERT is non-nil,
 then remove the id from the property value list."
   (let* ((note (vulpea-utils-normalize-id-note note-or-id))
          (from-note (vulpea-utils-normalize-id-note from-note-or-id))
-         (from-file-note (vulpea-utils-get-file-level-note from-note)))
-    (if from-file-note
-        (vulpea-utils-with-note-sync note
-          (let ((func (if revert
-                          #'org-entry-remove-from-multivalued-property
-                        #'org-entry-add-to-multivalued-property)))
-            (funcall func
-                     (point)
-                     vulpea-mentions-per-note-ignore-property-key
-                     (vulpea-note-id from-file-note))
-            ;; Clean up the property line
-            (when revert
-              (when (null (org-entry-get-multivalued-property
-                           (point)
-                           vulpea-mentions-per-note-ignore-property-key))
-                (org-delete-property vulpea-mentions-per-note-ignore-property-key)))))
-      (message "No file level note found for note %s" (vulpea-note-title from-note)))))
+         (from-file-note (vulpea-mentions--file-note
+                          (vulpea-note-path from-note)
+                          (make-hash-table :test 'equal))))
+    (vulpea-utils-with-note-sync note
+      (let ((func (if revert
+                      #'org-entry-remove-from-multivalued-property
+                    #'org-entry-add-to-multivalued-property)))
+        (funcall func
+                 (point)
+                 vulpea-mentions-per-note-ignore-property-key
+                 (vulpea-note-id from-file-note))
+        ;; Clean up the property line
+        (when revert
+          (when (null (org-entry-get-multivalued-property
+                       (point)
+                       vulpea-mentions-per-note-ignore-property-key))
+            (org-delete-property vulpea-mentions-per-note-ignore-property-key)))))))
 
 (defun vulpea-mentions-unignore-from (note-or-id from-note-or-id)
   "Make mentions from FROM-NOTE-OR-ID to NOTE-OR-ID visible.

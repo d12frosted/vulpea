@@ -262,13 +262,5 @@ Otherwise, return ID-OR-NOTE."
       (vulpea-db-get-by-id id-or-note)
     id-or-note))
 
-(defun vulpea-utils-get-file-level-note (note)
-  "Return the file level note where NOTE resides in."
-  (if (= (vulpea-note-level note) 0)
-      note
-    (let ((file-notes (vulpea-db-query-by-file-path (vulpea-note-path note) 0)))
-      (unless (null file-notes)
-        (car file-notes)))))
-
 (provide 'vulpea-utils)
 ;;; vulpea-utils.el ends here
