@@ -38,17 +38,25 @@
 (require 'vulpea-db)
 (require 'vulpea-db-query)
 
-(defvar vulpea-select-describe-fn #'vulpea-note-title
+(defgroup vulpea-select nil
+  "Note selection and completion."
+  :group 'vulpea)
+
+(defcustom vulpea-select-describe-fn #'vulpea-note-title
   "Function to describe a note for completion.
 
-Accepts a `vulpea-note'. Returns a `string'.")
+Accepts a `vulpea-note'. Returns a `string'."
+  :type 'function
+  :group 'vulpea-select)
 
-(defvar vulpea-select-annotate-fn #'vulpea-select-annotate
+(defcustom vulpea-select-annotate-fn #'vulpea-select-annotate
   "Function to annotate a note for completion.
 
-Accepts a `vulpea-note'. Returns a `string'.")
+Accepts a `vulpea-note'. Returns a `string'."
+  :type 'function
+  :group 'vulpea-select)
 
-(defvar vulpea-select-match-ids t
+(defcustom vulpea-select-match-ids t
   "When non-nil, note ids are matchable in selection completion.
 
 Each candidate built by `vulpea-select-describe' carries the note
@@ -68,9 +76,11 @@ orderless) match an id anywhere in the candidate, while a strict
 prefix style only matches from the start.
 
 Set to nil to drop ids from matching, e.g. if opaque ids produce
-surprising matches.")
+surprising matches."
+  :type 'boolean
+  :group 'vulpea-select)
 
-(defvar vulpea-select-dyncontext-fn nil
+(defcustom vulpea-select-dyncontext-fn nil
   "Function computing a shared context for the current selection.
 
 When non-nil, it is called once per selection with the list of
@@ -84,7 +94,9 @@ of backlink counts built with a single query (see
 `vulpea-db-query-backlink-counts') - and reuse it across every candidate,
 instead of recomputing it per candidate or capturing it from a wrapper
 command. Describe and annotate functions that take only a NOTE argument
-are unaffected.")
+are unaffected."
+  :type '(choice (const :tag "No shared context" nil) function)
+  :group 'vulpea-select)
 
 (defun vulpea-select--accepts-context-p (fn)
   "Return non-nil when FN can be called with a NOTE and a context argument."

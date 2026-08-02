@@ -165,7 +165,10 @@ the file stamp was refreshed), `stale' (file changed while parsing;
 result discarded and the file re-enqueued), `requeued' (worker died
 with the file in flight; re-enqueued), `missing' (file deleted while
 parsing), or `error'.  COUNT is the number of notes written for
-`applied', nil otherwise.")
+`applied', nil otherwise.
+
+This is an extension point, not a setting: attach to it with
+`add-hook', which is why it is deliberately not a `defcustom'.")
 
 ;;; Wire format
 

@@ -546,16 +546,20 @@ Template variables for :file-name:
 ;;; Variables
 
 (defvar vulpea-db-sync-directories)  ; Defined in vulpea-db
-(defvar vulpea-find-default-filter nil
-  "Default filter to use in `vulpea-find'.")
+(defcustom vulpea-find-default-filter nil
+  "Default filter to use in `vulpea-find'."
+  :type '(choice (const :tag "No filter" nil) function)
+  :group 'vulpea)
 
-(defvar vulpea-find-default-candidates-source #'vulpea-db-query
+(defcustom vulpea-find-default-candidates-source #'vulpea-db-query
   "Default source to get the list of candidates in `vulpea-find'.
 
 Must be a function that accepts one argument - optional note
-filter function.")
+filter function."
+  :type 'function
+  :group 'vulpea)
 
-(defvar vulpea-find-default-create-fn #'vulpea-find-create-note
+(defcustom vulpea-find-default-create-fn #'vulpea-find-create-note
   "Default function to create a note in `vulpea-find'.
 
 Called with two arguments - the title typed by the user and
@@ -567,7 +571,9 @@ asynchronous, or was aborted).
 
 This is the hook for \"capture on empty\" workflows: set it to a
 function that routes to `org-capture' or your own command to turn
-a fruitless search straight into note creation.")
+a fruitless search straight into note creation."
+  :type 'function
+  :group 'vulpea)
 
 ;;; Helper Functions
 
@@ -983,16 +989,20 @@ If OTHER-WINDOW, visit the NOTE in another window."
 
 
 
-(defvar vulpea-insert-default-filter nil
-  "Default filter to use in `vulpea-insert'.")
+(defcustom vulpea-insert-default-filter nil
+  "Default filter to use in `vulpea-insert'."
+  :type '(choice (const :tag "No filter" nil) function)
+  :group 'vulpea)
 
-(defvar vulpea-insert-default-candidates-source #'vulpea-db-query
+(defcustom vulpea-insert-default-candidates-source #'vulpea-db-query
   "Default source to get the list of candidates in `vulpea-insert'.
 
 Must be a function that accepts one argument - optional note
-filter function.")
+filter function."
+  :type 'function
+  :group 'vulpea)
 
-(defvar vulpea-insert-default-create-fn nil
+(defcustom vulpea-insert-default-create-fn nil
   "Default function to create a note in `vulpea-insert'.
 
 When non-nil, used as the CREATE-FN of `vulpea-insert' for a note
@@ -1008,9 +1018,11 @@ function must perform the link insertion itself, since inserting a
 link is what `vulpea-insert' does with a new note. If you would
 rather only create the note and let `vulpea-insert' handle the
 link, use `vulpea-insert-default-note-fn' instead; when both
-variables are set, the note-fn wins.")
+variables are set, the note-fn wins."
+  :type '(choice (const :tag "Built-in behavior" nil) function)
+  :group 'vulpea)
 
-(defvar vulpea-insert-default-note-fn nil
+(defcustom vulpea-insert-default-note-fn nil
   "Default function to create a note in `vulpea-insert'.
 
 When non-nil, used as the NOTE-FN of `vulpea-insert' for a note
@@ -1024,7 +1036,9 @@ insertion.
 Unlike `vulpea-insert-default-create-fn', the function is not
 responsible for inserting the link - this is the same contract as
 `vulpea-find-default-create-fn'. When both variables are set,
-this one wins.")
+this one wins."
+  :type '(choice (const :tag "Built-in behavior" nil) function)
+  :group 'vulpea)
 
 (defvar vulpea-insert-handle-functions nil
   "Abnormal hooks to run after `vulpea-note' is inserted.
@@ -1033,9 +1047,12 @@ Each function accepts a note that was inserted via
 `vulpea-insert'.
 
 The current point is the point of the new node. The hooks must
-not move the point.")
+not move the point.
 
-(defvar vulpea-insert-default-description-fn #'vulpea-note-title
+This is an extension point, not a setting: attach to it with
+`add-hook', which is why it is deliberately not a `defcustom'.")
+
+(defcustom vulpea-insert-default-description-fn #'vulpea-note-title
   "Function computing the link description in `vulpea-insert'.
 
 Called with the inserted `vulpea-note' and returns the string
@@ -1063,7 +1080,9 @@ combination:
                   (vulpea-note-id note))))
 
 Return nil or an empty string to insert a bare id link with no
-description.")
+description."
+  :type 'function
+  :group 'vulpea)
 
 (defun vulpea--insert-note-link (note region-text beg end)
   "Insert a link to NOTE at point and run insert hooks.
