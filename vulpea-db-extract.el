@@ -1518,7 +1518,13 @@ the database: `vulpea-note-id', `vulpea-note-path',
 Values are the ones extraction produced.  Handlers run before
 extractors do, so a field an extractor rewrites (see
 `vulpea-db--extractor-persisted-fields') can end up stored with a
-different value than the one the handler saw.")
+different value than the one the handler saw.
+
+This is an extension point, not a setting: attach to it with
+`add-hook', which is why it is deliberately not a `defcustom'.
+Overwriting the value (with `setq' or the `:custom' keyword of
+`use-package') would detach every other handler, including the
+schema validation one.")
 
 (defun vulpea-db--note-from-data (data path level)
   "Build a `vulpea-note' from extraction DATA for PATH at LEVEL.

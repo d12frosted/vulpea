@@ -23,6 +23,9 @@
 (require 'vulpea)
 (require 'vulpea-db)
 (require 'vulpea-db-extract)
+(require 'vulpea-db-sync)
+(require 'vulpea-db-worker)
+(require 'vulpea-select)
 (require 'vulpea-test-helpers)
 (require 'org-id)
 
@@ -5404,6 +5407,46 @@ link must not signal an error."
             (when-let* ((buf (get-file-buffer path)))
               (kill-buffer buf))
             (delete-file path)))))))
+
+;;; Customization Tests
+
+(defconst vulpea-test--customizable-variables
+  '(vulpea-find-default-filter
+    vulpea-find-default-candidates-source
+    vulpea-find-default-create-fn
+    vulpea-insert-default-filter
+    vulpea-insert-default-candidates-source
+    vulpea-insert-default-create-fn
+    vulpea-insert-default-note-fn
+    vulpea-insert-default-description-fn
+    vulpea-select-describe-fn
+    vulpea-select-annotate-fn
+    vulpea-select-match-ids
+    vulpea-select-dyncontext-fn
+    vulpea-db-sync-debug)
+  "Variables that must be user-customizable.")
+
+(defconst vulpea-test--extension-point-variables
+  '(vulpea-insert-handle-functions
+    vulpea-db-note-index-filter-functions
+    vulpea-db-worker-done-functions)
+  "Abnormal hooks that must stay plain variables.
+They are extension points attached to with `add-hook'; making them
+customizable invites overwriting the list, which would detach other
+handlers (e.g. schema validation).")
+
+(ert-deftest vulpea-customizable-variables ()
+  "Every documented user knob is a `defcustom'."
+  (dolist (var vulpea-test--customizable-variables)
+    (should (boundp var))
+    (should (custom-variable-p var))
+    (should (get var 'custom-type))))
+
+(ert-deftest vulpea-extension-points-not-customizable ()
+  "Abnormal hooks are deliberately not `defcustom'."
+  (dolist (var vulpea-test--extension-point-variables)
+    (should (boundp var))
+    (should-not (custom-variable-p var))))
 
 (provide 'vulpea-test)
 ;;; vulpea-test.el ends here

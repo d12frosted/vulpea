@@ -3,6 +3,20 @@
 
 This guide covers all configuration options, organized by category.
 
+Every option below is a =defcustom=, so anything you can =setq= you can
+also browse and set through =M-x customize-group RET vulpea RET= (with
+=vulpea-db=, =vulpea-db-sync=, =vulpea-select= and =vulpea-mentions= as
+subgroups). The examples use =setq= throughout, since that is how most
+Emacs configurations are written.
+
+The abnormal hooks (=vulpea-insert-handle-functions=,
+=vulpea-db-note-index-filter-functions=, =vulpea-db-worker-done-functions=)
+are deliberately not customizable: they are extension points, meant to
+be attached to with =add-hook=. Setting one wholesale with =setq= (or
+=use-package='s =:custom=) would replace whatever else is attached - on
+=vulpea-db-note-index-filter-functions= that would detach schema
+validation.
+
 * Essential Settings
 
 Vulpea works out of the box if =org-directory= is set. These settings let you customize behavior.
