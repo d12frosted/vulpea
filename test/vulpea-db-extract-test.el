@@ -3517,5 +3517,62 @@ Regression test for https://github.com/d12frosted/vulpea/issues/301."
               (should (= before (funcall count))))))
       (delete-file path))))
 
+;;; Index Filter Payload Tests
+
+(ert-deftest vulpea-db-extract-index-filter-sees-outline-path ()
+  "Notes handed to the index filter carry their outline path.
+Without it a handler cannot express \"anything under this heading\".
+See https://github.com/d12frosted/vulpea/issues/438."
+  (vulpea-test--with-temp-db
+    (let ((path (vulpea-test--create-temp-org-file
+                 (concat
+                  ":PROPERTIES:\n:ID: file-id\n:END:\n"
+                  "#+TITLE: Area\n\n"
+                  "* Lead Meetings\n"
+                  ":PROPERTIES:\n:ID: parent-id\n:END:\n\n"
+                  "** Weekly sync\n"
+                  ":PROPERTIES:\n:ID: child-id\n:END:\n")))
+          (seen nil))
+      (unwind-protect
+          (let ((vulpea-db-note-index-filter-functions
+                 (list (lambda (note)
+                         (push (cons (vulpea-note-id note)
+                                     (vulpea-note-outline-path note))
+                               seen)
+                         t))))
+            (vulpea-db)
+            (vulpea-db-update-file path)
+            ;; File-level notes have no outline path.
+            (should (equal (assoc "file-id" seen) '("file-id")))
+            ;; A top-level heading is not nested under anything.
+            (should (equal (assoc "parent-id" seen) '("parent-id")))
+            (should (equal (assoc "child-id" seen)
+                           '("child-id" "Lead Meetings"))))
+        (delete-file path)))))
+
+(ert-deftest vulpea-db-extract-index-filter-can-veto-by-outline-path ()
+  "A filter can keep a container note and drop everything under it."
+  (vulpea-test--with-temp-db
+    (let ((path (vulpea-test--create-temp-org-file
+                 (concat
+                  ":PROPERTIES:\n:ID: file-id-2\n:END:\n"
+                  "#+TITLE: Area\n\n"
+                  "* Lead Meetings\n"
+                  ":PROPERTIES:\n:ID: parent-id-2\n:END:\n\n"
+                  "** Weekly sync\n"
+                  ":PROPERTIES:\n:ID: child-id-2\n:END:\n")))
+          (vulpea-db-note-index-filter-functions
+           (list (lambda (note)
+                   (not (member "Lead Meetings"
+                                (vulpea-note-outline-path note)))))))
+      (unwind-protect
+          (progn
+            (vulpea-db)
+            (vulpea-db-update-file path)
+            (should (vulpea-db-get-by-id "file-id-2"))
+            (should (vulpea-db-get-by-id "parent-id-2"))
+            (should-not (vulpea-db-get-by-id "child-id-2")))
+        (delete-file path)))))
+
 (provide 'vulpea-db-extract-test)
 ;;; vulpea-db-extract-test.el ends here
