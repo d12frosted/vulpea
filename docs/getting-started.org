@@ -267,6 +267,11 @@ of an existing org-roam collection:
 (setq vulpea-db-exclude-property "ROAM_EXCLUDE")
 #+end_src
 
+Marking notes one by one does not scale to a rule that covers many of
+them ("nothing under my Meetings headings", "no headings in the archive
+directory"). For those, write the rule once as a filter function: see
+[[file:configuration.org::*Custom Index Filters][Custom Index Filters]] in the configuration guide.
+
 * Troubleshooting
 
 ** No notes appear in vulpea-find
