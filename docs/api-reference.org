@@ -1202,7 +1202,7 @@ Do *not* query the database inside =describe-fn= itself: it runs once for every 
 
 Be aware of the cost even when done right: the work happens when the finder *opens* - one grouped query over the whole =links= table, plus =describe-fn= running once per candidate. On a large collection this adds a noticeable delay before the finder appears. It is open-time cost, not per-keystroke lag (candidate strings are precomputed), but it grows with the number of notes, so keep =describe-fn= cheap and only pull in extra data like backlink counts when you actually want them on screen.
 
-To order candidates by recency rather than display them differently, sort the note list (e.g. by =vulpea-note-modified-at= or =vulpea-note-created-at=) before passing it to =vulpea-select-from=, or let a completion framework such as consult sort on a field - the displayed text does not affect candidate order on its own.
+To order candidates rather than display them differently, set a =display-sort-function= through =completion-category-overrides= - the displayed text does not affect candidate order on its own. See [[*Sorting Candidates][Sorting Candidates]].
 
 ** Completion Category
 
@@ -1214,7 +1214,53 @@ All selection commands (=vulpea-select=, =vulpea-select-from=, and therefore =vu
 
 The category is additive - plain =completing-read= and frameworks that ignore it are unaffected.
 
-* Finding and Inserting Notes
+** Candidate Text Properties
+
+Each candidate string is self-describing: besides the note id (the =vulpea-note-id= property read by embark-vulpea), it carries the whole =vulpea-note= and the value produced by =vulpea-select-dyncontext-fn=. Two accessors read them back:
+
+#+begin_src emacs-lisp
+(vulpea-select-candidate-note candidate)    ;; => the vulpea-note, or nil
+(vulpea-select-candidate-context candidate) ;; => the dyncontext value, or nil
+#+end_src
+
+Both return nil when the string is not a candidate - for example the free-form input a user types to name a new note - so code consuming mixed strings needs no special casing. Use the accessors rather than =get-text-property=: the property names are an implementation detail, the accessors are the supported surface.
+
+This matters wherever your code receives only strings: a =display-sort-function= (below), an embark action, an annotator registered for the category.
+
+** Sorting Candidates
+
+Vulpea does not order candidates itself. Ordering is expressed where Emacs already looks for it: =completion-category-overrides=, keyed on the =vulpea-note= category. A =display-sort-function= set there receives candidate strings, and =vulpea-select-candidate-note= turns each one back into its note, so any note field can be a sort key:
+
+#+begin_src emacs-lisp
+(defun my-sort-by-created (candidates)
+  "Sort note CANDIDATES by creation date, newest first."
+  (seq-sort-by
+   (lambda (c)
+     (or (vulpea-note-created-at (vulpea-select-candidate-note c)) ""))
+   #'string>
+   candidates))
+
+;; Apply to every vulpea selection:
+(setf (alist-get 'vulpea-note completion-category-overrides)
+      '((display-sort-function . my-sort-by-created)))
+#+end_src
+
+To sort only in a specific command - say, recent backlinks first in =vulpea-find-backlink= while =vulpea-find= keeps its default order - bind the override around that command instead of setting it globally:
+
+#+begin_src emacs-lisp
+(defun my-sorted-backlinks (orig-fun &rest args)
+  "Show backlinks sorted by creation date, newest first."
+  (let ((completion-category-overrides
+         '((vulpea-note (display-sort-function . my-sort-by-created)))))
+    (apply orig-fun args)))
+
+(advice-add 'vulpea-find-backlink :around #'my-sorted-backlinks)
+#+end_src
+
+Notes on sort keys:
+
+- =vulpea-note-created-at= comes from the =CREATED= property and is nil when a note does not carry it; fall back (the =(or ... "")= above) or key on =vulpea-note-modified-at=, which is always set.
+- The sort function runs again on every input change, over the candidates that survive filtering. Keep the key cheap - reading a slot from the note is fine, querying the database is not.
 
 ** vulpea-find
 
