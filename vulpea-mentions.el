@@ -476,11 +476,20 @@ NOTE-OR-ID's property drawer, save the file and sync the database."
             (org-delete-property vulpea-mentions-per-note-ignore-property-key)))))))
 
 (defun vulpea-mentions-ignore-from (note-or-id from-note-or-id)
-  "Ignore mentions of NOTE-OR-ID coming from FROM-NOTE-OR-ID."
+  "Silence mentions of NOTE-OR-ID coming from FROM-NOTE-OR-ID.
+
+Adds FROM-NOTE-OR-ID's file level note id to
+`vulpea-mentions-per-note-ignore-property-key' in NOTE-OR-ID's property
+drawer, saves the file and syncs the database."
   (vulpea-mentions--ignore-unignore-from note-or-id from-note-or-id))
 
 (defun vulpea-mentions-unignore-from (note-or-id from-note-or-id)
-  "Unignore mentions from FROM-NOTE-OR-ID to NOTE-OR-ID visible."
+  "Show mentions of NOTE-OR-ID coming from FROM-NOTE-OR-ID again.
+
+Removes FROM-NOTE-OR-ID's file level note id from
+`vulpea-mentions-per-note-ignore-property-key' in NOTE-OR-ID's property
+drawer, dropping the property once nothing is left, saves the file and
+syncs the database."
   (vulpea-mentions--ignore-unignore-from note-or-id from-note-or-id t))
 
 (defun vulpea-mentions--collect (output note own-path)

@@ -375,12 +375,17 @@ exclusions (an occurrence inside an Org link or on an Org metadata line
 is never a mention) and both return the ripgrep process, so a caller can
 wait on or cancel the scan.
 
-Incoming mentions of a note can be ignored on a per-note basis. The
-org property =vulpea-mentions-per-note-ignore-property-key= holds a
-whitespace separated list of note ids, whose mentions to the note that
-sets the property are ignored. =vulpea-mentions-ignore-from= and
-=vulpea-mentions-unignore-from= are designed to help maintain the list
-without hand-editing it.
+Incoming mentions can be silenced per note. The property named by
+=vulpea-mentions-per-note-ignore-property-key= holds a whitespace
+separated list of note ids, and mentions coming from those notes are
+dropped for the note carrying the property.
+=vulpea-mentions-ignore-from= and =vulpea-mentions-unignore-from=
+maintain that list, so the drawer never has to be edited by hand. Both
+take a note or an id, both resolve the silenced note to the file-level
+note that a mention is attributed to (so a heading note works as an
+argument), and both save the file and sync the database before
+returning - the list is read from the database, so an unsaved drawer
+would leave the mention on screen.
 
 Matching is script-aware. Titles in scripts that separate words with
 spaces (Latin, Cyrillic, ...) match only as standalone words: =art=
