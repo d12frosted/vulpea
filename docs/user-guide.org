@@ -93,13 +93,13 @@ For notes that live in headings, two ready-made describe functions prefix the ti
 (setq vulpea-select-describe-fn #'vulpea-select-describe-outline-full)
 #+end_src
 
-Because the whole =vulpea-note= is available, you can assemble any layout you like - directory, outline path, tags, timestamps, even a backlink count - into a single aligned row. See [[file:api-reference.org::*Customizing Selection Display][Customizing Selection Display]] in the API reference for a worked multi-column example, and note that the displayed text does not by itself change the order of candidates - sort the note list (e.g. by =vulpea-note-modified-at=) or let your completion framework sort if you want a specific order.
+Because the whole =vulpea-note= is available, you can assemble any layout you like - directory, outline path, tags, timestamps, even a backlink count - into a single aligned row. See [[file:api-reference.org::*Customizing Selection Display][Customizing Selection Display]] in the API reference for a worked multi-column example, and note that the displayed text does not by itself change the order of candidates - to control the order (say, most recent backlinks first), set a =display-sort-function= through =completion-category-overrides=; see [[file:api-reference.org::*Sorting Candidates][Sorting Candidates]] in the API reference.
 
 Whatever =vulpea-select-describe-fn= builds, the note id is appended to each candidate as an invisible, matchable suffix so ids can be typed to narrow completion (see [[*Selecting by Id][Selecting by Id]]). It is added around your describe function, so it neither shows up in your layout nor needs handling there; =vulpea-select-match-ids= turns it off.
 
 Keep these functions cheap. They run once for every candidate when the finder opens, so heavy work - especially an extra database query per candidate - can make selection slow on large collections. If you need data that is expensive to compute, such as a backlink count, set =vulpea-select-dyncontext-fn=: it runs once per selection, returns a shared value (for example a counts table), and Vulpea hands that value to your describe/annotate functions as a second argument. See [[file:api-reference.org::*Shared context for the whole selection][Shared context for the whole selection]] in the API reference for the full pattern.
 
-Selection also reports a =vulpea-note= completion category, so completion UIs and their extensions (marginalia, embark, consult) can recognize note candidates and annotate or act on them. See [[file:api-reference.org::*Completion Category][Completion Category]].
+Selection also reports a =vulpea-note= completion category, so completion UIs and their extensions (marginalia, embark, consult) can recognize note candidates and annotate or act on them, and each candidate carries its whole note, readable with =vulpea-select-candidate-note=, so code that only sees candidate strings (a sort function, an embark action) can still reach every note field. See [[file:api-reference.org::*Completion Category][Completion Category]].
 
 * Creating Links
 

@@ -214,6 +214,48 @@ and carry the `invisible' property so it is not displayed."
     (should (string-match-p "Test Note" described))
     (should-not (string-match-p (regexp-quote "person:lectia") described))))
 
+;;; Candidate Accessor Tests
+
+(ert-deftest vulpea-select-candidate-note-returns-note ()
+  "The note is recoverable from a candidate string via the accessor."
+  (let* ((note (make-vulpea-note
+                :id "test-id"
+                :title "Test Note"
+                :level 0))
+         (candidate (vulpea-select-describe note)))
+    (should (eq (vulpea-select-candidate-note candidate) note))))
+
+(ert-deftest vulpea-select-candidate-context-returns-context ()
+  "The dyncontext value is recoverable from a candidate string."
+  (let* ((context '(:counts (1 2 3)))
+         (note (make-vulpea-note
+                :id "test-id"
+                :title "Test Note"
+                :level 0))
+         (candidate (vulpea-select-describe note context)))
+    (should (eq (vulpea-select-candidate-context candidate) context))))
+
+(ert-deftest vulpea-select-candidate-accessors-nil-on-plain-string ()
+  "A string that is not a candidate yields nil, including the empty string."
+  (should-not (vulpea-select-candidate-note "just some text"))
+  (should-not (vulpea-select-candidate-context "just some text"))
+  (should-not (vulpea-select-candidate-note ""))
+  (should-not (vulpea-select-candidate-context "")))
+
+(ert-deftest vulpea-select-candidate-note-survives-copy ()
+  "The accessor works on a copy of the candidate string.
+
+Completion styles copy and re-propertize candidate strings; text
+properties survive `copy-sequence' and `substring', so the note must
+stay reachable on such copies."
+  (let* ((note (make-vulpea-note
+                :id "test-id"
+                :title "Test Note"
+                :level 0))
+         (candidate (vulpea-select-describe note)))
+    (should (eq (vulpea-select-candidate-note (copy-sequence candidate)) note))
+    (should (eq (vulpea-select-candidate-note (substring candidate)) note))))
+
 (ert-deftest vulpea-select-annotate-with-tags ()
   "Test vulpea-select-annotate includes tags."
   (let* ((note (make-vulpea-note
