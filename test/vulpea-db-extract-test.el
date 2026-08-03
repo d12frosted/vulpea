@@ -114,6 +114,17 @@ longer does."
       (delete-file excluded)
       (delete-file kept))))
 
+(ert-deftest vulpea-db-extract-file-node-ignore-property-name-case ()
+  "Test file node honors a lowercase `vulpea-db-exclude-property'.
+Property keys are stored upcased, so the configured name must be
+matched case-insensitively."
+  (let ((path (vulpea-test--create-temp-org-file
+               ":PROPERTIES:\n:ID: excluded-id\n:roam_exclude: t\n:END:\n#+TITLE: Excluded\n")))
+    (unwind-protect
+        (let ((vulpea-db-exclude-property "roam_exclude"))
+          (should (null (vulpea-parse-ctx-file-node (vulpea-db--parse-file path)))))
+      (delete-file path))))
+
 (ert-deftest vulpea-db-extract-file-node-auto-title ()
   "Test file node uses filename as title if missing."
   (let ((path (vulpea-test--create-temp-org-file ":PROPERTIES:\n:ID: test-id\n:END:\n")))
@@ -454,6 +465,21 @@ VULPEA_IGNORE no longer does."
                (format ":PROPERTIES:\n:ID: %s\n:END:\n#+TITLE: File\n\n* Heading 1\n:PROPERTIES:\n:ID: heading-1\n:ROAM_EXCLUDE: t\n:END:\n\n* Heading 2\n:PROPERTIES:\n:ID: heading-2\n:VULPEA_IGNORE: t\n:END:\n" (org-id-new)))))
     (unwind-protect
         (let* ((vulpea-db-exclude-property "ROAM_EXCLUDE")
+               (vulpea-db-index-heading-level t)
+               (ctx (vulpea-db--parse-file path))
+               (nodes (vulpea-parse-ctx-heading-nodes ctx)))
+          (should (= (length nodes) 1))
+          (should (equal (plist-get (car nodes) :id) "heading-2")))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-heading-nodes-ignore-property-name-case ()
+  "Test heading honors a lowercase `vulpea-db-exclude-property'.
+Property keys are stored upcased, so the configured name must be
+matched case-insensitively."
+  (let ((path (vulpea-test--create-temp-org-file
+               (format ":PROPERTIES:\n:ID: %s\n:END:\n#+TITLE: File\n\n* Heading 1\n:PROPERTIES:\n:ID: heading-1\n:roam_exclude: t\n:END:\n\n* Heading 2\n:PROPERTIES:\n:ID: heading-2\n:END:\n" (org-id-new)))))
+    (unwind-protect
+        (let* ((vulpea-db-exclude-property "roam_exclude")
                (vulpea-db-index-heading-level t)
                (ctx (vulpea-db--parse-file path))
                (nodes (vulpea-parse-ctx-heading-nodes ctx)))
@@ -3516,6 +3542,340 @@ Regression test for https://github.com/d12frosted/vulpea/issues/301."
                 (vulpea-db--parse-file path))
               (should (= before (funcall count))))))
       (delete-file path))))
+
+;;; Index Filter Payload Tests
+
+(ert-deftest vulpea-db-extract-index-filter-sees-outline-path ()
+  "Notes handed to the index filter carry their outline path.
+Without it a handler cannot express \"anything under this heading\".
+See https://github.com/d12frosted/vulpea/issues/438."
+  (vulpea-test--with-temp-db
+    (let ((path (vulpea-test--create-temp-org-file
+                 (concat
+                  ":PROPERTIES:\n:ID: file-id\n:END:\n"
+                  "#+TITLE: Area\n\n"
+                  "* Lead Meetings\n"
+                  ":PROPERTIES:\n:ID: parent-id\n:END:\n\n"
+                  "** Weekly sync\n"
+                  ":PROPERTIES:\n:ID: child-id\n:END:\n")))
+          (seen nil))
+      (unwind-protect
+          (let ((vulpea-db-note-index-filter-functions
+                 (list (lambda (note)
+                         (push (cons (vulpea-note-id note)
+                                     (vulpea-note-outline-path note))
+                               seen)
+                         t))))
+            (vulpea-db)
+            (vulpea-db-update-file path)
+            ;; File-level notes have no outline path.
+            (should (equal (assoc "file-id" seen) '("file-id")))
+            ;; A top-level heading is not nested under anything.
+            (should (equal (assoc "parent-id" seen) '("parent-id")))
+            (should (equal (assoc "child-id" seen)
+                           '("child-id" "Lead Meetings"))))
+        (delete-file path)))))
+
+(ert-deftest vulpea-db-extract-index-filter-can-veto-by-outline-path ()
+  "A filter can keep a container note and drop everything under it."
+  (vulpea-test--with-temp-db
+    (let ((path (vulpea-test--create-temp-org-file
+                 (concat
+                  ":PROPERTIES:\n:ID: file-id-2\n:END:\n"
+                  "#+TITLE: Area\n\n"
+                  "* Lead Meetings\n"
+                  ":PROPERTIES:\n:ID: parent-id-2\n:END:\n\n"
+                  "** Weekly sync\n"
+                  ":PROPERTIES:\n:ID: child-id-2\n:END:\n")))
+          (vulpea-db-note-index-filter-functions
+           (list (lambda (note)
+                   (not (member "Lead Meetings"
+                                (vulpea-note-outline-path note)))))))
+      (unwind-protect
+          (progn
+            (vulpea-db)
+            (vulpea-db-update-file path)
+            (should (vulpea-db-get-by-id "file-id-2"))
+            (should (vulpea-db-get-by-id "parent-id-2"))
+            (should-not (vulpea-db-get-by-id "child-id-2")))
+        (delete-file path)))))
+
+;;; Subtree Exclusion Tests
+
+(defconst vulpea-db-extract-test--ignore-children-file
+  (concat
+   ":PROPERTIES:\n:ID: file-id\n:END:\n"
+   "#+TITLE: Area\n\n"
+   "* Lead Meetings\n"
+   ":PROPERTIES:\n:ID: container-id\n:VULPEA_IGNORE_CHILDREN: t\n:END:\n\n"
+   "Container body with [[id:container-target][a link]].\n\n"
+   "** Weekly sync\n"
+   ":PROPERTIES:\n:ID: child-id\n:END:\n\n"
+   "Child body with [[id:child-target][another link]].\n\n"
+   "*** Action items\n"
+   ":PROPERTIES:\n:ID: grandchild-id\n:END:\n\n"
+   "* Notes\n"
+   ":PROPERTIES:\n:ID: sibling-id\n:END:\n")
+  "A container heading excluding its children, plus an unrelated sibling.")
+
+(defun vulpea-db-extract-test--heading-ids (path)
+  "Return the ids of every heading node extracted from PATH."
+  (let* ((vulpea-db-index-heading-level t)
+         (ctx (vulpea-db--parse-file path)))
+    (mapcar (lambda (n) (plist-get n :id))
+            (vulpea-parse-ctx-heading-nodes ctx))))
+
+(ert-deftest vulpea-db-extract-ignore-children-keeps-container ()
+  "The marked heading is indexed while its whole subtree is skipped."
+  (let ((path (vulpea-test--create-temp-org-file
+               vulpea-db-extract-test--ignore-children-file)))
+    (unwind-protect
+        (let ((ids (vulpea-db-extract-test--heading-ids path)))
+          (should (member "container-id" ids))
+          (should (member "sibling-id" ids))
+          ;; The whole subtree goes, not just the direct children.
+          (should-not (member "child-id" ids))
+          (should-not (member "grandchild-id" ids)))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-ignore-children-link-ownership ()
+  "Where a skipped descendant's links end up depends on its ID.
+Link extraction stops at headings carrying an ID, and that rule is
+unchanged by exclusion: a skipped descendant that has an ID keeps its
+links (they leave the database with it), while one without an ID was
+never a boundary, so its links belong to the nearest indexed ancestor -
+the container.  Both halves are documented behavior."
+  (let ((path (vulpea-test--create-temp-org-file
+               (concat
+                ":PROPERTIES:\n:ID: file-id\n:END:\n"
+                "#+TITLE: Area\n\n"
+                "* Meetings\n"
+                ":PROPERTIES:\n:ID: container-id\n"
+                ":VULPEA_IGNORE_CHILDREN: t\n:END:\n\n"
+                "Own [[id:container-target][x]].\n\n"
+                "** Identified meeting\n"
+                ":PROPERTIES:\n:ID: child-id\n:END:\n\n"
+                "Links [[id:child-target][y]].\n\n"
+                "** Meeting without an id\n\n"
+                "Links [[id:idless-target][z]].\n"))))
+    (unwind-protect
+        (let* ((vulpea-db-index-heading-level t)
+               (ctx (vulpea-db--parse-file path))
+               (nodes (vulpea-parse-ctx-heading-nodes ctx))
+               (container (seq-find
+                           (lambda (n) (equal (plist-get n :id) "container-id"))
+                           nodes))
+               (dests (mapcar (lambda (l) (plist-get l :dest))
+                              (plist-get container :links)))
+               ;; every link the file still contributes, from any note
+               (all-dests
+                (mapcar (lambda (l) (plist-get l :dest))
+                        (append (plist-get (vulpea-parse-ctx-file-node ctx) :links)
+                                (mapcan (lambda (n)
+                                          (copy-sequence (plist-get n :links)))
+                                        nodes)))))
+          ;; the premise: the ID'd descendant really was skipped
+          (should-not (member "child-id" (mapcar (lambda (n) (plist-get n :id))
+                                                 nodes)))
+          (should (member "container-target" dests))
+          ;; ID'd descendant is a boundary, so its link leaves with it
+          ;; rather than moving to the container
+          (should-not (member "child-target" dests))
+          (should-not (member "child-target" all-dests))
+          ;; ID-less descendant never was a boundary: its link rolls up
+          (should (member "idless-target" dests)))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-ignore-children-file-level ()
+  "In a file-level drawer the property drops every heading in the file."
+  (let ((path (vulpea-test--create-temp-org-file
+               (concat
+                ":PROPERTIES:\n:ID: file-id\n:VULPEA_IGNORE_CHILDREN: t\n:END:\n"
+                "#+TITLE: Area\n\n"
+                "* One\n:PROPERTIES:\n:ID: h1\n:END:\n\n"
+                "* Two\n:PROPERTIES:\n:ID: h2\n:END:\n"))))
+    (unwind-protect
+        (let* ((vulpea-db-index-heading-level t)
+               (ctx (vulpea-db--parse-file path)))
+          (should (vulpea-parse-ctx-file-node ctx))
+          (should-not (vulpea-db-extract-test--heading-ids path)))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-ignore-children-reads-org-not-nil ()
+  "An explicit nil does not exclude, matching `vulpea-db-exclude-property'.
+The excluding container in the same file is what makes this
+discriminating: without it the test would also pass with subtree
+exclusion switched off entirely."
+  (let ((path (vulpea-test--create-temp-org-file
+               (concat
+                ":PROPERTIES:\n:ID: file-id\n:END:\n"
+                "#+TITLE: Area\n\n"
+                "* Explicit nil\n"
+                ":PROPERTIES:\n:ID: c1\n:VULPEA_IGNORE_CHILDREN: nil\n:END:\n\n"
+                "** Child of nil\n:PROPERTIES:\n:ID: c2\n:END:\n\n"
+                "* Excluding\n"
+                ":PROPERTIES:\n:ID: c3\n:VULPEA_IGNORE_CHILDREN: t\n:END:\n\n"
+                "** Child of t\n:PROPERTIES:\n:ID: c4\n:END:\n"))))
+    (unwind-protect
+        (let ((ids (vulpea-db-extract-test--heading-ids path)))
+          (should (member "c1" ids))
+          (should (member "c2" ids))
+          (should (member "c3" ids))
+          (should-not (member "c4" ids)))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-ignore-children-property-name-case ()
+  "A lowercase or mixed-case property name works at both levels.
+Property keys are compared upcased, so a configured name has to be
+normalized the same way for the file-level lookup and the ancestor
+walk - otherwise one half silently does nothing."
+  (let ((heading-path (vulpea-test--create-temp-org-file
+                       (concat
+                        ":PROPERTIES:\n:ID: file-id\n:END:\n"
+                        "#+TITLE: Area\n\n"
+                        "* Container\n"
+                        ":PROPERTIES:\n:ID: c1\n:no_kids: t\n:END:\n\n"
+                        "** Child\n:PROPERTIES:\n:ID: c2\n:END:\n")))
+        (file-path (vulpea-test--create-temp-org-file
+                    (concat
+                     ":PROPERTIES:\n:ID: file-id-2\n:no_kids: t\n:END:\n"
+                     "#+TITLE: Area\n\n"
+                     "* Heading\n:PROPERTIES:\n:ID: h1\n:END:\n"))))
+    (unwind-protect
+        (let ((vulpea-db-exclude-children-property "no_kids"))
+          (let ((ids (vulpea-db-extract-test--heading-ids heading-path)))
+            (should (member "c1" ids))
+            (should-not (member "c2" ids)))
+          (should-not (vulpea-db-extract-test--heading-ids file-path)))
+      (delete-file heading-path)
+      (delete-file file-path))))
+
+(ert-deftest vulpea-db-extract-ignore-children-unset-property-name ()
+  "An unset property name turns the feature off instead of erroring.
+Nil is a plausible way to try to switch this off, and the failure it
+used to cause was per-file during sync rather than at configuration
+time."
+  (let ((path (vulpea-test--create-temp-org-file
+               (concat
+                ":PROPERTIES:\n:ID: file-id\n:END:\n"
+                "#+TITLE: Area\n\n"
+                "* Container\n"
+                ":PROPERTIES:\n:ID: c1\n:VULPEA_IGNORE_CHILDREN: t\n:END:\n\n"
+                "** Child\n:PROPERTIES:\n:ID: c2\n:END:\n"))))
+    (unwind-protect
+        (dolist (name '(nil ""))
+          (let* ((vulpea-db-exclude-children-property name)
+                 (ids (vulpea-db-extract-test--heading-ids path)))
+            (should (member "c1" ids))
+            (should (member "c2" ids))))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-ignore-children-carries-a-reason ()
+  "Any non-nil value excludes, so it can double as a note to self."
+  (let ((path (vulpea-test--create-temp-org-file
+               (concat
+                ":PROPERTIES:\n:ID: file-id\n:END:\n"
+                "#+TITLE: Area\n\n"
+                "* Container\n"
+                ":PROPERTIES:\n:ID: c1\n"
+                ":VULPEA_IGNORE_CHILDREN: too many meetings\n:END:\n\n"
+                "** Child\n:PROPERTIES:\n:ID: c2\n:END:\n"))))
+    (unwind-protect
+        (let ((ids (vulpea-db-extract-test--heading-ids path)))
+          (should (member "c1" ids))
+          (should-not (member "c2" ids)))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-ignore-children-custom-property ()
+  "The property name honours `vulpea-db-exclude-children-property'."
+  (let ((path (vulpea-test--create-temp-org-file
+               (concat
+                ":PROPERTIES:\n:ID: file-id\n:END:\n"
+                "#+TITLE: Area\n\n"
+                "* Container\n"
+                ":PROPERTIES:\n:ID: c1\n:NO_KIDS: t\n:END:\n\n"
+                "** Child\n:PROPERTIES:\n:ID: c2\n:END:\n"))))
+    (unwind-protect
+        (let ((vulpea-db-exclude-children-property "NO_KIDS"))
+          (let ((ids (vulpea-db-extract-test--heading-ids path)))
+            (should (member "c1" ids))
+            (should-not (member "c2" ids))))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-ignore-children-independent-of-own-exclusion ()
+  "Excluding children does not exclude the heading, and vice versa."
+  (let ((path (vulpea-test--create-temp-org-file
+               (concat
+                ":PROPERTIES:\n:ID: file-id\n:END:\n"
+                "#+TITLE: Area\n\n"
+                ;; carries both: itself out, subtree out
+                "* Both\n"
+                ":PROPERTIES:\n:ID: b1\n:VULPEA_IGNORE: t\n"
+                ":VULPEA_IGNORE_CHILDREN: t\n:END:\n\n"
+                "** Under both\n:PROPERTIES:\n:ID: b2\n:END:\n\n"
+                ;; carries only its own exclusion: children survive
+                "* Self only\n"
+                ":PROPERTIES:\n:ID: s1\n:VULPEA_IGNORE: t\n:END:\n\n"
+                "** Under self only\n:PROPERTIES:\n:ID: s2\n:END:\n"))))
+    (unwind-protect
+        (let ((ids (vulpea-db-extract-test--heading-ids path)))
+          (should-not (member "b1" ids))
+          (should-not (member "b2" ids))
+          (should-not (member "s1" ids))
+          (should (member "s2" ids)))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-ignore-children-container-without-id ()
+  "The marker works on a heading that is not a note itself.
+It means \"nothing below me\", which does not depend on the heading
+carrying an ID - and a container with no ID is how such a heading looks
+before it is given one."
+  (let ((path (vulpea-test--create-temp-org-file
+               (concat
+                ":PROPERTIES:\n:ID: file-id\n:END:\n"
+                "#+TITLE: Area\n\n"
+                "* Meetings\n"
+                ":PROPERTIES:\n:VULPEA_IGNORE_CHILDREN: t\n:END:\n\n"
+                "** Weekly\n:PROPERTIES:\n:ID: under-idless\n:END:\n\n"
+                "* Notes\n:PROPERTIES:\n:ID: elsewhere\n:END:\n"))))
+    (unwind-protect
+        (let ((ids (vulpea-db-extract-test--heading-ids path)))
+          (should (member "elsewhere" ids))
+          (should-not (member "under-idless" ids)))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-ignore-children-all-parse-methods ()
+  "Subtree exclusion holds across parse methods and granularities.
+The ancestor walk reads the marker with `org-element-property' rather
+than through a property-drawer scan, so it has to survive however the
+AST was produced."
+  (let ((path (vulpea-test--create-temp-org-file
+               vulpea-db-extract-test--ignore-children-file)))
+    (unwind-protect
+        (dolist (method '(single-temp-buffer temp-buffer find-file))
+          (dolist (granularity '(object element))
+            (let* ((vulpea-db-parse-method method)
+                   (vulpea-db-parse-granularity granularity)
+                   (ids (vulpea-db-extract-test--heading-ids path)))
+              (should (member "container-id" ids))
+              (should (member "sibling-id" ids))
+              (should-not (member "child-id" ids))
+              (should-not (member "grandchild-id" ids)))))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-ignore-children-end-to-end ()
+  "Excluded descendants are absent from the database, container present."
+  (let ((vulpea-db-index-heading-level t))
+    (vulpea-test--with-temp-db-and-file "ic-e2e-file"
+        (concat
+         "#+TITLE: Area\n\n"
+         "* Meetings\n"
+         ":PROPERTIES:\n:ID: ic-e2e-container\n"
+         ":VULPEA_IGNORE_CHILDREN: t\n:END:\n\n"
+         "** Weekly\n:PROPERTIES:\n:ID: ic-e2e-child\n:END:\n")
+      (should (vulpea-db-get-by-id "ic-e2e-file"))
+      (should (vulpea-db-get-by-id "ic-e2e-container"))
+      (should-not (vulpea-db-get-by-id "ic-e2e-child")))))
 
 (provide 'vulpea-db-extract-test)
 ;;; vulpea-db-extract-test.el ends here

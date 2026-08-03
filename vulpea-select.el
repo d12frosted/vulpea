@@ -38,17 +38,25 @@
 (require 'vulpea-db)
 (require 'vulpea-db-query)
 
-(defvar vulpea-select-describe-fn #'vulpea-note-title
+(defgroup vulpea-select nil
+  "Note selection and completion."
+  :group 'vulpea)
+
+(defcustom vulpea-select-describe-fn #'vulpea-note-title
   "Function to describe a note for completion.
 
-Accepts a `vulpea-note'. Returns a `string'.")
+Accepts a `vulpea-note'. Returns a `string'."
+  :type 'function
+  :group 'vulpea-select)
 
-(defvar vulpea-select-annotate-fn #'vulpea-select-annotate
+(defcustom vulpea-select-annotate-fn #'vulpea-select-annotate
   "Function to annotate a note for completion.
 
-Accepts a `vulpea-note'. Returns a `string'.")
+Accepts a `vulpea-note'. Returns a `string'."
+  :type 'function
+  :group 'vulpea-select)
 
-(defvar vulpea-select-match-ids t
+(defcustom vulpea-select-match-ids t
   "When non-nil, note ids are matchable in selection completion.
 
 Each candidate built by `vulpea-select-describe' carries the note
@@ -68,9 +76,11 @@ orderless) match an id anywhere in the candidate, while a strict
 prefix style only matches from the start.
 
 Set to nil to drop ids from matching, e.g. if opaque ids produce
-surprising matches.")
+surprising matches."
+  :type 'boolean
+  :group 'vulpea-select)
 
-(defvar vulpea-select-dyncontext-fn nil
+(defcustom vulpea-select-dyncontext-fn nil
   "Function computing a shared context for the current selection.
 
 When non-nil, it is called once per selection with the list of
@@ -84,7 +94,9 @@ of backlink counts built with a single query (see
 `vulpea-db-query-backlink-counts') - and reuse it across every candidate,
 instead of recomputing it per candidate or capturing it from a wrapper
 command. Describe and annotate functions that take only a NOTE argument
-are unaffected.")
+are unaffected."
+  :type '(choice (const :tag "No shared context" nil) function)
+  :group 'vulpea-select)
 
 (defun vulpea-select--accepts-context-p (fn)
   "Return non-nil when FN can be called with a NOTE and a context argument."
@@ -111,7 +123,16 @@ When `vulpea-select-match-ids' is non-nil, the note id is appended
 as an invisible, matchable suffix so an id can be typed or pasted
 to narrow completion. The suffix is added here, around any custom
 `vulpea-select-describe-fn', so it is present regardless of how
-candidates are displayed."
+candidates are displayed.
+
+The returned string carries text properties linking it back to its
+data: `vulpea-note-id' (the id), `vulpea-note' (the NOTE itself) and
+`vulpea-select-context' (the CONTEXT). Read them through
+`vulpea-select-candidate-note' and `vulpea-select-candidate-context'
+instead of `get-text-property'. They are what makes a candidate
+string self-describing for code that only ever sees strings - a
+`display-sort-function' in `completion-category-overrides', an
+`annotation-function' added by an integration, an embark action."
   (let ((id (vulpea-note-id note)))
     (propertize
      (concat
@@ -122,7 +143,43 @@ candidates are displayed."
       (when (and vulpea-select-match-ids id)
         (propertize (concat " " id) 'invisible t)))
      'vulpea-note-id
-     id)))
+     id
+     'vulpea-note
+     note
+     'vulpea-select-context
+     context)))
+
+(defun vulpea-select-candidate-note (candidate)
+  "Return the `vulpea-note' carried by CANDIDATE, or nil.
+
+CANDIDATE is a completion candidate string built by
+`vulpea-select-describe'. A string that is not such a candidate -
+for example the user's free-form input naming a new note - yields
+nil.
+
+This is the supported way to get from a candidate string back to
+its note in code that only receives strings, such as a
+`display-sort-function' set through `completion-category-overrides'
+for the `vulpea-note' category:
+
+  (defun my-sort-by-created (candidates)
+    (seq-sort-by
+     (lambda (c)
+       (or (vulpea-note-created-at (vulpea-select-candidate-note c))
+           \"\"))
+     #\\='string>
+     candidates))"
+  (get-text-property 0 'vulpea-note candidate))
+
+(defun vulpea-select-candidate-context (candidate)
+  "Return the dynamic context carried by CANDIDATE, or nil.
+
+CANDIDATE is a completion candidate string built by
+`vulpea-select-describe'. The context is the value produced by
+`vulpea-select-dyncontext-fn' for the selection the candidate
+belongs to; nil when the hook is unset or CANDIDATE is not a
+candidate string. See `vulpea-select-candidate-note'."
+  (get-text-property 0 'vulpea-select-context candidate))
 
 (defun vulpea-select-annotate (note)
   "Annotate a NOTE for completion."
@@ -233,9 +290,12 @@ title stored in `vulpea-note-primary-title'."
 COMPLETIONS is an alist of (description . note). The table completes
 like COMPLETIONS and reports a completion category of `vulpea-note',
 so that completion UIs and integrations (marginalia, embark, consult)
-can recognize and act on the candidates. The candidate strings carry
-the note id as the `vulpea-note-id' text property (see
-`vulpea-select-describe')."
+can recognize and act on the candidates, and so that users can target
+the category from `completion-category-overrides' (e.g. to set a
+`display-sort-function'). The candidate strings carry their note id,
+the note itself and the dynamic context as text properties (see
+`vulpea-select-describe'); read them with
+`vulpea-select-candidate-note' and `vulpea-select-candidate-context'."
   (lambda (string predicate action)
     (if (eq action 'metadata)
         '(metadata (category . vulpea-note))

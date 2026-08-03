@@ -308,8 +308,10 @@ Prevents the Syncing-N-files announcement from re-firing on
 every batch while all work is dispatched to the worker (the legacy
 processed counter only moves for synchronously processed files).")
 
-(defvar vulpea-db-sync-debug nil
-  "When non-nil, log timing information for sync operations.")
+(defcustom vulpea-db-sync-debug nil
+  "When non-nil, log timing information for sync operations."
+  :type 'boolean
+  :group 'vulpea-db-sync)
 
 ;;; Mode
 

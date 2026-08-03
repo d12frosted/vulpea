@@ -162,12 +162,13 @@
 
 (ert-deftest vulpea-select-describe-basic ()
   "Test vulpea-select-describe formats note for completion."
-  (let* ((note (make-vulpea-note
+  (let* ((context "CTX")
+         (note (make-vulpea-note
                 :id "test-id"
                 :title "Test Note"
                 :level 0
                 :tags '("tag1" "tag2")))
-         (described (vulpea-select-describe note)))
+         (described (vulpea-select-describe note context)))
 
     ;; Should contain title
     (should (string-match-p "Test Note" described))
@@ -175,7 +176,13 @@
     (should (string-match-p "#tag1" described))
     (should (string-match-p "#tag2" described))
     ;; Should have id property
-    (should (equal (get-text-property 0 'vulpea-note-id described) "test-id"))))
+    (should (equal (get-text-property 0 'vulpea-note-id described) "test-id"))
+
+    ;; Should have vulpea-note property
+    (should (equal (get-text-property 0 'vulpea-note described) note))
+
+    ;; Should have vulpea-select-context property
+    (should (equal (get-text-property 0 'vulpea-select-context described) context))))
 
 (ert-deftest vulpea-select-describe-id-is-matchable-and-invisible ()
   "Test that the id is part of the candidate string but hidden.
@@ -206,6 +213,48 @@ and carry the `invisible' property so it is not displayed."
          (described (substring-no-properties (vulpea-select-describe note))))
     (should (string-match-p "Test Note" described))
     (should-not (string-match-p (regexp-quote "person:lectia") described))))
+
+;;; Candidate Accessor Tests
+
+(ert-deftest vulpea-select-candidate-note-returns-note ()
+  "The note is recoverable from a candidate string via the accessor."
+  (let* ((note (make-vulpea-note
+                :id "test-id"
+                :title "Test Note"
+                :level 0))
+         (candidate (vulpea-select-describe note)))
+    (should (eq (vulpea-select-candidate-note candidate) note))))
+
+(ert-deftest vulpea-select-candidate-context-returns-context ()
+  "The dyncontext value is recoverable from a candidate string."
+  (let* ((context '(:counts (1 2 3)))
+         (note (make-vulpea-note
+                :id "test-id"
+                :title "Test Note"
+                :level 0))
+         (candidate (vulpea-select-describe note context)))
+    (should (eq (vulpea-select-candidate-context candidate) context))))
+
+(ert-deftest vulpea-select-candidate-accessors-nil-on-plain-string ()
+  "A string that is not a candidate yields nil, including the empty string."
+  (should-not (vulpea-select-candidate-note "just some text"))
+  (should-not (vulpea-select-candidate-context "just some text"))
+  (should-not (vulpea-select-candidate-note ""))
+  (should-not (vulpea-select-candidate-context "")))
+
+(ert-deftest vulpea-select-candidate-note-survives-copy ()
+  "The accessor works on a copy of the candidate string.
+
+Completion styles copy and re-propertize candidate strings; text
+properties survive `copy-sequence' and `substring', so the note must
+stay reachable on such copies."
+  (let* ((note (make-vulpea-note
+                :id "test-id"
+                :title "Test Note"
+                :level 0))
+         (candidate (vulpea-select-describe note)))
+    (should (eq (vulpea-select-candidate-note (copy-sequence candidate)) note))
+    (should (eq (vulpea-select-candidate-note (substring candidate)) note))))
 
 (ert-deftest vulpea-select-annotate-with-tags ()
   "Test vulpea-select-annotate includes tags."

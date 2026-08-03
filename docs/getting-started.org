@@ -241,6 +241,8 @@ Vulpea extracts and stores:
 
 * Excluding Notes
 
+** Excluding a Single Note
+
 To prevent a note from being indexed, add the =VULPEA_IGNORE= property
 with any value other than =nil=:
 
@@ -266,6 +268,95 @@ of an existing org-roam collection:
 #+begin_src emacs-lisp
 (setq vulpea-db-exclude-property "ROAM_EXCLUDE")
 #+end_src
+
+The name is matched case-insensitively, the way Org treats property
+names, so =roam_exclude= and =ROAM_EXCLUDE= mean the same thing.
+
+Adding or removing the property in a file takes effect on the next sync,
+like any other edit. Changing =vulpea-db-exclude-property= itself does
+not, since the files have not changed - apply that to an existing
+collection with =C-u M-x vulpea-db-sync-full-scan=.
+
+** Excluding a Whole Subtree
+
+=VULPEA_IGNORE_CHILDREN= works the other way around: the note carrying
+it stays indexed, everything below it does not, however deep.
+
+#+begin_src org
+,* Lead Meetings
+:PROPERTIES:
+:ID: some-uuid
+:VULPEA_IGNORE_CHILDREN: t
+:END:
+
+,** 2026-07-14 Weekly sync
+:PROPERTIES:
+:ID: another-uuid
+:END:
+#+end_src
+
+Here =Lead Meetings= is a note you can find, link to and capture into,
+while the meetings filed under it stay out of the database. This is the
+container case: a heading worth finding by itself, holding hundreds of
+entries that are not.
+
+The two properties are independent. =VULPEA_IGNORE= says nothing about
+a note's children, =VULPEA_IGNORE_CHILDREN= says nothing about the note
+carrying it, and a note can carry both to take itself and its subtree
+out together.
+
+In a file-level property drawer it applies to the whole file, so the
+file-level note is indexed and none of its headings are:
+
+#+begin_src org
+:PROPERTIES:
+:ID: some-uuid
+:VULPEA_IGNORE_CHILDREN: t
+:END:
+#+title: Meeting Log
+#+end_src
+
+Value handling matches =VULPEA_IGNORE=: any non-nil value excludes, so
+it can carry a reason, and =nil= or an absent property changes nothing.
+The property name is configurable through
+=vulpea-db-exclude-children-property=, and is matched
+case-insensitively as well.
+
+Excluded headings keep their IDs, and links to them still resolve in Org,
+since =org-id= reads the files directly. But the notes are not in the
+database, so they have no backlinks, =vulpea-db-get-by-id= does not find
+them, and they never show up in queries or completion. Vulpea only
+registers the IDs it indexes, so the first jump into an excluded subtree
+makes =org-id= rescan for the ID; on a large collection that first jump
+is slow, and =org-id-goto= will not complete the heading until then.
+
+The links written /inside/ them go as well, and that part is easy to
+miss: a note the excluded meetings linked to loses those backlinks. The
+subtree leaves the graph in both directions, which is the point, but it
+does affect notes you did not mark.
+
+One exception, worth knowing if your excluded headings do not all carry
+IDs: link ownership stops at headings that have an ID, and exclusion
+does not change that. A skipped heading with an ID takes its links with
+it; a skipped heading without one was never a boundary, so its links
+belong to the nearest indexed ancestor and stay in the database as that
+ancestor's links.
+
+That is the trade. If you want those notes queryable and merely out of
+the way, filter at the read side instead (see [[file:configuration.org::*Custom Index Filters][Custom Index Filters]]) rather
+than keeping them out of the database.
+
+Adding or removing the property in a file takes effect on the next sync,
+like any other edit. Changing =vulpea-db-exclude-children-property=
+itself does not, since the files have not changed - apply that to an
+existing collection with =C-u M-x vulpea-db-sync-full-scan=.
+
+** Filtering in Code
+
+Marking notes one by one does not scale to a rule that covers many of
+them ("no headings in the archive directory", "nothing tagged
+=:draft:="). For those, write the rule once as a filter function: see
+[[file:configuration.org::*Custom Index Filters][Custom Index Filters]] in the configuration guide.
 
 * Troubleshooting
 

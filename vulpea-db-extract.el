@@ -172,6 +172,52 @@ Returns non-nil if the element is archived, which means:
           (when element
             (vulpea-db--headline-has-tag-p element archive-tag))))))))
 
+(defun vulpea-db--exclude-children-name ()
+  "Return `vulpea-db-exclude-children-property' upcased, or nil.
+
+Property keys are compared upcased throughout extraction, so the
+configured name is normalized once here and both the file-level
+lookup and the ancestor walk agree on a lowercase or mixed-case
+setting.
+
+Nil when no name is configured, which turns subtree exclusion off
+rather than failing on every file that has a heading."
+  (when (and (stringp vulpea-db-exclude-children-property)
+             (not (string-empty-p vulpea-db-exclude-children-property)))
+    (upcase vulpea-db-exclude-children-property)))
+
+(defun vulpea-db--file-excludes-headings-p (ast)
+  "Check if AST's file-level drawer excludes every heading in the file.
+
+The file-level form of `vulpea-db-exclude-children-property': the
+file-level note is still indexed, no heading in the file is."
+  (when-let* ((name (vulpea-db--exclude-children-name)))
+    (org-not-nil
+     (cdr (assoc name (vulpea-db--extract-properties ast nil))))))
+
+(defun vulpea-db--children-excluded-p (headline key)
+  "Check if an ancestor of HEADLINE excludes its descendants.
+
+KEY is the marker property as an `org-element' keyword, built once
+per file from `vulpea-db--exclude-children-name'; nil skips the
+check.  An ancestor excludes the descendants by carrying it with a
+value `org-not-nil' reads as true.
+
+HEADLINE's own property is deliberately not consulted: the marker
+says nothing about the heading carrying it, which is the whole point
+of keeping the container indexed.
+
+The file-level drawer is handled by the caller, which skips heading
+extraction outright when it carries the property."
+  (when key
+    (let ((current (org-element-property :parent headline))
+          (excluded nil))
+      (while (and current (not excluded))
+        (when (eq (org-element-type current) 'headline)
+          (setq excluded (org-not-nil (org-element-property key current))))
+        (setq current (org-element-property :parent current)))
+      excluded)))
+
 (defun vulpea-db--headline-has-tag-p (headline tag)
   "Check if HEADLINE has TAG directly or inherited from ancestors."
   (or
@@ -729,7 +775,7 @@ Returns nil if:
                               (org-element-property :value kw))))))
          (properties (vulpea-db--extract-properties ast nil))
          (id (cdr (assoc "ID" properties)))
-         (ignored (org-not-nil (cdr (assoc vulpea-db-exclude-property properties))))
+         (ignored (vulpea-db--excluded-p properties))
          (filetags (cl-mapcan (lambda (kw)
                                 (when (string= "FILETAGS" (car kw))
                                   (split-string (cdr kw) ":" t)))
@@ -840,10 +886,15 @@ Each plist has same structure as file-node.
 Skips headings that:
 - Have no ID property
 - Have `vulpea-db-exclude-property' set to non-nil value.
+- Sit under a heading (or in a file) whose
+  `vulpea-db-exclude-children-property' is set to a non-nil value.
 - Are archived (when `vulpea-db-exclude-archived' is non-nil)
 
 Respects `vulpea-db-index-heading-level' setting."
-  (when (vulpea-db--should-index-headings-p path)
+  (when (and (vulpea-db--should-index-headings-p path)
+             ;; A file-level marker takes every heading with it, so
+             ;; there is nothing to walk.
+             (not (vulpea-db--file-excludes-headings-p ast)))
     ;; Extract filetags once for archive checking and tag inheritance
     (let* ((filetags (apply #'append
                             (org-element-map ast 'keyword
@@ -855,15 +906,19 @@ Respects `vulpea-db-index-heading-level' setting."
                                    ":" t))))))
            ;; One scan for DIR/ATTACH_DIR properties gates the cheap
            ;; ID-derived attach-dir path for every heading
-           (attach-props-p (vulpea-db--attach-dir-props-p buffer)))
+           (attach-props-p (vulpea-db--attach-dir-props-p buffer))
+           ;; Interned once rather than per heading in the ancestor walk
+           (children-key (when-let* ((name (vulpea-db--exclude-children-name)))
+                           (intern (concat ":" name)))))
       (org-element-map ast 'headline
         (lambda (headline)
           (when-let* ((id (org-element-property :ID headline)))
             (let* ((properties (vulpea-db--extract-properties ast headline))
-                   (ignored (org-not-nil (cdr (assoc vulpea-db-exclude-property properties))))
+                   (ignored (vulpea-db--excluded-p properties))
+                   (disowned (vulpea-db--children-excluded-p headline children-key))
                    (archived (vulpea-db--archived-p headline properties filetags)))
               ;; Only index if not explicitly ignored and not archived
-              (unless (or ignored archived)
+              (unless (or ignored disowned archived)
                 (let* ((title (vulpea-db--strip-emphasis
                                (org-link-display-format
                                 (vulpea-db--string-no-properties
@@ -996,11 +1051,11 @@ Looks for property defined by `vulpea-buffer-alias-property'.
 Handles both quoted aliases (with spaces) and unquoted aliases properly.
 Strips org links and emphasis markers from each alias.
 
-The property name is upcased before lookup because PROPERTIES keys
-are stored upcased, so a lowercase or mixed-case
+The property name is matched case-insensitively (see
+`vulpea-db--property-value'), so a lowercase or mixed-case
 `vulpea-buffer-alias-property' still matches."
-  (when-let* ((aliases-str (cdr (assoc (upcase vulpea-buffer-alias-property)
-                                       properties))))
+  (when-let* ((aliases-str (vulpea-db--property-value
+                            vulpea-buffer-alias-property properties)))
     (setq aliases-str (string-trim aliases-str))
     (let ((result nil)
           (pos 0))
@@ -1055,6 +1110,30 @@ Returns alist of (key . value) pairs."
       ;; headlines — otherwise the first heading's property drawer
       ;; is mistakenly returned as the file-level one.
       (unless headline 'headline))))
+
+(defun vulpea-db--property-value (name properties)
+  "Return value of property NAME from PROPERTIES alist.
+
+PROPERTIES comes from `vulpea-db--extract-properties', which
+upcases every key.  NAME is upcased before lookup, so a lowercase
+or mixed-case configured property name still matches, the same way
+org itself treats property names.  This is the same normalization
+`vulpea-db--exclude-children-name' does for the subtree marker.
+
+A NAME that is not a non-empty string returns nil rather than
+signaling, so a property name customized to nil turns its feature
+off instead of breaking extraction for every file."
+  (when (and (stringp name) (not (string-empty-p name)))
+    (cdr (assoc (upcase name) properties))))
+
+(defun vulpea-db--excluded-p (properties)
+  "Return non-nil when PROPERTIES exclude the note from indexing.
+
+Checks the property named by `vulpea-db-exclude-property',
+case-insensitively.  Any non-nil value excludes, so the property
+may carry a reason instead of a plain t."
+  (org-not-nil (vulpea-db--property-value vulpea-db-exclude-property
+                                          properties)))
 
 (defun vulpea-db--extract-links (ast-or-node &optional no-recursion)
   "Extract all links from AST-OR-NODE.
@@ -1503,12 +1582,33 @@ indexed only when every function allows it
 Handlers see the note built from the file currently being synced, so
 they observe the live on-disk content.  This is the supported way to
 react to a note as it enters the database - for example to surface
-schema violations (see `vulpea-db-schema-validation-action').")
+schema violations (see `vulpea-db-schema-validation-action') or to keep
+whole regions of a file out of it.
+
+The note carries the fields needed to reason about it without touching
+the database: `vulpea-note-id', `vulpea-note-path',
+`vulpea-note-level' (0 for file-level notes),
+`vulpea-note-outline-path', `vulpea-note-title',
+`vulpea-note-title-source', `vulpea-note-tags',
+`vulpea-note-aliases', `vulpea-note-meta', `vulpea-note-links',
+`vulpea-note-properties', `vulpea-note-category' and
+`vulpea-note-file-title'.  Other fields are unset.
+
+Values are the ones extraction produced.  Handlers run before
+extractors do, so a field an extractor rewrites (see
+`vulpea-db--extractor-persisted-fields') can end up stored with a
+different value than the one the handler saw.
+
+This is an extension point, not a setting: attach to it with
+`add-hook', which is why it is deliberately not a `defcustom'.
+Overwriting the value (with `setq' or the `:custom' keyword of
+`use-package') would detach every other handler, including the
+schema validation one.")
 
 (defun vulpea-db--note-from-data (data path level)
   "Build a `vulpea-note' from extraction DATA for PATH at LEVEL.
-Only the fields needed to reason about a note (identity, tags, meta,
-links) are populated.  Used to present the note to
+Only the fields needed to reason about a note (identity, place in the
+outline, tags, meta, links) are populated.  Used to present the note to
 `vulpea-db-note-index-filter-functions' before insertion."
   (make-vulpea-note
    :id (plist-get data :id)
@@ -1522,6 +1622,9 @@ links) are populated.  Used to present the note to
    :links (plist-get data :links)
    :properties (plist-get data :properties)
    :category (plist-get data :category)
+   ;; File-level data carries no :outline-path, which is also the
+   ;; right value for a note that is not nested under anything.
+   :outline-path (plist-get data :outline-path)
    :file-title (plist-get data :file-title)))
 
 (defun vulpea-db--note-allowed-p (data path level)
