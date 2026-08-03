@@ -88,6 +88,19 @@ Keep in sync with the Version header in vulpea.el; releases bump
 both. For precise version information including commits past a
 release, use the function `vulpea-version' instead.")
 
+(defun vulpea-version--checkout-p (dir)
+  "Return non-nil when DIR is a vulpea git checkout.
+
+DIR must hold both a \".git\" entry (a directory in regular
+clones, a plain file in worktrees) and \"vulpea.el\". Finding
+\".git\" alone proves nothing: build directories often sit
+inside an unrelated repository, e.g. elpaca's builds inside a
+version-controlled Emacs configuration, and \"git describe\"
+there would report that repository's history instead of
+vulpea's."
+  (and (file-exists-p (expand-file-name ".git" dir))
+       (file-exists-p (expand-file-name "vulpea.el" dir))))
+
 (defun vulpea-version--git ()
   "Return version from \"git describe\", or nil if unavailable.
 
@@ -102,11 +115,17 @@ resolved truename of the loaded library (plain checkouts, and
 managers that symlink their build directory), then elpaca's and
 straight's source directories when those managers are present
 \(their builds are plain copies, revealing nothing about the
-checkout)."
+checkout).
+
+A place is only accepted when the walk up from it ends in an
+actual vulpea checkout (see `vulpea-version--checkout-p'), so an
+unrelated repository above a build directory, like a
+version-controlled Emacs configuration, does not end the search."
   (when-let* ((dir (seq-some
                     (lambda (candidate)
                       (and candidate
-                           (locate-dominating-file candidate ".git")))
+                           (locate-dominating-file
+                            candidate #'vulpea-version--checkout-p)))
                     (list
                      (when-let* ((file (locate-library "vulpea")))
                        (file-truename file))
