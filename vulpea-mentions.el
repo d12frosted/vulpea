@@ -189,8 +189,10 @@ otherwise produce mostly false positives."
 (defcustom vulpea-mentions-per-note-ignore-property-key "IGNORE_MENTIONS_FROM"
   "Org property marking notes ignored from mention detection for this note.
 
-Its value is a whitespace-separated list of file level note ids.
-Mentions from those notes to this note are excluded from mention lists."
+Its value is a whitespace-separated list of note ids.  Mentions from
+those notes to this note are excluded from mention lists.  An id
+silences the whole file it lives in, so it does not matter whether it is
+a file-level id or a heading id."
   :type 'string
   :group 'vulpea-mentions)
 
@@ -387,19 +389,41 @@ are not counted."
                   (throw 'found t)))))))
       nil)))
 
+(defun vulpea-mentions--file-notes (path cache)
+  "Return the notes of file PATH, memoized in the CACHE hash table.
+
+The result (possibly nil, also cached) is shared by
+`vulpea-mentions--file-note' and `vulpea-mentions--file-note-ids', so a
+mentioning file is queried once no matter how many hits it has."
+  (let ((cached (gethash path cache 'miss)))
+    (if (not (eq cached 'miss))
+        cached
+      (puthash path (vulpea-db-query-by-file-path path) cache))))
+
 (defun vulpea-mentions--file-note (path cache)
   "Return a note representing file PATH, memoized in the CACHE hash table.
 
 Prefers the file-level note; falls back to the first note in the file.
-Returns nil (also cached) when PATH holds no indexed note."
-  (let ((cached (gethash path cache 'miss)))
-    (if (not (eq cached 'miss))
-        cached
-      (let* ((notes (vulpea-db-query-by-file-path path))
-             (note (or (seq-find (lambda (n) (= (vulpea-note-level n) 0)) notes)
-                       (car notes))))
-        (puthash path note cache)
-        note))))
+Returns nil when PATH holds no indexed note."
+  (let ((notes (vulpea-mentions--file-notes path cache)))
+    (or (seq-find (lambda (n) (= (vulpea-note-level n) 0)) notes)
+        (car notes))))
+
+(defun vulpea-mentions--file-note-ids (path cache)
+  "Return the ids of every note in file PATH.
+
+CACHE is the hash table used by `vulpea-mentions--file-notes'."
+  (mapcar #'vulpea-note-id (vulpea-mentions--file-notes path cache)))
+
+(defun vulpea-mentions--ignored-file-p (path cache ignored-ids)
+  "Return non-nil when an id of a note in file PATH is in IGNORED-IDS.
+
+CACHE is the hash table used by `vulpea-mentions--file-notes'.  Any id
+of the file counts, so a heading id silences it just like a file-level
+one does."
+  (unless (zerop (hash-table-count ignored-ids))
+    (seq-some (lambda (id) (gethash id ignored-ids))
+              (vulpea-mentions--file-note-ids path cache))))
 
 (defun vulpea-mentions--shares-name-p (note terms)
   "Return non-nil when NOTE's title or an alias matches one of TERMS.
@@ -499,12 +523,13 @@ OWN-PATH is NOTE's own expanded file path, whose hits are skipped.  Hits
 whose mentioning note shares a name with NOTE (a title collision) are
 skipped too.  Hits whose mentioning note contains at least one explicit
 link to NOTE are skipped as well.  Set `vulpea-mentions-exclude-linked'
-to nil to disable this behavior.  Hits whose mentioning note are ignored
-explicitly by `vulpea-mentions-per-note-ignore-property-key' are skipped
-as well.  Returns a list of plists with :note (the mentioning note),
-:path, :line, and :context."
+to nil to disable this behavior.  Hits are skipped as well when NOTE
+ignores any note of the mentioning file through
+`vulpea-mentions-per-note-ignore-property-key', so which id of that file
+was written there does not matter.  Returns a list of plists with
+:note (the mentioning note), :path, :line, and :context."
   (let* ((terms (vulpea-mentions--note-terms note))
-         (path->note (make-hash-table :test 'equal))
+         (path->notes (make-hash-table :test 'equal))
          (hits (vulpea-mentions--parse-rg-json output))
          (paths-link-to-note
           (when (and vulpea-mentions-exclude-linked hits)
@@ -520,10 +545,11 @@ as well.  Returns a list of plists with :note (the mentioning note),
                              (gethash expanded-path paths-link-to-note)))
                    (not (vulpea-mentions--metadata-line-p line-text))
                    (vulpea-mentions--line-unlinked-p line-text terms))
-          (let ((mentioning (vulpea-mentions--file-note path path->note)))
+          (let ((mentioning (vulpea-mentions--file-note path path->notes)))
             (when (and mentioning
                        (not (vulpea-mentions--shares-name-p mentioning terms))
-                       (not (gethash (vulpea-note-id mentioning) ignore-mention-ids)))
+                       (not (vulpea-mentions--ignored-file-p
+                             path path->notes ignore-mention-ids)))
               (push (list :note mentioning
                           :path path
                           :line (plist-get hit :line)

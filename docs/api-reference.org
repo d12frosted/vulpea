@@ -378,7 +378,9 @@ wait on or cancel the scan.
 Incoming mentions can be silenced per note. The property named by
 =vulpea-mentions-per-note-ignore-property-key= holds a whitespace
 separated list of note ids, and mentions coming from those notes are
-dropped for the note carrying the property.
+dropped for the note carrying the property. An id silences the whole
+file it lives in, in both directions, so it does not matter whether a
+file-level id or a heading id was written there.
 =vulpea-mentions-ignore-from= and =vulpea-mentions-unignore-from=
 maintain that list, so the drawer never has to be edited by hand. Both
 take a note or an id, both resolve the silenced note to the file-level

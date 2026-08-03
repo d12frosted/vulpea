@@ -680,6 +680,62 @@ agrees.  Pins the behavior the docs promise for 我爱用Emacs写作."
    (let ((mentions (vulpea-mentions-test--collect-outgoing-mentions-for-note "pc-prediction")))
      (should (eq (length mentions) 0)))))
 
+(ert-deftest vulpea-mentions-per-note-ignore-matches-heading-id ()
+  "An id of any note in the mentioning file silences the mention.
+
+The ignore list holds the id of a heading, while the mentioning file also
+has a file-level note.  Incoming mentions must honour it, just like
+outgoing mentions already do."
+  (skip-unless (executable-find "rg"))
+  (vulpea-test--with-temp-db-and-files
+      `((:name "stems.org"
+         :content
+         ,(concat ":PROPERTIES:\n:ID: stems\n"
+                  (format ":%s: notes-heading\n"
+                          vulpea-mentions-per-note-ignore-property-key)
+                  ":END:\n#+title: Stems\n\n"))
+        (:name "notes.org"
+         :content
+         ,(concat ":PROPERTIES:\n:ID: notes\n:END:\n#+title: Notes\n\n"
+                  "* Section\n"
+                  ":PROPERTIES:\n:ID: notes-heading\n:END:\n\n"
+                  "Notes may have stems attached to them.\n")))
+    (should (null (vulpea-mentions-test--collect-incoming-mentions-for-note
+                   "stems")))))
+
+(ert-deftest vulpea-mentions-per-note-ignore-survives-new-file-id ()
+  "A file gaining a file-level id stays ignored.
+
+The mentioning file starts with a heading id only, so that id is what
+lands in the ignore list.  Once the file gains a file-level id, the note
+representing it changes, but the mention must stay silenced."
+  (skip-unless (executable-find "rg"))
+  (vulpea-test--with-temp-db-and-files
+      `((:name "stems.org"
+         :content
+         ,(concat ":PROPERTIES:\n:ID: stems\n"
+                  (format ":%s: notes-heading\n"
+                          vulpea-mentions-per-note-ignore-property-key)
+                  ":END:\n#+title: Stems\n\n"))
+        (:name "notes.org"
+         :content
+         ,(concat "#+title: Notes\n\n"
+                  "* Section\n"
+                  ":PROPERTIES:\n:ID: notes-heading\n:END:\n\n"
+                  "Notes may have stems attached to them.\n")))
+    (should (null (vulpea-mentions-test--collect-incoming-mentions-for-note
+                   "stems")))
+    (let ((path (expand-file-name "notes.org" dir)))
+      (with-temp-file path
+        (insert ":PROPERTIES:\n:ID: notes\n:END:\n#+title: Notes\n\n"
+                "* Section\n"
+                ":PROPERTIES:\n:ID: notes-heading\n:END:\n\n"
+                "Notes may have stems attached to them.\n"))
+      (vulpea-db-update-file path))
+    (should (vulpea-db-get-by-id "notes"))
+    (should (null (vulpea-mentions-test--collect-incoming-mentions-for-note
+                   "stems")))))
+
 (ert-deftest vulpea-mentions-async-rejects-without-rg ()
   "When ripgrep is unavailable, REJECT is called."
   (cl-letf (((symbol-function 'executable-find) (lambda (&rest _) nil)))
