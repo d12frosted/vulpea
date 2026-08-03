@@ -232,6 +232,106 @@ Returns nil when the database file is absent; does not create it."
     (format "polling (every %ss)" vulpea-db-sync-poll-interval))
    (t "none")))
 
+(defun vulpea-doctor--dir-key (dir)
+  "Return the canonical comparison key for directory DIR.
+
+Expansion strips spelling differences (abbreviations, trailing
+slashes) that do not make two paths different directories."
+  (directory-file-name (expand-file-name dir)))
+
+(defun vulpea-doctor--fswatch-argv-directories ()
+  "Return the directories the running fswatch process was started with.
+
+Reads them from the process command line, where they are the
+trailing arguments after the --format flag and its value (see
+`vulpea-db-sync--setup-fswatch').  Returns nil when fswatch is not
+running or the command line does not have the expected shape."
+  (when (and vulpea-db-sync--fswatch-process
+             (process-live-p vulpea-db-sync--fswatch-process))
+    (when-let* ((tail (member "--format"
+                              (process-command
+                               vulpea-db-sync--fswatch-process))))
+      (cddr tail))))
+
+(defun vulpea-doctor--watch-divergence ()
+  "Detect watchers running on an outdated `vulpea-db-sync-directories'.
+
+The variable is read when `vulpea-db-autosync-mode' starts its
+watchers: fswatch receives the directories as command-line
+arguments and filenotify watches are created for them.  A later
+setq never reaches the running watcher, while manual sync commands
+read the current value - files under a newly configured directory
+are silently never synced on save, which is easy to misread as
+anything but a configuration problem (see vulpea#427).
+
+Returns nil when watching and configuration agree, or a list
+\(MONITOR MISSING STALE) where MONITOR is \"fswatch\" or
+\"filenotify\", MISSING are configured directories not being
+watched and STALE are watched directories no longer configured.
+Directories that do not exist are ignored: a restart would not
+watch them either, and they are reported separately."
+  (cond
+   ;; fswatch monitors each directory recursively, so its argv is the
+   ;; exact set of roots to compare against the configuration.  While
+   ;; it runs no filenotify watchers exist, so the second branch must
+   ;; not be consulted even when the argv cannot be parsed.
+   ((and vulpea-db-sync--fswatch-process
+         (process-live-p vulpea-db-sync--fswatch-process))
+    (when-let* ((argv-dirs (vulpea-doctor--fswatch-argv-directories)))
+      (let* ((watched
+              (seq-uniq
+               (mapcar (lambda (dir)
+                         (vulpea-doctor--dir-key
+                          (vulpea-db-sync--fswatch-normalize-path dir)))
+                       argv-dirs)))
+             (configured
+              (seq-uniq
+               (seq-filter #'file-directory-p
+                           (mapcar #'vulpea-doctor--dir-key
+                                   vulpea-db-sync-directories))))
+             (missing (seq-difference configured watched))
+             (stale (seq-difference watched configured)))
+        (when (or missing stale)
+          (list "fswatch" missing stale)))))
+   ;; filenotify holds one watch per directory, subdirectories
+   ;; included, so only the roots of the watch list are compared:
+   ;; every configured root must be watched, and every watched root
+   ;; must still be configured.  Symlinked configured directories are
+   ;; skipped - `vulpea-db-sync--watch-directory' never watches them,
+   ;; so they would read as diverging forever.
+   (vulpea-db-sync--watchers
+    (let* ((watched
+            (seq-uniq
+             (mapcar (lambda (entry) (vulpea-doctor--dir-key (car entry)))
+                     vulpea-db-sync--watchers)))
+           (configured
+            (seq-uniq
+             (seq-filter (lambda (dir)
+                           (and (file-directory-p dir)
+                                (not (file-symlink-p dir))))
+                         (mapcar #'vulpea-doctor--dir-key
+                                 vulpea-db-sync-directories))))
+           (under-p (lambda (dir root)
+                      (or (equal dir root)
+                          (string-prefix-p (file-name-as-directory root)
+                                           dir))))
+           (missing (seq-remove (lambda (dir) (member dir watched))
+                                configured))
+           (roots (seq-remove
+                   (lambda (dir)
+                     (seq-some (lambda (other)
+                                 (and (not (equal other dir))
+                                      (funcall under-p dir other)))
+                               watched))
+                   watched))
+           (stale (seq-remove
+                   (lambda (root)
+                     (seq-some (lambda (dir) (funcall under-p root dir))
+                               configured))
+                   roots)))
+      (when (or missing stale)
+        (list "filenotify" missing stale))))))
+
 (defun vulpea-doctor--issues ()
   "Return a list of detected setup issues as human-readable strings."
   (let ((issues nil)
@@ -280,6 +380,31 @@ Returns nil when the database file is absent; does not create it."
                     " changes made outside Emacs will not be picked up."
                     " Try toggling `vulpea-db-autosync-mode'.")
             issues))
+    ;; Watchers running on an outdated directory list (vulpea#427)
+    (when-let* ((divergence (vulpea-doctor--watch-divergence)))
+      (pcase-let ((`(,monitor ,missing ,stale) divergence))
+        (push (format
+               (concat "File watching (%s) was started with a different"
+                       " `vulpea-db-sync-directories' value - %s."
+                       " The variable is read when autosync starts, so"
+                       " changing it does not reach the running watcher:"
+                       " files under a directory added since are never"
+                       " synced on save, even though manual sync commands"
+                       " see them. Toggle `vulpea-db-autosync-mode' off"
+                       " and on to apply the current value.")
+               monitor
+               (mapconcat
+                #'identity
+                (delq nil
+                      (list
+                       (when missing
+                         (format "not watched: %s"
+                                 (string-join missing ", ")))
+                       (when stale
+                         (format "still watched but no longer configured: %s"
+                                 (string-join stale ", ")))))
+                "; "))
+              issues)))
     ;; Database
     (cond
      ((not (file-exists-p vulpea-db-location))

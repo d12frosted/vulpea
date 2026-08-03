@@ -168,6 +168,163 @@ creating it as a side effect."
         (should (null issues))
         (should (string-match-p "No issues detected" (vulpea-doctor)))))))
 
+;;; Watcher/Config Divergence
+;; https://github.com/d12frosted/vulpea/issues/427
+;;
+;; `vulpea-db-autosync-mode' reads `vulpea-db-sync-directories' when it
+;; starts its watchers; a later setq never reaches the running fswatch
+;; process or the filenotify watch list, while manual sync commands read
+;; the current value. The doctor must make that split visible.
+
+(defmacro vulpea-doctor-test--with-temp-dirs (names &rest body)
+  "Bind each symbol in NAMES to a fresh temporary directory around BODY."
+  (declare (indent 1))
+  `(let ,(mapcar (lambda (name)
+                   `(,name (make-temp-file "vulpea-doctor-dir" t)))
+                 names)
+     (unwind-protect
+         (progn ,@body)
+       ,@(mapcar (lambda (name)
+                   `(ignore-errors (delete-directory ,name t)))
+                 names))))
+
+(defmacro vulpea-doctor-test--with-fake-fswatch (dirs &rest body)
+  "Execute BODY with a fake live fswatch process watching DIRS.
+
+The fake process reproduces the argv shape of
+`vulpea-db-sync--setup-fswatch': the watched directories are the
+trailing arguments after the --format flag and its value."
+  (declare (indent 1))
+  `(let ((vulpea-db-sync--fswatch-process 'vulpea-doctor-test--fake-proc))
+     (cl-letf (((symbol-function 'process-live-p)
+                (lambda (p) (eq p 'vulpea-doctor-test--fake-proc)))
+               ((symbol-function 'process-command)
+                (lambda (_)
+                  (append '("fswatch"
+                            "--recursive"
+                            "--event=Updated"
+                            "--exclude" "\\.#.*$"
+                            "--format" "%p|||%f")
+                          ,dirs))))
+       ,@body)))
+
+(defun vulpea-doctor-test--divergence-issues (issues)
+  "Return the watcher/config divergence entries of ISSUES."
+  (seq-filter (lambda (i) (string-match-p "started with a different" i))
+              issues))
+
+(ert-deftest vulpea-doctor-issue-fswatch-watching-old-directories ()
+  "A directory added to the config after fswatch started is flagged."
+  (vulpea-doctor-test--with-temp-dirs (dir-a dir-b)
+    (vulpea-doctor-test--with-fake-fswatch (list dir-a)
+      (let* ((vulpea-db-sync-directories (list dir-a dir-b))
+             (found (vulpea-doctor-test--divergence-issues
+                     (vulpea-doctor--issues))))
+        (should found)
+        (should (seq-some
+                 (lambda (i)
+                   (and (string-match-p "not watched" i)
+                        (string-match-p (regexp-quote dir-b) i)
+                        (string-match-p "vulpea-db-autosync-mode" i)))
+                 found))))))
+
+(ert-deftest vulpea-doctor-issue-fswatch-watching-removed-directory ()
+  "A directory removed from the config but still watched is flagged."
+  (vulpea-doctor-test--with-temp-dirs (dir-a dir-b)
+    (vulpea-doctor-test--with-fake-fswatch (list dir-a dir-b)
+      (let* ((vulpea-db-sync-directories (list dir-a))
+             (found (vulpea-doctor-test--divergence-issues
+                     (vulpea-doctor--issues))))
+        (should (seq-some
+                 (lambda (i)
+                   (and (string-match-p "no longer configured" i)
+                        (string-match-p (regexp-quote dir-b) i)))
+                 found))))))
+
+(ert-deftest vulpea-doctor-no-fswatch-issue-when-directories-match ()
+  "Matching directories yield no issue, whatever their spelling.
+
+The config keeps a trailing slash while the process argv holds the
+expanded form; that is the same directory, not a divergence."
+  (vulpea-doctor-test--with-temp-dirs (dir-a)
+    (vulpea-doctor-test--with-fake-fswatch (list (expand-file-name dir-a))
+      (let* ((vulpea-db-sync-directories (list (file-name-as-directory dir-a)))
+             (found (vulpea-doctor-test--divergence-issues
+                     (vulpea-doctor--issues))))
+        (should (null found))))))
+
+(ert-deftest vulpea-doctor-no-fswatch-issue-for-nonexistent-config-dir ()
+  "A configured directory that does not exist is not a divergence.
+
+fswatch skips non-existent directories on startup, so restarting
+would not watch it either; the missing directory has its own issue."
+  (vulpea-doctor-test--with-temp-dirs (dir-a)
+    (vulpea-doctor-test--with-fake-fswatch (list dir-a)
+      (let* ((vulpea-db-sync-directories
+              (list dir-a "/nonexistent/vulpea-doctor-divergence/"))
+             (found (vulpea-doctor-test--divergence-issues
+                     (vulpea-doctor--issues))))
+        (should (null found))))))
+
+(ert-deftest vulpea-doctor-issue-filenotify-missing-root ()
+  "Without fswatch, a configured root absent from the watch list is flagged."
+  (vulpea-doctor-test--with-temp-dirs (dir-a dir-b)
+    (let* ((vulpea-db-sync--fswatch-process nil)
+           (vulpea-db-sync--watchers (list (cons dir-a 'fake)))
+           (vulpea-db-sync-directories (list dir-a dir-b))
+           (found (vulpea-doctor-test--divergence-issues
+                   (vulpea-doctor--issues))))
+      (should (seq-some
+               (lambda (i)
+                 (and (string-match-p "not watched" i)
+                      (string-match-p (regexp-quote dir-b) i)
+                      (string-match-p "vulpea-db-autosync-mode" i)))
+               found)))))
+
+(ert-deftest vulpea-doctor-no-filenotify-issue-for-subdirectory-watchers ()
+  "Watchers on subdirectories of a configured root are not stale."
+  (vulpea-doctor-test--with-temp-dirs (dir-a)
+    (let* ((vulpea-db-sync--fswatch-process nil)
+           (vulpea-db-sync--watchers
+            (list (cons dir-a 'fake)
+                  (cons (expand-file-name "sub" dir-a) 'fake)))
+           (vulpea-db-sync-directories (list dir-a))
+           (found (vulpea-doctor-test--divergence-issues
+                   (vulpea-doctor--issues))))
+      (should (null found)))))
+
+(ert-deftest vulpea-doctor-issue-filenotify-stale-root ()
+  "A watched root no longer configured is flagged, its subdirs are not.
+
+Only the root is worth naming; listing every watched subdirectory
+of a removed root would drown the message."
+  (vulpea-doctor-test--with-temp-dirs (dir-a dir-b)
+    (let* ((vulpea-db-sync--fswatch-process nil)
+           (sub (expand-file-name "sub" dir-b))
+           (vulpea-db-sync--watchers
+            (list (cons dir-a 'fake)
+                  (cons dir-b 'fake)
+                  (cons sub 'fake)))
+           (vulpea-db-sync-directories (list dir-a))
+           (found (vulpea-doctor-test--divergence-issues
+                   (vulpea-doctor--issues))))
+      (should (seq-some
+               (lambda (i)
+                 (and (string-match-p "no longer configured" i)
+                      (string-match-p (regexp-quote dir-b) i)
+                      (not (string-match-p (regexp-quote sub) i))))
+               found)))))
+
+(ert-deftest vulpea-doctor-no-divergence-issue-when-nothing-watched ()
+  "No fswatch process and no watchers means no divergence to report."
+  (vulpea-doctor-test--with-temp-dirs (dir-a)
+    (let* ((vulpea-db-sync--fswatch-process nil)
+           (vulpea-db-sync--watchers nil)
+           (vulpea-db-sync-directories (list dir-a))
+           (found (vulpea-doctor-test--divergence-issues
+                   (vulpea-doctor--issues))))
+      (should (null found)))))
+
 ;;; Cached File Diagnostics
 ;; https://github.com/d12frosted/vulpea/issues/277
 
