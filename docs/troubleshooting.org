@@ -11,7 +11,7 @@ Before digging into specific symptoms, run:
 M-x vulpea-doctor
 #+end_example
 
-It reports versions, configuration, database state, sync state, and external tool availability in one buffer, and flags common problems automatically: missing sync directories, an empty database, =fswatch= / =fd= not visible to Emacs (a frequent =PATH= issue on GUI Emacs and Doom), autosync disabled, and external monitoring that is configured but not running. It is read-only - nothing is created or modified.
+It reports versions, configuration, database state, sync state, and external tool availability in one buffer, and flags common problems automatically: missing sync directories, an empty database, =fswatch= / =fd= not visible to Emacs (a frequent =PATH= issue on GUI Emacs and Doom), autosync disabled, external monitoring that is configured but not running, and watchers still running on a =vulpea-db-sync-directories= value that has since changed. It is read-only - nothing is created or modified.
 
 The Database section also reports =cached files= (how many files the change-detection cache tracks) and =files without notes= (how many of those produced no note). A non-zero =files without notes= is normal for genuinely note-less files (READMEs, drafts), but if notes you expect are missing, a high count points at files stuck in the cache - run =C-u M-x vulpea-db-sync-full-scan= to re-extract them.
 
@@ -52,6 +52,8 @@ Vulpea only indexes entries with =ID= properties.
 #+begin_src emacs-lisp
 (setq vulpea-db-sync-directories '("~/org/"))
 #+end_src
+
+If =vulpea-db-autosync-mode= was already on when you changed the variable, toggle it off and on: the watchers read the value when the mode starts, so a running watcher keeps the old directory list (see [[*Watcher started before a directory change][Watcher started before a directory change]]).
 
 *** Database not synced
 
@@ -267,6 +269,19 @@ If fswatch isn't available:
 #+begin_src emacs-lisp
 (setq vulpea-db-sync-external-method 'poll)
 (setq vulpea-db-sync-poll-interval 2)  ; seconds
+#+end_src
+
+*** Watcher started before a directory change
+
+If you changed =vulpea-db-sync-directories= while =vulpea-db-autosync-mode= was on, the running watcher does not know about it: the variable is read when the mode starts (=fswatch= receives the directories as command-line arguments; the same applies to the built-in filenotify watchers). Files under a newly added directory are then never synced on save, while manual commands like =M-x vulpea-db-sync-full-scan= read the current value and work - which makes the problem look like anything but configuration.
+
+*Check:* =M-x vulpea-doctor= compares what the watcher was started with against the current value and reports a mismatch.
+
+*Fix:* Toggle the mode:
+
+#+begin_src emacs-lisp
+(vulpea-db-autosync-mode -1)
+(vulpea-db-autosync-mode +1)
 #+end_src
 
 *** Windows: fswatch path styles

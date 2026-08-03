@@ -81,7 +81,15 @@ Limits memory usage and transaction size."
 (defcustom vulpea-db-sync-directories (list org-directory)
   "List of directories to watch for file changes.
 Recursively watches these directories for .org files.
-Defaults to `org-directory'."
+Defaults to `org-directory'.
+
+The value is read when `vulpea-db-autosync-mode' starts its file
+watchers: set it before enabling the mode, and after changing it
+toggle the mode off and on so the watchers pick up the new value.
+A running watcher keeps the directories it was started with -
+files under a directory added since are never synced on save, even
+though manual sync commands (which always read the current value)
+do see them.  `vulpea-doctor' reports such a mismatch."
   :type '(repeat directory)
   :group 'vulpea-db-sync)
 
