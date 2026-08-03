@@ -100,6 +100,72 @@ path fails, from the truename it succeeds."
             (should (vulpea-version--git))))
       (delete-directory build-dir t))))
 
+(defun vulpea-version-test--fake-config-repo ()
+  "Create a fake versioned Emacs config holding an elpaca-style build.
+The result is a temporary directory laid out the way elpaca lays
+out builds inside a user's ~/.emacs.d: a git repository with one
+commit, containing a plain copy of vulpea.el under
+elpaca/builds/vulpea. The caller must delete the directory."
+  (let* ((config-dir (make-temp-file "vulpea-fake-config" t))
+         (build-dir (expand-file-name "elpaca/builds/vulpea" config-dir))
+         (checkout (file-name-directory (vulpea-version-test--source-file))))
+    (make-directory build-dir t)
+    (copy-file (expand-file-name "vulpea.el" checkout)
+               (expand-file-name "vulpea.el" build-dir))
+    (let ((default-directory config-dir))
+      (call-process "git" nil nil nil "init")
+      (call-process "git" nil nil nil
+                    "-c" "user.name=Test"
+                    "-c" "user.email=test@example.com"
+                    "-c" "commit.gpgsign=false"
+                    "commit" "--allow-empty" "-m" "init"))
+    config-dir))
+
+(ert-deftest vulpea-version-git-rejects-foreign-repo-above-build ()
+  "A foreign repo above the loaded build must not supply the version.
+Elpaca's build directory is a plain copy inside ~/.emacs.d; when
+the config is itself a git repository, walking up from the loaded
+library reaches the config's .git. Describing that repository
+yields a commit that does not exist in vulpea (vulpea#427), so it
+must be rejected rather than reported."
+  (skip-unless (executable-find "git"))
+  (let* ((config-dir (vulpea-version-test--fake-config-repo))
+         (build-dir (expand-file-name "elpaca/builds/vulpea" config-dir)))
+    (unwind-protect
+        (cl-letf (((symbol-function 'locate-library)
+                   (lambda (&rest _)
+                     (expand-file-name "vulpea.el" build-dir))))
+          ;; With no elpaca or straight to ask, the only .git up the
+          ;; tree belongs to the fake config: better no version than
+          ;; a foreign one
+          (should (null (vulpea-version--git))))
+      (delete-directory config-dir t))))
+
+(ert-deftest vulpea-version-git-foreign-repo-defers-to-elpaca-source ()
+  "The elpaca source dir must win over a foreign repo above the build.
+Finding some .git above the loaded library is not the end of the
+search: when that repository is not a vulpea checkout, the source
+directory elpaca knows about is the one that must answer."
+  (skip-unless (and (executable-find "git")
+                    (locate-dominating-file
+                     (vulpea-version-test--source-file) ".git")))
+  (let* ((expected (vulpea-version--git))
+         (config-dir (vulpea-version-test--fake-config-repo))
+         (build-dir (expand-file-name "elpaca/builds/vulpea" config-dir))
+         (checkout (file-name-directory (vulpea-version-test--source-file))))
+    (unwind-protect
+        (progn
+          (should expected)
+          (cl-letf (((symbol-function 'locate-library)
+                     (lambda (&rest _)
+                       (expand-file-name "vulpea.el" build-dir)))
+                    ((symbol-function 'elpaca-get)
+                     (lambda (_) 'fake-record))
+                    ((symbol-function 'elpaca-source-dir)
+                     (lambda (_) checkout)))
+            (should (equal (vulpea-version--git) expected))))
+      (delete-directory config-dir t))))
+
 (ert-deftest vulpea-version-git-found-through-elpaca-source-dir ()
   "Git detection asks elpaca for the checkout when the build is a copy.
 Elpaca (without symlinks) copies files into its build directory, so
