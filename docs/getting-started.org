@@ -141,6 +141,8 @@ Once the initial scan completes, enable automatic syncing:
 
 This starts file watchers that keep the database up-to-date as you edit notes. Changes are processed in the background without interrupting your work.
 
+The watchers read =vulpea-db-sync-directories= when the mode starts: if you change the variable later, toggle the mode off and on to apply the new value (=M-x vulpea-doctor= flags the mismatch).
+
 ** Step 4: Verify It Works
 
 Try finding a note:

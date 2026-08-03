@@ -33,6 +33,8 @@ Vulpea watches these directories recursively for =.org= files.
 
 Default: =(list org-directory)=
 
+*Important:* The value is read when =vulpea-db-autosync-mode= starts its file watchers. Set it before enabling the mode; if you change it while the mode is on, toggle the mode off and on so the watchers pick up the new value. Otherwise files under a newly added directory are never synced on save, even though manual sync commands (which always read the current value) do see them. =M-x vulpea-doctor= flags this mismatch.
+
 ** Extra File Extensions
 
 By default, Vulpea only tracks =.org= files. To index files with other
