@@ -375,6 +375,13 @@ exclusions (an occurrence inside an Org link or on an Org metadata line
 is never a mention) and both return the ripgrep process, so a caller can
 wait on or cancel the scan.
 
+Incoming mentions of a note can be ignored on a per-note basis. The
+org property =vulpea-mentions-per-note-ignore-property-key= holds a
+whitespace separated list of note ids, whose mentions to the note that
+sets the property are ignored. =vulpea-mentions-ignore-from= and
+=vulpea-mentions-unignore-from= are designed to help maintain the list
+without hand-editing it.
+
 Matching is script-aware. Titles in scripts that separate words with
 spaces (Latin, Cyrillic, ...) match only as standalone words: =art=
 does not match inside =smart=. Titles in scripts without word

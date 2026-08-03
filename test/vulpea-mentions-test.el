@@ -284,6 +284,115 @@ a bytes submatch is dropped from :matched while text ones survive."
     (should-not (vulpea-mentions--line-unlinked-p
                  "鹿苑寺，又名金阁寺" '("金阁寺")))))
 
+(ert-deftest vulpea-mentions-ignore-from ()
+  "Adding ignored note id to per note ignore property in various settings."
+  (vulpea-test--with-temp-db-and-files
+   `((:name "sets.org"
+            :content
+            ,(concat ":PROPERTIES:\n:ID: sets\n"
+                     ":END:\n#+title: Sets\n\n"
+                     "A contrived link to [[id:gone-with-the-wind][Gone with the Wind]].\n"
+                     "* Maps\n:PROPERTIES:\n:ID: maps\n:END:\n#+title: Maps\n\n"
+                     "A map is a functional relation...\n"
+                     "A contrived mention to MapTool.\n"))
+     (:name "gone-with-the-wind.org"
+            :content
+            ,(concat ":PROPERTIES:\n:ID: gone-with-the-wind\n:END:\n#+title: Gone with the Wind\n\n"
+                     "And I'm not denying that when he sets out to drink he can put even the Tarletons under the table."))
+     (:name "git.org"
+            :content
+            ,(concat ":PROPERTIES:\n:ID: git\n:END:\n#+title: Git\n\n"
+                     "This command also sets the local branch to track the remote branch."))
+     (:name "maptool.org"
+            :content
+            ,(concat ":PROPERTIES:\n:ID: maptool\n:END:\n#+title: MapTool\n\n"
+                     "MapTool helps you play DnD online with digital maps!"))
+     (:name "fileless.org"
+            :content
+            ,(concat "A file contains no file level note id!\n"
+                     "* Heading\n"
+                     ":PROPERTIES:\n:ID: fileless\n:END:\n"
+                     "Git rebasing sometimes can be confusing.\n")))
+   (let ((sets-note (vulpea-db-get-by-id "sets"))
+         (gw-note (vulpea-db-get-by-id "gone-with-the-wind"))
+         (git-note (vulpea-db-get-by-id "git"))
+         (maps-note (vulpea-db-get-by-id "maps"))
+         (maptool-note (vulpea-db-get-by-id "maptool"))
+         (fileless-note (vulpea-db-get-by-id "fileless"))
+         (id-in-property-p (lambda (id)
+                                 (org-entry-member-in-multivalued-property
+                                  (point)
+                                  vulpea-mentions-per-note-ignore-property-key
+                                  id))))
+
+     (vulpea-utils-with-note sets-note
+       ;; At the beginning, there is no such property
+       (should (null (org-find-property vulpea-mentions-per-note-ignore-property-key)))
+       (vulpea-mentions-ignore-from sets-note gw-note)
+       ;; After we ignore Gone with the Wind, its id should appear as one of the property values
+       (should (funcall id-in-property-p "gone-with-the-wind"))
+       (vulpea-mentions-ignore-from sets-note git-note)
+       ;; After we ignore Git, both its id and previously ignored id should be both part of the value list
+       (should (funcall id-in-property-p "git"))
+       (should (funcall id-in-property-p "gone-with-the-wind"))
+       ;; The database should also have the property updated right now
+       (should (let* ((properties (vulpea-note-properties (vulpea-db-get-by-id "sets")))
+                      (prop-value (cdr (assoc vulpea-mentions-per-note-ignore-property-key properties))))
+                 (and (string-match-p "gone-with-the-wind" prop-value)
+                      (string-match-p "git" prop-value))))
+       ;; The buffer should not change when we ignore an already-ignored note again
+       (let ((buffer-string-before (buffer-string)))
+         (vulpea-mentions-ignore-from sets-note git-note)
+         (let ((buffer-string-after (buffer-string)))
+           (should (equal buffer-string-before buffer-string-after)))))
+     ;; If we ignore from a heading note, then the property should be
+     ;; created for it rather than the file level property drawer
+     (vulpea-mentions-ignore-from maps-note maptool-note)
+     (vulpea-utils-with-note maps-note
+       (should (funcall id-in-property-p "maptool")))
+     ;; If we ignore mentions from a heading note, we should add its
+     ;; file level note id to the property value list
+     (let ((mentions-before (vulpea-mentions-test--collect-incoming-mentions-for-note "maptool")))
+       (should (equal (length mentions-before) 1)))
+     (vulpea-mentions-ignore-from maptool-note maps-note)
+     (vulpea-utils-with-note maptool-note
+       (should (funcall id-in-property-p "sets")))
+     (let ((mentions-after (vulpea-mentions-test--collect-incoming-mentions-for-note "maptool")))
+       (should (equal (length mentions-after) 0)))
+
+     ;; Reverse the process to test the unignore part
+     (vulpea-mentions-unignore-from maptool-note maps-note)
+     (let ((mentions (vulpea-mentions-test--collect-incoming-mentions-for-note "maptool")))
+       (should (equal (length mentions) 1)))
+     (vulpea-utils-with-note maptool-note
+       (should (not (funcall id-in-property-p "sets"))))
+     ;; Unignore from a heading note only affects its own property
+     (vulpea-mentions-unignore-from maps-note maptool-note)
+     (vulpea-utils-with-note maps-note
+       (should (not (funcall id-in-property-p "maptool"))))
+     (vulpea-utils-with-note sets-note
+       (vulpea-mentions-unignore-from sets-note git-note)
+       (vulpea-mentions-unignore-from sets-note gw-note)
+       ;; Idempotence test
+       (let ((string-before (buffer-string)))
+         (vulpea-mentions-unignore-from sets-note gw-note)
+         (let ((string-after (buffer-string)))
+           (should (equal string-before string-after))))
+       ;; Property should be gone in the database now
+       (let* ((properties (vulpea-note-properties (vulpea-db-get-by-id "sets")))
+              (prop-record (assoc vulpea-mentions-per-note-ignore-property-key properties)))
+         (should (null prop-record)))
+       ;; Property should also be cleared
+       (should (null (org-find-property vulpea-mentions-per-note-ignore-property-key)))
+       ;; When we ignore from a heading note which does not reside in a file level note
+       (let ((mentions (vulpea-mentions-test--collect-incoming-mentions-for-note "git")))
+         (should (equal 1 (length mentions))))
+       (vulpea-mentions-ignore-from git-note fileless-note)
+       (vulpea-utils-with-note git-note
+         (should (funcall id-in-property-p "fileless")))
+       (let ((mentions (vulpea-mentions-test--collect-incoming-mentions-for-note "git")))
+         (should (equal 0 (length mentions))))))))
+
 ;;; Collection (DB-backed)
 
 (ert-deftest vulpea-mentions--collect-maps-and-filters ()

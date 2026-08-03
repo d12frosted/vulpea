@@ -35,6 +35,7 @@
 
 (require 'org)
 (require 'vulpea-note)
+(require 'vulpea-db-query)
 
 ;; Avoid circular dependency: vulpea-db-extract -> vulpea-buffer -> vulpea-utils
 (declare-function vulpea-db-update-file "vulpea-db-extract")
@@ -252,6 +253,14 @@ ARGS are passed to FN."
     (setq quit-flag nil)
     (when (null continue)
       value)))
+
+(defun vulpea-utils-ensure-note (note-or-id)
+  "Return the note whose id is NOTE-OR-ID if it is a string.
+
+Otherwise, return NOTE-OR-ID."
+  (if (stringp note-or-id)
+      (vulpea-db-get-by-id note-or-id)
+    note-or-id))
 
 (provide 'vulpea-utils)
 ;;; vulpea-utils.el ends here
