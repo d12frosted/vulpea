@@ -134,7 +134,11 @@ candidates are displayed."
       (when (and vulpea-select-match-ids id)
         (propertize (concat " " id) 'invisible t)))
      'vulpea-note-id
-     id)))
+     id
+     'vulpea-note
+     note
+     'vulpea-select-context
+     context)))
 
 (defun vulpea-select-annotate (note)
   "Annotate a NOTE for completion."

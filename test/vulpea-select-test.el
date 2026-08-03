@@ -162,12 +162,13 @@
 
 (ert-deftest vulpea-select-describe-basic ()
   "Test vulpea-select-describe formats note for completion."
-  (let* ((note (make-vulpea-note
+  (let* ((context "CTX")
+         (note (make-vulpea-note
                 :id "test-id"
                 :title "Test Note"
                 :level 0
                 :tags '("tag1" "tag2")))
-         (described (vulpea-select-describe note)))
+         (described (vulpea-select-describe note context)))
 
     ;; Should contain title
     (should (string-match-p "Test Note" described))
@@ -175,7 +176,13 @@
     (should (string-match-p "#tag1" described))
     (should (string-match-p "#tag2" described))
     ;; Should have id property
-    (should (equal (get-text-property 0 'vulpea-note-id described) "test-id"))))
+    (should (equal (get-text-property 0 'vulpea-note-id described) "test-id"))
+
+    ;; Should have vulpea-note property
+    (should (equal (get-text-property 0 'vulpea-note described) note))
+
+    ;; Should have vulpea-select-context property
+    (should (equal (get-text-property 0 'vulpea-select-context described) context))))
 
 (ert-deftest vulpea-select-describe-id-is-matchable-and-invisible ()
   "Test that the id is part of the candidate string but hidden.
