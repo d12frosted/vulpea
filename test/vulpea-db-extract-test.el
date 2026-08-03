@@ -114,6 +114,17 @@ longer does."
       (delete-file excluded)
       (delete-file kept))))
 
+(ert-deftest vulpea-db-extract-file-node-ignore-property-name-case ()
+  "Test file node honors a lowercase `vulpea-db-exclude-property'.
+Property keys are stored upcased, so the configured name must be
+matched case-insensitively."
+  (let ((path (vulpea-test--create-temp-org-file
+               ":PROPERTIES:\n:ID: excluded-id\n:roam_exclude: t\n:END:\n#+TITLE: Excluded\n")))
+    (unwind-protect
+        (let ((vulpea-db-exclude-property "roam_exclude"))
+          (should (null (vulpea-parse-ctx-file-node (vulpea-db--parse-file path)))))
+      (delete-file path))))
+
 (ert-deftest vulpea-db-extract-file-node-auto-title ()
   "Test file node uses filename as title if missing."
   (let ((path (vulpea-test--create-temp-org-file ":PROPERTIES:\n:ID: test-id\n:END:\n")))
@@ -454,6 +465,21 @@ VULPEA_IGNORE no longer does."
                (format ":PROPERTIES:\n:ID: %s\n:END:\n#+TITLE: File\n\n* Heading 1\n:PROPERTIES:\n:ID: heading-1\n:ROAM_EXCLUDE: t\n:END:\n\n* Heading 2\n:PROPERTIES:\n:ID: heading-2\n:VULPEA_IGNORE: t\n:END:\n" (org-id-new)))))
     (unwind-protect
         (let* ((vulpea-db-exclude-property "ROAM_EXCLUDE")
+               (vulpea-db-index-heading-level t)
+               (ctx (vulpea-db--parse-file path))
+               (nodes (vulpea-parse-ctx-heading-nodes ctx)))
+          (should (= (length nodes) 1))
+          (should (equal (plist-get (car nodes) :id) "heading-2")))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-heading-nodes-ignore-property-name-case ()
+  "Test heading honors a lowercase `vulpea-db-exclude-property'.
+Property keys are stored upcased, so the configured name must be
+matched case-insensitively."
+  (let ((path (vulpea-test--create-temp-org-file
+               (format ":PROPERTIES:\n:ID: %s\n:END:\n#+TITLE: File\n\n* Heading 1\n:PROPERTIES:\n:ID: heading-1\n:roam_exclude: t\n:END:\n\n* Heading 2\n:PROPERTIES:\n:ID: heading-2\n:END:\n" (org-id-new)))))
+    (unwind-protect
+        (let* ((vulpea-db-exclude-property "roam_exclude")
                (vulpea-db-index-heading-level t)
                (ctx (vulpea-db--parse-file path))
                (nodes (vulpea-parse-ctx-heading-nodes ctx)))

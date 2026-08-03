@@ -132,7 +132,13 @@ to nil, or omitting it, keeps the node indexed.
 
 Change this to any property name you prefer, for example
 \"ROAM_EXCLUDE\" to reuse the exclusion marks of an existing org-roam
-collection."
+collection. The name is matched case-insensitively, as org does with
+property names.
+
+Adding or removing the property in a file takes effect on the next
+sync, like any other edit. Changing this name does not, since the
+files have not changed - apply that to an existing collection with
+\\[universal-argument] \\[vulpea-db-sync-full-scan]."
   :type 'string
   :group 'vulpea-db)
 
