@@ -84,12 +84,14 @@ Recursively watches these directories for .org files.
 Defaults to `org-directory'.
 
 The value is read when `vulpea-db-autosync-mode' starts its file
-watchers: set it before enabling the mode, and after changing it
-toggle the mode off and on so the watchers pick up the new value.
-A running watcher keeps the directories it was started with -
-files under a directory added since are never synced on save, even
-though manual sync commands (which always read the current value)
-do see them.  `vulpea-doctor' reports such a mismatch."
+watchers: set it before enabling the mode.  While the mode is on,
+change the list with `vulpea-db-sync-add-directory' and
+`vulpea-db-sync-remove-directory', which apply the change to the
+running watchers.  A plain `setq' does not reach them - files under
+a directory added that way are never synced on save, even though
+manual sync commands (which always read the current value) do see
+them.  `vulpea-doctor' reports such a mismatch; toggling the mode
+off and on applies the value."
   :type '(repeat directory)
   :group 'vulpea-db-sync)
 
@@ -353,6 +355,37 @@ warnings that should always be shown."
   (when vulpea-db-sync-verbose
     (apply #'message format-string args)))
 
+(defun vulpea-db-sync--normalize-directory (dir)
+  "Return the canonical form of DIR for `vulpea-db-sync-directories'.
+
+Expanded, with a trailing slash, and canonicalized the way every
+database path is (see `vulpea-db-normalize-path'), so entries
+compare reliably against each other and against indexed paths."
+  (vulpea-db-normalize-path
+   (file-name-as-directory (expand-file-name dir))))
+
+(defun vulpea-db-sync--same-directory-p (a b)
+  "Return non-nil when A and B name the same directory.
+
+Both are compared in normalized form (see
+`vulpea-db-sync--normalize-directory'), so different spellings of
+one directory - relative, abbreviated, with or without a trailing
+slash - still match.  On Windows the comparison is
+case-insensitive, mirroring `vulpea-db-sync-tracked-file-p'."
+  (eq t (compare-strings
+         (vulpea-db-sync--normalize-directory a) nil nil
+         (vulpea-db-sync--normalize-directory b) nil nil
+         (memq system-type '(windows-nt ms-dos cygwin)))))
+
+(defun vulpea-db-sync--under-directory-p (path dir)
+  "Return non-nil when PATH lies under directory DIR.
+
+DIR must carry a trailing slash.  The comparison is textual - no
+symlink resolution - and case-insensitive on Windows, like
+`vulpea-db-sync-tracked-file-p'."
+  (string-prefix-p dir path
+                   (memq system-type '(windows-nt ms-dos cygwin))))
+
 ;;; Core Functions
 
 (defun vulpea-db-sync--effective-scan-mode ()
@@ -581,8 +614,12 @@ dont-follow), so watching the link itself would observe nothing.
 Events from such a watch arrive spelled under the truename;
 `vulpea-db-sync--configured-path' re-spells them under the
 configured name before they reach the database."
-  (when (and dir rootp (file-symlink-p dir))
-    (setq dir (file-truename dir)))
+  (when (and dir rootp)
+    ;; A trailing slash hides the link from `file-symlink-p' (the
+    ;; slash resolves it), and configured entries commonly carry one
+    (let ((bare (directory-file-name (expand-file-name dir))))
+      (when (file-symlink-p bare)
+        (setq dir (file-truename bare)))))
   (when (and dir (file-directory-p dir) (not (file-symlink-p dir)))
     (unless (assoc dir vulpea-db-sync--watchers)
       (let ((descriptor (file-notify-add-watch
@@ -736,6 +773,24 @@ CALLBACK receives a list of absolute file paths."
     (setq vulpea-db-sync--queue-tail (last vulpea-db-sync--queue))
     (remhash path vulpea-db-sync--queue-set)
     (remhash path vulpea-db-sync--force-set)))
+
+(defun vulpea-db-sync--purge-queue-under (dir)
+  "Drop pending queue entries under DIR that are no longer tracked.
+
+DIR must be in the normalized form of
+`vulpea-db-sync--normalize-directory'.  An entry still covered by a
+remaining member of `vulpea-db-sync-directories' is kept.  The
+dedup set, the force marks and the tail pointer stay consistent."
+  (let (kept)
+    (dolist (entry vulpea-db-sync--queue)
+      (if (and (vulpea-db-sync--under-directory-p (car entry) dir)
+               (not (vulpea-db-sync-tracked-file-p (car entry))))
+          (progn
+            (remhash (car entry) vulpea-db-sync--queue-set)
+            (remhash (car entry) vulpea-db-sync--force-set))
+        (push entry kept)))
+    (setq vulpea-db-sync--queue (nreverse kept))
+    (setq vulpea-db-sync--queue-tail (last vulpea-db-sync--queue))))
 
 (defun vulpea-db-sync--handle-removed-file (path)
   "Permanently remove PATH from database tracking.
@@ -1314,7 +1369,7 @@ file need not exist."
                           path ignore-case))
        vulpea-db-sync-directories))))
 
-(defun vulpea-db-sync--cleanup-untracked-files ()
+(defun vulpea-db-sync--cleanup-untracked-files (&optional dir)
   "Remove database entries for files outside tracked directories.
 
 Only files within `vulpea-db-sync-directories' should remain in
@@ -1324,6 +1379,16 @@ directories will be removed.
 This is useful when narrowing `vulpea-db-sync-directories' to a
 subdirectory - files outside that subdirectory will be cleaned up.
 
+When DIR is non-nil, only rows under DIR are considered: the scoped
+form `vulpea-db-sync-remove-directory' uses to avoid a full pass
+over the database.  DIR is matched both as spelled and resolved
+through `file-truename', since rows under a symlinked root may
+carry either spelling.  A scoped call proceeds even when no sync
+directories remain - it only ever touches rows under the directory
+that was explicitly removed - whereas the full pass does nothing
+then, refusing to read an unconfigured setup as \"nothing is
+tracked\".
+
 Rows keyed by a non-canonical path are not reached from here, because
 `vulpea-db--forget-file' matches the canonical spelling.  Unlike its
 sibling cleanups this one does not purge them itself, so it relies on
@@ -1331,14 +1396,25 @@ running after `vulpea-db-sync--purge-denormalized-rows', as it does in
 the startup scan.
 
 Returns count of removed files."
-  (if (null vulpea-db-sync-directories)
+  (if (and (null vulpea-db-sync-directories) (null dir))
       0  ; No cleanup if no directories configured
     (let* ((db (vulpea-db))
+           (prefixes
+            (when dir
+              (delete-dups
+               (list (vulpea-db-sync--normalize-directory dir)
+                     (vulpea-db-sync--normalize-directory
+                      (file-truename dir))))))
            (all-paths (mapcar #'car (emacsql db [:select path :from files])))
            (removed 0))
       (emacsql-with-transaction db
         (dolist (path all-paths)
-          (unless (vulpea-db-sync-tracked-file-p path)
+          (when (and (or (null prefixes)
+                         (seq-some (lambda (prefix)
+                                     (vulpea-db-sync--under-directory-p
+                                      path prefix))
+                                   prefixes))
+                     (not (vulpea-db-sync-tracked-file-p path)))
             (vulpea-db--forget-file path)
             (setq removed (1+ removed)))))
       (when (> removed 0)
@@ -1736,6 +1812,184 @@ settings migrations from freezing the session."
                                    updated
                                    unchanged))))))
 
+;;; Directory Management
+;;
+;; `vulpea-db-autosync-mode' snapshots `vulpea-db-sync-directories'
+;; when it starts: fswatch receives the roots as command-line
+;; arguments, filenotify watchers are created per directory, and the
+;; polling cache is seeded from the list.  Editing the variable while
+;; the mode runs therefore changes nothing until the mode is toggled,
+;; which rescans everything.  The two commands below edit the list
+;; and apply the change to the running watch, scoping all work to the
+;; affected directory.
+
+(defun vulpea-db-sync--unwatch-root (dir)
+  "Dismantle the filenotify watchers of the sync root DIR.
+
+Watches on a symlinked root land on its truename (see
+`vulpea-db-sync--watch-directory'), so the truename spelling is
+unwatched too when it differs."
+  (vulpea-db-sync--unwatch-directory dir)
+  (let ((true (file-name-as-directory (file-truename dir))))
+    (unless (equal true dir)
+      (vulpea-db-sync--unwatch-directory true))))
+
+(defun vulpea-db-sync--watch-added-directory (dir)
+  "Extend the running watch to cover DIR, just added to the sync list.
+
+`vulpea-db-sync-directories' must already contain DIR.  With fswatch
+as the backend (running, or about to be respawned by its sentinel)
+the process is relaunched with the extended argument list.  With the
+filenotify or polling backends only DIR is added: watchers for its
+tree, plus cached file attributes when polling.  When no backend is
+running at all - the mode was enabled with an empty directory
+list - external monitoring starts fresh, as on mode activation."
+  (cond
+   ((or vulpea-db-sync--fswatch-process
+        vulpea-db-sync--fswatch-restart-timer)
+    (vulpea-db-sync--restart-fswatch))
+   ((or vulpea-db-sync--watchers vulpea-db-sync--poll-timer)
+    (vulpea-db-sync--watch-directory dir 'root)
+    (when vulpea-db-sync--poll-timer
+      (vulpea-db-sync--update-file-attributes-cache (list dir))))
+   (t
+    (vulpea-db-sync--setup-external-monitoring)
+    ;; Mirror `vulpea-db-sync--start': filenotify watchers only when
+    ;; fswatch did not take over (it already monitors everything)
+    (unless vulpea-db-sync--fswatch-process
+      (vulpea-db-sync--watch-directory dir 'root)))))
+
+(defun vulpea-db-sync--unwatch-removed-directory (dir)
+  "Stop the running watch from covering DIR, removed from the sync list.
+
+`vulpea-db-sync-directories' must already lack DIR.  With fswatch as
+the backend the process is relaunched with the narrowed argument
+list, which with no directories left amounts to stopping it.  With
+the filenotify or polling backends DIR's watchers are dismantled and
+its cached file attributes dropped - unless a remaining entry still
+covers DIR, which keeps everything in place.  A remaining entry
+nested under DIR is re-watched, since dismantling DIR's tree took
+its watchers down with it.  With no directories left external
+monitoring stops entirely; the polling timer in particular must not
+fire over an empty list."
+  (cond
+   ((or vulpea-db-sync--fswatch-process
+        vulpea-db-sync--fswatch-restart-timer)
+    (vulpea-db-sync--restart-fswatch))
+   ((null vulpea-db-sync-directories)
+    (vulpea-db-sync--unwatch-root dir)
+    (vulpea-db-sync--stop-external-monitoring))
+   (t
+    (unless (vulpea-db-sync-tracked-file-p dir)
+      (vulpea-db-sync--unwatch-root dir)
+      ;; Bring back the watchers of remaining roots nested under DIR
+      (dolist (entry vulpea-db-sync-directories)
+        (when (vulpea-db-sync--under-directory-p
+               (vulpea-db-sync--normalize-directory entry) dir)
+          (vulpea-db-sync--watch-directory (expand-file-name entry) 'root))))
+    (when vulpea-db-sync--poll-timer
+      (let (stale)
+        (maphash (lambda (path _)
+                   (when (and (vulpea-db-sync--under-directory-p path dir)
+                              (not (vulpea-db-sync-tracked-file-p path)))
+                     (push path stale)))
+                 vulpea-db-sync--file-attributes)
+        (dolist (path stale)
+          (remhash path vulpea-db-sync--file-attributes)))))))
+
+;;;###autoload
+(defun vulpea-db-sync-add-directory (dir)
+  "Add DIR to `vulpea-db-sync-directories' and start watching it.
+
+DIR is stored in normalized form - expanded, with a trailing
+slash - and appended to the end of the list: new notes are created
+in the first entry (unless `vulpea-default-notes-directory'
+overrides it), and adding a directory must not silently change
+that.  When DIR is already present under any spelling, nothing
+happens.
+
+With `vulpea-db-autosync-mode' enabled the change applies to the
+running watch immediately - no mode toggle, no full rescan.  The
+backend starts covering DIR, and DIR's files are indexed with the
+usual change detection.  Without autosync only the variable
+changes.
+
+Returns the normalized directory, or nil when it was already
+present."
+  (interactive (list (read-directory-name "Add sync directory: " nil nil t)))
+  (let ((dir (vulpea-db-sync--normalize-directory dir)))
+    (if (seq-some (lambda (entry)
+                    (vulpea-db-sync--same-directory-p entry dir))
+                  vulpea-db-sync-directories)
+        (progn
+          (vulpea-db-sync--message "Vulpea: %s is already a sync directory"
+                                   (abbreviate-file-name dir))
+          nil)
+      ;; Append, never prepend: the head of the list is the default
+      ;; creation target for new notes
+      (setq vulpea-db-sync-directories
+            (append vulpea-db-sync-directories (list dir)))
+      (when vulpea-db-autosync-mode
+        (vulpea-db-sync--watch-added-directory dir)
+        (when (file-directory-p dir)
+          ;; Baseline the tree's dir-locals hashes with the reaction
+          ;; suppressed: everything under DIR is about to be indexed
+          ;; anyway (same reasoning as the FORCE branch of
+          ;; `vulpea-db-sync-full-scan')
+          (let ((vulpea-db-sync-reindex-on-dir-locals-change nil))
+            (vulpea-db-sync--check-dir-locals
+             (vulpea-db-sync--list-org-files dir)))
+          (vulpea-db-sync-update-directory dir)))
+      (vulpea-db-sync--message "Vulpea: added %s to sync directories"
+                               (abbreviate-file-name dir))
+      dir)))
+
+;;;###autoload
+(defun vulpea-db-sync-remove-directory (dir)
+  "Remove DIR from `vulpea-db-sync-directories' and stop watching it.
+
+DIR is matched against the configured entries in normalized form,
+so any spelling of the same directory works.  When DIR is not
+present, nothing happens.
+
+With `vulpea-db-autosync-mode' enabled the change applies to the
+running watch immediately - no mode toggle, no full rescan.  The
+backend stops covering DIR, queued updates under DIR are dropped,
+and database rows for files no longer under any sync directory are
+removed.  A directory still covered by a remaining entry - removing
+a parent while a nested root stays configured - keeps its watchers
+and rows.  Without autosync only the variable changes; stale rows
+are then cleaned up by the next activation scan or by
+`vulpea-db-sync-full-scan'.
+
+Returns the normalized directory, or nil when it was not present."
+  (interactive (list (read-directory-name "Remove sync directory: ")))
+  (let ((dir (vulpea-db-sync--normalize-directory dir)))
+    (if (not (seq-some (lambda (entry)
+                         (vulpea-db-sync--same-directory-p entry dir))
+                       vulpea-db-sync-directories))
+        (progn
+          (vulpea-db-sync--message "Vulpea: %s is not a sync directory"
+                                   (abbreviate-file-name dir))
+          nil)
+      (setq vulpea-db-sync-directories
+            (seq-remove (lambda (entry)
+                          (vulpea-db-sync--same-directory-p entry dir))
+                        vulpea-db-sync-directories))
+      (when vulpea-db-autosync-mode
+        (vulpea-db-sync--unwatch-removed-directory dir)
+        (vulpea-db-sync--purge-queue-under dir)
+        (vulpea-db-sync--cleanup-untracked-files dir)
+        ;; Dir-locals rows under DIR are out of scope now; dropping
+        ;; them here saves the next scan the silent prune
+        (dolist (path (vulpea-db--dir-locals-paths))
+          (when (and (vulpea-db-sync--under-directory-p path dir)
+                     (not (vulpea-db-sync-tracked-file-p path)))
+            (vulpea-db--delete-dir-locals-hash path))))
+      (vulpea-db-sync--message "Vulpea: removed %s from sync directories"
+                               (abbreviate-file-name dir))
+      dir)))
+
 ;;; External Monitoring
 
 (defun vulpea-db-sync--setup-external-monitoring ()
@@ -1841,6 +2095,32 @@ restarts are unaffected."
                  :filter #'vulpea-db-sync--fswatch-filter
                  :sentinel #'vulpea-db-sync--fswatch-sentinel))
           (vulpea-db-sync--message "Vulpea: Started fswatch monitoring"))))))
+
+(defun vulpea-db-sync--restart-fswatch ()
+  "Relaunch fswatch so its arguments match `vulpea-db-sync-directories'.
+
+A running fswatch receives its root list as command-line arguments,
+fixed at spawn time, so a directory added or removed at runtime
+requires a relaunch.  Only the external process is replaced; the
+queue, the timers and the rest of the mode keep running.  With an
+empty directory list the relaunch amounts to a stop, since
+`vulpea-db-sync--setup-fswatch' does not spawn without directories."
+  ;; A respawn scheduled by the sentinel would race the explicit
+  ;; relaunch below; it is superseded either way
+  (when vulpea-db-sync--fswatch-restart-timer
+    (cancel-timer vulpea-db-sync--fswatch-restart-timer)
+    (setq vulpea-db-sync--fswatch-restart-timer nil))
+  (when vulpea-db-sync--fswatch-process
+    ;; Suppress the sentinel's auto-restart: the kill below is not a
+    ;; death to recover from
+    (set-process-sentinel vulpea-db-sync--fswatch-process #'ignore)
+    (when (process-live-p vulpea-db-sync--fswatch-process)
+      (delete-process vulpea-db-sync--fswatch-process))
+    (setq vulpea-db-sync--fswatch-process nil))
+  ;; A partial line from the old process must not prefix the new
+  ;; process' output
+  (setq vulpea-db-sync--fswatch-buffer "")
+  (vulpea-db-sync--setup-fswatch))
 
 (defun vulpea-db-sync--fswatch-normalize-path (path)
   "Canonicalize PATH as reported by fswatch.
@@ -2039,9 +2319,13 @@ leak orphaned polling timers."
         (vulpea-db-sync--message "Vulpea: Started polling for external changes every %s seconds"
                                  vulpea-db-sync-poll-interval)))))
 
-(defun vulpea-db-sync--update-file-attributes-cache ()
-  "Update cache of file attributes for all org files."
-  (dolist (dir vulpea-db-sync-directories)
+(defun vulpea-db-sync--update-file-attributes-cache (&optional dirs)
+  "Update cache of file attributes for all org files.
+
+With DIRS non-nil, only those directories are scanned; the polling
+backend caches a just-added directory this way without rescanning
+everything.  Defaults to `vulpea-db-sync-directories'."
+  (dolist (dir (or dirs vulpea-db-sync-directories))
     (when (file-directory-p dir)
       (dolist (file (vulpea-db-sync--list-org-files dir))
         (when (file-exists-p file)

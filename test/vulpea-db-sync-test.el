@@ -2336,5 +2336,503 @@ dir-locals file as newly created and fire spurious reactions."
       (vulpea-db-sync--handle-removed-file (directory-file-name subdir))
       (should-not (vulpea-db--get-dir-locals-hash dl)))))
 
+;;; Directory Helpers (runtime add/remove)
+
+(ert-deftest vulpea-db-sync-add-directory-appends-normalized ()
+  "Adding appends the normalized directory to the end of the list.
+
+The head of `vulpea-db-sync-directories' is the default creation
+target for new notes (`vulpea--default-directory'), so adding a sync
+directory must never displace it."
+  (let* ((dir1 (make-temp-file "vulpea-add-first-" t))
+         (dir2 (make-temp-file "vulpea-add-second-" t))
+         (vulpea-db-autosync-mode nil)
+         (vulpea-db-sync-directories (list dir1)))
+    (unwind-protect
+        (progn
+          (should (commandp #'vulpea-db-sync-add-directory))
+          ;; Passed without a trailing slash, stored with one
+          (should (equal (file-name-as-directory dir2)
+                         (vulpea-db-sync-add-directory dir2)))
+          ;; Appended after the existing entry, which is left as typed
+          (should (equal (list dir1 (file-name-as-directory dir2))
+                         vulpea-db-sync-directories)))
+      (delete-directory dir1 t)
+      (delete-directory dir2 t))))
+
+(ert-deftest vulpea-db-sync-add-directory-dedupes-spellings ()
+  "Adding an already-present directory is a no-op, whatever the spelling."
+  (let* ((dir (make-temp-file "vulpea-add-dup-" t))
+         (vulpea-db-autosync-mode nil)
+         ;; Stored without a trailing slash
+         (vulpea-db-sync-directories (list dir)))
+    (unwind-protect
+        (progn
+          ;; Same directory spelled with a trailing slash
+          (should-not (vulpea-db-sync-add-directory
+                       (file-name-as-directory dir)))
+          (should (equal (list dir) vulpea-db-sync-directories)))
+      (delete-directory dir t))))
+
+(ert-deftest vulpea-db-sync-add-directory-without-autosync-edits-variable-only ()
+  "Without autosync, adding only edits the variable: no watch, no indexing."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((dir (make-temp-file "vulpea-add-offline-" t))
+           (vulpea-db-autosync-mode nil)
+           (vulpea-db-sync-directories nil)
+           (vulpea-db-sync--watchers nil)
+           (vulpea-db-sync--queue nil)
+           (vulpea-db-sync--queue-tail nil)
+           (vulpea-db-sync--queue-set (make-hash-table :test 'equal))
+           (vulpea-db-sync--timer nil)
+           (vulpea-db-sync--fswatch-process nil)
+           (vulpea-db-sync--poll-timer nil))
+      (unwind-protect
+          (progn
+            (with-temp-file (expand-file-name "note.org" dir)
+              (insert ":PROPERTIES:\n:ID: offline-add\n:END:\n#+TITLE: Offline\n"))
+            (vulpea-db-sync-add-directory dir)
+            (should (equal (list (file-name-as-directory dir))
+                           vulpea-db-sync-directories))
+            (should-not vulpea-db-sync--watchers)
+            (should-not vulpea-db-sync--queue)
+            (should-not vulpea-db-sync--fswatch-process)
+            (should-not vulpea-db-sync--poll-timer)
+            (should-not (vulpea-db-get-by-id "offline-add")))
+        (when vulpea-db-sync--timer (cancel-timer vulpea-db-sync--timer))
+        (delete-directory dir t)))))
+
+(ert-deftest vulpea-db-sync-add-directory-watches-and-indexes ()
+  "With autosync active, adding watches and indexes just that directory."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((dir1 (make-temp-file "vulpea-add-live1-" t))
+           (dir2 (make-temp-file "vulpea-add-live2-" t))
+           (file1 (expand-file-name "one.org" dir1))
+           (file2 (expand-file-name "two.org" dir2))
+           (vulpea-db-autosync-mode t)
+           (vulpea-db-async-extraction nil)
+           (vulpea-db-sync-external-method nil)
+           (vulpea-db-sync-directories (list dir1))
+           (vulpea-db-sync--watchers nil)
+           (vulpea-db-sync--queue nil)
+           (vulpea-db-sync--queue-tail nil)
+           (vulpea-db-sync--queue-set (make-hash-table :test 'equal))
+           (vulpea-db-sync--force-set (make-hash-table :test 'equal))
+           (vulpea-db-sync--timer nil)
+           (vulpea-db-sync--fswatch-process nil)
+           (vulpea-db-sync--fswatch-restart-timer nil)
+           (vulpea-db-sync--poll-timer nil)
+           (vulpea-db-sync--processing nil)
+           (vulpea-db-sync--queue-total 0)
+           (vulpea-db-sync--processed-total 0)
+           (vulpea-db-sync--updated-total 0))
+      (unwind-protect
+          (progn
+            (with-temp-file file1
+              (insert ":PROPERTIES:\n:ID: live-one\n:END:\n#+TITLE: One\n"))
+            (with-temp-file file2
+              (insert ":PROPERTIES:\n:ID: live-two\n:END:\n#+TITLE: Two\n"))
+            ;; Simulate the running filenotify backend covering dir1
+            (vulpea-db-sync--watch-directory dir1)
+            (vulpea-db-sync-add-directory dir2)
+            ;; The new directory is watched...
+            (should (assoc (file-name-as-directory dir2)
+                           vulpea-db-sync--watchers))
+            ;; ...and only its files were enqueued
+            (should (equal (list file2)
+                           (mapcar #'car vulpea-db-sync--queue)))
+            (vulpea-db-sync--process-queue)
+            (should (vulpea-db-get-by-id "live-two"))
+            ;; dir1 was not rescanned
+            (should-not (vulpea-db-get-by-id "live-one")))
+        (dolist (entry vulpea-db-sync--watchers)
+          (ignore-errors (file-notify-rm-watch (cdr entry))))
+        (when vulpea-db-sync--timer (cancel-timer vulpea-db-sync--timer))
+        (delete-directory dir1 t)
+        (delete-directory dir2 t)))))
+
+(ert-deftest vulpea-db-sync-add-directory-relaunches-fswatch ()
+  "With fswatch running, adding relaunches it with the extended argv."
+  (skip-unless (executable-find "fswatch"))
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((dir1 (make-temp-file "vulpea-add-fsw1-" t))
+           (dir2 (make-temp-file "vulpea-add-fsw2-" t))
+           (vulpea-db-autosync-mode t)
+           (vulpea-db-async-extraction nil)
+           (vulpea-db-sync-external-method 'fswatch)
+           (vulpea-db-sync-directories (list dir1))
+           (vulpea-db-sync--watchers nil)
+           (vulpea-db-sync--queue nil)
+           (vulpea-db-sync--queue-tail nil)
+           (vulpea-db-sync--queue-set (make-hash-table :test 'equal))
+           (vulpea-db-sync--force-set (make-hash-table :test 'equal))
+           (vulpea-db-sync--timer nil)
+           (vulpea-db-sync--fswatch-process nil)
+           (vulpea-db-sync--fswatch-restart-timer nil)
+           (vulpea-db-sync--fswatch-buffer "")
+           (vulpea-db-sync--poll-timer nil)
+           (vulpea-db-sync--queue-total 0)
+           (vulpea-db-sync--processed-total 0)
+           (vulpea-db-sync--updated-total 0))
+      (unwind-protect
+          (progn
+            (vulpea-db-sync--setup-fswatch)
+            (let ((old vulpea-db-sync--fswatch-process))
+              (should (process-live-p old))
+              (vulpea-db-sync-add-directory dir2)
+              ;; A fresh process with both roots in its argv
+              (should (process-live-p vulpea-db-sync--fswatch-process))
+              (should-not (eq old vulpea-db-sync--fswatch-process))
+              (let ((cmd (process-command vulpea-db-sync--fswatch-process)))
+                (should (member dir1 cmd))
+                (should (member (file-name-as-directory dir2) cmd)))
+              ;; The old process was detached, not left to respawn
+              (should (eq (process-sentinel old) #'ignore))
+              (should-not vulpea-db-sync--fswatch-restart-timer)
+              ;; fswatch stays the only backend
+              (should-not vulpea-db-sync--watchers)))
+        (vulpea-db-sync--stop-external-monitoring)
+        (when vulpea-db-sync--timer (cancel-timer vulpea-db-sync--timer))
+        (delete-directory dir1 t)
+        (delete-directory dir2 t)))))
+
+(ert-deftest vulpea-db-sync-add-directory-extends-poll-cache ()
+  "With polling active, adding covers the new directory's files."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((dir1 (make-temp-file "vulpea-add-poll1-" t))
+           (dir2 (make-temp-file "vulpea-add-poll2-" t))
+           (file2 (expand-file-name "polled.org" dir2))
+           (vulpea-db-autosync-mode t)
+           (vulpea-db-async-extraction nil)
+           (vulpea-db-sync-external-method 'poll)
+           (vulpea-db-sync-directories (list dir1))
+           (vulpea-db-sync--watchers nil)
+           (vulpea-db-sync--queue nil)
+           (vulpea-db-sync--queue-tail nil)
+           (vulpea-db-sync--queue-set (make-hash-table :test 'equal))
+           (vulpea-db-sync--force-set (make-hash-table :test 'equal))
+           (vulpea-db-sync--timer nil)
+           (vulpea-db-sync--fswatch-process nil)
+           (vulpea-db-sync--fswatch-restart-timer nil)
+           (vulpea-db-sync--poll-timer nil)
+           (vulpea-db-sync--file-attributes (make-hash-table :test 'equal))
+           (vulpea-db-sync--queue-total 0)
+           (vulpea-db-sync--processed-total 0)
+           (vulpea-db-sync--updated-total 0))
+      (unwind-protect
+          (progn
+            (with-temp-file file2
+              (insert ":PROPERTIES:\n:ID: polled\n:END:\n#+TITLE: Polled\n"))
+            (vulpea-db-sync--setup-polling)
+            (should vulpea-db-sync--poll-timer)
+            (vulpea-db-sync-add-directory dir2)
+            ;; Attributes cached, so the next tick has a baseline for DIR2
+            (should (gethash file2 vulpea-db-sync--file-attributes))
+            ;; The polling backend runs alongside filenotify; the new
+            ;; directory gets a watcher like the others did at start
+            (should (assoc (file-name-as-directory dir2)
+                           vulpea-db-sync--watchers)))
+        (vulpea-db-sync--stop-external-monitoring)
+        (dolist (entry vulpea-db-sync--watchers)
+          (ignore-errors (file-notify-rm-watch (cdr entry))))
+        (when vulpea-db-sync--timer (cancel-timer vulpea-db-sync--timer))
+        (delete-directory dir1 t)
+        (delete-directory dir2 t)))))
+
+(ert-deftest vulpea-db-sync-add-remove-directory-symlinked-root ()
+  "Adding and removing a symlinked root manages truename-keyed watchers.
+
+Watches on a symlinked configured root land on its truename (see
+`vulpea-db-sync--watch-directory'), so adding must resolve the link
+and removing must dismantle the truename-keyed entries."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((base (make-temp-file "vulpea-dir-symroot-" t))
+           (real (expand-file-name "real" base))
+           (link (expand-file-name "link" base))
+           (dir1 (make-temp-file "vulpea-dir-plain-" t))
+           (vulpea-db-autosync-mode t)
+           (vulpea-db-async-extraction nil)
+           (vulpea-db-sync-external-method nil)
+           (vulpea-db-sync-directories (list dir1))
+           (vulpea-db-sync--watchers nil)
+           (vulpea-db-sync--queue nil)
+           (vulpea-db-sync--queue-tail nil)
+           (vulpea-db-sync--queue-set (make-hash-table :test 'equal))
+           (vulpea-db-sync--force-set (make-hash-table :test 'equal))
+           (vulpea-db-sync--timer nil)
+           (vulpea-db-sync--fswatch-process nil)
+           (vulpea-db-sync--fswatch-restart-timer nil)
+           (vulpea-db-sync--poll-timer nil)
+           (vulpea-db-sync--queue-total 0)
+           (vulpea-db-sync--processed-total 0)
+           (vulpea-db-sync--updated-total 0))
+      (unwind-protect
+          (progn
+            (make-directory real)
+            (make-symbolic-link real link)
+            (vulpea-db-sync--watch-directory dir1 'root)
+            (vulpea-db-sync-add-directory link)
+            ;; The watch landed on the resolved tree, even though the
+            ;; stored entry carries a trailing slash (which hides the
+            ;; link from `file-symlink-p')
+            (should (assoc (file-truename link) vulpea-db-sync--watchers))
+            (vulpea-db-sync-remove-directory link)
+            ;; ...and is dismantled again, leaving the other root alone
+            (should-not (assoc (file-truename link)
+                               vulpea-db-sync--watchers))
+            (should (assoc dir1 vulpea-db-sync--watchers)))
+        (dolist (entry vulpea-db-sync--watchers)
+          (ignore-errors (file-notify-rm-watch (cdr entry))))
+        (when vulpea-db-sync--timer (cancel-timer vulpea-db-sync--timer))
+        (delete-directory base t)
+        (delete-directory dir1 t)))))
+
+(ert-deftest vulpea-db-sync-remove-directory-updates-variable ()
+  "Removing matches any spelling and is a clean no-op when absent."
+  (let* ((dir1 (make-temp-file "vulpea-rm-var1-" t))
+         (dir2 (make-temp-file "vulpea-rm-var2-" t))
+         (vulpea-db-autosync-mode nil)
+         ;; Stored without trailing slashes
+         (vulpea-db-sync-directories (list dir1 dir2)))
+    (unwind-protect
+        (progn
+          (should (commandp #'vulpea-db-sync-remove-directory))
+          ;; Other spelling of dir2: trailing slash
+          (should (equal (file-name-as-directory dir2)
+                         (vulpea-db-sync-remove-directory
+                          (file-name-as-directory dir2))))
+          (should (equal (list dir1) vulpea-db-sync-directories))
+          ;; Absent now: no-op
+          (should-not (vulpea-db-sync-remove-directory dir2))
+          (should (equal (list dir1) vulpea-db-sync-directories)))
+      (delete-directory dir1 t)
+      (delete-directory dir2 t))))
+
+(ert-deftest vulpea-db-sync-remove-directory-unwatches-and-cleans-db ()
+  "With autosync active, removing unwatches the directory and drops its rows."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((dir1 (make-temp-file "vulpea-rm-live1-" t))
+           (dir2 (make-temp-file "vulpea-rm-live2-" t))
+           (file1 (expand-file-name "keep.org" dir1))
+           (file2 (expand-file-name "drop.org" dir2))
+           (vulpea-db-autosync-mode t)
+           (vulpea-db-async-extraction nil)
+           (vulpea-db-sync-external-method nil)
+           (vulpea-db-sync-directories (list dir1 dir2))
+           (vulpea-db-sync--watchers nil)
+           (vulpea-db-sync--queue nil)
+           (vulpea-db-sync--queue-tail nil)
+           (vulpea-db-sync--queue-set (make-hash-table :test 'equal))
+           (vulpea-db-sync--force-set (make-hash-table :test 'equal))
+           (vulpea-db-sync--timer nil)
+           (vulpea-db-sync--fswatch-process nil)
+           (vulpea-db-sync--fswatch-restart-timer nil)
+           (vulpea-db-sync--poll-timer nil))
+      (unwind-protect
+          (progn
+            (with-temp-file file1
+              (insert ":PROPERTIES:\n:ID: keep\n:END:\n#+TITLE: Keep\n"))
+            (with-temp-file file2
+              (insert ":PROPERTIES:\n:ID: drop\n:END:\n#+TITLE: Drop\n"))
+            (vulpea-db-update-file file1)
+            (vulpea-db-update-file file2)
+            (vulpea-db-sync--watch-directory dir1)
+            (vulpea-db-sync--watch-directory dir2)
+            (should (assoc dir2 vulpea-db-sync--watchers))
+            (should (equal (file-name-as-directory dir2)
+                           (vulpea-db-sync-remove-directory dir2)))
+            (should (equal (list dir1) vulpea-db-sync-directories))
+            ;; Watchers of the removed directory are gone, others stay
+            (should-not (assoc dir2 vulpea-db-sync--watchers))
+            (should (assoc dir1 vulpea-db-sync--watchers))
+            ;; Rows under the removed directory are gone, others stay
+            (should-not (vulpea-db-get-by-id "drop"))
+            (should-not (vulpea-db--get-file-hash file2))
+            (should (vulpea-db-get-by-id "keep"))
+            (should (vulpea-db--get-file-hash file1)))
+        (dolist (entry vulpea-db-sync--watchers)
+          (ignore-errors (file-notify-rm-watch (cdr entry))))
+        (when vulpea-db-sync--timer (cancel-timer vulpea-db-sync--timer))
+        (delete-directory dir1 t)
+        (delete-directory dir2 t)))))
+
+(ert-deftest vulpea-db-sync-remove-directory-purges-pending-queue ()
+  "Removing drops queued entries under the directory, keeping the rest."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((dir1 (make-temp-file "vulpea-rm-queue1-" t))
+           (dir2 (make-temp-file "vulpea-rm-queue2-" t))
+           (file1 (expand-file-name "keep.org" dir1))
+           (file2 (expand-file-name "drop.org" dir2))
+           (vulpea-db-autosync-mode t)
+           (vulpea-db-async-extraction nil)
+           (vulpea-db-sync-external-method nil)
+           (vulpea-db-sync-directories (list dir1 dir2))
+           (vulpea-db-sync--watchers nil)
+           (vulpea-db-sync--queue nil)
+           (vulpea-db-sync--queue-tail nil)
+           (vulpea-db-sync--queue-set (make-hash-table :test 'equal))
+           (vulpea-db-sync--force-set (make-hash-table :test 'equal))
+           (vulpea-db-sync--timer nil)
+           (vulpea-db-sync--fswatch-process nil)
+           (vulpea-db-sync--fswatch-restart-timer nil)
+           (vulpea-db-sync--poll-timer nil))
+      (unwind-protect
+          (progn
+            (with-temp-file file1 (insert "stub"))
+            (with-temp-file file2 (insert "stub"))
+            (vulpea-db-sync--enqueue file1)
+            (vulpea-db-sync--enqueue file2 'force)
+            (vulpea-db-sync-remove-directory dir2)
+            (should (equal (list file1)
+                           (mapcar #'car vulpea-db-sync--queue)))
+            (should-not (gethash file2 vulpea-db-sync--queue-set))
+            (should-not (gethash file2 vulpea-db-sync--force-set))
+            ;; The tail pointer survived the purge: appending still works
+            (vulpea-db-sync--enqueue (expand-file-name "more.org" dir1))
+            (should (= 2 (length vulpea-db-sync--queue))))
+        (when vulpea-db-sync--timer (cancel-timer vulpea-db-sync--timer))
+        (delete-directory dir1 t)
+        (delete-directory dir2 t)))))
+
+(ert-deftest vulpea-db-sync-remove-directory-keeps-nested-remaining-root ()
+  "Removing a parent keeps rows and watchers of a nested remaining root."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((parent (make-temp-file "vulpea-rm-parent-" t))
+           (child (expand-file-name "child" parent))
+           (file-parent (expand-file-name "top.org" parent))
+           (file-child (expand-file-name "kept.org" child))
+           (vulpea-db-autosync-mode t)
+           (vulpea-db-async-extraction nil)
+           (vulpea-db-sync-external-method nil)
+           (vulpea-db-sync-directories (list parent child))
+           (vulpea-db-sync--watchers nil)
+           (vulpea-db-sync--queue nil)
+           (vulpea-db-sync--queue-tail nil)
+           (vulpea-db-sync--queue-set (make-hash-table :test 'equal))
+           (vulpea-db-sync--force-set (make-hash-table :test 'equal))
+           (vulpea-db-sync--timer nil)
+           (vulpea-db-sync--fswatch-process nil)
+           (vulpea-db-sync--fswatch-restart-timer nil)
+           (vulpea-db-sync--poll-timer nil))
+      (unwind-protect
+          (progn
+            (make-directory child t)
+            (with-temp-file file-parent
+              (insert ":PROPERTIES:\n:ID: top\n:END:\n#+TITLE: Top\n"))
+            (with-temp-file file-child
+              (insert ":PROPERTIES:\n:ID: kept\n:END:\n#+TITLE: Kept\n"))
+            (vulpea-db-update-file file-parent)
+            (vulpea-db-update-file file-child)
+            ;; Watching the parent covers the child recursively
+            (vulpea-db-sync--watch-directory parent)
+            (should (assoc child vulpea-db-sync--watchers))
+            (vulpea-db-sync-remove-directory parent)
+            (should (equal (list child) vulpea-db-sync-directories))
+            ;; The nested remaining root is still watched, the parent is not
+            (should (assoc child vulpea-db-sync--watchers))
+            (should-not (assoc parent vulpea-db-sync--watchers))
+            ;; Its rows survive, the parent's rows are gone
+            (should (vulpea-db-get-by-id "kept"))
+            (should-not (vulpea-db-get-by-id "top")))
+        (dolist (entry vulpea-db-sync--watchers)
+          (ignore-errors (file-notify-rm-watch (cdr entry))))
+        (when vulpea-db-sync--timer (cancel-timer vulpea-db-sync--timer))
+        (delete-directory parent t)))))
+
+(ert-deftest vulpea-db-sync-remove-directory-relaunches-fswatch ()
+  "With fswatch running, removing relaunches it without the directory.
+Removing the last directory stops fswatch instead."
+  (skip-unless (executable-find "fswatch"))
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((dir1 (make-temp-file "vulpea-rm-fsw1-" t))
+           (dir2 (make-temp-file "vulpea-rm-fsw2-" t))
+           (vulpea-db-autosync-mode t)
+           (vulpea-db-async-extraction nil)
+           (vulpea-db-sync-external-method 'fswatch)
+           (vulpea-db-sync-directories (list dir1 dir2))
+           (vulpea-db-sync--watchers nil)
+           (vulpea-db-sync--queue nil)
+           (vulpea-db-sync--queue-tail nil)
+           (vulpea-db-sync--queue-set (make-hash-table :test 'equal))
+           (vulpea-db-sync--force-set (make-hash-table :test 'equal))
+           (vulpea-db-sync--timer nil)
+           (vulpea-db-sync--fswatch-process nil)
+           (vulpea-db-sync--fswatch-restart-timer nil)
+           (vulpea-db-sync--fswatch-buffer "")
+           (vulpea-db-sync--poll-timer nil))
+      (unwind-protect
+          (progn
+            (vulpea-db-sync--setup-fswatch)
+            (let ((old vulpea-db-sync--fswatch-process))
+              (should (process-live-p old))
+              (vulpea-db-sync-remove-directory dir2)
+              (should (process-live-p vulpea-db-sync--fswatch-process))
+              (should-not (eq old vulpea-db-sync--fswatch-process))
+              (let ((cmd (process-command vulpea-db-sync--fswatch-process)))
+                (should (member dir1 cmd))
+                (should-not (member dir2 cmd))
+                (should-not (member (file-name-as-directory dir2) cmd))))
+            ;; Removing the last directory leaves nothing to watch
+            (vulpea-db-sync-remove-directory dir1)
+            (should-not vulpea-db-sync-directories)
+            (should-not vulpea-db-sync--fswatch-process))
+        (vulpea-db-sync--stop-external-monitoring)
+        (when vulpea-db-sync--timer (cancel-timer vulpea-db-sync--timer))
+        (delete-directory dir1 t)
+        (delete-directory dir2 t)))))
+
+(ert-deftest vulpea-db-sync-remove-directory-purges-poll-cache ()
+  "With polling active, removing drops cached attributes under the directory.
+Removing the last directory stops polling entirely."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((dir1 (make-temp-file "vulpea-rm-poll1-" t))
+           (dir2 (make-temp-file "vulpea-rm-poll2-" t))
+           (file1 (expand-file-name "keep.org" dir1))
+           (file2 (expand-file-name "drop.org" dir2))
+           (vulpea-db-autosync-mode t)
+           (vulpea-db-async-extraction nil)
+           (vulpea-db-sync-external-method 'poll)
+           (vulpea-db-sync-directories (list dir1 dir2))
+           (vulpea-db-sync--watchers nil)
+           (vulpea-db-sync--queue nil)
+           (vulpea-db-sync--queue-tail nil)
+           (vulpea-db-sync--queue-set (make-hash-table :test 'equal))
+           (vulpea-db-sync--force-set (make-hash-table :test 'equal))
+           (vulpea-db-sync--timer nil)
+           (vulpea-db-sync--fswatch-process nil)
+           (vulpea-db-sync--fswatch-restart-timer nil)
+           (vulpea-db-sync--poll-timer nil)
+           (vulpea-db-sync--file-attributes (make-hash-table :test 'equal)))
+      (unwind-protect
+          (progn
+            (with-temp-file file1
+              (insert ":PROPERTIES:\n:ID: poll-keep\n:END:\n#+TITLE: Keep\n"))
+            (with-temp-file file2
+              (insert ":PROPERTIES:\n:ID: poll-drop\n:END:\n#+TITLE: Drop\n"))
+            (vulpea-db-sync--setup-polling)
+            (should (gethash file2 vulpea-db-sync--file-attributes))
+            (vulpea-db-sync-remove-directory dir2)
+            ;; The next tick must not report DIR2's files as deletions
+            (should-not (gethash file2 vulpea-db-sync--file-attributes))
+            (should (gethash file1 vulpea-db-sync--file-attributes))
+            (should vulpea-db-sync--poll-timer)
+            ;; Removing the last directory leaves nothing to poll
+            (vulpea-db-sync-remove-directory dir1)
+            (should-not vulpea-db-sync--poll-timer))
+        (vulpea-db-sync--stop-external-monitoring)
+        (when vulpea-db-sync--timer (cancel-timer vulpea-db-sync--timer))
+        (delete-directory dir1 t)
+        (delete-directory dir2 t)))))
+
 (provide 'vulpea-db-sync-test)
 ;;; vulpea-db-sync-test.el ends here

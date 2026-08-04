@@ -33,7 +33,26 @@ Vulpea watches these directories recursively for =.org= files.
 
 Default: =(list org-directory)=
 
-*Important:* The value is read when =vulpea-db-autosync-mode= starts its file watchers. Set it before enabling the mode; if you change it while the mode is on, toggle the mode off and on so the watchers pick up the new value. Otherwise files under a newly added directory are never synced on save, even though manual sync commands (which always read the current value) do see them. =M-x vulpea-doctor= flags this mismatch.
+*Important:* The value is read when =vulpea-db-autosync-mode= starts
+its file watchers, so set it before enabling the mode. To change the
+list while the mode is on, use the commands - they apply the change
+to the running watchers and scope the work to the affected directory:
+
+- =M-x vulpea-db-sync-add-directory= appends a directory to the list
+  (the first entry is where new notes are created by default, so it
+  never changes), starts watching it and indexes only its files.
+- =M-x vulpea-db-sync-remove-directory= stops watching a directory,
+  drops its pending updates and removes its files from the database,
+  unless another entry still covers them.
+
+Both are also usable from Lisp. Without autosync they simply edit the
+variable.
+
+If you instead =setq= the variable while the mode is on, the running
+watchers keep the old value - files under a newly added directory are
+never synced on save, even though manual sync commands (which always
+read the current value) do see them. =M-x vulpea-doctor= flags this
+mismatch; toggling the mode off and on applies the new value.
 
 ** Extra File Extensions
 
