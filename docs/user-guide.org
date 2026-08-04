@@ -496,7 +496,7 @@ When a heading has grown into its own thing, extract it:
 (vulpea-split-heading note "~/vault/people/")
 #+end_src
 
-Interactively, =M-x vulpea-split-heading= works on the heading at point. The new file lands next to the source file unless you pick another directory, and it is named after the title slug like any created note.
+Interactively, =M-x vulpea-split-heading= works on the heading at point, and the heading does not have to be a note yet: one without an =:ID:= gets one as part of the split, and a file the database has not caught up with is indexed on the spot. Away from a heading (another buffer, or before the first heading of a file) it prompts over the heading notes the database knows. The new file lands next to the source file unless you pick another directory, and it is named after the title slug like any created note.
 
 The heading becomes the file. Its text becomes the =#+title=, its property drawer moves to the file level, and its meta moves with it. Children follow and are promoted, so the shallowest one ends up at level 1. A child that has its own id stays a heading note and keeps that id, it is not split in turn.
 

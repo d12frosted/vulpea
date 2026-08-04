@@ -1995,6 +1995,20 @@ inside some heading, and heading IDs are indexed too."
   (when-let* ((path (buffer-file-name)))
     (car (vulpea-db-query-by-file-path path 0))))
 
+(defun vulpea--ensure-id ()
+  "Ensure the note at point carries an id, creating one when missing.
+
+The target is the heading at point, or the file when point is before
+the first heading.  A created id is registered in `org-id-locations'
+when the buffer visits a file.  A blank `:ID:' property counts as
+missing, matching `org-id-get-create'.  Returns the id."
+  (or (org-string-nw-p (org-entry-get (point) "ID"))
+      (let ((id (org-id-new)))
+        (org-entry-put (point) "ID" id)
+        (when-let* ((file (buffer-file-name (buffer-base-buffer))))
+          (org-id-add-location id file))
+        id)))
+
 ;;;###autoload
 (defun vulpea-move-file (note-or-id directory)
   "Move NOTE-OR-ID's file into DIRECTORY.
@@ -2083,6 +2097,36 @@ Signals a `user-error' if:
       (message "Moved \"%s\" to %s" (vulpea-note-title note) dir)
       moved)))
 
+(defun vulpea-split--heading-facts-at-point ()
+  "Return what the split needs to know about the heading at point.
+
+The heading is the one point sits inside.  Read widened, so a
+narrowed buffer does not cut the subtree short.  The keys are
+:raw-title, :todo, :priority, :commented, :planning, :logbook and
+:body."
+  (org-with-wide-buffer
+   (org-back-to-heading t)
+   (let ((components (org-heading-components))
+         (section-end (save-excursion (outline-next-heading) (point))))
+     (list :raw-title (org-get-heading t t t t)
+           :todo (nth 2 components)
+           :priority (nth 3 components)
+           :commented (org-in-commented-heading-p)
+           :planning (or (org-entry-get nil "SCHEDULED")
+                         (org-entry-get nil "DEADLINE")
+                         (org-entry-get nil "CLOSED"))
+           ;; Only the heading's own drawer: a child keeps its
+           ;; heading, and with it a logbook that stays valid.
+           :logbook (save-excursion
+                      (and (re-search-forward
+                            "^[ \t]*\\(:LOGBOOK:\\|CLOCK:[ \t]+\\[\\)"
+                            section-end t)
+                           t))
+           :body (vulpea-split--extract-body
+                  (buffer-substring-no-properties
+                   (point)
+                   (save-excursion (org-end-of-subtree t t) (point))))))))
+
 (defun vulpea-split--heading-facts (note)
   "Return what the split needs to know about NOTE's heading, or nil.
 
@@ -2094,33 +2138,38 @@ from the database, because a database row describes the last save: a
 todo keyword or planning line added since would otherwise slip past the
 checks that exist to catch them.
 
-The keys are :raw-title, :todo, :priority, :commented, :planning,
-:logbook and :body.  Returns nil when the heading is not in the file."
+See `vulpea-split--heading-facts-at-point' for the keys.  Returns nil
+when the heading is not in the file."
   (with-current-buffer (find-file-noselect (vulpea-note-path note))
     (org-with-wide-buffer
      (when-let* ((pos (org-find-entry-with-id (vulpea-note-id note))))
        (goto-char pos)
-       (org-back-to-heading t)
-       (let ((components (org-heading-components))
-             (section-end (save-excursion (outline-next-heading) (point))))
-         (list :raw-title (org-get-heading t t t t)
-               :todo (nth 2 components)
-               :priority (nth 3 components)
-               :commented (org-in-commented-heading-p)
-               :planning (or (org-entry-get nil "SCHEDULED")
-                             (org-entry-get nil "DEADLINE")
-                             (org-entry-get nil "CLOSED"))
-               ;; Only the heading's own drawer: a child keeps its
-               ;; heading, and with it a logbook that stays valid.
-               :logbook (save-excursion
-                          (and (re-search-forward
-                                "^[ \t]*\\(:LOGBOOK:\\|CLOCK:[ \t]+\\[\\)"
-                                section-end t)
-                               t))
-               :body (vulpea-split--extract-body
-                      (buffer-substring-no-properties
-                       (point)
-                       (save-excursion (org-end-of-subtree t t) (point))))))))))
+       (vulpea-split--heading-facts-at-point)))))
+
+(defun vulpea-split--check-splittable (facts)
+  "Signal a `user-error' when FACTS cannot become a file-level note.
+
+A file-level note carries no todo keyword, priority, planning
+information or logbook, and cannot be commented out, so none of them
+would survive the move.  Refuse rather than drop them silently."
+  (when (plist-get facts :todo)
+    (user-error
+     "vulpea-split-heading: Cannot split a heading with a todo keyword"))
+  (when (plist-get facts :planning)
+    (user-error
+     "vulpea-split-heading: Cannot split a heading with planning info"))
+  (when (plist-get facts :priority)
+    (user-error
+     "vulpea-split-heading: Cannot split a heading with a priority"))
+  (when (plist-get facts :commented)
+    (user-error
+     "vulpea-split-heading: Cannot split a commented heading"))
+  ;; A clock entry belongs to an entry.  In a file it parses as a
+  ;; plain drawer that `org-clock-sum' does not count, so the time
+  ;; would survive as text and stop being time.
+  (when (plist-get facts :logbook)
+    (user-error
+     "vulpea-split-heading: Cannot split a heading with a logbook")))
 
 (defun vulpea-split--extract-body (text)
   "Return TEXT, a subtree, as the body of a file-level note.
@@ -2210,6 +2259,75 @@ rather than the note."
                            (file-name-base (vulpea-note-path note)))))
       (concat "#+category: " category))))
 
+(defun vulpea-split--read-directory (title initial)
+  "Prompt for the directory to split TITLE into, seeded with INITIAL.
+
+Completion runs over directories that already hold notes, without
+being restricted to them.  Signals a `user-error' on a blank answer."
+  (let ((dir (completing-read
+              (format "Split \"%s\" into directory: " title)
+              (vulpea--note-directories)
+              nil 'confirm initial)))
+    (when (string-empty-p (string-trim dir))
+      (user-error "vulpea-split-heading: No directory given"))
+    dir))
+
+(defun vulpea-split--note-at-point ()
+  "Return the heading at point as a note the database knows.
+
+The heading is given an id when it has none, the buffer is saved and
+the file indexed, so a heading the database has not seen yet - just
+typed, or not yet picked up by sync - still resolves.  The buffer's
+base buffer is the one saved, so an indirect buffer works too.
+
+A row sending the id to another file is not trusted blindly: when
+that file is gone it is forgotten, and when it exists it is
+re-indexed first, so only its current content may keep the claim.
+This settles the cut-and-paste case, where the subtree moved here
+and the database still remembers its old home.
+
+Signals a `user-error' when the id genuinely identifies another
+living note - links resolve by id, so neither side can just take it
+over - and when the heading does not index even after all that,
+which means it is excluded: by
+`vulpea-db-note-index-filter-functions', by the property named in
+`vulpea-db-exclude-property', as archived, or because heading
+indexing is off (see `vulpea-db-index-heading-level')."
+  (let ((id (vulpea--ensure-id))
+        (path (buffer-file-name (buffer-base-buffer))))
+    (with-current-buffer (or (buffer-base-buffer) (current-buffer))
+      (when (buffer-modified-p)
+        (save-buffer)))
+    ;; Settle who owns the id before indexing this file: insertion
+    ;; keeps the first claim, so a stale row for another file would
+    ;; shadow the heading at point.
+    (when-let* ((other (vulpea-db-get-by-id id))
+                (other-path (vulpea-note-path other)))
+      (unless (string-equal (file-truename other-path)
+                            (file-truename path))
+        (if (file-exists-p other-path)
+            ;; A file that cannot be parsed (unreadable, an encrypted
+            ;; file whose passphrase is declined) keeps its claim and
+            ;; degrades to the refusal below, rather than aborting.
+            (ignore-errors (vulpea-db-update-file other-path))
+          (vulpea-db--forget-file other-path))))
+    (vulpea-db-update-file path)
+    (let ((note (vulpea-db-get-by-id id)))
+      (when (and note
+                 (not (string-equal (file-truename (vulpea-note-path note))
+                                    (file-truename path))))
+        (user-error
+         (concat "vulpea-split-heading: Id at point already identifies"
+                 " another note in %s; save that file if the subtree just"
+                 " moved here, or give one of them a fresh id")
+         (vulpea-note-path note)))
+      (unless (and note (> (vulpea-note-level note) 0))
+        (user-error
+         (concat "vulpea-split-heading: Heading at point is excluded"
+                 " from indexing (a filter, `vulpea-db-exclude-property',"
+                 " an archive tag, or `vulpea-db-index-heading-level')")))
+      note)))
+
 ;;;###autoload
 (defun vulpea-split-heading (note-or-id &optional directory leave-link)
   "Extract NOTE-OR-ID's subtree into a file-level note of its own.
@@ -2238,6 +2356,14 @@ behind would drop the note out of queries that used to find it.
 
 The note keeps its id, so links into it need no rewriting.
 
+When called interactively with point inside a heading - in an org
+buffer visiting a file - that heading is the target, whether or not
+the database knows it yet: a missing id is created, the buffer saved
+and the file indexed first.  The refusals below are checked before
+any of that, so a refused heading is left exactly as it was.
+Elsewhere - another buffer, or a file's preamble - the heading is
+picked from the database.
+
 Returns the created `vulpea-note'.
 
 Signals a `user-error' if:
@@ -2252,26 +2378,54 @@ Signals a `user-error' if:
 - The title has no file name to slug (punctuation only, say)
 - DIRECTORY does not exist, or is outside `vulpea-db-sync-directories'
   when any are configured
-- A file of that name already exists in DIRECTORY"
+- A file of that name already exists in DIRECTORY
+- Interactively: the file at point is outside
+  `vulpea-db-sync-directories' when any are configured, or the
+  heading at point is excluded from indexing"
   (interactive
-   (let* ((note (or (when-let* ((id (org-entry-get nil "ID"))
-                                (note (vulpea-db-get-by-id id)))
-                      ;; In a file preamble the id at point is the
-                      ;; file's own, which is not something to split.
-                      (and (> (vulpea-note-level note) 0) note))
-                    (vulpea-select "Heading to split out"
-                                   :require-match t
-                                   :filter-fn (lambda (note)
-                                                (> (vulpea-note-level note) 0)))))
-          (dir (completing-read
-                (format "Split \"%s\" into directory: "
-                        (vulpea-note-title note))
-                (vulpea--note-directories)
-                nil 'confirm
-                (file-name-directory (vulpea-note-path note)))))
-     (when (string-empty-p (string-trim dir))
-       (user-error "vulpea-split-heading: No directory given"))
-     (list note dir current-prefix-arg)))
+   (if (and (derived-mode-p 'org-mode)
+            (buffer-file-name (buffer-base-buffer))
+            (not (org-before-first-heading-p)))
+       ;; Point sits inside a heading: that heading is the target,
+       ;; whether or not the database knows it yet (#450).
+       (let* ((path (buffer-file-name (buffer-base-buffer)))
+              ;; The database's answer counts only when it describes
+              ;; this very heading: a row at another level or in
+              ;; another file is stale, or a duplicated id.  Those
+              ;; are re-resolved from disk below, which refuses a
+              ;; true duplicate by name.
+              (known (when-let* ((id (org-entry-get nil "ID"))
+                                 (note (vulpea-db-get-by-id id)))
+                       (and (> (vulpea-note-level note) 0)
+                            (string-equal
+                             (file-truename (vulpea-note-path note))
+                             (file-truename path))
+                            note))))
+         (when (and vulpea-db-sync-directories
+                    (not (vulpea-db-sync-tracked-file-p path)))
+           (user-error
+            "vulpea-split-heading: File %s is outside `vulpea-db-sync-directories'"
+            path))
+         ;; Refuse before prompting and before minting an id, so a
+         ;; heading that cannot split is left exactly as it was.
+         (vulpea-split--check-splittable (vulpea-split--heading-facts-at-point))
+         (let ((dir (vulpea-split--read-directory
+                     (if known
+                         (vulpea-note-title known)
+                       (org-get-heading t t t t))
+                     (file-name-directory path))))
+           (list (or known (vulpea-split--note-at-point))
+                 dir current-prefix-arg)))
+     ;; Elsewhere - another buffer, or a file's preamble - any heading
+     ;; note can be picked.
+     (let* ((note (vulpea-select "Heading to split out"
+                                 :require-match t
+                                 :filter-fn (lambda (note)
+                                              (> (vulpea-note-level note) 0))))
+            (dir (vulpea-split--read-directory
+                  (vulpea-note-title note)
+                  (file-name-directory (vulpea-note-path note)))))
+       (list note dir current-prefix-arg))))
   (let* ((note (if (vulpea-note-p note-or-id)
                    note-or-id
                  (vulpea-db-get-by-id note-or-id)))
@@ -2314,28 +2468,9 @@ Signals a `user-error' if:
         (user-error
          "vulpea-split-heading: Heading is not in %s (stale database row)"
          source-path))
-      ;; A file-level note carries none of these, so they cannot survive
-      ;; the move.  Refuse rather than drop them silently.  All of them
-      ;; are read from the file, not from the database, so an edit made
-      ;; since the last index is still seen.
-      (when (plist-get facts :todo)
-        (user-error
-         "vulpea-split-heading: Cannot split a heading with a todo keyword"))
-      (when (plist-get facts :planning)
-        (user-error
-         "vulpea-split-heading: Cannot split a heading with planning info"))
-      (when (plist-get facts :priority)
-        (user-error
-         "vulpea-split-heading: Cannot split a heading with a priority"))
-      (when (plist-get facts :commented)
-        (user-error
-         "vulpea-split-heading: Cannot split a commented heading"))
-      ;; A clock entry belongs to an entry.  In a file it parses as a
-      ;; plain drawer that `org-clock-sum' does not count, so the time
-      ;; would survive as text and stop being time.
-      (when (plist-get facts :logbook)
-        (user-error
-         "vulpea-split-heading: Cannot split a heading with a logbook"))
+      ;; The facts are read from the file, not from the database, so an
+      ;; edit made since the last index is still seen by the checks.
+      (vulpea-split--check-splittable facts)
       (let (;; The raw heading, not the note title: the database stores
             ;; the display form, so a title holding a link or emphasis
             ;; would lose it here and nowhere keep it.
@@ -2812,21 +2947,6 @@ placeholder, so the author is still reminded of it."
          (required (push (cons key "") values)))))
     (nreverse values)))
 
-(defun vulpea--schema-ensure-id ()
-  "Ensure the note at point carries an id, creating one when missing.
-
-The target matches the authoring scope of the schema commands: the
-heading at point, or the file when point is before the first heading.
-A created id is registered in `org-id-locations' when the buffer
-visits a file.  A blank `:ID:' property counts as missing, matching
-`org-id-get-create'.  Returns the id."
-  (or (org-string-nw-p (org-entry-get (point) "ID"))
-      (let ((id (org-id-new)))
-        (org-entry-put (point) "ID" id)
-        (when-let* ((file (buffer-file-name (buffer-base-buffer))))
-          (org-id-add-location id file))
-        id)))
-
 (defun vulpea--schema-insert-field-values (fields values &optional bound)
   "Write FIELDS into the current buffer, taking values from VALUES.
 
@@ -2868,11 +2988,11 @@ written."
          (fields (vulpea-schema-missing-fields note schema)))
     (if skeleton
         (when fields
-          (vulpea--schema-ensure-id)
+          (vulpea--ensure-id)
           (vulpea--schema-insert-field-values fields nil 'heading))
       (let ((values (vulpea--schema-prompt-fields fields note)))
         (when values
-          (vulpea--schema-ensure-id)
+          (vulpea--ensure-id)
           (vulpea--schema-insert-field-values
            (cl-remove-if-not (lambda (f) (assoc (plist-get f :key) values)) fields)
            values 'heading))))))
@@ -2936,7 +3056,7 @@ flow, or one more value to a :multiple field."
            (value (vulpea--schema-prompt-field field note required))
            (value (if (listp value) (remove "" value) value)))
       (when (and value (not (equal value "")))
-        (vulpea--schema-ensure-id)
+        (vulpea--ensure-id)
         (if (and (plist-get field :multiple)
                  (seq-remove #'string-blank-p
                              (vulpea-buffer-meta-get-list key 'string 'heading)))
