@@ -284,6 +284,11 @@ If you changed =vulpea-db-sync-directories= while =vulpea-db-autosync-mode= was 
 (vulpea-db-autosync-mode +1)
 #+end_src
 
+*Prevention:* Change the list with =M-x vulpea-db-sync-add-directory=
+and =M-x vulpea-db-sync-remove-directory= instead of =setq= - they
+update the running watcher directly and scope the work to the
+affected directory, so no toggle and no full rescan.
+
 *** Windows: fswatch path styles
 
 Vulpea passes =fswatch= the note directories as =expand-file-name=

@@ -1359,6 +1359,25 @@ Ids double as interactive handles in both commands. Every candidate carries its 
 (vulpea-db-sync-full-scan 'force)
 #+end_src
 
+** Directory List
+
+Change =vulpea-db-sync-directories= without toggling
+=vulpea-db-autosync-mode= (which would rescan everything). Both are
+also interactive commands.
+
+#+begin_src emacs-lisp
+;; Append a directory to the list; with autosync enabled, start
+;; watching it and index its files with the usual change detection.
+;; The first entry - where new notes are created by default - is
+;; never displaced.
+(vulpea-db-sync-add-directory "~/work-notes/")
+
+;; Stop watching a directory: drop its pending updates and delete
+;; its rows from the database, unless another entry still covers
+;; them. Without autosync only the variable changes.
+(vulpea-db-sync-remove-directory "~/work-notes/")
+#+end_src
+
 * Utility Functions
 
 #+begin_src emacs-lisp
@@ -1888,6 +1907,8 @@ package - it flags the same violations inline as you edit.)
 | =vulpea-db-sync-update-file=      | Update file (async if enabled) |
 | =vulpea-db-sync-update-directory= | Update directory               |
 | =vulpea-db-sync-full-scan=        | Scan all directories           |
+| =vulpea-db-sync-add-directory=    | Add sync directory at runtime  |
+| =vulpea-db-sync-remove-directory= | Remove sync directory          |
 
 * Next Steps
 
