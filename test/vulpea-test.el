@@ -3655,6 +3655,299 @@ the section all survive without being dropped or written twice."
       (should (= (vulpea-note-level (vulpea-db-get-by-id "split-section-id"))
                  1)))))
 
+;;;; Split at Point (#450)
+
+(defun vulpea-test--split-at-point (file heading-re &optional dir)
+  "Visit FILE, put point on HEADING-RE and run `vulpea-split-heading'.
+
+DIR is what the directory prompt answers, defaulting to FILE's own
+directory.  `vulpea-select' is stubbed to error: point sits inside a
+heading, so resolution must not fall back to picking from the
+database.  Returns what the command returns."
+  (with-current-buffer (find-file-noselect file)
+    (goto-char (point-min))
+    (re-search-forward heading-re)
+    (cl-letf (((symbol-function 'vulpea-select)
+               (lambda (&rest _) (error "Fell back to vulpea-select")))
+              ((symbol-function 'completing-read)
+               (lambda (&rest _) (or dir (file-name-directory file)))))
+      (call-interactively #'vulpea-split-heading))))
+
+(ert-deftest vulpea-split-heading-at-point-known-note ()
+  "Point on an indexed heading splits that heading, keeping its id."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-split-fixture
+      (let ((note (vulpea-test--split-at-point source-path "^\\* Section")))
+        (should (equal (vulpea-note-id note) "split-section-id"))
+        (should (= 0 (vulpea-note-level note)))
+        (should (equal (vulpea-note-path note)
+                       (expand-file-name "section.org" root)))))))
+
+(ert-deftest vulpea-split-heading-at-point-mints-id ()
+  "Point on a heading without an id still splits it, minting the id."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-split-fixture
+      (let ((note (vulpea-test--split-at-point source-path "^\\* Sibling")))
+        (should (vulpea-note-p note))
+        (should (org-string-nw-p (vulpea-note-id note)))
+        (should (= 0 (vulpea-note-level note)))
+        (should (equal (vulpea-note-title note) "Sibling"))
+        ;; The subtree moved: body in the new file, gone from the source.
+        (with-temp-buffer
+          (insert-file-contents (vulpea-note-path note))
+          (should (string-match-p "Sibling body\\." (buffer-string))))
+        (with-temp-buffer
+          (insert-file-contents source-path)
+          (should-not (string-match-p "^\\* Sibling" (buffer-string))))))))
+
+(ert-deftest vulpea-split-heading-at-point-unindexed-file ()
+  "A heading the database has not seen yet still splits (#450).
+
+The reported setup: the only heading note the database knows lives in
+another file, while the file at point - ids and all - was never
+indexed.  Resolution must target the heading at point instead of
+offering unrelated notes."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-split-fixture
+      (let ((mine (expand-file-name "mine.org" root)))
+        (with-temp-file mine
+          (insert ":PROPERTIES:\n:ID: mine-file-id\n:END:\n"
+                  "#+TITLE: Mine\n\n"
+                  "* Filler\n\n"
+                  "* Target heading\n"
+                  ":PROPERTIES:\n:ID: target-id\n:END:\n"
+                  "** Child\n"))
+        ;; Deliberately never indexed - the database lags behind the
+        ;; file at point, like a sync that has not caught up.
+        (should-not (vulpea-db-get-by-id "target-id"))
+        (let ((note (vulpea-test--split-at-point mine "^\\* Target")))
+          (should (equal (vulpea-note-id note) "target-id"))
+          (should (= 0 (vulpea-note-level note)))
+          (should (equal (vulpea-note-title note) "Target heading")))
+        ;; The note the database did know was never touched.
+        (should (= 1 (vulpea-note-level
+                      (vulpea-db-get-by-id "split-section-id"))))))))
+
+(ert-deftest vulpea-split-heading-at-point-child-of-note ()
+  "Point on an id-less child under a note splits the child itself."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-split-fixture
+      (let ((note (vulpea-test--split-at-point source-path
+                                               "^\\*\\*\\* Grandchild")))
+        (should (equal (vulpea-note-title note) "Grandchild"))
+        (should (= 0 (vulpea-note-level note)))
+        ;; The parent kept its id and its place.
+        (should (vulpea-db-get-by-id "split-child-id"))
+        (with-temp-buffer
+          (insert-file-contents source-path)
+          (should (string-match-p "^\\*\\* Child One" (buffer-string)))
+          (should-not (string-match-p "Grandchild" (buffer-string))))))))
+
+(ert-deftest vulpea-split-heading-at-point-refuses-before-minting ()
+  "A heading that cannot split is refused before anything mutates.
+
+The refusal comes before the directory prompt and before an id is
+minted, so a refused attempt leaves the buffer exactly as it was."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-split-fixture
+      (let ((chores (expand-file-name "chores.org" root)))
+        (with-temp-file chores
+          (insert ":PROPERTIES:\n:ID: chores-file-id\n:END:\n"
+                  "#+TITLE: Chores\n\n"
+                  "* TODO Laundry\nBody.\n"))
+        (vulpea-db-update-file chores)
+        (with-current-buffer (find-file-noselect chores)
+          (goto-char (point-min))
+          (re-search-forward "Laundry")
+          (cl-letf (((symbol-function 'completing-read)
+                     (lambda (&rest _) (error "Prompted before refusing")))
+                    ((symbol-function 'vulpea-select)
+                     (lambda (&rest _) (error "Fell back to vulpea-select"))))
+            (let ((err (should-error
+                        (call-interactively #'vulpea-split-heading)
+                        :type 'user-error)))
+              (should (string-match-p "todo" (cadr err)))))
+          (should-not (org-entry-get nil "ID"))
+          (should-not (buffer-modified-p)))))))
+
+(ert-deftest vulpea-split-heading-at-point-quit-leaves-no-id ()
+  "Quitting at the directory prompt leaves the id unminted."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-split-fixture
+      (with-current-buffer (find-file-noselect source-path)
+        (goto-char (point-min))
+        (re-search-forward "^\\* Sibling")
+        (cl-letf (((symbol-function 'completing-read)
+                   (lambda (&rest _) (signal 'quit nil)))
+                  ((symbol-function 'vulpea-select)
+                   (lambda (&rest _) (error "Fell back to vulpea-select"))))
+          ;; Caught by hand: ERT aborts a test on a plain quit, so a
+          ;; `should-error' here would skip the assertions below.
+          (should (eq 'quit
+                      (condition-case nil
+                          (progn
+                            (call-interactively #'vulpea-split-heading)
+                            nil)
+                        (quit 'quit)))))
+        (should-not (org-entry-get nil "ID"))
+        (should-not (buffer-modified-p))))))
+
+(ert-deftest vulpea-split-heading-at-point-untracked-file ()
+  "A file outside the synced directories is refused, untouched."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-split-fixture
+      (let* ((outside (make-temp-file "vulpea-outside-" t))
+             (stray (expand-file-name "stray.org" outside)))
+        (unwind-protect
+            (progn
+              (with-temp-file stray
+                (insert "* Loose heading\nBody.\n"))
+              (with-current-buffer (find-file-noselect stray)
+                (goto-char (point-min))
+                (re-search-forward "^\\* Loose")
+                (cl-letf (((symbol-function 'completing-read)
+                           (lambda (&rest _) (error "Prompted a lost cause")))
+                          ((symbol-function 'vulpea-select)
+                           (lambda (&rest _)
+                             (error "Fell back to vulpea-select"))))
+                  (let ((err (should-error
+                              (call-interactively #'vulpea-split-heading)
+                              :type 'user-error)))
+                    (should (string-match-p "outside" (cadr err)))))
+                ;; Nothing was minted or saved.
+                (should-not (org-entry-get nil "ID"))
+                (should-not (buffer-modified-p))))
+          (dolist (buf (buffer-list))
+            (when-let* ((file (buffer-file-name buf)))
+              (when (string-prefix-p (file-name-as-directory outside) file)
+                (with-current-buffer buf (set-buffer-modified-p nil))
+                (kill-buffer buf))))
+          (delete-directory outside t))))))
+
+(ert-deftest vulpea-split-heading-at-point-excluded-heading ()
+  "A heading excluded from indexing errors clearly instead of selecting."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-split-fixture
+      (let ((hidden (expand-file-name "hidden.org" root)))
+        (with-temp-file hidden
+          (insert ":PROPERTIES:\n:ID: hidden-file-id\n:END:\n"
+                  "#+TITLE: Hidden\n\n"
+                  "* Secret\n"
+                  ":PROPERTIES:\n:VULPEA_IGNORE: t\n:END:\n"
+                  "Body.\n"))
+        (vulpea-db-update-file hidden)
+        (with-current-buffer (find-file-noselect hidden)
+          (goto-char (point-min))
+          (re-search-forward "^\\* Secret")
+          (cl-letf (((symbol-function 'completing-read)
+                     (lambda (&rest _) (file-name-as-directory root)))
+                    ((symbol-function 'vulpea-select)
+                     (lambda (&rest _) (error "Fell back to vulpea-select"))))
+            (let ((err (should-error
+                        (call-interactively #'vulpea-split-heading)
+                        :type 'user-error)))
+              (should (string-match-p "excluded" (cadr err))))))))))
+
+(ert-deftest vulpea-split-heading-at-point-duplicate-id ()
+  "An id already owned by another file's note is refused, not split.
+
+Indexing keeps the first claim on an id, so resolving the copy's
+heading through the database would hand back the original's note and
+cut the subtree out of a file the user is not even looking at."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-split-fixture
+      ;; A wholesale copy of the source file: same ids, not indexed.
+      (let ((copy (expand-file-name "copy.org" root)))
+        (copy-file source-path copy)
+        (with-current-buffer (find-file-noselect copy)
+          (goto-char (point-min))
+          (re-search-forward "^\\* Section")
+          (cl-letf (((symbol-function 'completing-read)
+                     (lambda (&rest _) (file-name-as-directory root)))
+                    ((symbol-function 'vulpea-select)
+                     (lambda (&rest _) (error "Fell back to vulpea-select"))))
+            (let ((err (should-error
+                        (call-interactively #'vulpea-split-heading)
+                        :type 'user-error)))
+              (should (string-match-p "identifies" (cadr err))))))
+        ;; The original was not touched.
+        (with-temp-buffer
+          (insert-file-contents source-path)
+          (should (string-match-p "^\\* Section" (buffer-string))))))))
+
+(ert-deftest vulpea-split-heading-at-point-stale-row-elsewhere ()
+  "A stale claim on the id from another file is settled, not obeyed.
+
+The cut-and-paste case: the subtree moved here, the old file was
+saved without it, but sync has not re-read it, so the database still
+maps the id there.  The old file is re-indexed to drop its claim and
+the heading at point takes the id over."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-split-fixture
+      (let ((mine (expand-file-name "mine.org" root)))
+        ;; The heading left the source file...
+        (with-temp-file source-path
+          (insert ":PROPERTIES:\n:ID: split-file-id\n:END:\n"
+                  "#+TITLE: Source Note\n\n"
+                  "* Sibling\nSibling body.\n"))
+        ;; ...and landed here, while the database saw neither move.
+        (with-temp-file mine
+          (insert ":PROPERTIES:\n:ID: mine-file-id\n:END:\n"
+                  "#+TITLE: Mine\n\n"
+                  "* Section\n"
+                  ":PROPERTIES:\n:ID: split-section-id\n:END:\n"
+                  "Section body.\n"))
+        (let ((note (vulpea-test--split-at-point mine "^\\* Section")))
+          (should (equal (vulpea-note-id note) "split-section-id"))
+          (should (= 0 (vulpea-note-level note))))))))
+
+(ert-deftest vulpea-split-heading-at-point-heals-ghost-row ()
+  "A row claiming the id for a file that no longer exists is healed."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-split-fixture
+      (let ((mine (expand-file-name "mine.org" root)))
+        ;; The indexed file is gone from disk, its rows are not.
+        (delete-file source-path)
+        (with-temp-file mine
+          (insert ":PROPERTIES:\n:ID: mine-file-id\n:END:\n"
+                  "#+TITLE: Mine\n\n"
+                  "* Section\n"
+                  ":PROPERTIES:\n:ID: split-section-id\n:END:\n"
+                  "Section body.\n"))
+        (let ((note (vulpea-test--split-at-point mine "^\\* Section")))
+          (should (equal (vulpea-note-id note) "split-section-id"))
+          (should (= 0 (vulpea-note-level note))))))))
+
+(ert-deftest vulpea-split-heading-at-point-preamble-selects ()
+  "Point before the first heading falls back to picking a note."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-split-fixture
+      (with-current-buffer (find-file-noselect source-path)
+        (goto-char (point-min)) ;; inside the file's property drawer
+        (let (offered)
+          (cl-letf (((symbol-function 'vulpea-select)
+                     (lambda (&rest _)
+                       (setq offered t)
+                       (vulpea-db-get-by-id "split-section-id")))
+                    ((symbol-function 'completing-read)
+                     (lambda (&rest _) (file-name-as-directory root))))
+            (let ((note (call-interactively #'vulpea-split-heading)))
+              (should offered)
+              (should (equal (vulpea-note-id note) "split-section-id"))
+              (should (= 0 (vulpea-note-level note))))))))))
+
 ;;;; Note Merge Tests (#343)
 
 (defmacro vulpea-test--with-merge-fixture (&rest body)

@@ -961,7 +961,18 @@ not exist, is not
 writable or lies outside =vulpea-db-sync-directories=, or when a file
 of that name already exists there.
 
-Called interactively, it works on the heading at point.
+Called interactively with point inside a heading, that heading is the
+target whether or not the database knows it yet: a missing =:ID:= is
+created, the buffer saved and the file indexed first. The refusals
+above are checked before any of that, so a heading that cannot split
+is left untouched. A file outside =vulpea-db-sync-directories= (when
+any are configured) is refused up front. A stale database claim on
+the id from another file is settled by re-indexing it (or forgetting
+a file that is gone), so a cut-and-pasted subtree splits fine once its old file is saved; an id
+genuinely alive in two files is refused, as is a heading excluded
+from indexing - both discovered by indexing, so found after the
+save. Away from a heading - another buffer, or a
+file's preamble - the heading is picked from the database.
 
 ** vulpea-merge
 
