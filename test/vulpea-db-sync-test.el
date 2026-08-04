@@ -795,6 +795,182 @@ comparing."
       (when (file-directory-p root)
         (delete-directory root t)))))
 
+(ert-deftest vulpea-db-sync-watch-directory-symlinked-root ()
+  "A configured root that is a symlink is watched through its truename.
+
+`file-notify-add-watch' does not follow symlinks (inotify uses
+dont-follow), so the watch must land on the resolved directory.
+Symlinked subdirectories inside the root are still refused."
+  (let* ((base (make-temp-file "vulpea-watch-symroot-" t))
+         (real (expand-file-name "real" base))
+         (sub (expand-file-name "sub" real))
+         (loop (expand-file-name "loop" real))
+         (link (expand-file-name "link" base))
+         (vulpea-db-sync--watchers nil))
+    (unwind-protect
+        (progn
+          (make-directory sub t)
+          (make-symbolic-link real loop)
+          (make-symbolic-link real link)
+          (vulpea-db-sync--watch-directory link t)
+          ;; Watches land on the resolved tree
+          (should (assoc (file-truename link) vulpea-db-sync--watchers))
+          (should (assoc (expand-file-name "sub" (file-truename link))
+                         vulpea-db-sync--watchers))
+          ;; Not on the link spelling
+          (should-not (assoc link vulpea-db-sync--watchers))
+          ;; Symlinked subdirectories are still skipped
+          (should-not (assoc (expand-file-name "loop" (file-truename link))
+                             vulpea-db-sync--watchers))
+          (should (= 2 (length vulpea-db-sync--watchers))))
+      (dolist (entry vulpea-db-sync--watchers)
+        (ignore-errors (file-notify-rm-watch (cdr entry))))
+      (when (file-directory-p base)
+        (delete-directory base t)))))
+
+(ert-deftest vulpea-db-sync-watch-directory-non-root-symlink-refused ()
+  "A symlinked directory that is not a configured root gets no watch.
+
+This is the path taken for directories discovered at runtime (a
+`created' file-notify event): following them could loop."
+  (let* ((base (make-temp-file "vulpea-watch-nonroot-" t))
+         (real (expand-file-name "real" base))
+         (link (expand-file-name "link" base))
+         (vulpea-db-sync--watchers nil))
+    (unwind-protect
+        (progn
+          (make-directory real)
+          (make-symbolic-link real link)
+          (vulpea-db-sync--watch-directory link)
+          (should (null vulpea-db-sync--watchers)))
+      (dolist (entry vulpea-db-sync--watchers)
+        (ignore-errors (file-notify-rm-watch (cdr entry))))
+      (when (file-directory-p base)
+        (delete-directory base t)))))
+
+(defun vulpea-db-sync-test--scan-async (dirs)
+  "Run `vulpea-db-sync--scan-files-async' on DIRS and wait for the result."
+  (let (result done)
+    (vulpea-db-sync--scan-files-async
+     dirs
+     (lambda (files) (setq result files done t)))
+    (let ((deadline (+ (float-time) 10)))
+      (while (and (not done) (< (float-time) deadline))
+        (accept-process-output nil 0.05)))
+    (should done)
+    result))
+
+(ert-deftest vulpea-db-sync-scan-files-async-symlinked-root-find ()
+  "The find fallback lists files under a symlinked root.
+
+Plain `find LINK' examines the symlink itself and descends into
+nothing, so the enable-time scan and the polling backend would both
+see an empty directory."
+  (let* ((base (make-temp-file "vulpea-scan-symroot-" t))
+         (real (expand-file-name "real" base))
+         (sub (expand-file-name "sub" real))
+         (link (expand-file-name "link" base)))
+    (unwind-protect
+        (progn
+          (make-directory sub t)
+          (make-symbolic-link real link)
+          (with-temp-file (expand-file-name "a.org" real) (insert "a"))
+          (with-temp-file (expand-file-name "b.org" sub) (insert "b"))
+          (let* ((orig (symbol-function 'executable-find))
+                 (files
+                  (cl-letf (((symbol-function 'executable-find)
+                             (lambda (name &rest args)
+                               (unless (equal name "fd")
+                                 (apply orig name args)))))
+                    (vulpea-db-sync-test--scan-async (list link)))))
+            (should (= 2 (length files)))
+            ;; Paths keep the configured (link) spelling
+            (should (seq-every-p
+                     (lambda (f)
+                       (string-prefix-p (file-name-as-directory link) f))
+                     files))))
+      (when (file-directory-p base)
+        (delete-directory base t)))))
+
+(ert-deftest vulpea-db-sync-scan-files-async-symlinked-root-fd ()
+  "fd lists files under a symlinked root, keeping the link spelling."
+  (skip-unless (executable-find "fd"))
+  (let* ((base (make-temp-file "vulpea-scan-symroot-fd-" t))
+         (real (expand-file-name "real" base))
+         (link (expand-file-name "link" base)))
+    (unwind-protect
+        (progn
+          (make-directory real)
+          (make-symbolic-link real link)
+          (with-temp-file (expand-file-name "a.org" real) (insert "a"))
+          (let ((files (vulpea-db-sync-test--scan-async (list link))))
+            (should (= 1 (length files)))
+            (should (string-prefix-p (file-name-as-directory link)
+                                     (car files)))))
+      (when (file-directory-p base)
+        (delete-directory base t)))))
+
+(ert-deftest vulpea-db-sync-enqueue-respells-truename-paths ()
+  "A path reported under a configured root's truename is re-spelled.
+
+fswatch on macOS resolves symlinks before reporting, and filenotify
+watches the resolved directory, so events arrive spelled under the
+truename while scans and the database use the configured name.  Keyed
+as-is, the same file would live under two paths and note updates
+would be dropped by INSERT OR IGNORE id conflicts."
+  (let* ((base (make-temp-file "vulpea-enqueue-symroot-" t))
+         (real (expand-file-name "real" base))
+         (link (expand-file-name "link" base))
+         (vulpea-db-sync-directories (list link))
+         (vulpea-db-sync--queue nil)
+         (vulpea-db-sync--queue-tail nil)
+         (vulpea-db-sync--queue-set (make-hash-table :test 'equal))
+         (vulpea-db-sync--timer nil))
+    (unwind-protect
+        (progn
+          (make-directory real)
+          (make-symbolic-link real link)
+          ;; Reported under the truename: re-spelled to the configured name
+          (vulpea-db-sync--enqueue
+           (expand-file-name "note.org" (file-truename link)))
+          (should (equal (caar vulpea-db-sync--queue)
+                         (expand-file-name "note.org" link)))
+          ;; Already under the configured name: unchanged, and deduplicated
+          ;; against the re-spelled entry
+          (vulpea-db-sync--enqueue (expand-file-name "note.org" link))
+          (should (= 1 (length vulpea-db-sync--queue))))
+      (when (file-directory-p base)
+        (delete-directory base t)))))
+
+(ert-deftest vulpea-db-sync-handle-removed-respells-truename-paths ()
+  "Removal reported under a configured root's truename hits the DB row."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((base (make-temp-file "vulpea-removed-symroot-" t))
+           (real (expand-file-name "real" base))
+           (link (expand-file-name "link" base))
+           (vulpea-db-sync-directories nil)
+           (vulpea-db-sync--queue nil)
+           (vulpea-db-sync--queue-tail nil)
+           (vulpea-db-sync--queue-set (make-hash-table :test 'equal)))
+      (unwind-protect
+          (progn
+            (make-directory real)
+            (make-symbolic-link real link)
+            (with-temp-file (expand-file-name "note.org" real)
+              (insert ":PROPERTIES:\n:ID: symroot-removed\n:END:\n#+TITLE: Note\n"))
+            ;; Indexed under the configured (link) spelling
+            (vulpea-db-update-file (expand-file-name "note.org" link))
+            (should (vulpea-db-get-by-id "symroot-removed"))
+            (setq vulpea-db-sync-directories (list link))
+            ;; Removal arrives spelled under the truename
+            (delete-file (expand-file-name "note.org" real))
+            (vulpea-db-sync--handle-removed-file
+             (expand-file-name "note.org" (file-truename link)))
+            (should-not (vulpea-db-get-by-id "symroot-removed")))
+        (when (file-directory-p base)
+          (delete-directory base t))))))
+
 ;;; File notification tests
 
 (ert-deftest vulpea-db-sync-file-notify-deleted-removes-note ()

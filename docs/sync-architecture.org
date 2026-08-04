@@ -169,6 +169,29 @@ no file to watch: after changing those, run a force scan manually.
 
 *Note*: All file watchers ALWAYS use async queue, regardless of autosync mode
 
+*** E. Symlinked directories
+
+A =vulpea-db-sync-directories= entry may itself be a symlink (a
+Termux storage link, an iCloud or Dropbox path).  Each watcher
+handles that differently, and vulpea glues the seams:
+
+- *filenotify* cannot watch through a link (inotify runs with
+  dont-follow), so the watch is placed on the entry's truename.
+- *fswatch* follows the link on its own; on macOS it reports events
+  spelled under the /resolved/ path.
+- *scans* (fd, find, =directory-files-recursively=) follow the
+  configured root and keep its spelling.
+
+The database keys every file by the configured spelling.  Events
+that arrive spelled under a root's truename (filenotify, fswatch on
+macOS) are re-spelled to the configured name before they touch the
+queue or the database, so each file has exactly one row either way.
+
+Symlinked directories /inside/ a root are never followed - a link
+pointing back at an ancestor would loop the recursive watcher.
+Notes behind such links need their real location (or the link
+itself) listed in =vulpea-db-sync-directories=.
+
 
 ** 5. Autosync Startup (async mode)
 

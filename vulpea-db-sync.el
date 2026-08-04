@@ -410,7 +410,7 @@ a subprocess.  The `blocking' mode still scans synchronously."
             (message "[vulpea-sync] watch-directory: skipped (fswatch active)"))
         (when vulpea-db-sync-directories
           (dolist (dir vulpea-db-sync-directories)
-            (vulpea-db-sync--watch-directory dir))
+            (vulpea-db-sync--watch-directory dir 'root))
           (setq watcher-count (length vulpea-db-sync--watchers)))
         (when vulpea-db-sync-debug
           (message "[vulpea-sync] watch-directory: %.0fms (%d watchers)"
@@ -560,8 +560,21 @@ a subprocess.  The `blocking' mode still scans synchronously."
   (clrhash vulpea-db-sync--queue-set)
   (clrhash vulpea-db-sync--force-set))
 
-(defun vulpea-db-sync--watch-directory (dir)
-  "Watch DIR and all subdirectories for org file change."
+(defun vulpea-db-sync--watch-directory (dir &optional rootp)
+  "Watch DIR and all subdirectories for org file change.
+
+Symlinked directories are refused: recursing through them can loop
+back into an ancestor.  With ROOTP non-nil DIR is a
+`vulpea-db-sync-directories' entry and may itself be a symlink (a
+Termux storage link, an iCloud or Dropbox path): it is resolved with
+`file-truename' and the watch lands on the target, because
+`file-notify-add-watch' does not follow symlinks (inotify runs with
+dont-follow), so watching the link itself would observe nothing.
+Events from such a watch arrive spelled under the truename;
+`vulpea-db-sync--configured-path' re-spells them under the
+configured name before they reach the database."
+  (when (and dir rootp (file-symlink-p dir))
+    (setq dir (file-truename dir)))
   (when (and dir (file-directory-p dir) (not (file-symlink-p dir)))
     (unless (assoc dir vulpea-db-sync--watchers)
       (let ((descriptor (file-notify-add-watch
@@ -669,7 +682,12 @@ CALLBACK receives a list of absolute file paths."
                         (cl-loop for args in name-args
                                  for first = t then nil
                                  append (if first args (cons "-o" args)))))
-                  (append (list "find" expanded-dir "-type" "f")
+                  ;; The trailing slash makes find descend into a
+                  ;; configured directory that is itself a symlink
+                  ;; (find without -H/-L examines the link and stops;
+                  ;; fd follows the search root on its own)
+                  (append (list "find" (file-name-as-directory expanded-dir)
+                                "-type" "f")
                           (if (> (length name-args) 1)
                               (append '("(") name-clause '(")"))
                             name-clause)
@@ -717,7 +735,8 @@ CALLBACK receives a list of absolute file paths."
 PATH can be a file or directory. If PATH is a directory (detected
 by trailing slash or by having files under it in the database),
 all files under that directory are removed."
-  (setq path (vulpea-db-normalize-path path))
+  (setq path (vulpea-db-sync--configured-path
+              (vulpea-db-normalize-path path)))
   (vulpea-db-sync--drop-from-queue path)
   (vulpea-db-sync--unwatch-file path)
   (let ((db (vulpea-db)))
@@ -797,6 +816,46 @@ all files under that directory are removed."
             (vulpea-db-sync--enqueue new-path)))))))
     nil))
 
+(defun vulpea-db-sync--configured-path (path)
+  "Return PATH re-spelled under the configured directory name.
+
+When a `vulpea-db-sync-directories' entry is a symlink, both
+filenotify (which watches the entry's truename, see
+`vulpea-db-sync--watch-directory') and fswatch on macOS report
+events spelled under the truename, while scans and the database key
+files by the configured name.  Keyed as-is, such a path would give
+the same file a second row, and its note updates would then be
+silently dropped by the INSERT OR IGNORE id conflict with the row
+under the configured spelling.
+
+PATH is translated by replacing a configured entry's truename
+prefix with the entry itself.  A PATH already under a configured
+directory as spelled (the common case, checked first with plain
+string comparison) is returned unchanged, as is a PATH under no
+configured directory at all."
+  (if (or (null path)
+          (null vulpea-db-sync-directories)
+          (seq-some (lambda (dir)
+                      (string-prefix-p
+                       (file-name-as-directory (expand-file-name dir))
+                       path))
+                    vulpea-db-sync-directories))
+      path
+    (or (seq-some
+         (lambda (dir)
+           (let* ((spelled (file-name-as-directory (expand-file-name dir)))
+                  (true (file-name-as-directory (file-truename dir))))
+             (and (not (equal spelled true))
+                  (cond
+                   ((string-prefix-p true path)
+                    (concat spelled (substring path (length true))))
+                   ;; PATH is the entry itself, spelled as truename
+                   ;; without a trailing slash (a directory event)
+                   ((equal (directory-file-name true) path)
+                    (directory-file-name spelled))))))
+         vulpea-db-sync-directories)
+        path)))
+
 (defun vulpea-db-sync--enqueue (path &optional force no-count)
   "Add PATH to update queue.
 
@@ -808,7 +867,8 @@ With NO-COUNT non-nil the entry does not increment the progress
 total: used when re-queueing an entry that was already counted
 \(flow-control saturation retries), which would otherwise inflate
 the reported total on every retry."
-  (setq path (vulpea-db-normalize-path path))
+  (setq path (vulpea-db-sync--configured-path
+              (vulpea-db-normalize-path path)))
   (let ((timestamp (float-time)))
     (when force
       (puthash path t vulpea-db-sync--force-set))
@@ -1410,7 +1470,8 @@ Creations, edits, touches, deletions and renames all land here; the
 stored content hash decides what actually happened.  The hash is
 always tracked - only the re-index reaction is gated by
 `vulpea-db-sync-reindex-on-dir-locals-change'."
-  (setq path (vulpea-db-normalize-path path))
+  (setq path (vulpea-db-sync--configured-path
+              (vulpea-db-normalize-path path)))
   (let ((change
          (if (file-exists-p path)
              (vulpea-db-sync--dir-locals-update-hash path)
