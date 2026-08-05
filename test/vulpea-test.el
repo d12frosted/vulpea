@@ -5465,6 +5465,57 @@ yields a non-existing note).  The prompts and candidate lists passed to
                        (setq n (1+ n) from (match-end 0)))
                      n))))))
 
+(ert-deftest vulpea-schema-insert-fields-fieldless-creates-id ()
+  "A schema with no fields still ensures the target's ID."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq)))
+    (vulpea-schema-define 'marker :predicate #'ignore)
+    (with-temp-buffer
+      (org-mode)
+      (insert ":PROPERTIES:\n:ID: file\n:END:\n#+title: Journal\n\n"
+              "* Target :marker:\n")
+      (goto-char (point-max))
+      (cl-letf (((symbol-function 'read-string)
+                 (lambda (&rest _) (error "Nothing to prompt for"))))
+        (vulpea-schema-insert-fields 'marker))
+      (goto-char (point-min))
+      (re-search-forward "^\\* Target")
+      (should (org-string-nw-p (org-entry-get (point) "ID"))))))
+
+(ert-deftest vulpea-schema-insert-fields-fieldless-skeleton-creates-id ()
+  "The skeleton flow of a fieldless schema ensures the ID too."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq)))
+    (vulpea-schema-define 'marker :predicate #'ignore)
+    (with-temp-buffer
+      (org-mode)
+      (insert "#+title: T\n")
+      (goto-char (point-max))
+      (vulpea-schema-insert-fields 'marker t)
+      (goto-char (point-min))
+      (should (org-string-nw-p (org-entry-get (point) "ID")))
+      (should (string-prefix-p ":PROPERTIES:" (buffer-string))))))
+
+(ert-deftest vulpea-schema-insert-fields-complete-creates-id ()
+  "A target already carrying every field still gets its ID ensured."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq)))
+    (vulpea-schema-define 'w :predicate #'ignore
+      :fields '((:key "efficacy" :required t)))
+    (with-temp-buffer
+      (org-mode)
+      (insert ":PROPERTIES:\n:ID: file\n:END:\n#+title: Journal\n\n"
+              "* Target\n- efficacy :: done\n")
+      (goto-char (point-max))
+      (cl-letf (((symbol-function 'read-string)
+                 (lambda (&rest _) (error "Nothing to prompt for"))))
+        (vulpea-schema-insert-fields 'w))
+      (goto-char (point-min))
+      (re-search-forward "^\\* Target")
+      (should (org-string-nw-p (org-entry-get (point) "ID")))
+      ;; the present field is not written a second time
+      (should (= 1 (let ((s (buffer-string)) (n 0) (from 0))
+                     (while (string-match "- efficacy ::" s from)
+                       (setq n (1+ n) from (match-end 0)))
+                     n))))))
+
 (ert-deftest vulpea-schema-insert-field-skip-creates-no-id ()
   "The single-field command leaves an id-less target alone when skipped."
   (let ((vulpea-schema--registry (make-hash-table :test 'eq)))

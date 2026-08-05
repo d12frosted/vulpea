@@ -2979,23 +2979,28 @@ The fields are inserted into the note at point: the heading's subtree
 when point is inside one, otherwise the file-level metadata.  A
 target that lacks an `:ID:' gets one created right before the fields
 are written - fields on something that is not a note would be
-invisible to the database - and stays untouched when nothing ends up
-written."
+invisible to the database.  The id is ensured even when there is no
+field to write - a schema with no fields, or a note already carrying
+them all - since invoking the command is signal enough that the
+target is meant to be a note; only skipping every prompt leaves an
+id-less target untouched."
   (interactive (list nil current-prefix-arg))
   (let* ((schema (or schema-or-name
                      (vulpea--schema-read-schema (vulpea--schema-buffer-note))))
          (note (vulpea--schema-buffer-note schema))
          (fields (vulpea-schema-missing-fields note schema)))
-    (if skeleton
-        (when fields
-          (vulpea--ensure-id)
-          (vulpea--schema-insert-field-values fields nil 'heading))
+    (cond
+     ((null fields) (vulpea--ensure-id))
+     (skeleton
+      (vulpea--ensure-id)
+      (vulpea--schema-insert-field-values fields nil 'heading))
+     (t
       (let ((values (vulpea--schema-prompt-fields fields note)))
         (when values
           (vulpea--ensure-id)
           (vulpea--schema-insert-field-values
            (cl-remove-if-not (lambda (f) (assoc (plist-get f :key) values)) fields)
-           values 'heading))))))
+           values 'heading)))))))
 
 ;;;###autoload
 (defun vulpea-schema-insert-field (&optional schema-or-name)
