@@ -1683,8 +1683,11 @@ inherited fields (=:include=) are offered too. When the target has no
 here and in =vulpea-schema-insert-field=), so the authored note is
 immediately real: without an id the fields would be invisible to the
 database, collections and =vulpea-select= until you run
-=org-id-get-create= yourself. When nothing ends up written, the target
-is left untouched.
+=org-id-get-create= yourself. The id is ensured even when there is no
+field to write - a schema with no fields, or a note already carrying
+them all - since invoking the command is signal enough that the target
+is meant to be a note; only skipping every prompt leaves an id-less
+target untouched.
 
 For a single field there is =vulpea-schema-insert-field= (singular): it
 prompts for one of the schema's fields - the ones the note does not
