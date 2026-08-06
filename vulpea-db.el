@@ -394,23 +394,25 @@ Use with caution!"
 
 Returns the `sxhash' of the settings whose value changes what
 extraction produces from the same file content: tag inheritance
-\(`org-use-tag-inheritance', `org-tags-exclude-from-inheritance')
-and `vulpea-db-parse-method' (dir- and file-local variables feeding
-`org-category' reach extraction under some methods and not others).
-Used to detect when these settings change between sessions so the
-DB can be re-indexed.
+\(`org-use-tag-inheritance', `org-tags-exclude-from-inheritance'),
+`vulpea-db-parse-method' (dir- and file-local variables feeding
+`org-category' reach extraction under some methods and not others),
+and `vulpea-buffer-alias-property' (names the property aliases are
+read from).  Used to detect when these settings change between
+sessions so the DB can be re-indexed.
 
-`vulpea-db-parse-method' is read guarded: it is defined in
-vulpea-db-extract, which requires this file, so it may be unbound
-when only the db layer is loaded.  Its name is hashed rather than
-the symbol itself: `sxhash' of a regular symbol is address-based
-and differs across processes (t, nil, strings, and numbers are
-stable), and this fingerprint is compared across sessions and by
-the extraction worker."
+`vulpea-db-parse-method' and `vulpea-buffer-alias-property' are
+read guarded: they are defined in modules that require this file,
+so they may be unbound when only the db layer is loaded.  The parse
+method's name is hashed rather than the symbol itself: `sxhash' of
+a regular symbol is address-based and differs across processes (t,
+nil, strings, and numbers are stable), and this fingerprint is
+compared across sessions and by the extraction worker."
   (sxhash (list org-use-tag-inheritance
                 org-tags-exclude-from-inheritance
                 (when (bound-and-true-p vulpea-db-parse-method)
-                  (symbol-name vulpea-db-parse-method)))))
+                  (symbol-name vulpea-db-parse-method))
+                (bound-and-true-p vulpea-buffer-alias-property))))
 
 (defun vulpea-db--settings-changed-p (db)
   "Return non-nil if extraction settings differ from those stored in DB."
