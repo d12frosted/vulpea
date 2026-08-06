@@ -451,6 +451,12 @@ invisible to any line-based search, mentions included.
 ;; As note (resolves id: link to vulpea-note)
 (vulpea-note-meta-get note "region" 'note)
 ;; => #s(vulpea-note :id "region-id" :title "Bordeaux" ...)
+
+;; As date or datetime (parses a plain org timestamp, active or
+;; inactive; nil when the value is not one)
+(vulpea-note-meta-get note "published" 'date)
+;; => #s(vulpea-timestamp ...) - see vulpea-timestamp-time,
+;;    vulpea-timestamp-with-time, vulpea-timestamp-active
 #+end_src
 
 ** Multiple Values
@@ -1470,21 +1476,42 @@ declaring the metadata those notes should carry.
 
 Field spec keys:
 
-| Key            | Meaning                                                   |
-|----------------+-----------------------------------------------------------|
-| =:key=         | metadata key string (required)                            |
-| =:type=        | =string= (default), =number=, =symbol=, =note=, or =link= |
-| =:required=    | =t=/=nil=, or a function =(note)= → boolean               |
-| =:one-of=      | a list of allowed values, or a function =(note)= → list   |
-| =:multiple=    | non-nil when the field holds a list of values             |
-| =:target-tags= | for a =note= field, tags its target must all carry        |
-| =:validate=    | optional function =(value note)= → =t= or an error string |
+| Key            | Meaning                                                          |
+|----------------+------------------------------------------------------------------|
+| =:key=         | metadata key string (required)                                   |
+| =:type=        | =string= (default), =number=, =symbol=, =note=, =link=, =date=, or =datetime= |
+| =:required=    | =t=/=nil=, or a function =(note)= → boolean                      |
+| =:one-of=      | a list of allowed values, or a function =(note)= → list          |
+| =:multiple=    | non-nil when the field holds a list of values                    |
+| =:target-tags= | for a =note= field, tags its target must all carry               |
+| =:validate=    | optional function =(value note)= → =t= or an error string        |
 
 The =:type= vocabulary matches =vulpea-note-meta-get=, so values are read
 the same way everywhere. Use a function for =:required= or =:one-of= when
 the rule depends on another field (e.g. allowed sweetness levels that
 vary by carbonation). To read a sibling field inside such a function,
 call =vulpea-note-meta-get= directly so you control the value type.
+
+A =date= field holds a plain org timestamp without a time part
+(=<2026-08-05 Wed>=), a =datetime= field one with a time part
+(=<2026-08-05 Wed 14:30>=); anything else - =today=, a bare
+=2026-08-05=, an impossible date - is a =wrong-type= violation. Both
+accept active (=<...>=) and inactive (=[...]=) brackets, and the value
+reads as a =vulpea-timestamp= struct that remembers which one it was, so
+re-serializing reproduces the original (the day name is recomputed from
+the date rather than trusted). The authoring commands prompt for these
+fields with =org-read-date=, calendar and all, and write an active
+timestamp. Ranges, repeaters, and warning periods are not accepted. A
+=:validate= function on a date field receives the =vulpea-timestamp=,
+so range checks are plain time comparisons:
+
+#+begin_src emacs-lisp
+(:key "published" :type date
+      :validate (lambda (ts _note)
+                  (if (time-less-p (vulpea-timestamp-time ts) (current-time))
+                      t
+                    "published must be in the past")))
+#+end_src
 
 For a =note= field, =:target-tags= additionally constrains the /target/:
 the linked note must carry every listed tag, otherwise validation reports

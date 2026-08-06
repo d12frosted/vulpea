@@ -57,6 +57,47 @@
     (let ((note (vulpea-db-get-by-id "note1")))
       (should (equal (vulpea-note-meta-get note "status" 'symbol) 'active)))))
 
+(ert-deftest vulpea-note-meta-get-date ()
+  "Test getting date metadata as a `vulpea-timestamp'."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "note1" "Test Note"
+                                   :meta '(("published" . ("[2026-08-05 Wed]"))))
+
+    (let* ((note (vulpea-db-get-by-id "note1"))
+           (ts (vulpea-note-meta-get note "published" 'date)))
+      (should (vulpea-timestamp-p ts))
+      (should-not (vulpea-timestamp-active ts))
+      (should-not (vulpea-timestamp-with-time ts))
+      (should (time-equal-p (vulpea-timestamp-time ts)
+                            (encode-time (list 0 0 0 5 8 2026 nil -1 nil)))))))
+
+(ert-deftest vulpea-note-meta-get-datetime ()
+  "Test getting datetime metadata as a `vulpea-timestamp'."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "note1" "Test Note"
+                                   :meta '(("scheduled" . ("<2026-08-05 Wed 14:30>"))))
+
+    (let* ((note (vulpea-db-get-by-id "note1"))
+           (ts (vulpea-note-meta-get note "scheduled" 'datetime)))
+      (should (vulpea-timestamp-p ts))
+      (should (vulpea-timestamp-active ts))
+      (should (vulpea-timestamp-with-time ts))
+      (should (time-equal-p (vulpea-timestamp-time ts)
+                            (encode-time (list 0 30 14 5 8 2026 nil -1 nil)))))))
+
+(ert-deftest vulpea-note-meta-get-date-invalid ()
+  "A value that is not a timestamp reads as nil under the date types."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "note1" "Test Note"
+                                   :meta '(("published" . ("today"))))
+
+    (let ((note (vulpea-db-get-by-id "note1")))
+      (should-not (vulpea-note-meta-get note "published" 'date))
+      (should-not (vulpea-note-meta-get note "published" 'datetime)))))
+
 (ert-deftest vulpea-note-meta-get-link ()
   "Test getting link metadata."
   (vulpea-test--with-temp-db

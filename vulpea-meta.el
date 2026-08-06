@@ -106,7 +106,9 @@ Each element value depends on TYPE:
 - number - an interpreted number
 - link - path of the link (either ID of the linked note or raw link)
 - note - linked `vulpea-note'
-- symbol - an interned symbol."
+- symbol - an interned symbol
+- date / datetime - a `vulpea-timestamp', or nil when the value is
+  not a plain org timestamp."
   (vulpea-buffer-meta-get-list! (vulpea-meta note-or-id) prop type))
 
 (defun vulpea-meta-get (note-or-id prop &optional type)
@@ -120,7 +122,9 @@ Result depends on TYPE:
 - number - an interpreted number
 - link - path of the link (either ID of the linked note or raw link)
 - note - linked `vulpea-note'
-- symbol - an interned symbol.
+- symbol - an interned symbol
+- date / datetime - a `vulpea-timestamp', or nil when the value is
+  not a plain org timestamp.
 
 If the note contains multiple values for a given PROP, the first
 one is returned. In case all values are required, use
@@ -196,7 +200,12 @@ Example:
     (`"string" (read-string "String: "))
     (`"number" (read-number "Number: "))
     (`"link" (read-string "URL: "))
-    (`"note" (vulpea-select "Note"))))
+    (`"note" (vulpea-select "Note"))
+    ((or `"date" `"datetime")
+     (let ((with-time (equal type "datetime")))
+       (vulpea-timestamp-create
+        (org-read-date with-time t nil (if with-time "Datetime" "Date"))
+        with-time t)))))
 
 (defun vulpea-meta-add ()
   "Interactive version of `vulpea-meta-set' for note at point.
@@ -209,7 +218,7 @@ When point is before the first heading, operates on the file-level note."
       (when-let* ((prop (read-string "Property: "))
                  (value-type (completing-read
                               "Value type: "
-                              '(string number link note)
+                              '(string number link note date datetime)
                               nil 'require-match))
                  (value (vulpea-meta--read-value value-type)))
         (vulpea-meta-set note prop value 'append))
@@ -226,7 +235,7 @@ When point is before the first heading, operates on the file-level note."
       (when-let* ((prop (read-string "Property: "))
                  (value-type (completing-read
                               "Value type: "
-                              '(string number link note)
+                              '(string number link note date datetime)
                               nil 'require-match))
                  (values
                   (vulpea-utils-collect-while

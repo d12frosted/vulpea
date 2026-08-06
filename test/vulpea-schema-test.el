@@ -359,6 +359,105 @@
       (should (equal (vulpea-violation-message (car vs))
                      "score must be between 0 and 100")))))
 
+(defmacro vulpea-schema-test--with-dated (var &rest body)
+  "Run BODY with VAR bound to a schema with date and datetime fields."
+  (declare (indent 1))
+  `(let* ((vulpea-schema--registry (make-hash-table :test 'eq))
+          (,var (vulpea-schema-define 'dated
+                  :predicate (lambda (_n) t)
+                  :fields '((:key "published" :type date)
+                            (:key "scheduled" :type datetime)))))
+     ,@body))
+
+(ert-deftest vulpea-schema-validate-date-accepts-both-brackets ()
+  "A date field accepts both active and inactive timestamps."
+  (vulpea-schema-test--with-dated schema
+    (should-not (vulpea-schema-validate
+                 (make-vulpea-note :meta '(("published" "<2026-08-05 Wed>")))
+                 schema))
+    (should-not (vulpea-schema-validate
+                 (make-vulpea-note :meta '(("published" "[2026-08-05 Wed]")))
+                 schema))))
+
+(ert-deftest vulpea-schema-validate-datetime-accepts-both-brackets ()
+  "A datetime field accepts both active and inactive timestamps."
+  (vulpea-schema-test--with-dated schema
+    (should-not (vulpea-schema-validate
+                 (make-vulpea-note :meta '(("scheduled" "<2026-08-05 Wed 14:30>")))
+                 schema))
+    (should-not (vulpea-schema-validate
+                 (make-vulpea-note :meta '(("scheduled" "[2026-08-05 Wed 14:30]")))
+                 schema))))
+
+(ert-deftest vulpea-schema-validate-date-rejects-garbage ()
+  "A non-timestamp value in a date field yields wrong-type."
+  (vulpea-schema-test--with-dated schema
+    (dolist (v '("today" "yesterday" "2026-08-05" "<2026-02-30 Mon>"))
+      (let ((vs (vulpea-schema-validate
+                 (make-vulpea-note :meta (list (list "published" v)))
+                 schema)))
+        (should (= (length vs) 1))
+        (should (eq (vulpea-violation-type (car vs)) 'wrong-type))
+        (should (equal (vulpea-violation-field (car vs)) "published"))))))
+
+(ert-deftest vulpea-schema-validate-date-rejects-time-part ()
+  "A date field rejects a timestamp carrying a time."
+  (vulpea-schema-test--with-dated schema
+    (let ((vs (vulpea-schema-validate
+               (make-vulpea-note :meta '(("published" "<2026-08-05 Wed 14:30>")))
+               schema)))
+      (should (= (length vs) 1))
+      (should (eq (vulpea-violation-type (car vs)) 'wrong-type)))))
+
+(ert-deftest vulpea-schema-validate-datetime-requires-time-part ()
+  "A datetime field rejects a timestamp without a time."
+  (vulpea-schema-test--with-dated schema
+    (let ((vs (vulpea-schema-validate
+               (make-vulpea-note :meta '(("scheduled" "<2026-08-05 Wed>")))
+               schema)))
+      (should (= (length vs) 1))
+      (should (eq (vulpea-violation-type (car vs)) 'wrong-type)))))
+
+(ert-deftest vulpea-schema-validate-date-custom-validator-gets-timestamp ()
+  "A :validate function on a date field receives a `vulpea-timestamp'."
+  (let* ((vulpea-schema--registry (make-hash-table :test 'eq))
+         (seen nil)
+         (schema (vulpea-schema-define 'dated
+                   :predicate (lambda (_n) t)
+                   :fields
+                   (list (list :key "published" :type 'date
+                               :validate (lambda (v _n)
+                                           (setq seen v)
+                                           t))))))
+    (should-not (vulpea-schema-validate
+                 (make-vulpea-note :meta '(("published" "[2026-08-05 Wed]")))
+                 schema))
+    (should (vulpea-timestamp-p seen))))
+
+(ert-deftest vulpea-schema-validate-date-ignores-one-of ()
+  "The :one-of check does not apply to date fields."
+  (let* ((vulpea-schema--registry (make-hash-table :test 'eq))
+         (schema (vulpea-schema-define 'dated
+                   :predicate (lambda (_n) t)
+                   :fields '((:key "published" :type date
+                              :one-of ("<2000-01-01 Sat>"))))))
+    (should-not (vulpea-schema-validate
+                 (make-vulpea-note :meta '(("published" "[2026-08-05 Wed]")))
+                 schema))))
+
+(ert-deftest vulpea-schema-validate-date-multiple-values ()
+  "Every value of a :multiple date field is validated."
+  (let* ((vulpea-schema--registry (make-hash-table :test 'eq))
+         (schema (vulpea-schema-define 'dated
+                   :predicate (lambda (_n) t)
+                   :fields '((:key "dates" :type date :multiple t)))))
+    (let ((vs (vulpea-schema-validate
+               (make-vulpea-note
+                :meta '(("dates" "<2026-08-05 Wed>" "nonsense" "[2026-08-06 Thu]")))
+               schema)))
+      (should (= (length vs) 1))
+      (should (eq (vulpea-violation-type (car vs)) 'wrong-type)))))
+
 (ert-deftest vulpea-schema-validate-notes-aggregates ()
   "`vulpea-schema-validate-notes' validates an arbitrary list of notes."
   (vulpea-schema-test--with-wine schema

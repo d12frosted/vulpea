@@ -237,6 +237,9 @@ In elisp (for scripts or custom commands):
   ;; Get as number
   (vulpea-note-meta-get note "price" 'number)  ; => 450
 
+  ;; Get an org timestamp value like [2026-08-05 Wed]
+  (vulpea-note-meta-get note "acquired" 'date)  ; => <vulpea-timestamp>
+
   ;; Get linked note
   (vulpea-note-meta-get note "region" 'note))  ; => <vulpea-note>
 #+end_src

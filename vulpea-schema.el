@@ -43,9 +43,12 @@
 ;;
 ;;   :key       metadata key string (required)
 ;;   :type      value type: `string' (default), `number', `symbol',
-;;              `note', or `link'.  Values are read with
-;;              `vulpea-note-meta-get', so the type vocabulary matches the
-;;              rest of vulpea.
+;;              `note', `link', `date', or `datetime'.  Values are read
+;;              with `vulpea-note-meta-get', so the type vocabulary
+;;              matches the rest of vulpea.  A `date' field holds a
+;;              plain org timestamp without a time part, a `datetime'
+;;              field one with a time part; both accept active and
+;;              inactive brackets and read as a `vulpea-timestamp'.
 ;;   :required  t/nil, or a function (note) -> boolean for conditional
 ;;              requiredness (e.g. required only for sparkling wines).
 ;;   :one-of    a list of allowed values, or a function (note) -> list for
@@ -104,6 +107,7 @@
 (require 'cl-lib)
 (require 'ol)
 (require 'vulpea-note)
+(require 'vulpea-timestamp)
 (require 'vulpea-utils)
 (require 'vulpea-db-query)
 
@@ -286,6 +290,7 @@ literal or a function of the note."
   (pcase type
     ('number (string-to-number raw))
     ('symbol (intern raw))
+    ((or 'date 'datetime) (or (vulpea-timestamp-parse raw) raw))
     (_ raw)))
 
 (defun vulpea-schema--link-id (raw)
@@ -363,9 +368,27 @@ custom :validate function.  Returns the first problem found."
                    note schema field 'invalid-reference
                    (format "Field %S references missing note %s" key id) id)
                 (vulpea-schema--target-tags-violation
-                 target id field note schema))))))))
-     ;; allowed values (not meaningful for note/link references)
-     (when (and one-of (not (memq type '(note link))))
+                 target id field note schema)))))))
+       ((or 'date 'datetime)
+        (let ((ts (vulpea-timestamp-parse raw)))
+          (cond
+           ((null ts)
+            (vulpea-schema--violation
+             note schema field 'wrong-type
+             (format "Field %S expected an org timestamp, got %S" key raw)
+             raw))
+           ((and (eq type 'date) (vulpea-timestamp-with-time ts))
+            (vulpea-schema--violation
+             note schema field 'wrong-type
+             (format "Field %S expected a date without time, got %S" key raw)
+             raw))
+           ((and (eq type 'datetime) (not (vulpea-timestamp-with-time ts)))
+            (vulpea-schema--violation
+             note schema field 'wrong-type
+             (format "Field %S expected a date with time, got %S" key raw)
+             raw))))))
+     ;; allowed values (not meaningful for references and dates)
+     (when (and one-of (not (memq type '(note link date datetime))))
        (let ((typed (vulpea-schema--coerce raw type)))
          (unless (member typed one-of)
            (vulpea-schema--violation

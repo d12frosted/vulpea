@@ -36,6 +36,7 @@
 (require 'cl-lib)
 (require 'dash)
 (require 'subr-x)
+(require 'vulpea-timestamp)
 
 (autoload 'vulpea-db-query-by-ids "vulpea-db-query")
 
@@ -196,7 +197,10 @@ Each element value depends on TYPE:
 - number - parsed as number
 - link - path of the link (ID for id: links, raw link otherwise)
 - note - linked `vulpea-note'
-- symbol - interned symbol."
+- symbol - interned symbol
+- date / datetime - a `vulpea-timestamp', or nil when the value is
+  not a plain org timestamp (both read the same way; the distinction
+  matters for schema validation)."
   (setq type (or type 'string))
   (let ((items (cdr (assoc prop (vulpea-note-meta note)))))
     (if (eq type 'note)
@@ -233,7 +237,9 @@ Each element value depends on TYPE:
                                       (if (string-prefix-p "id:" link)
                                           (string-remove-prefix "id:" link)
                                         link))
-                                  value)))))))
+                                  value))
+                         ((or 'date 'datetime)
+                          (vulpea-timestamp-parse value)))))))
 
 (defun vulpea-note-meta-get (note prop &optional type)
   "Get value of PROP from NOTE meta.
@@ -244,7 +250,9 @@ Result depends on TYPE:
 - number - an interpreted number
 - link - path of the link (either ID of the linked note or raw link)
 - note - linked `vulpea-note'
-- symbol - an interned symbol.
+- symbol - an interned symbol
+- date / datetime - a `vulpea-timestamp', or nil when the value is
+  not a plain org timestamp.
 
 If the note contains multiple values for a given PROP, the first
 one is returned. In case all values are required, use

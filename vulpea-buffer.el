@@ -53,6 +53,7 @@
 (require 's)
 
 (require 'url-parse)
+(require 'vulpea-timestamp)
 (require 'vulpea-utils)
 (require 'vulpea-db)
 (require 'vulpea-db-query)
@@ -576,7 +577,9 @@ Each element value depends on TYPE:
 - number - an interpreted number
 - link - path of the link (either ID of the linked note or raw link)
 - note - linked `vulpea-note'
-- symbol - an interned symbol."
+- symbol - an interned symbol
+- date / datetime - a `vulpea-timestamp', or nil when the value is
+  not a plain org timestamp."
   (setq type (or type 'string))
   (let* ((meta (vulpea-buffer-meta--get meta prop))
          (items (plist-get meta :items)))
@@ -632,7 +635,13 @@ Each element value depends on TYPE:
                                    (org-element-type el))
                         (pcase (org-element-property :type el)
                           ("id" (org-element-property :path el))
-                          (_ (org-element-property :raw-link el))))))))))))
+                          (_ (org-element-property :raw-link el))))))
+                   ((or `date `datetime)
+                    (vulpea-timestamp-parse
+                     (s-trim-right
+                      (substring-no-properties
+                       (org-element-interpret-data
+                        (org-element-contents val))))))))))))
 
 (defun vulpea-buffer-meta-get! (meta prop &optional type)
   "Get value of PROP from META.
@@ -645,7 +654,9 @@ Result depends on TYPE:
 - number - an interpreted number
 - link - path of the link (either ID of the linked note or raw link)
 - note - linked `vulpea-note'
-- symbol - an interned symbol.
+- symbol - an interned symbol
+- date / datetime - a `vulpea-timestamp', or nil when the value is
+  not a plain org timestamp.
 
 If the note contains multiple values for a given PROP, the first
 one is returned. In case all values are required, use
@@ -999,6 +1010,8 @@ BOUND controls the scope - see `vulpea-buffer-meta' for details."
   (cond
    ((vulpea-note-p value)
     (vulpea-utils-link-make-string value))
+   ((vulpea-timestamp-p value)
+    (vulpea-timestamp-to-string value))
    ((and (stringp value)
          (string-match-p (concat "^" vulpea-utils--uuid-regexp "$") value))
     (if-let* ((note (vulpea-db-get-by-id value)))

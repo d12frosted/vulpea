@@ -1147,5 +1147,26 @@ file's value, which is what whole-file scope produced."
    (should (equal (vulpea-meta-get "a1b2c3d4-e5f6-7890-abcd-ef1234567890" "file-prop" 'string)
                   "file value"))))
 
+(ert-deftest vulpea-meta-read-value-date ()
+  "The date types read via `org-read-date' and yield a `vulpea-timestamp'."
+  (let (with-time-args)
+    (cl-letf (((symbol-function 'org-read-date)
+               (lambda (&optional with-time _to-time &rest _)
+                 (push with-time with-time-args)
+                 (encode-time (list 0 30 14 5 8 2026 nil -1 nil)))))
+      (let ((date (vulpea-meta--read-value "date"))
+            (datetime (vulpea-meta--read-value "datetime")))
+        (should (vulpea-timestamp-p date))
+        (should-not (vulpea-timestamp-with-time date))
+        (should (vulpea-timestamp-active date))
+        ;; org-read-date returns the date at the current wall-clock
+        ;; time; a date value must be truncated to midnight
+        (should (time-equal-p (vulpea-timestamp-time date)
+                              (encode-time (list 0 0 0 5 8 2026 nil -1 nil))))
+        (should (vulpea-timestamp-p datetime))
+        (should (vulpea-timestamp-with-time datetime))
+        ;; date must not ask for a time, datetime must
+        (should (equal (nreverse with-time-args) '(nil t)))))))
+
 (provide 'vulpea-meta-test)
 ;;; vulpea-meta-test.el ends here
