@@ -5072,13 +5072,17 @@ reads them from the buffer instead."
         (should-not (string-match-p "ID: +h1\n:END:\n-" s))))))
 
 (ert-deftest vulpea-schema-insert-field-no-fields ()
-  "A schema without fields signals a user-error."
+  "A schema without fields writes nothing beyond ensuring the id."
   (let ((vulpea-schema--registry (make-hash-table :test 'eq)))
     (vulpea-schema-define 'empty :predicate #'ignore)
     (with-temp-buffer
       (org-mode)
       (insert ":PROPERTIES:\n:ID: x\n:END:\n#+title: T\n")
-      (should-error (vulpea-schema-insert-field 'empty) :type 'user-error))))
+      (let ((before (buffer-string)))
+        (cl-letf (((symbol-function 'completing-read)
+                   (lambda (&rest _) (error "Nothing to prompt for"))))
+          (should-not (vulpea-schema-insert-field 'empty)))
+        (should (equal (buffer-string) before))))))
 
 (ert-deftest vulpea-schema-insert-field-empty-field-choice-errors ()
   "Confirming the field prompt on empty input errors instead of writing junk."
@@ -5444,6 +5448,22 @@ yields a non-existing note).  The prompts and candidate lists passed to
       (re-search-forward "^\\* Target")
       (should (org-entry-get (point) "ID"))
       (should (string-match-p "- efficacy :: done" (buffer-string))))))
+
+(ert-deftest vulpea-schema-insert-field-fieldless-creates-id ()
+  "The single-field command ensures the ID for a fieldless schema too."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq)))
+    (vulpea-schema-define 'marker :predicate #'ignore)
+    (with-temp-buffer
+      (org-mode)
+      (insert ":PROPERTIES:\n:ID: file\n:END:\n#+title: Journal\n\n"
+              "* Target :marker:\n")
+      (goto-char (point-max))
+      (cl-letf (((symbol-function 'completing-read)
+                 (lambda (&rest _) (error "Nothing to prompt for"))))
+        (should-not (vulpea-schema-insert-field 'marker)))
+      (goto-char (point-min))
+      (re-search-forward "^\\* Target")
+      (should (org-string-nw-p (org-entry-get (point) "ID"))))))
 
 (ert-deftest vulpea-schema-insert-fields-replaces-blank-id ()
   "A blank :ID: property counts as missing and gets a real id in place."
