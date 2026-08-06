@@ -1124,5 +1124,42 @@ afterwards must honor the new value (plain links dropped)."
           (should (member "bt" dests))
           (should-not (member "//plain.example.com" dests)))))))
 
+(ert-deftest vulpea-db-worker-honors-alias-property ()
+  "A customized `vulpea-buffer-alias-property' reaches the worker.
+The file carries both the default ALIASES property and a custom one;
+extraction must read only the property the setting names, in the
+worker exactly as in the main process.
+https://github.com/d12frosted/vulpea/issues/457"
+  (vulpea-db-worker-test--with-file
+      (concat ":PROPERTIES:\n"
+              ":ID: alias-prop-note\n"
+              ":ALIASES: Diff\n"
+              ":ROAM_ALIASES: Job\n"
+              ":END:\n"
+              "#+TITLE: Test\n")
+    (let ((vulpea-buffer-alias-property "ROAM_ALIASES")
+          sync-dump async-dump)
+      ;; Sync reference: the custom property wins
+      (vulpea-test--with-temp-db
+        (vulpea-db)
+        (vulpea-db-update-file path)
+        (should (equal '("Job")
+                       (vulpea-note-aliases
+                        (vulpea-db-get-by-id "alias-prop-note"))))
+        (setq sync-dump (vulpea-db-worker-test--db-dump)))
+      ;; Async via worker must extract the same aliases
+      (vulpea-test--with-temp-db
+        (vulpea-db)
+        (should (vulpea-db-worker-can-handle-p path))
+        (vulpea-db-worker-request path)
+        (vulpea-db-worker-test--wait)
+        (should (equal '("Job")
+                       (vulpea-note-aliases
+                        (vulpea-db-get-by-id "alias-prop-note"))))
+        (setq async-dump (vulpea-db-worker-test--db-dump)))
+      (dolist (table '(:notes :tags :links :meta :properties))
+        (should (equal (plist-get sync-dump table)
+                       (plist-get async-dump table)))))))
+
 (provide 'vulpea-db-worker-test)
 ;;; vulpea-db-worker-test.el ends here

@@ -392,6 +392,8 @@ By default, aliases are stored in =ALIASES=. To use =ROAM_ALIASES= for org-roam 
 (setq vulpea-buffer-alias-property "ROAM_ALIASES")
 #+end_src
 
+Changing this re-indexes the database on the next restart, so aliases already stored under the old property are re-read. To apply it immediately, run =C-u M-x vulpea-db-sync-full-scan=.
+
 * Renaming Notes
 
 When you change a note's title, links pointing to it still show the old title. Vulpea provides tools to propagate title changes across your knowledge base.

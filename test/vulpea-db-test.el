@@ -889,7 +889,18 @@ keeps only its genuine #+filetags."
                    (vulpea-db--settings-fingerprint)))
         (fp-find-file (let ((vulpea-db-parse-method 'find-file))
                         (vulpea-db--settings-fingerprint))))
-    (should-not (equal fp-temp fp-find-file))))
+    (should-not (equal fp-temp fp-find-file)))
+
+  ;; The alias property is part of the fingerprint: aliases are
+  ;; extracted from the property it names, so changing it between
+  ;; sessions must trigger a re-index - otherwise unchanged cached
+  ;; files keep aliases read from the old property.
+  ;; https://github.com/d12frosted/vulpea/issues/457
+  (let ((fp-default (let ((vulpea-buffer-alias-property "ALIASES"))
+                      (vulpea-db--settings-fingerprint)))
+        (fp-roam (let ((vulpea-buffer-alias-property "ROAM_ALIASES"))
+                   (vulpea-db--settings-fingerprint))))
+    (should-not (equal fp-default fp-roam))))
 
 (ert-deftest vulpea-db-settings-stored-on-init ()
   "Test that settings fingerprint is stored in schema-registry on init."
