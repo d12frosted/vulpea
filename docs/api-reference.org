@@ -1697,6 +1697,8 @@ one more value to a =:multiple= field: a =:multiple= field keeps its
 existing values and the answer is appended after them (an empty
 skeleton placeholder is filled rather than kept), while any other
 field is replaced when already present. An empty answer writes nothing.
+On a schema with no fields it skips the prompts but still ensures the
+id, same as the guided flow.
 
 Two headless primitives back the commands and are useful on their own -
 for example to build a "what's missing" view:

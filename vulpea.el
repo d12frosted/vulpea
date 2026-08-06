@@ -3024,8 +3024,10 @@ placeholders (as left by the skeleton flow) - those are replaced by
 the answer; any other field is replaced when already present.  An
 empty answer (or quitting a note prompt) writes nothing.  A target
 that lacks an `:ID:' gets one created right before the write, as in
-`vulpea-schema-insert-fields'.  Returns the value written, or nil
-when skipped.
+`vulpea-schema-insert-fields'.  A schema with no fields skips the
+prompts but still ensures the id - invoking the command is signal
+enough that the target is meant to be a note.  Returns the value
+written, or nil when skipped.
 
 This is the one-field counterpart of `vulpea-schema-insert-fields' -
 for adding an optional field that was skipped during the guided
@@ -3035,43 +3037,48 @@ flow, or one more value to a :multiple field."
                   (or schema-or-name
                       (vulpea--schema-read-schema (vulpea--schema-buffer-note)))))
          (fields (vulpea-schema-fields schema)))
-    (unless fields
-      (user-error "Schema %s has no fields" (vulpea-schema-name schema)))
-    (let* ((note (vulpea--schema-buffer-note schema))
-           (missing (vulpea-schema-missing-fields note schema))
-           (ordered (append missing
-                            (cl-remove-if (lambda (f) (memq f missing)) fields)))
-           (keys (mapcar (lambda (f) (plist-get f :key)) ordered))
-           (key (completing-read
-                 "Field: "
-                 ;; a plain list would be re-sorted by the completion UI;
-                 ;; this table keeps the missing-first order
-                 (lambda (string pred action)
-                   (if (eq action 'metadata)
-                       '(metadata (display-sort-function . identity)
-                                  (cycle-sort-function . identity))
-                     (complete-with-action action keys string pred)))
-                 nil t))
-           (field (or (cl-find key fields
-                               :key (lambda (f) (plist-get f :key))
-                               :test #'equal)
-                      ;; require-match still lets empty input through
-                      (user-error "No field chosen")))
-           (required (vulpea-schema--call-or-value (plist-get field :required) note))
-           (value (vulpea--schema-prompt-field field note required))
-           (value (if (listp value) (remove "" value) value)))
-      (when (and value (not (equal value "")))
-        (vulpea--ensure-id)
-        (if (and (plist-get field :multiple)
-                 (seq-remove #'string-blank-p
-                             (vulpea-buffer-meta-get-list key 'string 'heading)))
-            ;; a :multiple field with real values grows in place, existing
-            ;; ones untouched
-            (vulpea-buffer-meta-add key value 'heading)
-          ;; otherwise plain set: replaces a single-value field, fills an
-          ;; empty skeleton placeholder, or starts the list
-          (vulpea-buffer-meta-set key value 'append 'heading))
-        value))))
+    (if (null fields)
+        ;; a fieldless schema still marks its target as a note, matching
+        ;; `vulpea-schema-insert-fields'; there is just nothing to prompt for
+        (progn
+          (vulpea--ensure-id)
+          (message "Schema %s has no fields" (vulpea-schema-name schema))
+          nil)
+      (let* ((note (vulpea--schema-buffer-note schema))
+             (missing (vulpea-schema-missing-fields note schema))
+             (ordered (append missing
+                              (cl-remove-if (lambda (f) (memq f missing)) fields)))
+             (keys (mapcar (lambda (f) (plist-get f :key)) ordered))
+             (key (completing-read
+                   "Field: "
+                   ;; a plain list would be re-sorted by the completion UI;
+                   ;; this table keeps the missing-first order
+                   (lambda (string pred action)
+                     (if (eq action 'metadata)
+                         '(metadata (display-sort-function . identity)
+                                    (cycle-sort-function . identity))
+                       (complete-with-action action keys string pred)))
+                   nil t))
+             (field (or (cl-find key fields
+                                 :key (lambda (f) (plist-get f :key))
+                                 :test #'equal)
+                        ;; require-match still lets empty input through
+                        (user-error "No field chosen")))
+             (required (vulpea-schema--call-or-value (plist-get field :required) note))
+             (value (vulpea--schema-prompt-field field note required))
+             (value (if (listp value) (remove "" value) value)))
+        (when (and value (not (equal value "")))
+          (vulpea--ensure-id)
+          (if (and (plist-get field :multiple)
+                   (seq-remove #'string-blank-p
+                               (vulpea-buffer-meta-get-list key 'string 'heading)))
+              ;; a :multiple field with real values grows in place, existing
+              ;; ones untouched
+              (vulpea-buffer-meta-add key value 'heading)
+            ;; otherwise plain set: replaces a single-value field, fills an
+            ;; empty skeleton placeholder, or starts the list
+            (vulpea-buffer-meta-set key value 'append 'heading))
+          value)))))
 
 ;;;###autoload
 (defun vulpea-schema-fix-violation (violation &optional bound)
