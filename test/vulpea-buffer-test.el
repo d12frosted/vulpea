@@ -754,6 +754,47 @@ line and leaves the block content untouched."
   (should-error (vulpea-buffer-meta-format '(1 2 3))
                 :type 'user-error))
 
+(ert-deftest vulpea-buffer-meta-get-timestamp-types ()
+  "The buffer-level meta reader supports the date types."
+  (with-temp-buffer
+    (org-mode)
+    (insert "#+title: T\n\n"
+            "- published :: [2026-08-05 Wed]\n"
+            "- scheduled :: <2026-08-05 Wed 14:30>\n"
+            "- garbage :: today\n")
+    (let ((date (vulpea-buffer-meta-get "published" 'date))
+          (datetime (vulpea-buffer-meta-get "scheduled" 'datetime)))
+      (should (vulpea-timestamp-p date))
+      (should-not (vulpea-timestamp-active date))
+      (should-not (vulpea-timestamp-with-time date))
+      (should (vulpea-timestamp-p datetime))
+      (should (vulpea-timestamp-active datetime))
+      (should (vulpea-timestamp-with-time datetime))
+      (should (time-equal-p (vulpea-timestamp-time datetime)
+                            (encode-time (list 0 30 14 5 8 2026 nil -1 nil))))
+      (should-not (vulpea-buffer-meta-get "garbage" 'date)))))
+
+(ert-deftest vulpea-buffer-meta-format-timestamp ()
+  "A `vulpea-timestamp' serializes preserving activeness and time."
+  (let ((system-time-locale "C"))
+    (should (equal (vulpea-buffer-meta-format
+                    (vulpea-timestamp-parse "<2026-08-05 Wed>"))
+                   "<2026-08-05 Wed>"))
+    (should (equal (vulpea-buffer-meta-format
+                    (vulpea-timestamp-parse "[2026-08-05 Wed 14:30]"))
+                   "[2026-08-05 Wed 14:30]"))))
+
+(ert-deftest vulpea-buffer-meta-set-timestamp ()
+  "Setting a `vulpea-timestamp' value writes an org timestamp."
+  (let ((system-time-locale "C"))
+    (with-temp-buffer
+      (org-mode)
+      (insert ":PROPERTIES:\n:ID: x\n:END:\n#+title: T\n")
+      (vulpea-buffer-meta-set
+       "published" (vulpea-timestamp-parse "[2026-08-05 Wed]") 'append)
+      (should (string-match-p "- published :: \\[2026-08-05 Wed\\]"
+                              (buffer-string))))))
+
 ;;; vulpea-buffer-meta with bound parameter Tests
 
 (defmacro vulpea-buffer-test--with-temp-buffer (content &rest body)

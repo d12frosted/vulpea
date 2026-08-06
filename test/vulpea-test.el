@@ -4807,6 +4807,83 @@ reads them from the buffer instead."
       (should-not (vulpea--schema-prompt-fields
                    '((:key "tags" :one-of (a b) :multiple t)) note)))))
 
+(ert-deftest vulpea-schema-insert-fields-date ()
+  "A date field prompts via `org-read-date' and writes an active timestamp."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq))
+        (system-time-locale "C")
+        (with-time-arg 'unset))
+    (vulpea-schema-define 'post :predicate #'ignore
+      :fields '((:key "published" :type date)))
+    (with-temp-buffer
+      (org-mode)
+      (insert ":PROPERTIES:\n:ID: x\n:END:\n#+title: T\n")
+      (cl-letf (((symbol-function 'org-read-date)
+                 (lambda (&optional with-time to-time &rest _)
+                   (setq with-time-arg with-time)
+                   (should to-time)
+                   (encode-time (list 0 0 0 5 8 2026 nil -1 nil)))))
+        (vulpea-schema-insert-fields 'post))
+      (should-not with-time-arg)
+      (should (string-match-p "- published :: <2026-08-05 Wed>"
+                              (buffer-string))))))
+
+(ert-deftest vulpea-schema-insert-fields-datetime ()
+  "A datetime field asks `org-read-date' for a time and writes it."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq))
+        (system-time-locale "C")
+        (with-time-arg nil))
+    (vulpea-schema-define 'post :predicate #'ignore
+      :fields '((:key "scheduled" :type datetime)))
+    (with-temp-buffer
+      (org-mode)
+      (insert ":PROPERTIES:\n:ID: x\n:END:\n#+title: T\n")
+      (cl-letf (((symbol-function 'org-read-date)
+                 (lambda (&optional with-time _to-time &rest _)
+                   (setq with-time-arg with-time)
+                   (encode-time (list 0 30 14 5 8 2026 nil -1 nil)))))
+        (vulpea-schema-insert-fields 'post))
+      (should with-time-arg)
+      (should (string-match-p "- scheduled :: <2026-08-05 Wed 14:30>"
+                              (buffer-string))))))
+
+(ert-deftest vulpea-schema-insert-fields-date-quit-skips ()
+  "Quitting the date prompt skips the field without aborting the command."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq)))
+    (vulpea-schema-define 'post :predicate #'ignore
+      :fields '((:key "published" :type date) (:key "name")))
+    (with-temp-buffer
+      (org-mode)
+      (insert ":PROPERTIES:\n:ID: x\n:END:\n#+title: T\n")
+      (cl-letf (((symbol-function 'org-read-date)
+                 (lambda (&rest _) (signal 'quit nil)))
+                ((symbol-function 'read-string) (lambda (&rest _) "V")))
+        (vulpea-schema-insert-fields 'post))
+      (let ((s (buffer-string)))
+        (should-not (string-match-p "- published ::" s))
+        (should (string-match-p "- name :: V" s))))))
+
+(ert-deftest vulpea-schema-insert-fields-date-multiple ()
+  "A :multiple date field collects timestamps until the prompt is quit."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq))
+        (system-time-locale "C")
+        (calls 0))
+    (vulpea-schema-define 'post :predicate #'ignore
+      :fields '((:key "dates" :type date :multiple t)))
+    (with-temp-buffer
+      (org-mode)
+      (insert ":PROPERTIES:\n:ID: x\n:END:\n#+title: T\n")
+      (cl-letf (((symbol-function 'org-read-date)
+                 (lambda (&rest _)
+                   (cl-incf calls)
+                   (pcase calls
+                     (1 (encode-time (list 0 0 0 5 8 2026 nil -1 nil)))
+                     (2 (encode-time (list 0 0 0 6 8 2026 nil -1 nil)))
+                     (_ (signal 'quit nil))))))
+        (vulpea-schema-insert-fields 'post))
+      (let ((s (buffer-string)))
+        (should (string-match-p "- dates :: <2026-08-05 Wed>" s))
+        (should (string-match-p "- dates :: <2026-08-06 Thu>" s))))))
+
 ;;; Schema authoring into headings (#356)
 
 (ert-deftest vulpea-schema-insert-fields-into-heading-at-point ()
