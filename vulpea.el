@@ -2878,12 +2878,13 @@ prompts over all registered schemas when none match."
 NOTE gives context and REQUIRED is non-nil when the field is required.
 Honors :type (note selection for `note' / `link', `org-read-date' with
 its calendar for `date' / `datetime' - a datetime prompt also asks for
-a time - writing an active timestamp), :one-of (completion) and
-:target-tags (restricting note selection to notes carrying every
-listed tag).  A field marked :multiple collects several values: note
-fields select repeatedly - each pick leaves the candidate pool, and
-quitting via `keyboard-quit' or confirming empty input ends the
-collection - date fields read timestamps until `keyboard-quit',
+a time - writing an active timestamp, or an inactive one when the
+field says :active nil), :one-of (completion) and :target-tags
+\(restricting note selection to notes carrying every listed tag).  A
+field marked :multiple collects several values: note fields select
+repeatedly - each pick leaves the candidate pool, and quitting via
+`keyboard-quit' or confirming empty input ends the collection - date
+fields read timestamps until `keyboard-quit',
 :one-of fields use `completing-read-multiple', and free-form fields
 read strings until a blank answer.  Quitting a note or date prompt
 before the first pick skips that field.  Returns the entered value, a
@@ -2899,7 +2900,10 @@ list of values, or an empty value when skipped."
                         (cl-every (lambda (tag)
                                     (member tag (vulpea-note-tags n)))
                                   target-tags))))
-         (candidates (lambda () (mapcar (lambda (v) (format "%s" v)) one-of))))
+         (candidates (lambda () (mapcar (lambda (v) (format "%s" v)) one-of)))
+         (active (if (plist-member field :active)
+                     (plist-get field :active)
+                   t)))
     (cond
      ((and (memq type '(note link)) multiple)
       (vulpea-select-multiple-from
@@ -2924,13 +2928,13 @@ list of values, or an empty value when skipped."
          (vulpea-timestamp-create
           (org-read-date (eq type 'datetime) t nil
                          (format "%s (C-g to stop)" label))
-          (eq type 'datetime) t))
+          (eq type 'datetime) active))
        nil))
      ((memq type '(date datetime))
       (condition-case nil
           (vulpea-timestamp-create
            (org-read-date (eq type 'datetime) t nil label)
-           (eq type 'datetime) t)
+           (eq type 'datetime) active)
         (quit nil)))
      ((and one-of multiple)
       (completing-read-multiple (concat label ": ") (funcall candidates)))

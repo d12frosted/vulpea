@@ -49,6 +49,11 @@
 ;;              plain org timestamp without a time part, a `datetime'
 ;;              field one with a time part; both accept active and
 ;;              inactive brackets and read as a `vulpea-timestamp'.
+;;   :active    for a `date' / `datetime' field, whether the authoring
+;;              prompts write an active timestamp (default t; nil
+;;              writes inactive).  Prompt-side only: validation accepts
+;;              both forms either way, and an existing value keeps its
+;;              brackets.
 ;;   :required  t/nil, or a function (note) -> boolean for conditional
 ;;              requiredness (e.g. required only for sparkling wines).
 ;;   :one-of    a list of allowed values, or a function (note) -> list for

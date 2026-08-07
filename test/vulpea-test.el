@@ -4846,6 +4846,44 @@ reads them from the buffer instead."
       (should (string-match-p "- scheduled :: <2026-08-05 Wed 14:30>"
                               (buffer-string))))))
 
+(ert-deftest vulpea-schema-insert-fields-date-inactive-option ()
+  "With :active nil the prompt writes an inactive timestamp."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq))
+        (system-time-locale "C"))
+    (vulpea-schema-define 'post :predicate #'ignore
+      :fields '((:key "published" :type date :active nil)
+                (:key "scheduled" :type datetime :active nil)))
+    (with-temp-buffer
+      (org-mode)
+      (insert ":PROPERTIES:\n:ID: x\n:END:\n#+title: T\n")
+      (cl-letf (((symbol-function 'org-read-date)
+                 (lambda (&rest _)
+                   (encode-time (list 0 30 14 5 8 2026 nil -1 nil)))))
+        (vulpea-schema-insert-fields 'post))
+      (let ((s (buffer-string)))
+        (should (string-match-p "- published :: \\[2026-08-05 Wed\\]" s))
+        (should (string-match-p "- scheduled :: \\[2026-08-05 Wed 14:30\\]" s))))))
+
+(ert-deftest vulpea-schema-insert-fields-date-inactive-multiple ()
+  "A :multiple date field honors :active nil for every collected value."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq))
+        (system-time-locale "C")
+        (calls 0))
+    (vulpea-schema-define 'post :predicate #'ignore
+      :fields '((:key "dates" :type date :multiple t :active nil)))
+    (with-temp-buffer
+      (org-mode)
+      (insert ":PROPERTIES:\n:ID: x\n:END:\n#+title: T\n")
+      (cl-letf (((symbol-function 'org-read-date)
+                 (lambda (&rest _)
+                   (cl-incf calls)
+                   (pcase calls
+                     (1 (encode-time (list 0 0 0 5 8 2026 nil -1 nil)))
+                     (_ (signal 'quit nil))))))
+        (vulpea-schema-insert-fields 'post))
+      (should (string-match-p "- dates :: \\[2026-08-05 Wed\\]"
+                              (buffer-string))))))
+
 (ert-deftest vulpea-schema-insert-fields-date-quit-skips ()
   "Quitting the date prompt skips the field without aborting the command."
   (let ((vulpea-schema--registry (make-hash-table :test 'eq)))
