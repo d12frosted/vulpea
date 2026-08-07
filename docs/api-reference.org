@@ -1485,6 +1485,7 @@ Field spec keys:
 | =:multiple=    | non-nil when the field holds a list of values                    |
 | =:target-tags= | for a =note= field, tags its target must all carry               |
 | =:active=      | for a date field, whether prompts write an active timestamp (default =t=) |
+| =:default=     | default value, or a function =(note)= → value                    |
 | =:validate=    | optional function =(value note)= → =t= or an error string        |
 
 The =:type= vocabulary matches =vulpea-note-meta-get=, so values are read
@@ -1515,6 +1516,28 @@ so range checks are plain time comparisons:
                   (if (time-less-p (vulpea-timestamp-time ts) (current-time))
                       t
                     "published must be in the past")))
+#+end_src
+
+A field can declare a =:default=: a literal value, or a function of the
+note for anything dynamic - an id-derived slug, a value computed from
+sibling fields, whatever a lambda can reach. The guided flow
+(=vulpea-schema-insert-fields=) writes defaulted fields silently instead
+of prompting (edit after, or use =vulpea-schema-insert-field=, which
+always prompts with the default prefilled); the skeleton flow writes
+them as placeholders. For a =date= / =datetime= field a string default
+is =org-read-date= input, relative to today - =+3d=, =+1w=, =+3d 14:00= -
+or an absolute =2026-12-31=, and honors the field's =:active=; any other
+string shape is an error, because =org-read-date= would quietly resolve
+it to today, the worst possible behavior for a silently written value.
+A function default returning nil declines, falling back to the prompt.
+Defaults never affect validation.
+
+#+begin_src emacs-lisp
+;; everything in the inbox must be processed within 30 days
+(vulpea-schema-define 'inbox
+  :predicate (lambda (note) (member "inbox" (vulpea-note-tags note)))
+  :fields
+  '((:key "until" :type date :default "+30d" :required t)))
 #+end_src
 
 For a =note= field, =:target-tags= additionally constrains the /target/:
