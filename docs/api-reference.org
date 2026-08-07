@@ -1484,6 +1484,7 @@ Field spec keys:
 | =:one-of=      | a list of allowed values, or a function =(note)= → list          |
 | =:multiple=    | non-nil when the field holds a list of values                    |
 | =:target-tags= | for a =note= field, tags its target must all carry               |
+| =:active=      | for a date field, whether prompts write an active timestamp (default =t=) |
 | =:validate=    | optional function =(value note)= → =t= or an error string        |
 
 The =:type= vocabulary matches =vulpea-note-meta-get=, so values are read
@@ -1501,7 +1502,10 @@ reads as a =vulpea-timestamp= struct that remembers which one it was, so
 re-serializing reproduces the original (the day name is recomputed from
 the date rather than trusted). The authoring commands prompt for these
 fields with =org-read-date=, calendar and all, and write an active
-timestamp. Ranges, repeaters, and warning periods are not accepted. A
+timestamp - set =:active nil= on the field to have them write inactive
+ones instead. The knob only shapes what prompts write: validation
+accepts both forms either way, and an existing value keeps its
+brackets. Ranges, repeaters, and warning periods are not accepted. A
 =:validate= function on a date field receives the =vulpea-timestamp=,
 so range checks are plain time comparisons:
 
