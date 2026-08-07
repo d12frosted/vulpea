@@ -4884,6 +4884,226 @@ reads them from the buffer instead."
       (should (string-match-p "- dates :: \\[2026-08-05 Wed\\]"
                               (buffer-string))))))
 
+(ert-deftest vulpea-schema-insert-fields-default-literal ()
+  "A field with a literal :default is written without prompting."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq)))
+    (vulpea-schema-define 'post :predicate #'ignore
+      :fields '((:key "status" :default "draft")
+                (:key "priority" :type number :default 3)
+                (:key "name")))
+    (with-temp-buffer
+      (org-mode)
+      (insert ":PROPERTIES:\n:ID: x\n:END:\n#+title: T\n")
+      (cl-letf (((symbol-function 'read-string)
+                 (lambda (prompt &rest _)
+                   ;; only the field without a default may prompt
+                   (should (string-match-p "name" prompt))
+                   "V")))
+        (vulpea-schema-insert-fields 'post))
+      (let ((s (buffer-string)))
+        (should (string-match-p "- status :: draft" s))
+        (should (string-match-p "- priority :: 3" s))
+        (should (string-match-p "- name :: V" s))))))
+
+(ert-deftest vulpea-schema-insert-fields-default-required ()
+  "A required field with a :default is filled, not left as a placeholder."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq)))
+    (vulpea-schema-define 'post :predicate #'ignore
+      :fields '((:key "status" :required t :default "draft")))
+    (with-temp-buffer
+      (org-mode)
+      (insert ":PROPERTIES:\n:ID: x\n:END:\n#+title: T\n")
+      (vulpea-schema-insert-fields 'post)
+      (should (string-match-p "- status :: draft" (buffer-string))))))
+
+(ert-deftest vulpea-schema-insert-fields-default-date-relative ()
+  "A date field accepts an org relative string as :default."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq))
+        (system-time-locale "C"))
+    (vulpea-schema-define 'inbox :predicate #'ignore
+      :fields '((:key "until" :type date :default "+30d")
+                (:key "since" :type date :default "+0d" :active nil)))
+    (with-temp-buffer
+      (org-mode)
+      (insert ":PROPERTIES:\n:ID: x\n:END:\n#+title: T\n")
+      (vulpea-schema-insert-fields 'inbox)
+      (let ((s (buffer-string))
+            (until (format-time-string
+                    "<%Y-%m-%d %a>" (time-add nil (days-to-time 30))))
+            (since (format-time-string "[%Y-%m-%d %a]")))
+        (should (string-match-p (regexp-quote (concat "- until :: " until)) s))
+        (should (string-match-p (regexp-quote (concat "- since :: " since)) s))))))
+
+(ert-deftest vulpea-schema-insert-fields-default-date-absolute ()
+  "A date field accepts an absolute YYYY-MM-DD string as :default."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq))
+        (system-time-locale "C"))
+    (vulpea-schema-define 'post :predicate #'ignore
+      :fields '((:key "published" :type date :default "2026-12-31")))
+    (with-temp-buffer
+      (org-mode)
+      (insert ":PROPERTIES:\n:ID: x\n:END:\n#+title: T\n")
+      (vulpea-schema-insert-fields 'post)
+      (should (string-match-p "- published :: <2026-12-31 Thu>"
+                              (buffer-string))))))
+
+(ert-deftest vulpea-schema-insert-fields-default-date-garbage-errors ()
+  "An unrecognized string default on a date field errors instead of
+silently writing today."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq)))
+    (vulpea-schema-define 'post :predicate #'ignore
+      :fields '((:key "until" :type date :default "banana")))
+    (with-temp-buffer
+      (org-mode)
+      (insert ":PROPERTIES:\n:ID: x\n:END:\n#+title: T\n")
+      (should-error (vulpea-schema-insert-fields 'post) :type 'user-error))
+    ;; the same goes for a relative spec missing its sign
+    (vulpea-schema-define 'post :predicate #'ignore
+      :fields '((:key "until" :type date :default "30d")))
+    (with-temp-buffer
+      (org-mode)
+      (insert ":PROPERTIES:\n:ID: x\n:END:\n#+title: T\n")
+      (should-error (vulpea-schema-insert-fields 'post) :type 'user-error))))
+
+(ert-deftest vulpea-schema-default-function-called-once ()
+  "A function default runs exactly once per field in the guided flow,
+even when it declines."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq))
+        (calls 0))
+    (vulpea-schema-define 'post :predicate #'ignore
+      :fields (list (list :key "slug"
+                          :default (lambda (_note) (cl-incf calls) nil))))
+    (with-temp-buffer
+      (org-mode)
+      (insert ":PROPERTIES:\n:ID: x\n:END:\n#+title: T\n")
+      (cl-letf (((symbol-function 'read-string) (lambda (&rest _) "v")))
+        (vulpea-schema-insert-fields 'post))
+      (should (= calls 1))
+      (should (string-match-p "- slug :: v" (buffer-string))))))
+
+(ert-deftest vulpea-schema-default-empty-string-declines ()
+  "A :default of \"\" declines like nil, falling back to the prompt."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq)))
+    (vulpea-schema-define 'post :predicate #'ignore
+      :fields '((:key "status" :default "")))
+    (with-temp-buffer
+      (org-mode)
+      (insert ":PROPERTIES:\n:ID: x\n:END:\n#+title: T\n")
+      (cl-letf (((symbol-function 'read-string) (lambda (&rest _) "v")))
+        (vulpea-schema-insert-fields 'post))
+      (should (string-match-p "- status :: v" (buffer-string))))))
+
+(ert-deftest vulpea-schema-insert-fields-default-function ()
+  "A function :default receives the note; returning nil falls back to prompting."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq))
+        (seen nil))
+    (vulpea-schema-define 'post :predicate #'ignore
+      :fields (list (list :key "slug"
+                          :default (lambda (note)
+                                     (setq seen note)
+                                     (concat "slug-" (vulpea-note-title note))))
+                    (list :key "empty"
+                          :default (lambda (_note) nil))))
+    (with-temp-buffer
+      (org-mode)
+      (insert ":PROPERTIES:\n:ID: x\n:END:\n#+title: T\n")
+      (cl-letf (((symbol-function 'read-string)
+                 (lambda (prompt &rest _)
+                   (should (string-match-p "empty" prompt))
+                   "prompted")))
+        (vulpea-schema-insert-fields 'post))
+      (should (vulpea-note-p seen))
+      (let ((s (buffer-string)))
+        (should (string-match-p "- slug :: slug-T" s))
+        (should (string-match-p "- empty :: prompted" s))))))
+
+(ert-deftest vulpea-schema-insert-fields-default-multiple ()
+  "A list :default on a :multiple field writes each value as its own item."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq)))
+    (vulpea-schema-define 'post :predicate #'ignore
+      :fields '((:key "areas" :multiple t :default ("home" "work"))))
+    (with-temp-buffer
+      (org-mode)
+      (insert ":PROPERTIES:\n:ID: x\n:END:\n#+title: T\n")
+      (vulpea-schema-insert-fields 'post)
+      (let ((s (buffer-string)))
+        (should (string-match-p "- areas :: home" s))
+        (should (string-match-p "- areas :: work" s))))))
+
+(ert-deftest vulpea-schema-insert-fields-skeleton-uses-defaults ()
+  "Skeleton mode writes defaults where declared, empty placeholders elsewhere."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq)))
+    (vulpea-schema-define 'post :predicate #'ignore
+      :fields '((:key "status" :default "draft") (:key "name")))
+    (with-temp-buffer
+      (org-mode)
+      (insert ":PROPERTIES:\n:ID: x\n:END:\n#+title: T\n")
+      (vulpea-schema-insert-fields 'post t)
+      (let ((s (buffer-string)))
+        (should (string-match-p "- status :: draft" s))
+        (should (string-match-p "^- name ::[ ]*$" s))))))
+
+(ert-deftest vulpea-schema-insert-field-prefills-default ()
+  "The single-field command prompts with the default prefilled, not silently."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq))
+        (initial-arg nil))
+    (vulpea-schema-define 'post :predicate #'ignore
+      :fields '((:key "status" :default "draft")))
+    (with-temp-buffer
+      (org-mode)
+      (insert ":PROPERTIES:\n:ID: x\n:END:\n#+title: T\n")
+      (cl-letf (((symbol-function 'completing-read)
+                 (lambda (&rest _) "status"))
+                ((symbol-function 'read-string)
+                 (lambda (_prompt &optional initial &rest _)
+                   (setq initial-arg initial)
+                   "final")))
+        (vulpea-schema-insert-field 'post))
+      (should (equal initial-arg "draft"))
+      (should (string-match-p "- status :: final" (buffer-string))))))
+
+(ert-deftest vulpea-schema-insert-field-prefills-date-default ()
+  "The single-field command hands a date default to `org-read-date'."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq))
+        (system-time-locale "C")
+        (resolved (encode-time (list 0 0 0 4 9 2026 nil -1 nil)))
+        (default-time-arg nil))
+    (vulpea-schema-define 'inbox :predicate #'ignore
+      :fields '((:key "until" :type date :default "+30d")))
+    (with-temp-buffer
+      (org-mode)
+      (insert ":PROPERTIES:\n:ID: x\n:END:\n#+title: T\n")
+      (cl-letf (((symbol-function 'org-read-date)
+                 (lambda (&optional _with-time _to-time from-string _prompt
+                                    default-time &rest _)
+                   (if from-string
+                       ;; resolution of the default itself
+                       resolved
+                     (setq default-time-arg default-time)
+                     (encode-time (list 0 0 0 5 8 2026 nil -1 nil))))))
+        (cl-letf (((symbol-function 'completing-read)
+                   (lambda (&rest _) "until")))
+          (vulpea-schema-insert-field 'inbox)))
+      (should default-time-arg)
+      (should (time-equal-p default-time-arg resolved))
+      (should (string-match-p "- until :: <2026-08-05 Wed>" (buffer-string))))))
+
+(ert-deftest vulpea-schema-prompt-field-prefills-one-of-default ()
+  "A :one-of prompt passes the resolved default to `completing-read'."
+  (let ((field '(:key "colour" :one-of (red white) :default red))
+        (note (make-vulpea-note))
+        (def-arg 'unset))
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (_prompt _collection &optional _pred _req _initial
+                                _hist def &rest _)
+                 (setq def-arg def)
+                 "white")))
+      (should (equal (vulpea--schema-prompt-field
+                      field note nil
+                      (vulpea--schema-field-default field note))
+                     "white")))
+    (should (equal def-arg "red"))))
+
 (ert-deftest vulpea-schema-insert-fields-date-quit-skips ()
   "Quitting the date prompt skips the field without aborting the command."
   (let ((vulpea-schema--registry (make-hash-table :test 'eq)))

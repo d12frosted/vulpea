@@ -54,6 +54,16 @@
 ;;              writes inactive).  Prompt-side only: validation accepts
 ;;              both forms either way, and an existing value keeps its
 ;;              brackets.
+;;   :default   a default value, or a function (note) -> value.  The
+;;              guided flow (`vulpea-schema-insert-fields') writes it
+;;              silently instead of prompting; the single-field command
+;;              prompts with it prefilled.  For a `date' / `datetime'
+;;              field a string default is `org-read-date' input,
+;;              relative (\"+3d\", \"+1w\", \"+3d 14:00\") or absolute
+;;              (\"2026-12-31\"), honoring :active; any other string
+;;              shape errors rather than silently resolving to today.
+;;              A function returning nil declines, falling back to
+;;              prompting.  Defaults do not affect validation.
 ;;   :required  t/nil, or a function (note) -> boolean for conditional
 ;;              requiredness (e.g. required only for sparkling wines).
 ;;   :one-of    a list of allowed values, or a function (note) -> list for

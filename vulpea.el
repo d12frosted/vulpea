@@ -2872,7 +2872,66 @@ prompts over all registered schemas when none match."
         (unless all (user-error "No schemas are registered"))
         (intern (completing-read "Schema: " (mapcar #'symbol-name all) nil t)))))))
 
-(defun vulpea--schema-prompt-field (field note required)
+(defconst vulpea--schema-date-default-regexp
+  (concat "\\`\\(?:"
+          "\\."                             ; today
+          "\\|\\+\\{1,2\\}[0-9]+[dwmy]?"    ; +3, +3d, ++2w
+          "\\|-[0-9]+[dwmy]?"               ; -1, -1d
+          "\\|[0-9]\\{4\\}-[0-9]\\{2\\}-[0-9]\\{2\\}" ; absolute date
+          "\\)\\(?: [0-9]\\{1,2\\}:[0-9]\\{2\\}\\)?\\'")
+  "Shape of a string :default accepted for a date field.
+`org-read-date' resolves anything, quietly falling back to today for
+input it cannot read - exactly wrong for a silently written default -
+so the accepted shapes are pinned down and everything else errors.")
+
+(defun vulpea--schema-field-default (field note)
+  "Resolve FIELD's :default against NOTE, or nil when there is none.
+
+The :default is a literal value or a function of the note.  For a
+`date' / `datetime' field a string default is `org-read-date' input,
+either relative to today - \"+3d\", \"+1w\", \"+3d 14:00\" - or an
+absolute \"2026-12-31\"; the result honors the field's :active, a
+`vulpea-timestamp' value is used as is, and a string of any other
+shape signals `user-error' rather than silently resolving to today.
+A list is resolved element-wise (for :multiple fields).  Returns a
+value ready for `vulpea-buffer-meta-set', or nil when the field
+declares no default or the default resolves to nil or \"\" (the way
+for a function default to decline)."
+  (when (plist-member field :default)
+    (let* ((type (or (plist-get field :type) 'string))
+           (active (if (plist-member field :active)
+                       (plist-get field :active)
+                     t))
+           (value (vulpea-schema--call-or-value
+                   (plist-get field :default) note))
+           (resolve (lambda (v)
+                      (if (and (memq type '(date datetime)) (stringp v))
+                          (progn
+                            (unless (string-match-p
+                                     vulpea--schema-date-default-regexp v)
+                              (user-error
+                               "Field %S has an unrecognized date default %S"
+                               (plist-get field :key) v))
+                            (vulpea-timestamp-create
+                             (org-read-date (eq type 'datetime) t v)
+                             (eq type 'datetime) active))
+                        v))))
+      (cond
+       ((or (null value) (equal value "")) nil)
+       ((listp value) (mapcar resolve value))
+       (t (funcall resolve value))))))
+
+(defun vulpea--schema-field-defaults (fields note)
+  "Return a (KEY . VALUE) alist of the resolved defaults of FIELDS.
+NOTE gives context for function defaults.  Fields without a default
+\(or whose function default returns nil) are absent from the result."
+  (let (values)
+    (dolist (field fields)
+      (when-let* ((default (vulpea--schema-field-default field note)))
+        (push (cons (plist-get field :key) default) values)))
+    (nreverse values)))
+
+(defun vulpea--schema-prompt-field (field note required &optional default)
   "Prompt for a value for FIELD.
 
 NOTE gives context and REQUIRED is non-nil when the field is required.
@@ -2884,11 +2943,16 @@ field says :active nil), :one-of (completion) and :target-tags
 field marked :multiple collects several values: note fields select
 repeatedly - each pick leaves the candidate pool, and quitting via
 `keyboard-quit' or confirming empty input ends the collection - date
-fields read timestamps until `keyboard-quit',
-:one-of fields use `completing-read-multiple', and free-form fields
-read strings until a blank answer.  Quitting a note or date prompt
-before the first pick skips that field.  Returns the entered value, a
-list of values, or an empty value when skipped."
+fields read timestamps until `keyboard-quit', :one-of fields use
+`completing-read-multiple', and free-form fields read strings until a
+blank answer.  Quitting a note or date prompt before the first pick
+skips that field.  DEFAULT is the field's already-resolved :default
+\(see `vulpea--schema-field-default'; resolution is the caller's job,
+so a function default runs exactly once): it prefills the single-value
+prompts - initial input for free-form, default candidate for :one-of,
+starting date for `org-read-date' - while silently writing it instead
+is the guided flow's business, not this function's.  Returns the
+entered value, a list of values, or an empty value when skipped."
   (let* ((type (or (plist-get field :type) 'string))
          (one-of (vulpea-schema--call-or-value (plist-get field :one-of) note))
          (multiple (plist-get field :multiple))
@@ -2903,7 +2967,14 @@ list of values, or an empty value when skipped."
          (candidates (lambda () (mapcar (lambda (v) (format "%s" v)) one-of)))
          (active (if (plist-member field :active)
                      (plist-get field :active)
-                   t)))
+                   t))
+         ;; only atoms make sense as prompt prefill; a misdeclared
+         ;; default (a timestamp on a free-form field) is dropped
+         ;; rather than rendered as "#s(vulpea-timestamp ...)"
+         (prefill (when (and default
+                             (atom default)
+                             (not (vulpea-timestamp-p default)))
+                    (format "%s" default))))
     (cond
      ((and (memq type '(note link)) multiple)
       (vulpea-select-multiple-from
@@ -2933,31 +3004,36 @@ list of values, or an empty value when skipped."
      ((memq type '(date datetime))
       (condition-case nil
           (vulpea-timestamp-create
-           (org-read-date (eq type 'datetime) t nil label)
+           (org-read-date (eq type 'datetime) t nil label
+                          (when (vulpea-timestamp-p default)
+                            (vulpea-timestamp-time default)))
            (eq type 'datetime) active)
         (quit nil)))
      ((and one-of multiple)
       (completing-read-multiple (concat label ": ") (funcall candidates)))
      (one-of
-      (completing-read (concat label ": ") (funcall candidates)))
+      (completing-read (concat label ": ") (funcall candidates)
+                       nil nil nil nil prefill))
      (multiple
       (vulpea-utils-collect-while
        (lambda () (read-string (format "%s (empty to stop): " label)))
        (lambda (s) (not (string-blank-p s)))))
-     (t (read-string (concat label ": "))))))
+     (t (read-string (concat label ": ") prefill)))))
 
 (defun vulpea--schema-prompt-fields (fields note)
   "Prompt for each field in FIELDS, returning a (KEY . VALUE) alist.
 
-NOTE supplies context for conditional :required and :one-of.  An empty
-answer drops an optional field but keeps a required one as an empty
-placeholder, so the author is still reminded of it."
+NOTE supplies context for conditional :required and :one-of.  A field
+with a resolvable :default is filled with it silently, no prompt.  An
+empty answer drops an optional field but keeps a required one as an
+empty placeholder, so the author is still reminded of it."
   (let (values)
     (dolist (field fields)
       (let* ((key (plist-get field :key))
              (required (vulpea-schema--call-or-value
                         (plist-get field :required) note))
-             (value (vulpea--schema-prompt-field field note required))
+             (value (or (vulpea--schema-field-default field note)
+                        (vulpea--schema-prompt-field field note required)))
              ;; a multi-value answer may contain blank entries (e.g. an
              ;; empty `completing-read-multiple'); drop them so an empty
              ;; optional field is not written as a stray placeholder
@@ -2992,9 +3068,12 @@ several apply, or over all registered schemas when none do).
 
 For each field the note does not already carry, prompt for a value -
 offering :one-of values as completion and selecting a note for `note'
-fields - and insert it; required fields are handled first.  With a
-prefix argument (SKELETON non-nil), skip prompting and insert empty
-placeholders for every missing field instead.
+fields - and insert it; required fields are handled first.  A field
+declaring a :default is filled with it silently, no prompt - edit it
+after, or use `vulpea-schema-insert-field', which always prompts with
+the default prefilled.  With a prefix argument (SKELETON non-nil),
+skip prompting and insert placeholders for every missing field
+instead: the field's default when it declares one, empty otherwise.
 
 The fields are inserted into the note at point: the heading's subtree
 when point is inside one, otherwise the file-level metadata.  A
@@ -3014,7 +3093,8 @@ id-less target untouched."
      ((null fields) (vulpea--ensure-id))
      (skeleton
       (vulpea--ensure-id)
-      (vulpea--schema-insert-field-values fields nil 'heading))
+      (vulpea--schema-insert-field-values
+       fields (vulpea--schema-field-defaults fields note) 'heading))
      (t
       (let ((values (vulpea--schema-prompt-fields fields note)))
         (when values
@@ -3086,7 +3166,9 @@ flow, or one more value to a :multiple field."
                         ;; require-match still lets empty input through
                         (user-error "No field chosen")))
              (required (vulpea-schema--call-or-value (plist-get field :required) note))
-             (value (vulpea--schema-prompt-field field note required))
+             (value (vulpea--schema-prompt-field
+                     field note required
+                     (vulpea--schema-field-default field note)))
              (value (if (listp value) (remove "" value) value)))
         (when (and value (not (equal value "")))
           (vulpea--ensure-id)
@@ -3130,7 +3212,9 @@ This is the headless building block UIs use to offer one-key fixes for a
                          :test #'equal))
          (note (vulpea--schema-buffer-note schema))
          (required (vulpea-schema--call-or-value (plist-get field :required) note))
-         (value (vulpea--schema-prompt-field field note required))
+         (value (vulpea--schema-prompt-field
+                 field note required
+                 (vulpea--schema-field-default field note)))
          (value (if (listp value) (remove "" value) value)))
     (when (and field value (not (equal value "")))
       (vulpea-buffer-meta-set (plist-get field :key) value 'append (or bound 'heading))
