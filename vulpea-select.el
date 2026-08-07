@@ -81,7 +81,7 @@ surprising matches."
   :group 'vulpea-select)
 
 
-(defcustom vulpea-select-annotate-inside-candidate-string t
+(defcustom vulpea-select-annotate-matchable t
   "If t, annotations are added directly in the candidate string.
 
 When this is t, annotations from `vulpea-select-annotate-fn' are
@@ -156,7 +156,7 @@ string self-describing for code that only ever sees strings - a
           (vulpea-select--funcall
            vulpea-select-describe-fn note context))
          (annotation-part
-          (if vulpea-select-annotate-inside-candidate-string
+          (if vulpea-select-annotate-matchable
               (propertize (vulpea-select--funcall
                            vulpea-select-annotate-fn note context)
                           'face 'completions-annotations)
@@ -327,6 +327,9 @@ title stored in `vulpea-note-primary-title'."
 (defun vulpea-select--completion-table (completions)
   "Build a completion table over COMPLETIONS exposing the `vulpea-note' category.
 
+If `vulpea-select-annotate-matchable' is nil, then `annotation-function'
+is also included in the metadata.
+
 COMPLETIONS is an alist of (description . note). The table completes
 like COMPLETIONS and reports a completion category of `vulpea-note',
 so that completion UIs and integrations (marginalia, embark, consult)
@@ -338,7 +341,14 @@ the note itself and the dynamic context as text properties (see
 `vulpea-select-candidate-note' and `vulpea-select-candidate-context'."
   (lambda (string predicate action)
     (if (eq action 'metadata)
-        '(metadata (category . vulpea-note))
+        `(metadata
+          (category . vulpea-note)
+          ,@(when (not vulpea-select-annotate-matchable)
+              `((annotation-function
+                 .
+                 ,(vulpea-select--create-annotate-wrapper
+                   vulpea-select-annotate-fn)))))
+
       (complete-with-action action completions string predicate))))
 
 (cl-defun vulpea-select-from (prompt
@@ -372,15 +382,8 @@ title stored in `vulpea-note-primary-title'."
                        (lambda (n)
                          (cons (vulpea-select-describe n context)
                                n))
-                       expanded-notes))
-         )
-    (let* ((annotation-fn (when (not vulpea-select-annotate-inside-candidate-string)
-                            (vulpea-select--create-annotate-wrapper
-                             vulpea-select-annotate-fn)))
-           (completion-extra-properties
-            (list
-             :annotation-function annotation-fn))
-           (note (completing-read
+                       expanded-notes)))
+    (let* ((note (completing-read
                   (concat prompt ": ")
                   (vulpea-select--completion-table completions)
                   nil require-match initial-prompt)))
