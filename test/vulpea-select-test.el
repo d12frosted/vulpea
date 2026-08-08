@@ -160,8 +160,11 @@
     (should (equal (vulpea-note-id result) "id1"))
     (should (equal (vulpea-note-title result) "First Note"))))
 
-(ert-deftest vulpea-select-describe-basic ()
-  "Test vulpea-select-describe formats note for completion."
+(ert-deftest vulpea-select-describe-with-matchable-annotations ()
+  "Test `vulpea-select-describe' formats note for completion.
+
+Consider the default value of `vulpea-select-annotate-matchable', which
+is t. Tags and then included in the matchable string."
   (let* ((context "CTX")
          (note (make-vulpea-note
                 :id "test-id"
@@ -175,6 +178,36 @@
     ;; Should contain tags
     (should (string-match-p "#tag1" described))
     (should (string-match-p "#tag2" described))
+    ;; Should have id property
+    (should (equal (get-text-property 0 'vulpea-note-id described) "test-id"))
+
+    ;; Should have vulpea-note property
+    (should (equal (get-text-property 0 'vulpea-note described) note))
+
+    ;; Should have vulpea-select-context property
+    (should (equal (get-text-property 0 'vulpea-select-context described) context))))
+
+(ert-deftest vulpea-select-describe-without-matchable-annotations ()
+  "Test `vulpea-select-describe' formats note for completion.
+
+Consider the case where `vulpea-select-annotate-matchable' is nil. Tags
+are not included in the matchable string."
+  (let* ((vulpea-select-annotate-matchable nil)
+         (context "CTX")
+         (note (make-vulpea-note
+                :id "test-id"
+                :title "Test Note"
+                :level 0
+                :tags '("tag1" "tag2")))
+         (described (vulpea-select-describe note context)))
+
+    ;; Should contain title
+    (should (string-match-p "Test Note" described))
+
+    ;; Should not contain tags
+    (should (not (string-match-p "#tag1" described)))
+    (should (not (string-match-p "#tag2" described)))
+
     ;; Should have id property
     (should (equal (get-text-property 0 'vulpea-note-id described) "test-id"))
 
@@ -268,6 +301,44 @@ stay reachable on such copies."
     ;; Should contain tags
     (should (string-match-p "#tag1" annotation))
     (should (string-match-p "#tag2" annotation))))
+
+(ert-deftest vulpea-select--create-annotate-wrapper ()
+  "Test that `vulpea-select--create-annotate-wrapper' correctly wraps an annotation function like `vulpea-select-annotate'.
+
+The wrapped function can be called with a completion candidate (which
+has the note as a text property) and returns the same annotation string
+as the original annotation function (called with the note object)."
+  (let* ((context "CTX")
+         (note (make-vulpea-note
+                :id "test-id"
+                :title "Test Note"
+                :level 0
+                :tags '("tag1" "tag2")))
+         (completion-candidate (vulpea-select-describe note context)))
+
+    ;; Case where the annotation function takes one argument (note)
+    (let* ((annotation-fn 'vulpea-select-annotate)
+           (wrapped-annotate-fn (vulpea-select--create-annotate-wrapper annotation-fn))
+           (orig-annotation (funcall annotation-fn note))
+           (annotation (funcall wrapped-annotate-fn completion-candidate)))
+
+      ;; Both annotations should be equal
+      (should (equal orig-annotation annotation))
+
+      ;; Check that wrapper returns empty string for non-candidate input
+      (should (equal (funcall wrapped-annotate-fn "not-a-candidate") "")))
+
+    ;; Case where the annotation function takes two arguments (note and context)
+    (let* ((annotation-fn (lambda (n ctx) (format "%s (%s)" (vulpea-select-annotate n) ctx)))
+           (wrapped-annotate-fn (vulpea-select--create-annotate-wrapper annotation-fn))
+           (orig-annotation (funcall annotation-fn note context))
+           (annotation (funcall wrapped-annotate-fn completion-candidate)))
+
+      ;; Both annotations should be equal
+      (should (equal orig-annotation annotation))
+
+      ;; Check that wrapper returns empty string for non-candidate input
+      (should (equal (funcall wrapped-annotate-fn "not-a-candidate") "")))))
 
 ;;; Dynamic Context Tests
 
@@ -524,6 +595,28 @@ stay reachable on such copies."
                 'vulpea-note))
     ;; and the table still completes against the candidates
     (should (member "One" (all-completions "" table)))))
+
+(ert-deftest vulpea-select-completion-table-exposes-annotation-function ()
+  "Test that the completion table reports the annotation function."
+  ;; Assert the plain candidate; the id suffix has its own tests.
+  (let* ((vulpea-select-match-ids nil)
+         (note (make-vulpea-note :id "id1" :title "One" :level 0))
+         (table (vulpea-select--completion-table
+                 (list (cons (vulpea-select-describe note) note)))))
+
+    ;; metadata does not include annotation function, since the
+    ;; default value of `vulpea-select-annotate-matchable' is t, which
+    ;; makes annotations part of the matchable string
+    (should (null (completion-metadata-get
+                   (completion-metadata "" table nil)
+                   'annotation-function)))
+
+    (let ((vulpea-select-annotate-matchable nil))
+      ;; metadata includes the annotation function when
+      ;; `vulpea-select-annotate-matchable' is nil
+      (should (not (null (completion-metadata-get
+                          (completion-metadata "" table nil)
+                          'annotation-function)))))))
 
 (ert-deftest vulpea-select-from-exposes-category ()
   "Test that vulpea-select-from gives completing-read the `vulpea-note' category."
