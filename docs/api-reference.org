@@ -1188,6 +1188,8 @@ A candidate is rendered as =describe-fn= output followed by =annotate-fn= output
 (setq vulpea-select-annotate-fn (lambda (_note) ""))
 #+end_src
 
+By default the annotation is part of the candidate string, so typing =#tag= or an alias narrows the selection - that matchability is why it is the default. Set =vulpea-select-annotate-matchable= to =nil= to serve the same =annotate-fn= output through the standard =annotation-function= (completion metadata) instead. The annotation then behaves like any other minibuffer annotation: it is display-only, so typed text no longer matches it (unless your completion style makes it match, e.g. orderless style dispatchers), marginalia recognizes it as the =builtin= annotator for the =vulpea-note= category (so you can register additional annotators and cycle them with =marginalia-cycle=), and display modes that hide annotations to save space (such as =vertico-multiform-grid=) actually hide it.
+
 Both functions take a =vulpea-note= and return a string, so you can assemble any layout from the note's slots. Combining fields from the note alone is straightforward. Some layouts, though, want data that is expensive to compute per candidate - a backlink count is the classic example. For those, use the shared context hook.
 
 *** Shared context for the whole selection
