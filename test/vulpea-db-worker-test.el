@@ -373,6 +373,64 @@ never crosses the process boundary and when it crosses unnormalized."
                                      :from notes :where (= id $s1)]
                                     "w-ic-excluded"))))))))
 
+(ert-deftest vulpea-db-worker-full-write-resolves-pending-claims ()
+  "A refile with the destination written first heals through the worker.
+End-to-end vulpea#469 in full-write mode: the worker's write of the
+destination records the losing insert as a pending claim, its write
+of the origin releases the id and carries the claimant in the reply,
+and the main process re-requests the destination, which wins the id."
+  (let ((origin (vulpea-test--create-temp-org-file
+                 (concat ":PROPERTIES:\n:ID: fw-origin\n:END:\n"
+                         "#+TITLE: Origin\n\n"
+                         "* Task\n:PROPERTIES:\n:ID: fw-task\n:END:\n")))
+        (dest (vulpea-test--create-temp-org-file
+               ":PROPERTIES:\n:ID: fw-dest\n:END:\n#+TITLE: Destination\n")))
+    (unwind-protect
+        (vulpea-test--with-temp-db
+          (vulpea-db)
+          (let ((vulpea-db-index-heading-level t)
+                (vulpea-db-async-extraction 'full)
+                (vulpea-db-note-index-filter-functions nil))
+            ;; The point of this test is the full-write leg; fail
+            ;; loudly if the worker would degrade to streaming.
+            (should (vulpea-db-worker--full-write-p))
+            ;; Index both; the origin owns the task id.
+            (vulpea-db-worker-request origin)
+            (vulpea-db-worker-request dest)
+            (vulpea-db-worker-test--wait)
+            ;; Refile with the destination written and indexed first:
+            ;; its insert loses to the origin's row, leaving a claim.
+            (with-temp-file dest
+              (insert ":PROPERTIES:\n:ID: fw-dest\n:END:\n"
+                      "#+TITLE: Destination\n\n"
+                      "* Task\n:PROPERTIES:\n:ID: fw-task\n:END:\n"))
+            (vulpea-db-worker-request dest)
+            (vulpea-db-worker-test--wait)
+            (should (equal origin
+                           (caar (emacsql (vulpea-db)
+                                          [:select path :from notes
+                                           :where (= id $s1)]
+                                          "fw-task"))))
+            (should (equal (list dest)
+                           (vulpea-db--get-pending-claims "fw-task")))
+            ;; The origin saved without the heading releases the id;
+            ;; the destination is re-requested and wins it.
+            (with-temp-file origin
+              (insert ":PROPERTIES:\n:ID: fw-origin\n:END:\n"
+                      "#+TITLE: Origin\n"))
+            (vulpea-db-worker-request origin)
+            (vulpea-db-worker-test--wait)
+            (should (equal dest
+                           (caar (emacsql (vulpea-db)
+                                          [:select path :from notes
+                                           :where (= id $s1)]
+                                          "fw-task"))))
+            (should-not (vulpea-db--get-pending-claims "fw-task"))))
+      (vulpea-db-worker-stop)
+      (dolist (file (list origin dest))
+        (when (file-exists-p file)
+          (delete-file file))))))
+
 (ert-deftest vulpea-db-worker-full-write-unchanged-content-stamps ()
   "Full-write mode also short-circuits unchanged content."
   (vulpea-db-worker-test--with-file
