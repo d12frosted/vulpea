@@ -58,6 +58,8 @@
                   (&optional create-if-not-exists-p no-fs-check))
 (declare-function org-attach-dir-from-id "org-attach"
                   (id &optional existing))
+(declare-function vulpea-db-sync--enqueue "vulpea-db-sync"
+                  (path &optional force no-count))
 
 (defsubst vulpea-db--string-no-properties (value)
   "Return VALUE as a plain string without text properties."
@@ -1684,6 +1686,67 @@ repeated path abbreviation and `org-id-files' scans that would do."
           (push afile org-id-files))
         (puthash afile t vulpea-db--org-id-files-seen)))))
 
+;;; Pending id claims
+;;
+;; A note cut from one file and pasted into another keeps its id, and
+;; for a moment both files contain it on disk.  When the destination
+;; is indexed first, its insert loses to the origin's row (inserts
+;; are OR IGNORE) - recording the id as a pending claim is what keeps
+;; the note from vanishing once the origin is indexed and its row
+;; deleted (vulpea#469).
+
+(defvar vulpea-db--claims-resolving nil
+  "Paths currently being re-indexed to resolve a pending claim.
+Guards `vulpea-db--resolve-released-ids' against re-entering the
+same file when resolution itself releases ids.")
+
+(defvar vulpea-db--deferred-claimants nil
+  "Claimant paths whose re-index could not be triggered in place.
+`vulpea-db--resolve-released-ids' pushes here when it runs inside a
+transaction without the sync queue available - in the extraction
+worker, or during a synchronous directory scan.  Whoever owns the
+transaction flushes the list afterwards; a path that never gets
+flushed still heals on the next scan, since its change-detection
+row is already gone.")
+
+(defun vulpea-db--resolve-released-ids (released-ids &optional releasing-path)
+  "Re-index files holding a pending claim on one of RELEASED-IDS.
+
+RELEASED-IDS were just deleted from the database - their file no
+longer contains them.  A file that meanwhile parsed one of them and
+lost the insert to the old owner (see `pending-claims' in
+`vulpea-db--schema') can win the id now.  RELEASING-PATH, the
+normalized path whose update released the ids, is never treated as
+a claimant.
+
+A claimant whose file no longer exists has its claims withdrawn
+instead.  Otherwise its change-detection row is dropped, so every
+detection path sees it as changed, and a re-index is triggered: via
+the sync queue (forced) under `vulpea-db-autosync-mode',
+synchronously when no transaction is open, and deferred to
+`vulpea-db--deferred-claimants' otherwise."
+  (let (claimants)
+    (dolist (id released-ids)
+      (dolist (claimant (vulpea-db--get-pending-claims id))
+        (unless (or (equal claimant releasing-path)
+                    (member claimant vulpea-db--claims-resolving))
+          (cl-pushnew claimant claimants :test #'equal))))
+    (dolist (claimant claimants)
+      (if (not (file-exists-p claimant))
+          (vulpea-db--delete-pending-claims claimant)
+        (vulpea-db--delete-file-hash claimant)
+        (cond
+         ((and (bound-and-true-p vulpea-db-autosync-mode)
+               (fboundp 'vulpea-db-sync--enqueue))
+          (vulpea-db-sync--enqueue claimant 'force))
+         ((zerop emacsql--transaction-level)
+          (let ((vulpea-db--claims-resolving
+                 (cons claimant vulpea-db--claims-resolving)))
+            (vulpea-db-update-file claimant)))
+         (t
+          (cl-pushnew claimant vulpea-db--deferred-claimants
+                      :test #'equal)))))))
+
 (defun vulpea-db--apply-parse-ctx (ctx &optional skip-org-id)
   "Write extraction results from CTX to the database.
 
@@ -1705,9 +1768,11 @@ note-data.
 
 Returns number of notes written (file-level + headings)."
   (let* ((path (vulpea-parse-ctx-path ctx))
+         (norm-path (vulpea-db-normalize-path path))
          (db (vulpea-db))
          (count 0)
          (ids nil)  ; Track IDs to register with org-id
+         (previous-ids nil)
          (t0 (current-time))
          (db-time 0))
 
@@ -1726,6 +1791,11 @@ Returns number of notes written (file-level + headings)."
       (plist-put heading-data :path path))
 
     (emacsql-with-transaction db
+      ;; Ids stored for this file before the rewrite: whatever the new
+      ;; parse no longer contains is released to pending claimants
+      ;; after the transaction.
+      (setq previous-ids (vulpea-db--get-file-note-ids path))
+
       ;; Delete existing notes from this file
       (vulpea-db--delete-file-notes path)
 
@@ -1751,6 +1821,23 @@ Returns number of notes written (file-level + headings)."
             (push id ids))
           (setq count (1+ count))))
 
+      ;; Record pending claims: an id parsed here but owned by another
+      ;; file was silently dropped by the OR IGNORE insert; the claim
+      ;; is what keeps it recoverable once the owner releases the id
+      ;; (vulpea#469).  Recording replaces this path's previous claims,
+      ;; so they always reflect the latest parse.
+      (vulpea-db--record-pending-claims
+       path
+       (when ids
+         (let (losing)
+           (pcase-dolist (`(,id ,owner)
+                          (emacsql db [:select [id path] :from notes
+                                       :where (in id $v1)]
+                                   (vconcat ids)))
+             (unless (equal owner norm-path)
+               (push id losing)))
+           losing)))
+
       ;; Update file hash
       (vulpea-db--update-file-hash path
                                    (vulpea-parse-ctx-hash ctx)
@@ -1761,6 +1848,11 @@ Returns number of notes written (file-level + headings)."
     ;; Register all IDs with org-id so links can be followed
     (unless skip-org-id
       (vulpea-db--register-id-locations ids path))
+
+    ;; Release ids the new parse no longer contains: a file with a
+    ;; pending claim on one of them is re-indexed and wins it.
+    (when-let* ((released (seq-difference previous-ids ids)))
+      (vulpea-db--resolve-released-ids released norm-path))
 
     ;; Accumulate db timing
     (when vulpea-db--timing-data

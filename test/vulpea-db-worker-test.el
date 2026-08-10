@@ -1018,7 +1018,7 @@ worker committed."
       (let ((vulpea-db-worker-done-functions
              (list (lambda (_p status _c) (push status statuses)))))
         (vulpea-db-worker--dispatch
-         (list 'written path "somehash" 1.0 10 1 (list "ghost-id"))))
+         (list 'written path "somehash" 1.0 10 1 (list "ghost-id") nil)))
       (should (equal statuses '(missing)))
       (should (= 0 (caar (emacsql (vulpea-db)
                                   [:select (funcall count *)

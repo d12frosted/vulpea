@@ -418,6 +418,34 @@ watch them either, and they are reported separately."
                     " check that your notes have ID properties and live"
                     " under `vulpea-db-sync-directories'.")
             issues)))
+    ;; Duplicate ids: pending claims that never resolved (vulpea#469).
+    ;; A claim normally lives only for the moment of a refile - the
+    ;; old file releases the id and the claimant wins it.  One that is
+    ;; still here means several files durably contain the same :ID:.
+    (when-let* ((claims (and (file-exists-p vulpea-db-location)
+                             (vulpea-db--get-pending-claims))))
+      (let ((groups (seq-group-by #'car claims)))
+        (push (format
+               (concat "Duplicate note id%s: %s. An id can be indexed"
+                       " from only one file; the copies are invisible to"
+                       " queries. If a note was moved recently this heals"
+                       " itself once the old file is saved or rescanned;"
+                       " a copy meant to be a separate note needs a fresh"
+                       " id of its own.")
+               (if (cdr groups) "s" "")
+               (mapconcat
+                (lambda (group)
+                  (let* ((id (car group))
+                         (claimants (mapcar #'cdr (cdr group)))
+                         (owner (when-let* ((note (vulpea-db-get-by-id id)))
+                                  (vulpea-note-path note))))
+                    (format "%s lives in %s"
+                            id
+                            (string-join (delq nil (cons owner claimants))
+                                         ", "))))
+                groups
+                "; "))
+              issues)))
     ;; Extractor plugins
     (when-let* ((undeclared
                  (seq-filter

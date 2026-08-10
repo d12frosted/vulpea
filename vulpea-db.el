@@ -51,6 +51,9 @@
 (require 'json)
 (require 'ucs-normalize)
 
+(declare-function vulpea-db--resolve-released-ids "vulpea-db-extract"
+                  (released-ids &optional releasing-path))
+
 ;;; Customization
 
 (defgroup vulpea-db nil
@@ -287,6 +290,19 @@ notes are preserved.")
       (hash :not-null)
       (mtime :not-null)
       (size :not-null)])
+
+    ;; Pending id claims: files whose latest parse contained an id
+    ;; that another file still owned, so the OR IGNORE insert dropped
+    ;; the note (vulpea#469 - a heading refiled with the destination
+    ;; saved first).  The claim survives until the owning file
+    ;; releases the id - the claimant is then re-indexed and wins it
+    ;; - or until the claimant's parse stops containing the id.  No
+    ;; foreign key: a claimed id has no notes row for the claimant by
+    ;; definition.
+    (pending-claims
+     [(id :not-null)
+      (path :not-null)]
+     (:primary-key [id path]))
 
     ;; Schema versioning for migrations
     (schema-registry
@@ -814,6 +830,59 @@ Cascades to normalized tables automatically via foreign keys."
            [:delete :from notes :where (= path $s1)]
            (vulpea-db-normalize-path path)))
 
+(defun vulpea-db--get-file-note-ids (path)
+  "Return ids of the notes stored for PATH."
+  (mapcar #'car (emacsql (vulpea-db)
+                         [:select id :from notes :where (= path $s1)]
+                         (vulpea-db-normalize-path path))))
+
+(defun vulpea-db--get-pending-claims (&optional id)
+  "Return pending id claims.
+
+With ID, return the paths of the files claiming it.  Without ID,
+return every claim as a list of (ID . PATH) cells.  See the
+`pending-claims' table in `vulpea-db--schema' for what a claim is."
+  (if id
+      (mapcar #'car (emacsql (vulpea-db)
+                             [:select path :from pending-claims
+                              :where (= id $s1)
+                              :order-by path]
+                             id))
+    (mapcar (lambda (row) (cons (car row) (cadr row)))
+            (emacsql (vulpea-db)
+                     [:select [id path] :from pending-claims
+                      :order-by [id path]]))))
+
+(defun vulpea-db--record-pending-claims (path ids)
+  "Replace the claims made by PATH with claims for IDS.
+
+Claims by a path always reflect its latest parse: previous claims
+are withdrawn, so an id no longer present in the file cannot be
+resurrected when its owner releases it."
+  (setq path (vulpea-db-normalize-path path))
+  (emacsql (vulpea-db)
+           [:delete :from pending-claims :where (= path $s1)]
+           path)
+  (dolist (id ids)
+    (emacsql (vulpea-db)
+             [:insert :or :ignore :into pending-claims :values $v1]
+             (vector id path))))
+
+(defun vulpea-db--delete-pending-claims (path)
+  "Withdraw every claim made by PATH."
+  (emacsql (vulpea-db)
+           [:delete :from pending-claims :where (= path $s1)]
+           (vulpea-db-normalize-path path)))
+
+(defun vulpea-db--delete-file-hash (path)
+  "Remove PATH's change-detection row.
+
+Without the row every change-detection path treats PATH as changed,
+so its next visit re-reads the file regardless of mtime or hash."
+  (emacsql (vulpea-db)
+           [:delete :from files :where (= path $s1)]
+           (vulpea-db-normalize-path path)))
+
 (defun vulpea-db--forget-file (path)
   "Forget PATH entirely: its notes and its change-detection row.
 
@@ -839,21 +908,33 @@ outer transaction's work and then retries the inner body alone, leaving
 the caller to finish in autocommit and report success.  A cleanup loop
 that forgets several files would announce them all and leave some of
 their rows behind, which is the exact state this function exists to
-prevent."
-  (if (> emacsql--transaction-level 0)
-      (vulpea-db--forget-file-1 path)
-    (emacsql-with-transaction (vulpea-db)
-      (vulpea-db--forget-file-1 path))))
+prevent.
+
+The ids PATH held are released: files with a pending claim on one of
+them (see `vulpea-db--schema') are handed to
+`vulpea-db--resolve-released-ids' so a note refiled out of PATH
+resurfaces at its new home."
+  (let ((released (if (> emacsql--transaction-level 0)
+                      (vulpea-db--forget-file-1 path)
+                    (emacsql-with-transaction (vulpea-db)
+                      (vulpea-db--forget-file-1 path)))))
+    (when (and released (fboundp 'vulpea-db--resolve-released-ids))
+      (vulpea-db--resolve-released-ids
+       released (vulpea-db-normalize-path path)))))
 
 (defun vulpea-db--forget-file-1 (path)
-  "Delete PATH's notes and its change-detection row.
+  "Delete PATH's notes, its claims and its change-detection row.
 
-The body of `vulpea-db--forget-file', without a transaction of its own.
-Call that instead unless you already hold one."
-  (vulpea-db--delete-file-notes path)
-  (emacsql (vulpea-db)
-           [:delete :from files :where (= path $s1)]
-           (vulpea-db-normalize-path path)))
+The body of `vulpea-db--forget-file', without a transaction of its own
+and without claim resolution.  Call that instead unless you already
+hold a transaction.  Returns the ids PATH held."
+  (let ((ids (vulpea-db--get-file-note-ids path)))
+    (vulpea-db--delete-file-notes path)
+    (vulpea-db--delete-pending-claims path)
+    (emacsql (vulpea-db)
+             [:delete :from files :where (= path $s1)]
+             (vulpea-db-normalize-path path))
+    ids))
 
 (defun vulpea-db--delete-note (id)
   "Delete note with ID.

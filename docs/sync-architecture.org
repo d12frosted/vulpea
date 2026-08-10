@@ -52,11 +52,16 @@ vulpea-db-sync-update-file(path)
   │   └─ vulpea-db-update-file(path)  ← IMMEDIATE
   │
   └─ autosync-mode ON?
-      └─ vulpea-db-sync--enqueue(path)  ← ASYNC
+      └─ vulpea-db-sync--enqueue(path, force)  ← ASYNC, FORCED
           ├─ Add to queue (deduplicated)
+          ├─ Mark forced (bypasses change detection)
           ├─ Reset batch timer
           └─ Schedule processing
 #+end_example
+
+*Note*: The manual command always re-reads the file - reaching for
+it means the database should catch up, so the unchanged-content
+check that protects bulk scans does not apply here.
 
 
 ** 3. Directory Sync
@@ -307,6 +312,47 @@ vulpea-db-sync--update-file-if-changed(path)
 - mtime can change without content change (e.g., touch, git checkout)
 - Hash ensures we only parse files with actual content changes
 
+
+* Pending Id Claims (moved notes)
+
+A note moved between files keeps its id, and mid-move both files
+contain it on disk: the heading is pasted into the destination while
+the origin has not been saved without it yet.  Ids are unique in the
+database, so indexing the destination during that window cannot take
+the id over - the insert loses to the origin's row.  Dropping it
+silently is how a refiled note used to vanish (vulpea#469): once the
+origin was saved, the id's only row was deleted, and the destination
+- stamped as indexed, content unchanged since - was skipped by every
+scan from then on.
+
+Instead, the losing insert is recorded as a /pending claim/
+(=pending-claims= table: id, claimant path):
+
+#+begin_example
+index destination.org
+  │
+  ├─ insert of <id> loses to origin.org's row
+  └─ record claim (<id>, destination.org)
+
+index origin.org (saved without the heading, or deleted)
+  │
+  ├─ <id> released (no longer parsed from origin.org)
+  └─ resolve claims on <id>
+      ├─ claimant file gone?   → withdraw its claims
+      └─ claimant file exists? → drop its change-detection row
+          ├─ autosync ON  → enqueue claimant, forced
+          ├─ no transaction open → re-index immediately
+          └─ inside a scan/worker transaction → deferred:
+              scans flush after their transaction; the worker
+              reports claimants in its reply and the main
+              process enqueues them
+#+end_example
+
+Claims always mirror the claimant's latest parse: re-indexing a file
+withdraws its previous claims, so an id removed from the destination
+again cannot be resurrected later.  A claim that never resolves means
+the same =:ID:= durably lives in several files; =vulpea-doctor=
+reports those, naming the id and every file involved.
 
 * Configuration Examples
 
