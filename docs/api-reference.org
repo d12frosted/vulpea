@@ -1185,7 +1185,7 @@ A candidate is rendered as =describe-fn= output followed by =annotate-fn= output
 (setq vulpea-select-annotate-fn #'vulpea-select-annotate)
 
 ;; No annotation at all
-(setq vulpea-select-annotate-fn (lambda (_note) ""))
+(setq vulpea-select-annotate-fn nil)
 #+end_src
 
 By default the annotation is part of the candidate string, so typing =#tag= or an alias narrows the selection - that matchability is why it is the default. Set =vulpea-select-annotate-matchable= to =nil= to serve the same =annotate-fn= output through the standard =annotation-function= (completion metadata) instead. The annotation then behaves like any other minibuffer annotation: it is display-only, so typed text no longer matches it (unless your completion style makes it match, e.g. orderless style dispatchers), marginalia recognizes it as the =builtin= annotator for the =vulpea-note= category (so you can register additional annotators and cycle them with =marginalia-cycle=), and display modes that hide annotations to save space (such as =vertico-multiform-grid=) actually hide it.
@@ -1226,7 +1226,7 @@ For example, a fixed-width row with directory, hierarchy, tags and a backlink co
 (setq vulpea-select-dyncontext-fn
       (lambda (_notes) (vulpea-db-query-backlink-counts "id"))
       vulpea-select-describe-fn #'my-vulpea-describe
-      vulpea-select-annotate-fn (lambda (_note) ""))
+      vulpea-select-annotate-fn nil)
 #+end_src
 
 This is a plain =setq= - no command wrapper, no manual hook binding - and it applies to every selection command (=vulpea-find=, =vulpea-insert=, custom =vulpea-select= calls). Because =vulpea-select-dyncontext-fn= runs once per selection, the counts are always fresh, and because the table is shared the per-candidate =describe-fn= never touches the database.
