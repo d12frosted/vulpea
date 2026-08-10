@@ -798,10 +798,19 @@ file behind it."
                                        (time-subtract (current-time) t0))))))
     ;; Full-write mode: the worker wrote the database itself; the
     ;; main process only registers org-ids and re-checks freshness.
-    (`(written ,path ,_hash ,mtime ,size ,count ,ids)
+    ;; The trailing claimants element is matched as a rest so a reply
+    ;; from a worker running older code (a mid-session upgrade) still
+    ;; lands here instead of being silently dropped.
+    (`(written ,path ,_hash ,mtime ,size ,count ,ids . ,rest)
      (vulpea-db-worker--note-success)
      (vulpea-db-worker--log "written %s: %s notes" path count)
      (vulpea-db-worker--forget path)
+     ;; Files whose pending id claim the worker's write released:
+     ;; only this process can queue their re-index (forced - their
+     ;; change-detection row is already gone, this makes the retry
+     ;; survive queue paths that consult a stale hash cache).
+     (dolist (claimant (car rest))
+       (vulpea-db-worker--reenqueue claimant 'force))
      (let ((attrs (file-attributes path)))
        (cond
         ;; File vanished while the worker was writing (deleted or
@@ -1198,7 +1207,12 @@ result is written even when the content hash matches."
             (vulpea-db-worker--reply
              `(stamped ,path ,(vulpea-db-worker--ctx-ids ctx))))
            (t
-            (let ((count (vulpea-db-worker--apply-guarded ctx stored)))
+            ;; Claim resolution inside the write transaction cannot
+            ;; re-index another file from this process; collect the
+            ;; deferred claimants and let the main process queue them.
+            (let* ((vulpea-db--deferred-claimants nil)
+                   (count (vulpea-db-worker--apply-guarded ctx stored))
+                   (claimants vulpea-db--deferred-claimants))
               (cond
                ((eq count 'conflict)
                 (vulpea-db-worker--reply `(stale ,path)))
@@ -1211,7 +1225,8 @@ result is written even when the content hash matches."
                            ,(vulpea-parse-ctx-mtime ctx)
                            ,(vulpea-parse-ctx-size ctx)
                            ,count
-                           ,(vulpea-db-worker--ctx-ids ctx))))))))))
+                           ,(vulpea-db-worker--ctx-ids ctx)
+                           ,claimants)))))))))
       (error
        (vulpea-db-worker--reply
         `(error ,path ,(error-message-string err)))))))

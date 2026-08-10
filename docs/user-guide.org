@@ -599,7 +599,7 @@ If you need to force a sync:
 
 | Command                            | What it does              |
 |------------------------------------+---------------------------|
-| =M-x vulpea-db-sync-update-file=   | Update current file       |
+| =M-x vulpea-db-sync-update-file=   | Re-read current file      |
 | =M-x vulpea-db-sync-full-scan=     | Scan all directories      |
 | =C-u M-x vulpea-db-sync-full-scan= | Force re-index everything |
 

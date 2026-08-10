@@ -146,6 +146,33 @@ creating it as a side effect."
                (lambda (i) (string-match-p "vulpea-db-sync-full-scan" i))
                issues)))))
 
+(ert-deftest vulpea-doctor-issue-duplicate-id-claims ()
+  "A pending id claim (duplicate :ID: across files) is reported."
+  (vulpea-test--with-temp-notes-dir
+    (let ((a (expand-file-name "a.org" root))
+          (b (expand-file-name "b.org" root)))
+      (with-temp-file a
+        (insert ":PROPERTIES:\n:ID: dup-id\n:END:\n#+TITLE: A\n"))
+      (with-temp-file b
+        (insert ":PROPERTIES:\n:ID: dup-id\n:END:\n#+TITLE: B\n"))
+      (vulpea-db-update-file a)
+      (vulpea-db-update-file b)
+      (let ((issues (vulpea-doctor--issues)))
+        (should (seq-some (lambda (i) (string-match-p "dup-id" i))
+                          issues))))))
+
+(ert-deftest vulpea-doctor-no-duplicate-id-issue-without-claims ()
+  "No duplicate-id issue when every id lives in one file."
+  (vulpea-test--with-temp-notes-dir
+    (let ((a (expand-file-name "a.org" root)))
+      (with-temp-file a
+        (insert ":PROPERTIES:\n:ID: unique-id\n:END:\n#+TITLE: A\n"))
+      (vulpea-db-update-file a)
+      (let ((issues (vulpea-doctor--issues)))
+        (should-not (seq-some
+                     (lambda (i) (string-match-p "Duplicate note id" i))
+                     issues))))))
+
 (ert-deftest vulpea-doctor-issue-autosync-disabled ()
   "Disabled autosync yields an issue."
   (let* ((vulpea-db-autosync-mode nil)

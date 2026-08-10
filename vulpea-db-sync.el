@@ -958,6 +958,22 @@ the reported total on every retry."
         (setq vulpea-db-sync--queue-total
               (1+ vulpea-db-sync--queue-total))))))
 
+(defmacro vulpea-db-sync--flushing-deferred-claimants (&rest body)
+  "Execute BODY, then re-index claimants it could not resolve in place.
+
+Claim resolution inside a synchronous scan transaction cannot
+re-index a claimant there and then, so it defers the path instead
+\(see `vulpea-db--deferred-claimants').  Flushing right after the
+transaction keeps the heal within the same scan - the prefetched
+hash cache would otherwise skip a claimant whose change-detection
+row was dropped mid-scan."
+  (declare (indent 0))
+  `(let ((vulpea-db--deferred-claimants nil))
+     ,@body
+     (dolist (claimant vulpea-db--deferred-claimants)
+       (when (file-exists-p claimant)
+         (vulpea-db-update-file claimant)))))
+
 (defun vulpea-db-sync--process-queue ()
   "Process queued file update."
   ;; When the worker request window is full, leave the queue alone
@@ -1067,21 +1083,22 @@ the reported total on every retry."
 
               ;; Process the rest in a single transaction as before
               (when sync-paths
-                (emacsql-with-transaction db
-                  (pcase-dolist (`(,path . ,force) (nreverse sync-paths))
-                    (condition-case err
-                        (when (file-exists-p path)
-                          (cond
-                           (force
-                            (vulpea-db-update-file path)
-                            (setq updated (1+ updated)))
-                           ((vulpea-db-sync--update-file-if-changed path hash-cache)
-                            (setq updated (1+ updated)))
-                           (t
-                            (setq unchanged (1+ unchanged)))))
-                      (error
-                       (message "Vulpea: Error updating %s: %s"
-                                path (error-message-string err)))))))))
+                (vulpea-db-sync--flushing-deferred-claimants
+                  (emacsql-with-transaction db
+                    (pcase-dolist (`(,path . ,force) (nreverse sync-paths))
+                      (condition-case err
+                          (when (file-exists-p path)
+                            (cond
+                             (force
+                              (vulpea-db-update-file path)
+                              (setq updated (1+ updated)))
+                             ((vulpea-db-sync--update-file-if-changed path hash-cache)
+                              (setq updated (1+ updated)))
+                             (t
+                              (setq unchanged (1+ unchanged)))))
+                        (error
+                         (message "Vulpea: Error updating %s: %s"
+                                  path (error-message-string err))))))))))
 
           ;; Update totals
           (setq vulpea-db-sync--processed-total (+ vulpea-db-sync--processed-total updated unchanged)
@@ -1722,10 +1739,14 @@ Also performs cleanup of:
   "Manually update database for file at PATH.
 
 If autosync is enabled, queues the update asynchronously.
-Otherwise, updates immediately."
+Otherwise, updates immediately.
+
+The update is forced: reaching for this command means the database
+should re-read the file, so the unchanged-content check that would
+silently skip it does not apply."
   (interactive (list (buffer-file-name)))
   (if vulpea-db-autosync-mode
-      (vulpea-db-sync--enqueue path)
+      (vulpea-db-sync--enqueue path 'force)
     (vulpea-db-update-file path)))
 
 (defun vulpea-db-sync-update-directory (dir &optional force)
@@ -1784,28 +1805,29 @@ settings migrations from freezing the session."
                                                 :size (elt row 3))
                                           cache))
                                cache))))
-          (emacsql-with-transaction db
-            (dolist (file files)
-              (condition-case err
-                  (if force
-                      ;; Force mode: always update
-                      (progn
-                        (vulpea-db-update-file file)
-                        (setq updated (1+ updated)))
-                    ;; Smart detection mode with hash cache
-                    (if (vulpea-db-sync--update-file-if-changed file hash-cache)
-                        (setq updated (1+ updated))
-                      (setq unchanged (1+ unchanged))))
-                (error
-                 (message "Vulpea: Error updating %s: %s"
-                          file (error-message-string err))))
-              (setq processed (1+ processed))
-              ;; Report progress at intervals
-              (when (and vulpea-db-sync-progress-interval
-                         (> total vulpea-db-sync-progress-interval)
-                         (zerop (mod processed vulpea-db-sync-progress-interval)))
-                (vulpea-db-sync--message "Vulpea: Progress: %d/%d files (%d updated, %d unchanged)"
-                                         processed total updated unchanged))))
+          (vulpea-db-sync--flushing-deferred-claimants
+            (emacsql-with-transaction db
+              (dolist (file files)
+                (condition-case err
+                    (if force
+                        ;; Force mode: always update
+                        (progn
+                          (vulpea-db-update-file file)
+                          (setq updated (1+ updated)))
+                      ;; Smart detection mode with hash cache
+                      (if (vulpea-db-sync--update-file-if-changed file hash-cache)
+                          (setq updated (1+ updated))
+                        (setq unchanged (1+ unchanged))))
+                  (error
+                   (message "Vulpea: Error updating %s: %s"
+                            file (error-message-string err))))
+                (setq processed (1+ processed))
+                ;; Report progress at intervals
+                (when (and vulpea-db-sync-progress-interval
+                           (> total vulpea-db-sync-progress-interval)
+                           (zerop (mod processed vulpea-db-sync-progress-interval)))
+                  (vulpea-db-sync--message "Vulpea: Progress: %d/%d files (%d updated, %d unchanged)"
+                                           processed total updated unchanged)))))
           (vulpea-db-sync--message "Vulpea: Checked %d file%s (%d updated, %d unchanged)"
                                    (+ updated unchanged)
                                    (if (= (+ updated unchanged) 1) "" "s")

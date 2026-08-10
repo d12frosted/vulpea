@@ -1361,7 +1361,8 @@ Ids double as interactive handles in both commands. Every candidate carries its 
 ;; Update specific file (synchronous)
 (vulpea-db-update-file "/path/to/note.org")
 
-;; Update via sync system (async if autosync enabled)
+;; Update via sync system (async if autosync enabled; always
+;; re-reads the file, bypassing the unchanged-content check)
 (vulpea-db-sync-update-file "/path/to/note.org")
 #+end_src
 
@@ -1976,7 +1977,7 @@ package - it flags the same violations inline as you edit.)
 |-----------------------------------+--------------------------------|
 | =vulpea-db-autosync-mode=         | Toggle auto-sync               |
 | =vulpea-db-update-file=           | Immediate sync update          |
-| =vulpea-db-sync-update-file=      | Update file (async if enabled) |
+| =vulpea-db-sync-update-file=      | Re-read file (async if enabled) |
 | =vulpea-db-sync-update-directory= | Update directory               |
 | =vulpea-db-sync-full-scan=        | Scan all directories           |
 | =vulpea-db-sync-add-directory=    | Add sync directory at runtime  |
