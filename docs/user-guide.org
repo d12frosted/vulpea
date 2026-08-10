@@ -81,7 +81,7 @@ This is useful for discovering connections - seeing what other notes reference t
 By default each candidate shows the note's title followed by its aliases and tags. You can change what every selection command (=vulpea-find=, =vulpea-insert=, and any custom =vulpea-select=) shows by setting two variables:
 
 - =vulpea-select-describe-fn= - builds the main, searchable part of the candidate. It takes a =vulpea-note= and returns a string. The default is =vulpea-note-title=.
-- =vulpea-select-annotate-fn= - builds a trailing annotation (shown dimmed). It also takes a =vulpea-note= and returns a string. The default appends the primary title (when matched through an alias) and =#tags=.
+- =vulpea-select-annotate-fn= - builds a trailing annotation (shown dimmed). It also takes a =vulpea-note= and returns a string. The default appends the primary title (when matched through an alias) and =#tags=. The annotation is embedded in the candidate string, so typing a tag or an alias narrows the selection; set =vulpea-select-annotate-matchable= to =nil= to serve it through the standard =annotation-function= instead - display-only, but friendlier to marginalia annotators and to display modes that hide annotations.
 
 For notes that live in headings, two ready-made describe functions prefix the title with its location so same-named notes are easy to tell apart:
 
