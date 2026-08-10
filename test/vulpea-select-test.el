@@ -217,6 +217,29 @@ are not included in the matchable string."
     ;; Should have vulpea-select-context property
     (should (equal (get-text-property 0 'vulpea-select-context described) context))))
 
+(ert-deftest vulpea-select-describe-with-nil-annotate-fn ()
+  "Test `vulpea-select-describe' with `vulpea-select-annotate-fn' set to nil.
+
+A nil annotate function means no annotation: the candidate carries
+only the describe part, and building it does not error."
+  (let* ((vulpea-select-annotate-fn nil)
+         (note (make-vulpea-note
+                :id "test-id"
+                :title "Test Note"
+                :level 0
+                :tags '("tag1" "tag2")))
+         (described (vulpea-select-describe note)))
+
+    ;; Should contain title
+    (should (string-match-p "Test Note" described))
+
+    ;; Should not contain tags
+    (should (not (string-match-p "#tag1" described)))
+    (should (not (string-match-p "#tag2" described)))
+
+    ;; Should still carry the note
+    (should (equal (get-text-property 0 'vulpea-note described) note))))
+
 (ert-deftest vulpea-select-describe-id-is-matchable-and-invisible ()
   "Test that the id is part of the candidate string but hidden.
 
@@ -616,7 +639,15 @@ as the original annotation function (called with the note object)."
       ;; `vulpea-select-annotate-matchable' is nil
       (should (not (null (completion-metadata-get
                           (completion-metadata "" table nil)
-                          'annotation-function)))))))
+                          'annotation-function)))))
+
+    (let ((vulpea-select-annotate-matchable nil)
+          (vulpea-select-annotate-fn nil))
+      ;; a nil annotate function means no annotation, so no
+      ;; annotation-function is exposed either
+      (should (null (completion-metadata-get
+                     (completion-metadata "" table nil)
+                     'annotation-function))))))
 
 (ert-deftest vulpea-select-from-exposes-category ()
   "Test that vulpea-select-from gives completing-read the `vulpea-note' category."

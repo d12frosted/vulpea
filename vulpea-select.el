@@ -52,8 +52,10 @@ Accepts a `vulpea-note'. Returns a `string'."
 (defcustom vulpea-select-annotate-fn #'vulpea-select-annotate
   "Function to annotate a note for completion.
 
-Accepts a `vulpea-note'. Returns a `string'."
-  :type 'function
+Accepts a `vulpea-note'. Returns a `string'.
+
+When nil, candidates are not annotated at all."
+  :type '(choice (const :tag "No annotation" nil) function)
   :group 'vulpea-select)
 
 (defcustom vulpea-select-match-ids t
@@ -156,7 +158,8 @@ string self-describing for code that only ever sees strings - a
           (vulpea-select--funcall
            vulpea-select-describe-fn note context))
          (annotation-part
-          (if vulpea-select-annotate-matchable
+          (if (and vulpea-select-annotate-matchable
+                   vulpea-select-annotate-fn)
               (propertize (vulpea-select--funcall
                            vulpea-select-annotate-fn note context)
                           'face 'completions-annotations)
@@ -327,8 +330,9 @@ title stored in `vulpea-note-primary-title'."
 (defun vulpea-select--completion-table (completions)
   "Build a completion table over COMPLETIONS exposing the `vulpea-note' category.
 
-If `vulpea-select-annotate-matchable' is nil, then `annotation-function'
-is also included in the metadata.
+If `vulpea-select-annotate-matchable' is nil and
+`vulpea-select-annotate-fn' is set, then `annotation-function' is also
+included in the metadata.
 
 COMPLETIONS is an alist of (description . note). The table completes
 like COMPLETIONS and reports a completion category of `vulpea-note',
@@ -343,7 +347,8 @@ the note itself and the dynamic context as text properties (see
     (if (eq action 'metadata)
         `(metadata
           (category . vulpea-note)
-          ,@(when (not vulpea-select-annotate-matchable)
+          ,@(when (and (not vulpea-select-annotate-matchable)
+                       vulpea-select-annotate-fn)
               `((annotation-function
                  .
                  ,(vulpea-select--create-annotate-wrapper
