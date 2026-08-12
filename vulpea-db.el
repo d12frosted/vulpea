@@ -883,6 +883,64 @@ so its next visit re-reads the file regardless of mtime or hash."
            [:delete :from files :where (= path $s1)]
            (vulpea-db-normalize-path path)))
 
+(defvar vulpea-db-updated-functions nil
+  "Abnormal hook run after database content for a file has changed.
+
+Each function is called with (PATH COUNT), where PATH is the file
+whose database content changed and COUNT is the number of notes
+written (file-level + headings).  COUNT is 0 when the file's notes
+were removed from the database - the file was deleted, or it left
+the tracked set.  The hook runs after the write (or delete)
+transaction commits, so a handler reading the database sees the
+new content.
+
+This is the single data-changed signal: it fires for synchronous
+updates (`vulpea-db-update-file', including saves going through
+`vulpea-utils-with-note-sync'), for results arriving from the
+extraction worker, and for removals.
+`vulpea-db-worker-done-functions' is a worker-lifecycle hook and
+never fires for synchronous writes or removals.
+
+A file whose content did not change (only its stamp was refreshed)
+produces no call, and neither does removing a file the database
+never tracked.  Bulk operations - a directory scan, a full
+rebuild - run the hook once per file; a handler that triggers
+expensive work (a UI refresh) is expected to debounce.
+
+This is an extension point, not a setting: attach to it with
+`add-hook', which is why it is deliberately not a `defcustom'.")
+
+(defvar vulpea-db--pending-removal-announcements nil
+  "Removed paths whose announcement waits for a transaction to commit.
+
+`vulpea-db--announce-removal' queues here instead of running
+`vulpea-db-updated-functions' when a transaction is open: the hook
+promises that a handler reading the database sees the deletion, and
+mid-transaction it would not.  The transaction owner let-binds this
+to nil around its transaction and flushes with
+`vulpea-db--flush-removal-announcements' after the commit - the
+binding also guarantees a rolled-back transaction announces
+nothing.")
+
+(defun vulpea-db--announce-removal (path)
+  "Announce on `vulpea-db-updated-functions' that PATH was removed.
+
+Runs the hook with (PATH 0) - or, when a transaction is open, queues
+PATH on `vulpea-db--pending-removal-announcements' for the
+transaction owner to flush after the commit."
+  (if (> emacsql--transaction-level 0)
+      (push path vulpea-db--pending-removal-announcements)
+    (run-hook-with-args 'vulpea-db-updated-functions path 0)))
+
+(defun vulpea-db--flush-removal-announcements ()
+  "Announce removals queued while a transaction was open.
+Runs `vulpea-db-updated-functions' with (PATH 0) for each queued
+path, in the order the removals happened, and clears the queue."
+  (let ((paths (nreverse vulpea-db--pending-removal-announcements)))
+    (setq vulpea-db--pending-removal-announcements nil)
+    (dolist (path paths)
+      (run-hook-with-args 'vulpea-db-updated-functions path 0))))
+
 (defun vulpea-db--forget-file (path)
   "Forget PATH entirely: its notes and its change-detection row.
 
@@ -913,14 +971,23 @@ prevent.
 The ids PATH held are released: files with a pending claim on one of
 them (see `vulpea-db--schema') are handed to
 `vulpea-db--resolve-released-ids' so a note refiled out of PATH
-resurfaces at its new home."
-  (let ((released (if (> emacsql--transaction-level 0)
-                      (vulpea-db--forget-file-1 path)
-                    (emacsql-with-transaction (vulpea-db)
-                      (vulpea-db--forget-file-1 path)))))
+resurfaces at its new home.
+
+When the database knew PATH (notes or a change-detection row), the
+removal is announced on `vulpea-db-updated-functions' via
+`vulpea-db--announce-removal'; forgetting a path that was never
+tracked announces nothing."
+  (let* ((tracked (or (vulpea-db--get-file-note-ids path)
+                      (vulpea-db--get-file-hash path)))
+         (released (if (> emacsql--transaction-level 0)
+                       (vulpea-db--forget-file-1 path)
+                     (emacsql-with-transaction (vulpea-db)
+                       (vulpea-db--forget-file-1 path)))))
     (when (and released (fboundp 'vulpea-db--resolve-released-ids))
       (vulpea-db--resolve-released-ids
-       released (vulpea-db-normalize-path path)))))
+       released (vulpea-db-normalize-path path)))
+    (when tracked
+      (vulpea-db--announce-removal path))))
 
 (defun vulpea-db--forget-file-1 (path)
   "Delete PATH's notes, its claims and its change-detection row.

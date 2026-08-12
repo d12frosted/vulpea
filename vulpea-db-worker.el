@@ -167,6 +167,12 @@ with the file in flight; re-enqueued), `missing' (file deleted while
 parsing), or `error'.  COUNT is the number of notes written for
 `applied', nil otherwise.
 
+This is a worker-lifecycle hook: it reports what happened to a
+worker request, including outcomes that changed nothing.  To react
+to database content changes, use `vulpea-db-updated-functions'
+instead - it fires exactly when notes were rewritten, and also
+covers synchronous updates, which never touch the worker.
+
 This is an extension point, not a setting: attach to it with
 `add-hook', which is why it is deliberately not a `defcustom'.")
 
@@ -831,6 +837,11 @@ file behind it."
            ;; Changed again while the worker was writing: what landed
            ;; reflects older content, re-parse to catch up.
            (vulpea-db-worker--reenqueue path))
+         ;; The apply ran in the worker process, where the
+         ;; data-changed hook is empty - announce it here.  The
+         ;; streamed path needs no counterpart: its apply runs in
+         ;; this process and announces itself.
+         (run-hook-with-args 'vulpea-db-updated-functions path count)
          (run-hook-with-args 'vulpea-db-worker-done-functions
                              path 'applied count)))))
     (`(stamped ,path ,ids)
