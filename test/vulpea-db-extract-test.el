@@ -3877,5 +3877,52 @@ AST was produced."
       (should (vulpea-db-get-by-id "ic-e2e-container"))
       (should-not (vulpea-db-get-by-id "ic-e2e-child")))))
 
+;;; Updated Hook Tests
+
+(ert-deftest vulpea-db-extract-updated-hook-fires-on-sync-update ()
+  "`vulpea-db-updated-functions' announces a synchronous update.
+One `vulpea-db-update-file' produces exactly one call, with the file
+path and the number of notes written."
+  (let ((vulpea-db-index-heading-level t))
+    (vulpea-test--with-temp-db
+      (vulpea-db)
+      (let ((path (vulpea-test--create-temp-org-file
+                   (concat ":PROPERTIES:\n:ID: updated-hook-file\n:END:\n"
+                           "#+TITLE: F\n\n"
+                           "* Heading\n"
+                           ":PROPERTIES:\n:ID: updated-hook-heading\n:END:\n")))
+            calls)
+        (unwind-protect
+            (progn
+              (let ((vulpea-db-updated-functions
+                     (list (lambda (p count) (push (list p count) calls)))))
+                (vulpea-db-update-file path))
+              (should (equal calls (list (list path 2)))))
+          (delete-file path))))))
+
+(ert-deftest vulpea-db-extract-updated-hook-runs-after-commit ()
+  "Handlers of `vulpea-db-updated-functions' read committed data.
+The hook runs after the write transaction commits, so a handler
+querying the database sees the content that was just written, not
+the previous state."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((path (vulpea-test--create-temp-org-file
+                 ":PROPERTIES:\n:ID: updated-hook-commit\n:END:\n#+TITLE: Old\n"))
+          seen-title)
+      (unwind-protect
+          (progn
+            (vulpea-db-update-file path)
+            (with-temp-file path
+              (insert ":PROPERTIES:\n:ID: updated-hook-commit\n:END:\n#+TITLE: New\n"))
+            (let ((vulpea-db-updated-functions
+                   (list (lambda (_p _count)
+                           (setq seen-title
+                                 (vulpea-note-title
+                                  (vulpea-db-get-by-id "updated-hook-commit")))))))
+              (vulpea-db-update-file path))
+            (should (equal seen-title "New")))
+        (delete-file path)))))
+
 (provide 'vulpea-db-extract-test)
 ;;; vulpea-db-extract-test.el ends here

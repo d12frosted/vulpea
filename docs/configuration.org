@@ -10,7 +10,8 @@ subgroups). The examples use =setq= throughout, since that is how most
 Emacs configurations are written.
 
 The abnormal hooks (=vulpea-insert-handle-functions=,
-=vulpea-db-note-index-filter-functions=, =vulpea-db-worker-done-functions=)
+=vulpea-db-note-index-filter-functions=, =vulpea-db-updated-functions=,
+=vulpea-db-worker-done-functions=)
 are deliberately not customizable: they are extension points, meant to
 be attached to with =add-hook=. Setting one wholesale with =setq= (or
 =use-package='s =:custom=) would replace whatever else is attached - on
@@ -448,7 +449,19 @@ Adding or changing a filter does not touch notes that are already indexed - file
 
 Or interactively with =C-u M-x vulpea-db-sync-full-scan=. The same applies in reverse: notes excluded by a filter you have since removed come back only after a forced scan.
 
-** Sync Batch Settings
+** Reacting to Database Updates
+
+To react when indexed content actually changes - refresh a sidebar, invalidate a cache - use =vulpea-db-updated-functions=. It is an abnormal hook run with =(PATH COUNT)= after the database content for a file has changed: =PATH= is the file, =COUNT= the number of notes written (file-level + headings), and =COUNT= is 0 when the file's notes were removed - the file was deleted, or it left the tracked set. It fires from the single write path shared by synchronous updates and the extraction worker, and from every removal path, so one handler covers a save synced through =vulpea-utils-with-note-sync=, a result applied asynchronously, and a deletion picked up by the watcher. It runs after the write (or delete) transaction commits, so a handler querying the database sees the new content.
+
+#+begin_src emacs-lisp
+(add-hook 'vulpea-db-updated-functions
+          (lambda (path _count)
+            (message "vulpea indexed %s" path)))
+#+end_src
+
+This is the signal to prefer over =after-save-hook= (which fires before the database update, so any query from it reads stale data) and over =vulpea-db-worker-done-functions= (a worker-lifecycle hook: it never fires for synchronous updates or removals, and also reports outcomes that changed nothing). A file whose content did not change - only its stamp was refreshed - produces no call, and neither does removing a file the database never tracked.
+
+Bulk operations (a directory scan, a full rebuild, a directory deleted with everything under it) run the hook once per file. A handler that triggers expensive work should debounce: set a pending flag and flush it from an idle timer or when the sync queue drains, instead of refreshing per file.
 
 Control how updates are batched:
 

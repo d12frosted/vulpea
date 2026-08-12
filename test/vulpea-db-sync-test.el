@@ -119,6 +119,74 @@ unchanged, so it is never indexed again."
             (should-not (vulpea-db--get-file-hash path)))
         (when (file-exists-p path) (delete-file path))))))
 
+(ert-deftest vulpea-db-sync-updated-hook-fires-on-removed-file ()
+  "Removing a tracked file announces on `vulpea-db-updated-functions'.
+One call with (PATH 0), after the delete transaction commits, so a
+handler querying the database sees the notes gone."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((path (vulpea-test--create-temp-org-file
+                 ":PROPERTIES:\n:ID: removed-hook-id\n:END:\n#+TITLE: R\n"))
+          calls
+          (seen 'unqueried))
+      (vulpea-db-update-file path)
+      (delete-file path)
+      (let ((vulpea-db-updated-functions
+             (list (lambda (p count)
+                     (push (list p count) calls)
+                     (setq seen (vulpea-db-get-by-id "removed-hook-id"))))))
+        (vulpea-db-sync--handle-removed-file path))
+      (should (equal calls
+                     (list (list (vulpea-db-normalize-path path) 0))))
+      (should-not seen))))
+
+(ert-deftest vulpea-db-sync-updated-hook-fires-per-file-on-removed-directory ()
+  "Removing a directory announces once per tracked file under it.
+No call is made for the directory itself."
+  (vulpea-test--with-temp-db
+    (let* ((dir "/tmp/vulpea-updated-hook-dir")
+           (file1 (concat dir "/note1.org"))
+           (file2 (concat dir "/subdir/note2.org"))
+           calls)
+      (vulpea-db)
+      (emacsql (vulpea-db)
+               [:insert :into files :values $v1]
+               (vector file1 "hash1" 12345 100))
+      (emacsql (vulpea-db)
+               [:insert :into files :values $v1]
+               (vector file2 "hash2" 12346 100))
+      (let ((vulpea-db-updated-functions
+             (list (lambda (p count) (push (list p count) calls)))))
+        (vulpea-db-sync--handle-removed-file dir))
+      (should (equal (sort calls (lambda (a b) (string< (car a) (car b))))
+                     (list (list file1 0) (list file2 0)))))))
+
+(ert-deftest vulpea-db-sync-updated-hook-silent-on-untracked-removal ()
+  "Removing a file the database never tracked announces nothing."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let (calls)
+      (let ((vulpea-db-updated-functions
+             (list (lambda (p count) (push (list p count) calls)))))
+        (vulpea-db-sync--handle-removed-file
+         "/tmp/vulpea-never-indexed-note.org"))
+      (should-not calls))))
+
+(ert-deftest vulpea-db-sync-updated-hook-fires-on-cleanup-deleted ()
+  "The deleted-files cleanup announces each file it forgets."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((path (vulpea-test--create-temp-org-file
+                 ":PROPERTIES:\n:ID: cleanup-hook-id\n:END:\n#+TITLE: C\n"))
+          calls)
+      (vulpea-db-update-file path)
+      (delete-file path)
+      (let ((vulpea-db-updated-functions
+             (list (lambda (p count) (push (list p count) calls)))))
+        (should (= 1 (vulpea-db-sync--cleanup-deleted-files))))
+      (should (equal calls
+                     (list (list (vulpea-db-normalize-path path) 0)))))))
+
 (ert-deftest vulpea-db-sync-process-queue-batch-limit ()
   "Test queue respects batch size limit."
   (vulpea-test--with-temp-db

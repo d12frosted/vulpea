@@ -16,8 +16,22 @@ The sync system has two modes:
 vulpea-db-update-file(path)
   ├─ Parse file with org-element
   ├─ Update database in transaction
-  └─ Register IDs with org-id
+  ├─ Register IDs with org-id
+  └─ Run vulpea-db-updated-functions
 #+end_example
+
+Every write ends by announcing itself on =vulpea-db-updated-functions=
+with the path and the number of notes written. Results applied from
+the extraction worker go through the same write path (or, in
+full-write mode, are announced when the worker's reply lands), and
+removals announce with count 0 - a deleted file, a directory removal
+(once per tracked file under it, after the delete transaction
+commits), the deleted-files cleanups, and a file leaving the tracked
+set. So listeners get one "database content for this file changed"
+signal no matter which path changed it.
+=vulpea-db-worker-done-functions= is the worker-lifecycle
+counterpart: it only covers worker requests, but reports every
+outcome, including ones that changed nothing.
 
 ** Mode Control
 

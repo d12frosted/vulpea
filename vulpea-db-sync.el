@@ -802,7 +802,8 @@ all files under that directory are removed."
               (vulpea-db-normalize-path path)))
   (vulpea-db-sync--drop-from-queue path)
   (vulpea-db-sync--unwatch-file path)
-  (let ((db (vulpea-db)))
+  (let ((db (vulpea-db))
+        (vulpea-db--pending-removal-announcements nil))
     (emacsql-with-transaction db
       ;; Try exact match first
       (vulpea-db--forget-file path)
@@ -820,13 +821,17 @@ all files under that directory are removed."
                                    (emacsql db [:select path :from files
                                                 :where (glob path $s1)]
                                             glob-pattern)))
-          (vulpea-db--delete-file-notes file-path))
+          (vulpea-db--delete-file-notes file-path)
+          ;; One announcement per tracked file under the directory,
+          ;; never one for the directory itself.
+          (vulpea-db--announce-removal file-path))
         (emacsql db [:delete :from files :where (glob path $s1)]
                  glob-pattern)
         ;; Dir-locals rows under a removed directory are gone too; no
         ;; reaction needed, there is nothing left under them to re-index
         (emacsql db [:delete :from dir-locals-files :where (glob path $s1)]
-                 glob-pattern)))))
+                 glob-pattern)))
+    (vulpea-db--flush-removal-announcements)))
 
 (defun vulpea-db-sync--file-notify-callback (event)
   "Handle file notification EVENT."
@@ -966,10 +971,19 @@ re-index a claimant there and then, so it defers the path instead
 \(see `vulpea-db--deferred-claimants').  Flushing right after the
 transaction keeps the heal within the same scan - the prefetched
 hash cache would otherwise skip a claimant whose change-detection
-row was dropped mid-scan."
+row was dropped mid-scan.
+
+Removal announcements queued inside BODY's transaction (a queued
+file found deleted mid-scan is forgotten there, see
+`vulpea-db--pending-removal-announcements') are flushed the same
+way, before the claimants: a claimant's re-index announces itself,
+and those announcements should follow the removals that caused
+them."
   (declare (indent 0))
-  `(let ((vulpea-db--deferred-claimants nil))
+  `(let ((vulpea-db--deferred-claimants nil)
+         (vulpea-db--pending-removal-announcements nil))
      ,@body
+     (vulpea-db--flush-removal-announcements)
      (dolist (claimant vulpea-db--deferred-claimants)
        (when (file-exists-p claimant)
          (vulpea-db-update-file claimant)))))
@@ -1323,12 +1337,14 @@ Returns count of removed files."
   (vulpea-db-sync--purge-denormalized-rows)
   (let* ((db (vulpea-db))
          (all-paths (mapcar #'car (emacsql db [:select path :from files])))
+         (vulpea-db--pending-removal-announcements nil)
          (deleted 0))
     (emacsql-with-transaction db
       (dolist (path all-paths)
         (unless (file-exists-p path)
           (vulpea-db--forget-file path)
           (setq deleted (1+ deleted)))))
+    (vulpea-db--flush-removal-announcements)
     (when (> deleted 0)
       (vulpea-db-sync--message "Vulpea: Removed %d deleted file%s from database"
                                deleted (if (= deleted 1) "" "s")))
@@ -1346,6 +1362,7 @@ Returns count of removed files."
   (let* ((db (vulpea-db))
          (existing-set (make-hash-table :test 'equal :size (length existing-files)))
          (all-paths (mapcar #'car (emacsql db [:select path :from files])))
+         (vulpea-db--pending-removal-announcements nil)
          (deleted 0))
     ;; Build set of existing files for O(1) lookup.  Canonicalize:
     ;; the list typically comes from an fd/find subprocess, whose
@@ -1357,6 +1374,7 @@ Returns count of removed files."
         (unless (gethash path existing-set)
           (vulpea-db--forget-file path)
           (setq deleted (1+ deleted)))))
+    (vulpea-db--flush-removal-announcements)
     (when (> deleted 0)
       (vulpea-db-sync--message "Vulpea: Removed %d deleted file%s from database"
                                deleted (if (= deleted 1) "" "s")))
@@ -1423,6 +1441,7 @@ Returns count of removed files."
                      (vulpea-db-sync--normalize-directory
                       (file-truename dir))))))
            (all-paths (mapcar #'car (emacsql db [:select path :from files])))
+           (vulpea-db--pending-removal-announcements nil)
            (removed 0))
       (emacsql-with-transaction db
         (dolist (path all-paths)
@@ -1434,6 +1453,7 @@ Returns count of removed files."
                      (not (vulpea-db-sync-tracked-file-p path)))
             (vulpea-db--forget-file path)
             (setq removed (1+ removed)))))
+      (vulpea-db--flush-removal-announcements)
       (when (> removed 0)
         (vulpea-db-sync--message "Vulpea: Removed %d untracked file%s from database"
                                  removed (if (= removed 1) "" "s")))

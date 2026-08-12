@@ -142,6 +142,88 @@ the done hook reports `unchanged'."
                          (float-time
                           (file-attribute-modification-time attrs)))))))))
 
+(ert-deftest vulpea-db-worker-updated-hook-fires-on-worker-apply ()
+  "`vulpea-db-updated-functions' announces a worker-indexed file.
+Regardless of write mode - streamed apply in the main process, or a
+full-write reply - one file indexed through the worker produces one
+data-changed announcement with the path and note count."
+  (vulpea-db-worker-test--with-file
+      ":PROPERTIES:\n:ID: updated-hook-worker\n:END:\n#+TITLE: U\n"
+    (vulpea-test--with-temp-db
+      (vulpea-db)
+      (let (calls)
+        (let ((vulpea-db-updated-functions
+               (list (lambda (p count) (push (list p count) calls)))))
+          (vulpea-db-worker-request path)
+          (vulpea-db-worker-test--wait))
+        (should (equal calls (list (list path 1))))))))
+
+(ert-deftest vulpea-db-worker-updated-hook-fires-on-written-reply ()
+  "A full-write `written' reply announces the data change.
+In full-write mode `vulpea-db--apply-parse-ctx' runs inside the
+worker process, out of reach of main-process listeners; the main
+process must run `vulpea-db-updated-functions' when the reply lands."
+  (vulpea-db-worker-test--with-file
+      ":PROPERTIES:\n:ID: written-hook-note\n:END:\n#+TITLE: W\n"
+    (vulpea-test--with-temp-db
+      (vulpea-db)
+      (let* ((attrs (file-attributes path))
+             (mtime (float-time (file-attribute-modification-time attrs)))
+             (size (file-attribute-size attrs))
+             calls statuses)
+        (let ((vulpea-db-updated-functions
+               (list (lambda (p count) (push (list p count) calls))))
+              (vulpea-db-worker-done-functions
+               (list (lambda (_p status _c) (push status statuses)))))
+          (vulpea-db-worker--dispatch
+           (list 'written path "somehash" mtime size 1
+                 (list "written-hook-note") nil)))
+        (should (equal statuses '(applied)))
+        (should (equal calls (list (list path 1))))))))
+
+(ert-deftest vulpea-db-worker-updated-hook-fires-on-written-missing ()
+  "Ghost-row cleanup on a written reply announces the removal.
+A written reply for a vanished file removes what the worker
+committed; that is a data change and must reach
+`vulpea-db-updated-functions' as (PATH 0)."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((path "/tmp/vulpea-ghost-hook-test.org")
+          calls statuses)
+      (vulpea-db--insert-note
+       :id "ghost-hook-id" :path path :level 0 :pos 0 :title "Ghost"
+       :properties nil :modified-at "2026-07-06 10:00:00")
+      (vulpea-db--update-file-hash path "somehash" 1.0 10)
+      (let ((vulpea-db-updated-functions
+             (list (lambda (p count) (push (list p count) calls))))
+            (vulpea-db-worker-done-functions
+             (list (lambda (_p status _c) (push status statuses)))))
+        (vulpea-db-worker--dispatch
+         (list 'written path "somehash" 1.0 10 1 (list "ghost-hook-id") nil)))
+      (should (equal statuses '(missing)))
+      (should (equal calls (list (list path 0)))))))
+
+(ert-deftest vulpea-db-worker-updated-hook-silent-on-unchanged ()
+  "An unchanged-content completion announces no data change.
+Only the stored stamp is refreshed; `vulpea-db-updated-functions'
+stays silent while `vulpea-db-worker-done-functions' reports
+`unchanged'."
+  (vulpea-db-worker-test--with-file
+      ":PROPERTIES:\n:ID: updated-hook-unchanged\n:END:\n#+TITLE: S\n"
+    (vulpea-test--with-temp-db
+      (vulpea-db)
+      (vulpea-db-update-file path)
+      (set-file-times path (time-add (current-time) 10))
+      (let (calls statuses)
+        (let ((vulpea-db-updated-functions
+               (list (lambda (p count) (push (list p count) calls))))
+              (vulpea-db-worker-done-functions
+               (list (lambda (_p status _c) (push status statuses)))))
+          (vulpea-db-worker-request path)
+          (vulpea-db-worker-test--wait))
+        (should (equal statuses '(unchanged)))
+        (should-not calls)))))
+
 (ert-deftest vulpea-db-worker-stale-result-discarded-and-requeued ()
   "A file that changes mid-parse is not applied from the stale result.
 Simulated by rewriting the file after `done' data is fabricated: the

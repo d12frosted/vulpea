@@ -6128,7 +6128,8 @@ link must not signal an error."
 (defconst vulpea-test--extension-point-variables
   '(vulpea-insert-handle-functions
     vulpea-db-note-index-filter-functions
-    vulpea-db-worker-done-functions)
+    vulpea-db-worker-done-functions
+    vulpea-db-updated-functions)
   "Abnormal hooks that must stay plain variables.
 They are extension points attached to with `add-hook'; making them
 customizable invites overwriting the list, which would detach other
