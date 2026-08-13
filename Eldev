@@ -19,6 +19,14 @@
 ;; Doom-only macros and cannot be loaded outside Doom)
 (setf eldev-standard-excludes `(:or ,eldev-standard-excludes "bench/" "doom/"))
 
+;; `vulpea-backlinks' is the only file needing `magit-section', which
+;; the package itself does not depend on.  `magit-section' in turn wants
+;; a newer `transient' than Emacs ships, and asking for it by version is
+;; what gets it installed instead of the built-in one.
+(dolist (set '(build test lint))
+  (eldev-add-extra-dependencies set '(:package transient :version "0.13"))
+  (eldev-add-extra-dependencies set 'magit-section))
+
 ;; Teach linter how to properly indent emacsql vectors
 (eldev-add-extra-dependencies 'lint 'emacsql)
 (add-hook 'eldev-lint-hook
