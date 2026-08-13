@@ -40,8 +40,9 @@ list while the mode is on, use the commands - they apply the change
 to the running watchers and scope the work to the affected directory:
 
 - =M-x vulpea-db-sync-add-directory= appends a directory to the list
-  (the first entry is where new notes are created by default, so it
-  never changes), starts watching it and indexes only its files.
+  (the first entry is the fallback for notes created outside any
+  corpus, so it never changes), starts watching it and indexes only
+  its files.
 - =M-x vulpea-db-sync-remove-directory= stops watching a directory,
   drops its pending updates and removes its files from the database,
   unless another entry still covers them.
@@ -93,7 +94,7 @@ Where new notes are created:
 (setq vulpea-default-notes-directory "~/org/notes/")
 #+end_src
 
-Default: first entry in =vulpea-db-sync-directories=
+Default: the entry of =vulpea-db-sync-directories= holding the current buffer, so a note is born in the corpus being visited; outside any of them, the first entry. Set this to pin new notes to one directory instead.
 
 *Important:* This must be inside one of your =vulpea-db-sync-directories=, otherwise new notes won't be indexed.
 

@@ -1388,8 +1388,8 @@ also interactive commands.
 #+begin_src emacs-lisp
 ;; Append a directory to the list; with autosync enabled, start
 ;; watching it and index its files with the usual change detection.
-;; The first entry - where new notes are created by default - is
-;; never displaced.
+;; The first entry - the fallback for notes created outside any
+;; corpus - is never displaced.
 (vulpea-db-sync-add-directory "~/work-notes/")
 
 ;; Stop watching a directory: drop its pending updates and delete

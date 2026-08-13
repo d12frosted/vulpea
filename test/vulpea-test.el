@@ -369,6 +369,34 @@ Uses Unicode normalization to preserve base characters from accented letters."
   (should (equal (vulpea-title-to-slug "Alias Test")
                  (vulpea--title-to-slug "Alias Test"))))
 
+(ert-deftest vulpea--default-directory-uses-current-corpus ()
+  "A note is born in the sync directory of the visited buffer."
+  (let* ((root (file-truename (make-temp-file "vulpea-test-" t)))
+         (first (expand-file-name "first" root))
+         (here (expand-file-name "here" root)))
+    (unwind-protect
+        (progn
+          (make-directory (expand-file-name "daily" here) t)
+          (make-directory first t)
+          (let ((vulpea-default-notes-directory nil)
+                (vulpea-db-sync-directories (list first here))
+                (default-directory (expand-file-name "daily" here)))
+            (should (equal (vulpea--default-directory) here))))
+      (delete-directory root t))))
+
+(ert-deftest vulpea--default-directory-falls-back-to-first ()
+  "Outside every corpus the first sync directory is used."
+  (let* ((root (file-truename (make-temp-file "vulpea-test-" t)))
+         (first (expand-file-name "first" root)))
+    (unwind-protect
+        (progn
+          (make-directory first t)
+          (let ((vulpea-default-notes-directory nil)
+                (vulpea-db-sync-directories (list first))
+                (default-directory root))
+            (should (equal (vulpea--default-directory) first))))
+      (delete-directory root t))))
+
 (ert-deftest vulpea--expand-file-name-template-default ()
   "Test file name template expansion with default template."
   (let* ((vulpea-default-notes-directory (make-temp-file "vulpea-test-" t))
