@@ -2988,5 +2988,67 @@ Removing the last directory stops polling entirely."
         (delete-directory dir1 t)
         (delete-directory dir2 t)))))
 
+;;; Sync directory lookup
+
+(ert-deftest vulpea-db-sync-directory-of-finds-corpus ()
+  "A path inside a sync directory resolves to that directory."
+  (let* ((root (file-truename (make-temp-file "vulpea-test-" t)))
+         (a (expand-file-name "a" root))
+         (b (expand-file-name "b" root)))
+    (unwind-protect
+        (progn
+          (make-directory (expand-file-name "daily" a) t)
+          (make-directory b t)
+          (let ((vulpea-db-sync-directories (list a b)))
+            (should (equal (vulpea-db-sync-directory-of
+                            (expand-file-name "daily/note.org" a))
+                           a))
+            (should (equal (vulpea-db-sync-directory-of b) b))
+            (should (null (vulpea-db-sync-directory-of root)))))
+      (delete-directory root t))))
+
+(ert-deftest vulpea-db-sync-directory-of-innermost-wins ()
+  "With nested sync directories the innermost one is returned."
+  (let* ((root (file-truename (make-temp-file "vulpea-test-" t)))
+         (inner (expand-file-name "inner" root)))
+    (unwind-protect
+        (progn
+          (make-directory inner t)
+          (let ((vulpea-db-sync-directories (list root inner)))
+            (should (equal (vulpea-db-sync-directory-of
+                            (expand-file-name "note.org" inner))
+                           inner))))
+      (delete-directory root t))))
+
+(ert-deftest vulpea-db-sync-directory-of-matches-through-symlink ()
+  "A corpus reached through a symlink matches from either side."
+  (let* ((root (file-truename (make-temp-file "vulpea-test-" t)))
+         (real (expand-file-name "real" root))
+         (link (expand-file-name "link" root)))
+    (unwind-protect
+        (progn
+          (make-directory real t)
+          (make-symbolic-link real link)
+          ;; Corpus spelled as the real directory, path through the link.
+          (let ((vulpea-db-sync-directories (list real)))
+            (should (equal (vulpea-db-sync-directory-of
+                            (expand-file-name "note.org" link))
+                           real)))
+          ;; Corpus spelled as the link, path through the real directory.
+          (let ((vulpea-db-sync-directories (list link)))
+            (should (equal (vulpea-db-sync-directory-of
+                            (expand-file-name "note.org" real))
+                           link))))
+      (delete-directory root t))))
+
+(ert-deftest vulpea-db-sync-directory-of-defaults-to-default-directory ()
+  "Without PATH the lookup uses `default-directory'."
+  (let ((root (file-truename (make-temp-file "vulpea-test-" t))))
+    (unwind-protect
+        (let ((vulpea-db-sync-directories (list root))
+              (default-directory root))
+          (should (equal (vulpea-db-sync-directory-of) root)))
+      (delete-directory root t))))
+
 (provide 'vulpea-db-sync-test)
 ;;; vulpea-db-sync-test.el ends here

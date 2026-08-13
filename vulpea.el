@@ -616,13 +616,14 @@ display the report in the *vulpea-doctor* buffer."
 (defcustom vulpea-default-notes-directory nil
   "Default directory for creating new notes.
 
-When nil (the default), dynamically resolves to the first entry in
-`vulpea-db-sync-directories', which itself defaults to
-`org-directory'.
+When nil (the default), dynamically resolves to the sync directory
+holding `default-directory' - a note is born in the corpus being
+visited - and falls back to the first entry in
+`vulpea-db-sync-directories' outside any of them.
 
-Set this explicitly only if you want notes created in a different
-directory than the first sync directory."
-  :type '(choice (const :tag "Use first sync directory" nil)
+Set this explicitly to pin new notes to one directory regardless of
+where they are created from."
+  :type '(choice (const :tag "Corpus of the current buffer" nil)
                  (directory :tag "Explicit directory"))
   :group 'vulpea)
 
@@ -854,9 +855,12 @@ descriptions [[id:xxx][old]]."
 
 Resolution order:
   1. `vulpea-default-notes-directory' if set
-  2. First directory from `vulpea-db-sync-directories' if set
-  3. `org-directory' as fallback"
+  2. The sync directory holding `default-directory', so a note is
+     born in the corpus being visited
+  3. First directory from `vulpea-db-sync-directories' if set
+  4. `org-directory' as fallback"
   (or vulpea-default-notes-directory
+      (vulpea-db-sync-directory-of)
       (car vulpea-db-sync-directories)
       org-directory))
 

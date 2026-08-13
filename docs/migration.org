@@ -50,7 +50,7 @@ Note your current v1 configuration - you'll need to translate settings to v2 equ
 (setq vulpea-db-sync-directories '("~/org/"))
 #+end_src
 
-Note: =vulpea-default-notes-directory= defaults to the first entry in =vulpea-db-sync-directories=, so you typically don't need to set it.
+Note: =vulpea-default-notes-directory= defaults to the entry of =vulpea-db-sync-directories= holding the current buffer (the first entry outside any of them), so you typically don't need to set it.
 
 ** Database Location
 

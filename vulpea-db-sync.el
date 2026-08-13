@@ -95,6 +95,27 @@ off and on applies the value."
   :type '(repeat directory)
   :group 'vulpea-db-sync)
 
+(defun vulpea-db-sync-directory-of (&optional path)
+  "Return the `vulpea-db-sync-directories' entry containing PATH.
+PATH defaults to `default-directory'.  Symlinks are resolved on
+both sides, so a directory reached through a symlinked path still
+matches, and on Windows the comparison is case-insensitive - the
+same rules `vulpea-db-sync-tracked-file-p' plays by, so a tracked
+file always resolves to a corpus.  When corpora nest, the
+innermost one wins.  Returns nil when PATH lies outside every sync
+directory."
+  (let ((path (file-name-as-directory
+               (file-truename (or path default-directory))))
+        (ignore-case (memq system-type '(windows-nt ms-dos cygwin)))
+        (best nil)
+        (best-length 0))
+    (dolist (dir vulpea-db-sync-directories best)
+      (let ((expanded (file-name-as-directory (file-truename dir))))
+        (when (and (string-prefix-p expanded path ignore-case)
+                   (> (length expanded) best-length))
+          (setq best dir
+                best-length (length expanded)))))))
+
 (defcustom vulpea-db-sync-external-method 'auto
   "Method to use for detecting external file changes.
 
@@ -1982,11 +2003,10 @@ fire over an empty list."
   "Add DIR to `vulpea-db-sync-directories' and start watching it.
 
 DIR is stored in normalized form - expanded, with a trailing
-slash - and appended to the end of the list: new notes are created
-in the first entry (unless `vulpea-default-notes-directory'
-overrides it), and adding a directory must not silently change
-that.  When DIR is already present under any spelling, nothing
-happens.
+slash - and appended to the end of the list: the first entry is
+where a note created outside every corpus lands, and adding a
+directory must not silently change that.  When DIR is already
+present under any spelling, nothing happens.
 
 With `vulpea-db-autosync-mode' enabled the change applies to the
 running watch immediately - no mode toggle, no full rescan.  The
@@ -2005,8 +2025,8 @@ present."
           (vulpea-db-sync--message "Vulpea: %s is already a sync directory"
                                    (abbreviate-file-name dir))
           nil)
-      ;; Append, never prepend: the head of the list is the default
-      ;; creation target for new notes
+      ;; Append, never prepend: the head of the list catches notes
+      ;; created outside every corpus
       (setq vulpea-db-sync-directories
             (append vulpea-db-sync-directories (list dir)))
       (when vulpea-db-autosync-mode
