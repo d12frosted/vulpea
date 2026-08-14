@@ -20,6 +20,7 @@
 ;;; Code:
 
 (require 'ert)
+(require 'cl-lib)
 (require 'magit-section)
 (require 'vulpea-backlinks)
 (require 'vulpea-db)
@@ -58,6 +59,17 @@ a rendered buffer."
   (with-temp-file path
     (insert content))
   (vulpea-db-update-file path))
+
+(defun vulpea-backlinks-test--wait (pred)
+  "Wait until PRED returns non-nil, running timers; fail after 2 seconds."
+  (let ((deadline (+ (float-time) 2)))
+    (while (and (not (funcall pred)) (< (float-time) deadline))
+      (sit-for 0.02))
+    (should (funcall pred))))
+
+(defun vulpea-backlinks-test--buffer-text ()
+  "Return the buffer text without properties."
+  (substring-no-properties (buffer-string)))
 
 ;;; vulpea-backlinks-ids
 
@@ -325,6 +337,105 @@ what makes them visitable."
           (should (derived-mode-p 'vulpea-backlinks-mode))
           (should (string-match-p "not on a Vulpea note"
                                   (substring-no-properties (buffer-string)))))))))
+
+(ert-deftest vulpea-backlinks-render-missing-source-file ()
+  "A backlink whose source file is gone renders without a preview.
+
+The database may still hold the row; the render must survive it
+and say so instead of showing a stale preview."
+  (vulpea-test--with-temp-notes-dir
+    (vulpea-backlinks-test--with-buffer
+      (let ((vulpea-backlinks-show-unlinked nil)
+            (target (expand-file-name "target.org" root))
+            (alpha (expand-file-name "alpha.org" root)))
+        (vulpea-backlinks-test--write
+         target ":PROPERTIES:\n:ID: target\n:END:\n#+TITLE: Target\n")
+        (vulpea-backlinks-test--write
+         alpha (concat ":PROPERTIES:\n:ID: alpha\n:END:\n#+TITLE: Alpha\n"
+                       "\nSees [[id:target][Target]].\n"))
+        (delete-file alpha)
+
+        (with-current-buffer (vulpea-backlinks--render "target")
+          (let ((text (vulpea-backlinks-test--buffer-text)))
+            (should (string-match-p "Backlinks (1)" text))
+            (should (string-match-p "Alpha (file is missing)" text)))
+          (should-not (vulpea-backlinks-test--sections
+                       'vulpea-backlinks-preview-section)))))))
+
+(ert-deftest vulpea-backlinks-render-survives-synchronous-mentions ()
+  "A mention search resolving synchronously does not corrupt the render.
+
+`vulpea-note-unlinked-mentions-async' may call RESOLVE before
+returning - mention detection opted out, nothing to search for -
+and the fetch runs mid-render, inside an open
+`magit-insert-section'; re-rendering right there would leave
+sections with ends before their starts."
+  (vulpea-test--with-temp-notes-dir
+    (vulpea-backlinks-test--with-buffer
+      (let ((target (expand-file-name "target.org" root)))
+        (vulpea-backlinks-test--write
+         target ":PROPERTIES:\n:ID: target\n:END:\n#+TITLE: Target\n")
+        (cl-letf (((symbol-function 'vulpea-note-unlinked-mentions-async)
+                   (lambda (_note resolve _reject)
+                     (funcall resolve nil)
+                     nil)))
+          (with-current-buffer (vulpea-backlinks--render "target")
+            (should (string-match-p
+                     "Unlinked References (loading"
+                     (vulpea-backlinks-test--buffer-text)))
+            (vulpea-backlinks-test--wait
+             (lambda () (string-match-p "Unlinked References (0)"
+                                        (vulpea-backlinks-test--buffer-text))))
+            ;; Every section is well-formed.
+            (letrec ((walk (lambda (section)
+                             (should (<= (oref section start)
+                                         (oref section end)))
+                             (mapc walk (oref section children)))))
+              (funcall walk magit-root-section))))))))
+
+(ert-deftest vulpea-backlinks-render-failed-search-says-so ()
+  "A failed mention search renders as failed, not as zero mentions."
+  (vulpea-test--with-temp-notes-dir
+    (vulpea-backlinks-test--with-buffer
+      (let ((target (expand-file-name "target.org" root)))
+        (vulpea-backlinks-test--write
+         target ":PROPERTIES:\n:ID: target\n:END:\n#+TITLE: Target\n")
+        (cl-letf (((symbol-function 'vulpea-note-unlinked-mentions-async)
+                   (lambda (_note _resolve reject)
+                     (funcall reject "ripgrep is not available")
+                     nil)))
+          (with-current-buffer (vulpea-backlinks--render "target")
+            (vulpea-backlinks-test--wait
+             (lambda () (string-match-p "Unlinked References (search failed)"
+                                        (vulpea-backlinks-test--buffer-text))))
+            (let ((text (vulpea-backlinks-test--buffer-text)))
+              (should (string-match-p "ripgrep is not available" text))
+              (should-not (string-match-p "Unlinked References (0" text)))))))))
+
+(ert-deftest vulpea-backlinks-refresh-drops-mention-cache ()
+  "Refreshing re-runs the mention search for the current note."
+  (vulpea-test--with-temp-notes-dir
+    (vulpea-backlinks-test--with-buffer
+      (let ((target (expand-file-name "target.org" root))
+            (calls 0))
+        (vulpea-backlinks-test--write
+         target ":PROPERTIES:\n:ID: target\n:END:\n#+TITLE: Target\n")
+        (cl-letf (((symbol-function 'vulpea-note-unlinked-mentions-async)
+                   (lambda (_note resolve _reject)
+                     (cl-incf calls)
+                     (funcall resolve nil)
+                     nil)))
+          (with-current-buffer (vulpea-backlinks--render "target")
+            (vulpea-backlinks-test--wait
+             (lambda () (string-match-p "Unlinked References (0)"
+                                        (vulpea-backlinks-test--buffer-text))))
+            (should (= 1 calls))
+            ;; A plain re-render keeps the cache.
+            (vulpea-backlinks--render "target")
+            (should (= 1 calls))
+            ;; A refresh drops it and searches again.
+            (vulpea-backlinks-refresh)
+            (vulpea-backlinks-test--wait (lambda () (= 2 calls)))))))))
 
 (provide 'vulpea-backlinks-test)
 ;;; vulpea-backlinks-test.el ends here

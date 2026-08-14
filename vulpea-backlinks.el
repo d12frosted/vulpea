@@ -40,8 +40,9 @@
 ;; visiting one runs `occur' over its mention lines, so a file
 ;; mentioning the note five times is one entry to review rather than
 ;; five to visit.  They arrive asynchronously (see
-;; `vulpea-note-unlinked-mentions-async') and are cached per note for
-;; the lifetime of the buffer, so re-rendering never re-runs the search.
+;; `vulpea-note-unlinked-mentions-async') and are cached per note, so
+;; re-rendering does not re-run the search; `g' drops the note's cache
+;; and searches again.
 ;;
 ;; The buffer is a `magit-section' one and inherits its bindings: TAB
 ;; and S-TAB cycle visibility, `g' reverts.
@@ -85,8 +86,20 @@
   :group 'vulpea-backlinks)
 
 (defcustom vulpea-backlinks-window-width 0.33
-  "Width of the backlinks window, as a fraction of the frame."
+  "Size of the backlinks window, as a fraction of the frame.
+
+Its width when `vulpea-backlinks-window-side' is left or right,
+its height when top or bottom."
   :type 'number
+  :group 'vulpea-backlinks)
+
+(defcustom vulpea-backlinks-solo-main-window nil
+  "When non-nil, visiting a note clears the rest of the main area.
+
+Opening the sidebar and visiting things from it then keep the
+frame to two windows - the note and the sidebar.  When nil, the
+window layout is left alone."
+  :type 'boolean
   :group 'vulpea-backlinks)
 
 (defcustom vulpea-backlinks-show-unlinked t
@@ -164,7 +177,7 @@ it the same way."
 
 With OTHER-WINDOW, visit it in another window and leave the
 window layout alone."
-  (interactive current-prefix-arg)
+  (interactive "P")
   (let ((sec (magit-current-section)))
     (vulpea-backlinks--visit (oref sec file) (oref sec point) other-window)))
 
@@ -194,7 +207,7 @@ window layout alone."
 
 With OTHER-WINDOW, visit it in another window and leave the
 window layout alone."
-  (interactive current-prefix-arg)
+  (interactive "P")
   (let ((sec (magit-current-section)))
     (vulpea-backlinks--visit (oref sec file) (oref sec point) other-window)))
 
@@ -236,9 +249,11 @@ known mention lines are matched by their full text instead."
   "Visit the file mentioning the note, with an `occur' of its mentions.
 
 A file usually mentions a note more than once, so the whole set is
-presented at once rather than one position at a time: the file and
-the `occur' buffer take over the main area.  With KEEP-SIDEBAR,
-the backlinks window stays where it is."
+presented at once rather than one position at a time: the file
+opens with an `occur' buffer over its mention lines (clearing the
+rest of the main area when `vulpea-backlinks-solo-main-window' is
+non-nil).  With KEEP-SIDEBAR, the backlinks window stays where it
+is."
   (interactive)
   (let* ((sec (magit-current-section))
          (file (oref sec file))
@@ -262,10 +277,11 @@ the backlinks window stays where it is."
 (defun vulpea-backlinks--visit (file point &optional other-window)
   "Visit FILE at POINT, widening and revealing the position.
 
-The visited buffer becomes the only window in the main area, so
-the sidebar keeps its place instead of being pushed around by
-whatever else was open.  With OTHER-WINDOW, use another window and
-leave the layout alone.  Returns the buffer."
+When `vulpea-backlinks-solo-main-window' is non-nil the visited
+buffer becomes the only window in the main area, so the sidebar
+keeps its place instead of being pushed around by whatever else
+was open.  With OTHER-WINDOW, use another window and leave the
+layout alone.  Returns the buffer."
   (let ((buf (find-file-noselect file)))
     (if other-window
         (switch-to-buffer-other-window buf)
@@ -274,7 +290,7 @@ leave the layout alone.  Returns the buffer."
     (with-current-buffer buf
       (widen)
       (goto-char (or point (point-min)))
-      (when (org-invisible-p) (org-fold-show-context)))
+      (when (org-invisible-p) (vulpea--show-context)))
     buf))
 
 ;;; Preview contents
@@ -285,26 +301,29 @@ leave the layout alone.  Returns the buffer."
 OLP is the outline path of the heading holding PT, that heading
 included, whether or not it is a note of its own; nil when PT sits
 at file level.  PREVIEW is the text under that heading, without
-its planning line and property drawer."
-  (with-temp-buffer
-    (insert-file-contents file)
-    (delay-mode-hooks (org-mode))
-    (org-with-wide-buffer
-     (goto-char pt)
-     (let* ((olp (ignore-errors (org-get-outline-path t)))
-            (beg (save-excursion
-                   (org-back-to-heading-or-point-min t)
-                   (when (org-at-heading-p) (forward-line))
-                   (while (looking-at-p org-planning-line-re) (forward-line))
-                   (when (looking-at-p org-property-drawer-re)
-                     (re-search-forward org-property-drawer-re nil t)
-                     (forward-line))
-                   (point)))
-            (end (save-excursion
-                   (outline-next-heading)
-                   (point))))
-       (cons olp
-             (string-trim (buffer-substring-no-properties beg end)))))))
+its planning line and property drawer.  Returns nil when FILE is
+not readable - the database may still hold a row for a file that
+is gone from disk."
+  (when (file-readable-p file)
+    (with-temp-buffer
+      (insert-file-contents file)
+      (delay-mode-hooks (org-mode))
+      (org-with-wide-buffer
+       (goto-char pt)
+       (let* ((olp (ignore-errors (org-get-outline-path t)))
+              (beg (save-excursion
+                     (org-back-to-heading-or-point-min t)
+                     (when (org-at-heading-p) (forward-line))
+                     (while (looking-at-p org-planning-line-re) (forward-line))
+                     (when (looking-at-p org-property-drawer-re)
+                       (re-search-forward org-property-drawer-re nil t)
+                       (forward-line))
+                     (point)))
+              (end (save-excursion
+                     (outline-next-heading)
+                     (point))))
+         (cons olp
+               (string-trim (buffer-substring-no-properties beg end))))))))
 
 (defun vulpea-backlinks--fontify (s)
   "Return S fontified as Org text."
@@ -321,7 +340,10 @@ its planning line and property drawer."
     "Top"))
 
 (defun vulpea-backlinks--insert-node (source pos)
-  "Insert a backlink section for note SOURCE linking at POS."
+  "Insert a backlink section for note SOURCE linking at POS.
+
+When SOURCE's file is gone from disk - a stale database row - the
+section says so instead of a preview."
   (let* ((file (vulpea-note-path source))
          (ctx (vulpea-backlinks--context-at file pos))
          (olp (car ctx))
@@ -330,14 +352,17 @@ its planning line and property drawer."
       (magit-insert-heading
         (concat (propertize (vulpea-note-title source)
                             'font-lock-face 'org-link)
-                (propertize (format " (%s)" (vulpea-backlinks--olp-string olp))
+                (propertize (if ctx
+                                (format " (%s)" (vulpea-backlinks--olp-string olp))
+                              " (file is missing)")
                             'font-lock-face 'shadow)))
       (oset node file file)
       (oset node point pos)
-      (magit-insert-section pv (vulpea-backlinks-preview-section (cons file pos))
-        (oset pv file file)
-        (oset pv point pos)
-        (insert (vulpea-backlinks--fontify preview) "\n\n")))))
+      (when ctx
+        (magit-insert-section pv (vulpea-backlinks-preview-section (cons file pos))
+          (oset pv file file)
+          (oset pv point pos)
+          (insert (vulpea-backlinks--fontify preview) "\n\n"))))))
 
 (defun vulpea-backlinks-ids (&optional note-or-id)
   "Return ids of the notes linking to NOTE-OR-ID.
@@ -382,11 +407,18 @@ no note could be determined."
 
 One entry per mentioning file, carrying its occurrence count and
 the mention lines themselves.  While the search is still running
-the section says so and the buffer re-renders when it lands."
+the section says so and the buffer re-renders when it lands; a
+failed search says so too, rather than posing as a note without
+mentions."
   (let* ((id (vulpea-note-id note))
          (cell (assoc id vulpea-backlinks--mentions-cache)))
     (magit-insert-section (vulpea-backlinks-mentions)
       (cond
+       ((stringp (cdr cell))
+        (magit-insert-heading "Unlinked References (search failed)")
+        (insert (propertize (format "  %s\n" (cdr cell))
+                            'font-lock-face 'shadow))
+        (insert "\n"))
        (cell
         (let ((mentions (cdr cell)))
           (magit-insert-heading (format "Unlinked References (%d)" (length mentions)))
@@ -415,29 +447,35 @@ the section says so and the buffer re-renders when it lands."
   "Search unlinked mentions of NOTE and re-render once they arrive.
 
 A search already in flight for the same note is not started
-again.  A failed search caches an empty result, so the buffer
-settles instead of asking again on every render."
+again.  A failed search caches the error string in place of the
+mentions, so the buffer settles - and says the search failed -
+instead of asking again on every render; a refresh drops the
+cache and searches again.
+
+Both outcomes are settled via a timer: the search may deliver its
+result synchronously - no search terms, mention detection opted
+out - and this function runs mid-render, inside an open
+`magit-insert-section', where re-rendering must not start."
   (let ((id (vulpea-note-id note))
         (buf (current-buffer)))
     (unless (member id vulpea-backlinks--mentions-fetching)
       (push id vulpea-backlinks--mentions-fetching)
-      (vulpea-note-unlinked-mentions-async
-       note
-       (lambda (mentions)
-         (when (buffer-live-p buf)
-           (with-current-buffer buf
-             (setq vulpea-backlinks--mentions-fetching
-                   (delete id vulpea-backlinks--mentions-fetching))
-             (push (cons id mentions) vulpea-backlinks--mentions-cache)
-             (when (equal vulpea-backlinks--id id)
-               (vulpea-backlinks--render id)))))
-       (lambda (err)
-         (when (buffer-live-p buf)
-           (with-current-buffer buf
-             (setq vulpea-backlinks--mentions-fetching
-                   (delete id vulpea-backlinks--mentions-fetching))
-             (push (cons id (list)) vulpea-backlinks--mentions-cache)
-             (message "vulpea-backlinks: %s" err))))))))
+      (let ((settle
+             (lambda (result)
+               (run-at-time
+                0 nil
+                (lambda ()
+                  (when (buffer-live-p buf)
+                    (with-current-buffer buf
+                      (setq vulpea-backlinks--mentions-fetching
+                            (delete id vulpea-backlinks--mentions-fetching))
+                      (push (cons id result) vulpea-backlinks--mentions-cache)
+                      (when (equal vulpea-backlinks--id id)
+                        (vulpea-backlinks--render id)))))))))
+        (vulpea-note-unlinked-mentions-async
+         note
+         settle
+         (lambda (err) (funcall settle (format "%s" err))))))))
 
 (defun vulpea-backlinks--render (id)
   "Render the backlinks buffer for the note ID and return it.
@@ -509,22 +547,30 @@ behaviour."
 (defun vulpea-backlinks--solo-main-window ()
   "Make the selected window the only one in the main area.
 
-`delete-other-windows' would take the side windows with it, so
-only the other non-side windows are deleted."
-  (dolist (w (window-list))
-    (unless (or (eq w (selected-window))
-                (window-parameter w 'window-side))
-      (delete-window w))))
+Does nothing unless `vulpea-backlinks-solo-main-window' is
+non-nil.  `delete-other-windows' would take the side windows with
+it, so only the other non-side windows are deleted."
+  (when vulpea-backlinks-solo-main-window
+    (dolist (w (window-list))
+      (unless (or (eq w (selected-window))
+                  (window-parameter w 'window-side))
+        (delete-window w)))))
 
 (defun vulpea-backlinks-refresh ()
   "Re-render the backlinks buffer.
 
 Called from the backlinks buffer it keeps its current note;
-anywhere else it takes the note at point."
+anywhere else it takes the note at point.  The note's cached
+mention search is dropped, so the refresh picks up mentions that
+appeared since."
   (interactive)
   (let ((id (or (and (derived-mode-p 'vulpea-backlinks-mode)
                      vulpea-backlinks--id)
                 (vulpea-backlinks--id-at-point))))
+    (when-let* ((buf (and id (get-buffer vulpea-backlinks-buffer-name))))
+      (with-current-buffer buf
+        (setq vulpea-backlinks--mentions-cache
+              (assoc-delete-all id vulpea-backlinks--mentions-cache))))
     (vulpea-backlinks--render id)))
 
 ;;;###autoload
@@ -540,11 +586,14 @@ shows another one it is retargeted."
                                           (window-buffer win)))
             (delete-window win)
           (vulpea-backlinks--render id))
-      (let ((buf (vulpea-backlinks--render id)))
+      (let ((buf (vulpea-backlinks--render id))
+            (size (if (memq vulpea-backlinks-window-side '(top bottom))
+                      'window-height
+                    'window-width)))
         (vulpea-backlinks--solo-main-window)
         (display-buffer-in-side-window
          buf `((side . ,vulpea-backlinks-window-side)
-               (window-width . ,vulpea-backlinks-window-width)))))))
+               (,size . ,vulpea-backlinks-window-width)))))))
 
 (defvar vulpea-backlinks--follow-last-id nil
   "Id the follow mode rendered last, so it re-renders only on a change.")

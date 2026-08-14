@@ -439,13 +439,15 @@ heading the link sits under, and a preview of that heading; =RET= visits
 the source, =o= shows it without leaving the buffer. Unlinked references
 are grouped by file - visiting one runs =occur= over its mention lines,
 so a file mentioning the note five times is one entry rather than five -
-and are searched asynchronously, then cached per note for the lifetime
-of the buffer. Set =vulpea-backlinks-show-unlinked= to nil to leave them
-out. Being a =magit-section= buffer, =TAB= and =S-TAB= cycle visibility
-and =g= reverts.
+and are searched asynchronously, then cached per note. Set
+=vulpea-backlinks-show-unlinked= to nil to leave them out. Being a
+=magit-section= buffer, =TAB= and =S-TAB= cycle visibility and =g=
+reverts - dropping the note's mention cache, so the search runs again.
 
 =vulpea-backlinks-window-side= and =vulpea-backlinks-window-width= place
-the window. The sidebar narrows the main area, which makes Emacs stack
+the window. With =vulpea-backlinks-solo-main-window= non-nil, visiting a
+note from the sidebar clears the rest of the main area, keeping the
+frame to the note and the sidebar. The sidebar narrows the main area, which makes Emacs stack
 new windows instead of splitting side by side;
 =vulpea-backlinks-split-window-sensibly= decides as if the side windows
 were not there, and can be installed for that:

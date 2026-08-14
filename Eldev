@@ -23,7 +23,7 @@
 ;; the package itself does not depend on.  `magit-section' in turn wants
 ;; a newer `transient' than Emacs ships, and asking for it by version is
 ;; what gets it installed instead of the built-in one.
-(dolist (set '(build test lint))
+(dolist (set '(build test lint emacs eval exec))
   (eldev-add-extra-dependencies set '(:package transient :version "0.13"))
   (eldev-add-extra-dependencies set 'magit-section))
 
