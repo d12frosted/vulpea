@@ -720,6 +720,15 @@ Template variables for :file-name:
 ;;; Variables
 
 (defvar vulpea-db-sync-directories)  ; Defined in vulpea-db
+
+(defcustom vulpea-find-backlink-expand-aliases t
+  "Whether `vulpea-find-backlink' expands aliases during completion.
+
+When nil, each backlink appears exactly once, under its primary title,
+and its aliases are not matchable during completion."
+  :type 'boolean
+  :group 'vulpea)
+
 (defcustom vulpea-find-default-filter nil
   "Default filter to use in `vulpea-find'."
   :type '(choice (const :tag "No filter" nil) function)
@@ -1090,12 +1099,6 @@ for the original title and once for each alias."
           (when new-note
             (vulpea-visit new-note other-window)))))))
 
-
-(defcustom vulpea-find-backlink-expand-aliases t
-  "If `vulpea-find-backlink' should expand aliases."
-  :type 'boolean
-  :group 'vulpea)
-
 ;;;###autoload
 (defun vulpea-find-backlink ()
   "Select and find a note linked to current note.
@@ -1103,11 +1106,7 @@ for the original title and once for each alias."
 Point lands on the first link pointing back to the current note,
 so you see the mention itself instead of the beginning of the
 selected note. When the link cannot be found in the buffer (e.g.
-the file changed since the last sync), point stays at the note.
-
-If `vulpea-find-backlink-expand-aliases' is t (default value), aliases
-are expanded during completion. Supplying a universal argument ARG
-temporarily toggles the current behavior for this invocation."
+the file changed since the last sync), point stays at the note."
   (interactive)
   (let* ((id (or (org-entry-get nil "ID" t)
                  (user-error "Current location has no ID property")))
@@ -1120,9 +1119,7 @@ temporarily toggles the current behavior for this invocation."
       (user-error "There are no backlinks to the current note"))
     (let ((note (vulpea-select-from "Note" backlinks
                                     :require-match t
-                                    :expand-aliases (if current-prefix-arg
-                                                        (not vulpea-find-backlink-expand-aliases)
-                                                      vulpea-find-backlink-expand-aliases))))
+                                    :expand-aliases vulpea-find-backlink-expand-aliases)))
       (when (vulpea-note-id note)
         (vulpea-visit note)
         ;; Land on the link itself rather than the beginning of the note
