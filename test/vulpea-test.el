@@ -257,6 +257,66 @@
         (when (file-exists-p path)
           (delete-file path))))))
 
+(ert-deftest vulpea-find-backlink-expand-aliases ()
+  "Test expanding aliases in `vulpea-find-backlink'.
+
+Test that vulpea-find-backlink' calls `vulpea-select-from' with the
+value of the `:expand-aliases' argument depending on
+`vulpea-find-backlink-expand-aliases'."
+  (vulpea-test--with-temp-db
+   (vulpea-db)
+   (let*
+       (candidates
+        expand-aliases-was-set
+        require-match-was-set
+        (note1-id "note1-id")
+        (note2-id "note2-id")
+        (note3-id "note3-id")
+        (path1
+         (vulpea-test--create-temp-org-file
+          (format
+           ":PROPERTIES:\n:ID: %s\n:END:\n#+TITLE: Note 1\n\nContent here."
+           note1-id)))
+        (path2
+         (vulpea-test--create-temp-org-file
+          (format
+           ":PROPERTIES:\n:ID: %s\n:END:\n#+TITLE: Note 2\n\nContent here. [[id:%s][A link to Note 1]]"
+           note2-id note1-id)))
+        (path3
+         (vulpea-test--create-temp-org-file
+          (format
+           ":PROPERTIES:\n:ID: %s\n:END:\n#+TITLE: Note 3\n\nContent here. [[id:%s][A link to Note 1]]"
+           note3-id note1-id))))
+
+     (vulpea-db-update-file path1)
+     (vulpea-db-update-file path2)
+     (vulpea-db-update-file path3)
+
+     (cl-letf (((symbol-function 'vulpea-select-from)
+                (lambda (_prompt
+                         notes
+                         &key
+                         _require-match
+                         _initial-prompt
+                         expand-aliases)
+                  (setq candidates notes)
+                  (setq expand-aliases-was-set expand-aliases)
+                  (vulpea-db-get-by-id note2-id))))
+
+       (should (equal (length (vulpea-db-query)) 3))
+
+       (let ((vulpea-find-backlink-expand-aliases t))
+         (vulpea-visit note1-id)
+         (vulpea-find-backlink)
+         (should (equal (length candidates) 2))
+         (should expand-aliases-was-set))
+
+       (let ((vulpea-find-backlink-expand-aliases nil))
+         (vulpea-visit note1-id)
+         (vulpea-find-backlink)
+         (should (equal (length candidates) 2))
+         (should (null expand-aliases-was-set)))))))
+
 ;;; vulpea-find Tests
 
 (ert-deftest vulpea-find-uses-create-fn ()
