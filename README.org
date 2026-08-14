@@ -146,6 +146,8 @@ git clone https://github.com/d12frosted/vulpea
 - =emacsql= 4.3.0+ (with =emacsql-sqlite-builtin=)
 - =s= 1.12+
 - =dash= 2.19+
+- =magit-section= 3.0+, only for the [[file:docs/api-reference.org::*Backlinks Buffer][backlinks buffer]] - nothing else in
+  Vulpea loads it
 
 *** Optional (Strongly Recommended)
 

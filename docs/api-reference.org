@@ -419,6 +419,46 @@ than hard-filled. =auto-fill-mode= and =M-q= insert real newlines
 between CJK characters, and a title split across a line break is
 invisible to any line-based search, mentions included.
 
+* Backlinks Buffer
+
+=vulpea-backlinks= is a side buffer answering "what points here?" for the
+note at point: the notes linking to it, and its unlinked mentions. It
+lives in its own file because it is the only part of vulpea that needs
+[[https://github.com/magit/magit][magit-section]], so nothing else grows the dependency:
+
+#+begin_src emacs-lisp
+(require 'vulpea-backlinks)
+(global-set-key (kbd "C-c n l") #'vulpea-backlinks-toggle)
+
+;; optional: follow point between notes
+(vulpea-backlinks-follow-mode 1)
+#+end_src
+
+Each backlink carries the source note's title, the outline path of the
+heading the link sits under, and a preview of that heading; =RET= visits
+the source, =o= shows it without leaving the buffer. Unlinked references
+are grouped by file - visiting one runs =occur= over its mention lines,
+so a file mentioning the note five times is one entry rather than five -
+and are searched asynchronously, then cached per note. Set
+=vulpea-backlinks-show-unlinked= to nil to leave them out. Being a
+=magit-section= buffer, =TAB= and =S-TAB= cycle visibility and =g=
+reverts - dropping the note's mention cache, so the search runs again.
+
+=vulpea-backlinks-window-side= and =vulpea-backlinks-window-width= place
+the window. With =vulpea-backlinks-solo-main-window= non-nil, visiting a
+note from the sidebar clears the rest of the main area, keeping the
+frame to the note and the sidebar. The sidebar narrows the main area, which makes Emacs stack
+new windows instead of splitting side by side;
+=vulpea-backlinks-split-window-sensibly= decides as if the side windows
+were not there, and can be installed for that:
+
+#+begin_src emacs-lisp
+(setq split-window-preferred-function
+      #'vulpea-backlinks-split-window-sensibly)
+#+end_src
+
+The backlink ids alone, without any UI, are =vulpea-backlinks-ids=.
+
 * Statistics
 
 #+begin_src emacs-lisp
