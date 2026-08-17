@@ -284,57 +284,70 @@ a bytes submatch is dropped from :matched while text ones survive."
     (should-not (vulpea-mentions--line-unlinked-p
                  "鹿苑寺，又名金阁寺" '("金阁寺")))))
 
+(defun vulpea-mentions-test--ignore-notes-files ()
+  "Return the file specs backing the per note ignore tests.
+
+Sets holds a Maps heading and mentions MapTool, fileless.org mentions
+Git from a heading with no file level note, and the remaining files
+give the ignore commands both file level and heading level targets."
+  `((:name "sets.org"
+           :content
+           ,(concat ":PROPERTIES:\n:ID: sets\n"
+                    ":END:\n#+title: Sets\n\n"
+                    "A contrived link to [[id:gone-with-the-wind][Gone with the Wind]].\n"
+                    "* Maps\n:PROPERTIES:\n:ID: maps\n:END:\n#+title: Maps\n\n"
+                    "A map is a functional relation...\n"
+                    "A contrived mention to MapTool.\n"))
+    (:name "gone-with-the-wind.org"
+           :content
+           ,(concat ":PROPERTIES:\n:ID: gone-with-the-wind\n:END:\n#+title: Gone with the Wind\n\n"
+                    "And I'm not denying that when he sets out to drink he can put even the Tarletons under the table."))
+    (:name "git.org"
+           :content
+           ,(concat ":PROPERTIES:\n:ID: git\n:END:\n#+title: Git\n\n"
+                    "This command also sets the local branch to track the remote branch."))
+    (:name "maptool.org"
+           :content
+           ,(concat ":PROPERTIES:\n:ID: maptool\n:END:\n#+title: MapTool\n\n"
+                    "MapTool helps you play DnD online with digital maps!"))
+    (:name "fileless.org"
+           :content
+           ,(concat "A file contains no file level note id!\n"
+                    "* Heading\n"
+                    ":PROPERTIES:\n:ID: fileless\n:END:\n"
+                    "Git rebasing sometimes can be confusing.\n"))))
+
+(defun vulpea-mentions-test--id-ignored-p (id)
+  "Return non-nil when ID is ignored by the note at point."
+  (org-entry-member-in-multivalued-property
+   (point)
+   vulpea-mentions-per-note-ignore-property-key
+   id))
+
 (ert-deftest vulpea-mentions-ignore-from ()
-  "Adding ignored note id to per note ignore property in various settings."
+  "Adding ignored note id to per note ignore property in various settings.
+
+Covers the property manipulation only; the effect on mentions is
+`vulpea-mentions-ignore-from-silences-mentions', which needs rg."
   (vulpea-test--with-temp-db-and-files
-   `((:name "sets.org"
-            :content
-            ,(concat ":PROPERTIES:\n:ID: sets\n"
-                     ":END:\n#+title: Sets\n\n"
-                     "A contrived link to [[id:gone-with-the-wind][Gone with the Wind]].\n"
-                     "* Maps\n:PROPERTIES:\n:ID: maps\n:END:\n#+title: Maps\n\n"
-                     "A map is a functional relation...\n"
-                     "A contrived mention to MapTool.\n"))
-     (:name "gone-with-the-wind.org"
-            :content
-            ,(concat ":PROPERTIES:\n:ID: gone-with-the-wind\n:END:\n#+title: Gone with the Wind\n\n"
-                     "And I'm not denying that when he sets out to drink he can put even the Tarletons under the table."))
-     (:name "git.org"
-            :content
-            ,(concat ":PROPERTIES:\n:ID: git\n:END:\n#+title: Git\n\n"
-                     "This command also sets the local branch to track the remote branch."))
-     (:name "maptool.org"
-            :content
-            ,(concat ":PROPERTIES:\n:ID: maptool\n:END:\n#+title: MapTool\n\n"
-                     "MapTool helps you play DnD online with digital maps!"))
-     (:name "fileless.org"
-            :content
-            ,(concat "A file contains no file level note id!\n"
-                     "* Heading\n"
-                     ":PROPERTIES:\n:ID: fileless\n:END:\n"
-                     "Git rebasing sometimes can be confusing.\n")))
+   (vulpea-mentions-test--ignore-notes-files)
    (let ((sets-note (vulpea-db-get-by-id "sets"))
          (gw-note (vulpea-db-get-by-id "gone-with-the-wind"))
          (git-note (vulpea-db-get-by-id "git"))
          (maps-note (vulpea-db-get-by-id "maps"))
          (maptool-note (vulpea-db-get-by-id "maptool"))
-         (fileless-note (vulpea-db-get-by-id "fileless"))
-         (id-in-property-p (lambda (id)
-                                 (org-entry-member-in-multivalued-property
-                                  (point)
-                                  vulpea-mentions-per-note-ignore-property-key
-                                  id))))
+         (fileless-note (vulpea-db-get-by-id "fileless")))
 
      (vulpea-utils-with-note sets-note
        ;; At the beginning, there is no such property
        (should (null (org-find-property vulpea-mentions-per-note-ignore-property-key)))
        (vulpea-mentions-ignore-from sets-note gw-note)
        ;; After we ignore Gone with the Wind, its id should appear as one of the property values
-       (should (funcall id-in-property-p "gone-with-the-wind"))
+       (should (vulpea-mentions-test--id-ignored-p "gone-with-the-wind"))
        (vulpea-mentions-ignore-from sets-note git-note)
        ;; After we ignore Git, both its id and previously ignored id should be both part of the value list
-       (should (funcall id-in-property-p "git"))
-       (should (funcall id-in-property-p "gone-with-the-wind"))
+       (should (vulpea-mentions-test--id-ignored-p "git"))
+       (should (vulpea-mentions-test--id-ignored-p "gone-with-the-wind"))
        ;; The database should also have the property updated right now
        (should (let* ((properties (vulpea-note-properties (vulpea-db-get-by-id "sets")))
                       (prop-value (cdr (assoc vulpea-mentions-per-note-ignore-property-key properties))))
@@ -349,27 +362,21 @@ a bytes submatch is dropped from :matched while text ones survive."
      ;; created for it rather than the file level property drawer
      (vulpea-mentions-ignore-from maps-note maptool-note)
      (vulpea-utils-with-note maps-note
-       (should (funcall id-in-property-p "maptool")))
+       (should (vulpea-mentions-test--id-ignored-p "maptool")))
      ;; If we ignore mentions from a heading note, we should add its
      ;; file level note id to the property value list
-     (let ((mentions-before (vulpea-mentions-test--collect-incoming-mentions-for-note "maptool")))
-       (should (equal (length mentions-before) 1)))
      (vulpea-mentions-ignore-from maptool-note maps-note)
      (vulpea-utils-with-note maptool-note
-       (should (funcall id-in-property-p "sets")))
-     (let ((mentions-after (vulpea-mentions-test--collect-incoming-mentions-for-note "maptool")))
-       (should (equal (length mentions-after) 0)))
+       (should (vulpea-mentions-test--id-ignored-p "sets")))
 
      ;; Reverse the process to test the unignore part
      (vulpea-mentions-unignore-from maptool-note maps-note)
-     (let ((mentions (vulpea-mentions-test--collect-incoming-mentions-for-note "maptool")))
-       (should (equal (length mentions) 1)))
      (vulpea-utils-with-note maptool-note
-       (should (not (funcall id-in-property-p "sets"))))
+       (should (not (vulpea-mentions-test--id-ignored-p "sets"))))
      ;; Unignore from a heading note only affects its own property
      (vulpea-mentions-unignore-from maps-note maptool-note)
      (vulpea-utils-with-note maps-note
-       (should (not (funcall id-in-property-p "maptool"))))
+       (should (not (vulpea-mentions-test--id-ignored-p "maptool"))))
      (vulpea-utils-with-note sets-note
        (vulpea-mentions-unignore-from sets-note git-note)
        (vulpea-mentions-unignore-from sets-note gw-note)
@@ -383,15 +390,39 @@ a bytes submatch is dropped from :matched while text ones survive."
               (prop-record (assoc vulpea-mentions-per-note-ignore-property-key properties)))
          (should (null prop-record)))
        ;; Property should also be cleared
-       (should (null (org-find-property vulpea-mentions-per-note-ignore-property-key)))
-       ;; When we ignore from a heading note which does not reside in a file level note
-       (let ((mentions (vulpea-mentions-test--collect-incoming-mentions-for-note "git")))
-         (should (equal 1 (length mentions))))
-       (vulpea-mentions-ignore-from git-note fileless-note)
-       (vulpea-utils-with-note git-note
-         (should (funcall id-in-property-p "fileless")))
-       (let ((mentions (vulpea-mentions-test--collect-incoming-mentions-for-note "git")))
-         (should (equal 0 (length mentions))))))))
+       (should (null (org-find-property vulpea-mentions-per-note-ignore-property-key))))
+     ;; When we ignore from a heading note which does not reside in a file level note
+     (vulpea-mentions-ignore-from git-note fileless-note)
+     (vulpea-utils-with-note git-note
+       (should (vulpea-mentions-test--id-ignored-p "fileless"))))))
+
+(ert-deftest vulpea-mentions-ignore-from-silences-mentions ()
+  "Ignoring a note drops its mentions, unignoring brings them back."
+  (vulpea-test--require-rg)
+  (vulpea-test--with-temp-db-and-files
+   (vulpea-mentions-test--ignore-notes-files)
+   (let ((git-note (vulpea-db-get-by-id "git"))
+         (maps-note (vulpea-db-get-by-id "maps"))
+         (maptool-note (vulpea-db-get-by-id "maptool"))
+         (fileless-note (vulpea-db-get-by-id "fileless")))
+     ;; Sets mentions MapTool from its Maps heading
+     (should (equal 1 (length (vulpea-mentions-test--collect-incoming-mentions-for-note
+                               "maptool"))))
+     ;; Ignoring the heading note silences the mention, because the
+     ;; ignore list holds the id of its file level note
+     (vulpea-mentions-ignore-from maptool-note maps-note)
+     (should (equal 0 (length (vulpea-mentions-test--collect-incoming-mentions-for-note
+                               "maptool"))))
+     (vulpea-mentions-unignore-from maptool-note maps-note)
+     (should (equal 1 (length (vulpea-mentions-test--collect-incoming-mentions-for-note
+                               "maptool"))))
+     ;; The mentioning file has no file level note, so the heading id
+     ;; is what silences it
+     (should (equal 1 (length (vulpea-mentions-test--collect-incoming-mentions-for-note
+                               "git"))))
+     (vulpea-mentions-ignore-from git-note fileless-note)
+     (should (equal 0 (length (vulpea-mentions-test--collect-incoming-mentions-for-note
+                               "git")))))))
 
 ;;; Collection (DB-backed)
 
@@ -482,7 +513,7 @@ up in `expand-file-name' and rejecting the entire result."
 
 (ert-deftest vulpea-mentions-collect-with-real-rg ()
   "Real ripgrep finds the bare mention; the linked and own-file hits are excluded."
-  (skip-unless (executable-find "rg"))
+  (vulpea-test--require-rg)
   (let* ((dir (make-temp-file "vulpea-mentions-" t))
          (target (expand-file-name "target.org" dir))
          (link-and-mention (expand-file-name "link-and-mention.org" dir))
@@ -532,7 +563,7 @@ up in `expand-file-name' and rejecting the entire result."
 
 (ert-deftest vulpea-mentions-collect-cjk-with-real-rg ()
   "A CJK title embedded in CJK prose is found; the linking file is excluded."
-  (skip-unless (executable-find "rg"))
+  (vulpea-test--require-rg)
   (let* ((dir (make-temp-file "vulpea-mentions-" t))
          (target (expand-file-name "target.org" dir))
          (mention (expand-file-name "mention.org" dir))
@@ -578,7 +609,7 @@ up in `expand-file-name' and rejecting the entire result."
 The ASCII assertion treats non-ASCII text as a boundary, so this works
 under `auto' without dropping boundaries entirely; the post-filter
 agrees.  Pins the behavior the docs promise for 我爱用Emacs写作."
-  (skip-unless (executable-find "rg"))
+  (vulpea-test--require-rg)
   (let* ((dir (make-temp-file "vulpea-mentions-" t))
          (file (expand-file-name "prose.org" dir)))
     (unwind-protect
@@ -597,7 +628,7 @@ agrees.  Pins the behavior the docs promise for 我爱用Emacs写作."
 
 (ert-deftest vulpea-mentions-ignore-note-with-property ()
   "When a note set the ignore property, skip searching for its mentions."
-  (skip-unless (executable-find "rg"))
+  (vulpea-test--require-rg)
   (let* ((dir (make-temp-file "vulpea-mentions-" t))
          (ignored (expand-file-name "ignored.org" dir))
          (not-ignored (expand-file-name "not-ignored.org" dir))
@@ -654,6 +685,7 @@ agrees.  Pins the behavior the docs promise for 我爱用Emacs写作."
 
 (ert-deftest vulpea-mentions-per-note-ignore ()
   "Mentions from explicitly ignored notes should be dropped."
+  (vulpea-test--require-rg)
   (vulpea-test--with-temp-db-and-files
    `((:name "stems.org"
             :content
@@ -686,7 +718,7 @@ agrees.  Pins the behavior the docs promise for 我爱用Emacs写作."
 The ignore list holds the id of a heading, while the mentioning file also
 has a file-level note.  Incoming mentions must honour it, just like
 outgoing mentions already do."
-  (skip-unless (executable-find "rg"))
+  (vulpea-test--require-rg)
   (vulpea-test--with-temp-db-and-files
       `((:name "stems.org"
          :content
@@ -709,7 +741,7 @@ outgoing mentions already do."
 The mentioning file starts with a heading id only, so that id is what
 lands in the ignore list.  Once the file gains a file-level id, the note
 representing it changes, but the mention must stay silenced."
-  (skip-unless (executable-find "rg"))
+  (vulpea-test--require-rg)
   (vulpea-test--with-temp-db-and-files
       `((:name "stems.org"
          :content
@@ -753,7 +785,7 @@ The entry point pins UTF-8 on the ripgrep process itself, so a hostile
 `default-process-coding-system' (say, latin-1 from a user's setup) must
 mangle neither the CJK terms passed as arguments nor the JSON output
 coming back."
-  (skip-unless (executable-find "rg"))
+  (vulpea-test--require-rg)
   (vulpea-test--with-temp-db-and-files
       `((:name "target.org"
          :content ,(concat ":PROPERTIES:\n:ID: target\n:END:\n"
@@ -880,7 +912,7 @@ coming back."
 
 (ert-deftest vulpea-mentions-outgoing-with-real-rg ()
   "Real ripgrep over buffer content (stdin) yields candidate notes; links excluded."
-  (skip-unless (executable-find "rg"))
+  (vulpea-test--require-rg)
   (vulpea-test--with-temp-db
     (vulpea-db)
     (vulpea-test--insert-test-note "cab" "Cabernet Sauvignon" :path "/n/cab.org")
@@ -948,7 +980,7 @@ coming back."
   "The outgoing scan finds CJK candidates mentioned inline in prose.
 Cyrillic candidates keep strict word boundaries: an inflected or glued
 occurrence is not a mention."
-  (skip-unless (executable-find "rg"))
+  (vulpea-test--require-rg)
   (vulpea-test--with-temp-db-and-files
     `((:name "kinkakuji.org"
        :content ,(concat ":PROPERTIES:\n:ID: kinkakuji\n:END:\n"
@@ -973,7 +1005,7 @@ occurrence is not a mention."
 The patterns file and the ripgrep stdin/stdout must stay UTF-8 even
 when `coding-system-for-write' and `default-process-coding-system'
 say otherwise."
-  (skip-unless (executable-find "rg"))
+  (vulpea-test--require-rg)
   (vulpea-test--with-temp-db-and-files
       `((:name "kinkakuji.org"
          :content ,(concat ":PROPERTIES:\n:ID: kinkakuji\n:END:\n"

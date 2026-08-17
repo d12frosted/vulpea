@@ -19,6 +19,7 @@
 ;;
 ;;; Code:
 
+(require 'ert)
 (require 'org)
 (require 'vulpea-db)
 ;; `vulpea-default-notes-directory' lives in vulpea.el, and the macros below
@@ -156,6 +157,23 @@ Caller is responsible for cleanup."
     (with-temp-file temp-file
       (insert content))
     temp-file))
+
+;;; External Tool Helpers
+
+(defun vulpea-test--require-rg ()
+  "Skip the calling test when ripgrep is not available.
+
+Only `vulpea-mentions' shells out to rg, and it degrades on its own
+when the binary is missing, so a collection without rg is a supported
+setup and its tests simply do not apply.  A silent skip hides the loss
+of coverage though, so a suite that must exercise mentions - CI, for
+one - sets VULPEA_TESTS_REQUIRE_RG and turns the skip into a failure."
+  (unless (executable-find "rg")
+    (if (getenv "VULPEA_TESTS_REQUIRE_RG")
+        (ert-fail (concat "rg not found on `exec-path', but"
+                          " VULPEA_TESTS_REQUIRE_RG is set - the mentions"
+                          " tests must not be skipped here"))
+      (ert-skip "rg not found on `exec-path'"))))
 
 ;;; Note Insertion Helpers
 

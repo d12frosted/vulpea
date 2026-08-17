@@ -21,6 +21,11 @@ jobs:
           - snapshot
     env:
       ORG_ROAM_V2_PATH: .org-roam
+      # The mentions tests skip themselves when rg is missing, which is
+      # right on a machine without it and wrong here: a CI that loses
+      # ripgrep would stop testing mentions and stay green. This turns
+      # those skips into failures.
+      VULPEA_TESTS_REQUIRE_RG: "1"
     steps:
       - uses: d12frosted/setup-emacs@v1
         with:
