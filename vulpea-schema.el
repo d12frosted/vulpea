@@ -73,6 +73,10 @@
 ;;   :target-tags  for a `note' field, a list of tags its target must
 ;;              carry (all of them); a missing tag yields an
 ;;              `invalid-target' violation.
+;;   :target-tags-any  same, but the target only has to carry one of
+;;              the listed tags.  Declared next to :target-tags both
+;;              hold: every tag of the former, at least one of the
+;;              latter.
 ;;   :validate  optional function (value note) -> t, or an error message
 ;;              string, for arbitrary checks.
 ;;
@@ -332,29 +336,39 @@ MESSAGE describes the problem and VALUE is the offending value."
    :value value))
 
 (defun vulpea-schema--target-tags-violation (target id field note schema)
-  "Return a violation when TARGET is missing FIELD's :target-tags, else nil.
+  "Return a violation on FIELD's target-tag restrictions, or nil when met.
 
 TARGET is the resolved `vulpea-note' referenced by FIELD on NOTE, and ID
 is its id (used in the message and as the offending value).  SCHEMA owns
-the field.  All declared tags must be present (all-of); the missing ones
-are named in the message."
-  (let* ((required (plist-get field :target-tags))
-         (missing (and required
-                       (cl-remove-if
-                        (lambda (tag) (member tag (vulpea-note-tags target)))
-                        required))))
-    (when missing
+the field.  Every tag in :target-tags must be present (all-of) and at
+least one tag in :target-tags-any (any-of); the two compose when both
+are declared.  The all-of check names the missing tags, the any-of one
+names the whole set."
+  (let* ((tags (vulpea-note-tags target))
+         (key (plist-get field :key))
+         (required (plist-get field :target-tags))
+         (any (plist-get field :target-tags-any))
+         (missing (cl-remove-if (lambda (tag) (member tag tags)) required)))
+    (cond
+     (missing
       (vulpea-schema--violation
        note schema field 'invalid-target
        (format "Field %S target %s is missing required tag(s) %S"
-               (plist-get field :key) id missing)
-       id))))
+               key id missing)
+       id))
+     ((and any (not (cl-some (lambda (tag) (member tag tags)) any)))
+      (vulpea-schema--violation
+       note schema field 'invalid-target
+       (format "Field %S target %s carries none of the required tag(s) %S"
+               key id any)
+       id)))))
 
 (defun vulpea-schema--value-violation (raw field note schema)
   "Return a violation for the RAW value of FIELD on NOTE, or nil when valid.
 SCHEMA is the owning schema.  Checks, in order: type, reference
-resolution and :target-tags (for `note' fields), allowed values, then a
-custom :validate function.  Returns the first problem found."
+resolution and target-tag restrictions (for `note' fields), allowed
+values, then a custom :validate function.  Returns the first problem
+found."
   (let* ((key (plist-get field :key))
          (type (or (plist-get field :type) 'string))
          (one-of (vulpea-schema--call-or-value (plist-get field :one-of) note))
@@ -375,7 +389,7 @@ custom :validate function.  Returns the first problem found."
              note schema field 'wrong-type
              (format "Field %S expected an id link, got %S" key raw) raw))
            ;; `link' fields only check the id-link shape; `note' fields
-           ;; additionally resolve the target and enforce :target-tags.
+           ;; additionally resolve the target and enforce its tags.
            ((eq type 'note)
             (let ((target (vulpea-db-get-by-id id)))
               (if (not target)
@@ -446,7 +460,7 @@ Each field is checked for the following problem types:
 - `missing-required'   a required field has no value
 - `wrong-type'         a value does not match the field's declared type
 - `invalid-reference'  a `note' field links to a non-existent note
-- `invalid-target'     a `note' field's target is missing a :target-tags tag
+- `invalid-target'     a `note' field's target fails its tag restrictions
 - `disallowed-value'   a value is not in the field's :one-of set
 - `invalid-value'      a value is rejected by the field's :validate function
 

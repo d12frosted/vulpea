@@ -6068,6 +6068,36 @@ heading-level fix silently rewrites an unrelated file-level value."
     (should (funcall captured-filter (make-vulpea-note :tags '("producer"))))
     (should-not (funcall captured-filter (make-vulpea-note :tags '("other"))))))
 
+(ert-deftest vulpea-schema-prompt-field-target-tags-any-filter ()
+  "A note field with :target-tags-any accepts a target carrying one of them."
+  (let (captured-filter)
+    (cl-letf (((symbol-function 'vulpea-select)
+               (lambda (_prompt &rest args)
+                 (setq captured-filter (plist-get args :filter-fn))
+                 (make-vulpea-note :id "p1"))))
+      (vulpea--schema-prompt-field
+       '(:key "owner" :type note :target-tags-any ("team-a" "team-b"))
+       (make-vulpea-note) t))
+    (should captured-filter)
+    (should (funcall captured-filter (make-vulpea-note :tags '("team-b"))))
+    (should-not (funcall captured-filter (make-vulpea-note :tags '("other"))))))
+
+(ert-deftest vulpea-schema-prompt-field-target-tags-both-keys-filter ()
+  "Both target-tag keys narrow the pool together."
+  (let (captured-filter)
+    (cl-letf (((symbol-function 'vulpea-select)
+               (lambda (_prompt &rest args)
+                 (setq captured-filter (plist-get args :filter-fn))
+                 (make-vulpea-note :id "p1"))))
+      (vulpea--schema-prompt-field
+       '(:key "owner" :type note
+              :target-tags ("person") :target-tags-any ("team-a" "team-b"))
+       (make-vulpea-note) t))
+    (should (funcall captured-filter
+                     (make-vulpea-note :tags '("person" "team-a"))))
+    (should-not (funcall captured-filter (make-vulpea-note :tags '("person"))))
+    (should-not (funcall captured-filter (make-vulpea-note :tags '("team-a"))))))
+
 ;;; vulpea-find-backlink Tests
 
 (ert-deftest vulpea-find-backlink-jumps-to-link ()

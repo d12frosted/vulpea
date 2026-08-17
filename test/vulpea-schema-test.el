@@ -592,6 +592,89 @@
         (should (eq (vulpea-violation-type (car vs)) 'invalid-target))
         (should (equal (vulpea-violation-value (car vs)) "g-no"))))))
 
+(ert-deftest vulpea-schema-validate-target-tags-any-satisfied ()
+  "One of :target-tags-any is enough."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "acc-4" "Team B" :tags '("team-b"))
+    (let* ((vulpea-schema--registry (make-hash-table :test 'eq))
+           (schema (vulpea-schema-define 'client
+                     :predicate (lambda (_n) t)
+                     :fields
+                     (list '(:key "owner" :type note
+                                  :target-tags-any ("team-a" "team-b"))))))
+      (should-not
+       (vulpea-schema-validate
+        (make-vulpea-note
+         :id "c" :title "C"
+         :meta '(("owner" "[[id:acc-4][Team B]]")))
+        schema)))))
+
+(ert-deftest vulpea-schema-validate-target-tags-any-missing ()
+  "None of :target-tags-any yields invalid-target naming the whole set."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "acc-5" "Nobody" :tags '("misc"))
+    (let* ((vulpea-schema--registry (make-hash-table :test 'eq))
+           (schema (vulpea-schema-define 'client
+                     :predicate (lambda (_n) t)
+                     :fields
+                     (list '(:key "owner" :type note
+                                  :target-tags-any ("team-a" "team-b"))))))
+      (let ((vs (vulpea-schema-validate
+                 (make-vulpea-note
+                  :id "c" :title "C"
+                  :meta '(("owner" "[[id:acc-5][Nobody]]")))
+                 schema)))
+        (should (= (length vs) 1))
+        (should (eq (vulpea-violation-type (car vs)) 'invalid-target))
+        (should (equal (vulpea-violation-field (car vs)) "owner"))
+        (should (string-match-p "team-a" (vulpea-violation-message (car vs))))
+        (should (string-match-p "team-b" (vulpea-violation-message (car vs))))))))
+
+(ert-deftest vulpea-schema-validate-target-tags-both-keys ()
+  "The two keys compose: every :target-tags and one :target-tags-any."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "p-ok" "On A" :tags '("person" "team-a"))
+    (vulpea-test--insert-test-note "p-no" "No Team" :tags '("person"))
+    (let* ((vulpea-schema--registry (make-hash-table :test 'eq))
+           (schema (vulpea-schema-define 'client
+                     :predicate (lambda (_n) t)
+                     :fields
+                     (list '(:key "owner" :type note
+                                  :target-tags ("person")
+                                  :target-tags-any ("team-a" "team-b"))))))
+      (should-not
+       (vulpea-schema-validate
+        (make-vulpea-note
+         :id "c1" :title "C1" :meta '(("owner" "[[id:p-ok][On A]]")))
+        schema))
+      (let ((vs (vulpea-schema-validate
+                 (make-vulpea-note
+                  :id "c2" :title "C2" :meta '(("owner" "[[id:p-no][No Team]]")))
+                 schema)))
+        (should (= (length vs) 1))
+        (should (eq (vulpea-violation-type (car vs)) 'invalid-target))))))
+
+(ert-deftest vulpea-schema-validate-target-tags-any-missing-reference ()
+  "A missing target yields invalid-reference, not invalid-target."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((vulpea-schema--registry (make-hash-table :test 'eq))
+           (schema (vulpea-schema-define 'client
+                     :predicate (lambda (_n) t)
+                     :fields
+                     (list '(:key "owner" :type note
+                                  :target-tags-any ("team-a"))))))
+      (let ((vs (vulpea-schema-validate
+                 (make-vulpea-note
+                  :id "c" :title "C"
+                  :meta '(("owner" "[[id:ghost][Ghost]]")))
+                 schema)))
+        (should (= (length vs) 1))
+        (should (eq (vulpea-violation-type (car vs)) 'invalid-reference))))))
+
 ;;; Composition / inheritance (#327)
 
 (defun vulpea-schema-test--field (schema key)

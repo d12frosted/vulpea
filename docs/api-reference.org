@@ -1479,17 +1479,18 @@ declaring the metadata those notes should carry.
 
 Field spec keys:
 
-| Key            | Meaning                                                          |
-|----------------+------------------------------------------------------------------|
-| =:key=         | metadata key string (required)                                   |
-| =:type=        | =string= (default), =number=, =symbol=, =note=, =link=, =date=, or =datetime= |
-| =:required=    | =t=/=nil=, or a function =(note)= → boolean                      |
-| =:one-of=      | a list of allowed values, or a function =(note)= → list          |
-| =:multiple=    | non-nil when the field holds a list of values                    |
-| =:target-tags= | for a =note= field, tags its target must all carry               |
-| =:active=      | for a date field, whether prompts write an active timestamp (default =t=) |
-| =:default=     | default value, or a function =(note)= → value                    |
-| =:validate=    | optional function =(value note)= → =t= or an error string        |
+| Key                | Meaning                                                                       |
+|--------------------+-------------------------------------------------------------------------------|
+| =:key=             | metadata key string (required)                                                |
+| =:type=            | =string= (default), =number=, =symbol=, =note=, =link=, =date=, or =datetime= |
+| =:required=        | =t=/=nil=, or a function =(note)= → boolean                                   |
+| =:one-of=          | a list of allowed values, or a function =(note)= → list                       |
+| =:multiple=        | non-nil when the field holds a list of values                                 |
+| =:target-tags=     | for a =note= field, tags its target must all carry                            |
+| =:target-tags-any= | for a =note= field, tags its target must carry at least one of                |
+| =:active=          | for a date field, whether prompts write an active timestamp (default =t=)     |
+| =:default=         | default value, or a function =(note)= → value                                 |
+| =:validate=        | optional function =(value note)= → =t= or an error string                     |
 
 The =:type= vocabulary matches =vulpea-note-meta-get=, so values are read
 the same way everywhere. Use a function for =:required= or =:one-of= when
@@ -1550,6 +1551,21 @@ an =invalid-target= violation. For example, =(:key "account" :type note
 check applies per value, so it also covers each link in a =:multiple=
 field. (Restricting a target by another schema - =:target-schema= - is
 planned but not yet implemented.)
+
+=:target-tags-any= is the same restriction with any-of semantics: the
+target has to carry at least one of the listed tags. Declared together
+the two compose, so the target must carry every =:target-tags= tag /and/
+at least one =:target-tags-any= tag:
+
+#+begin_src emacs-lisp
+;; the owner is a person, and on one of the two teams
+'(:key "owner" :type note
+       :target-tags ("person")
+       :target-tags-any ("team-a" "team-b"))
+#+end_src
+
+Both keys also narrow the note selection in the authoring commands, so
+you can only pick a target that validates.
 
 Registry and helpers:
 
@@ -1696,7 +1712,7 @@ Each violation carries =note-id=, =note-title=, =schema=, =field=,
 | =missing-required=  | a required field has no value                      |
 | =wrong-type=        | a value does not match the field's declared type   |
 | =invalid-reference= | a =note= field links to a non-existent note        |
-| =invalid-target=    | a =note= target is missing a =:target-tags= tag    |
+| =invalid-target=    | a =note= target fails its tag restrictions         |
 | =disallowed-value=  | a value is not in the field's =:one-of= set        |
 | =invalid-value=     | a value is rejected by the field's =:validate= fn  |
 
@@ -1771,10 +1787,10 @@ for example to build a "what's missing" view:
 Once a note's violations are known, =vulpea-schema-fix-violation= applies
 a one-shot fix for a single =vulpea-violation= in the current buffer: it
 prompts for a corrected value the same way - =:one-of= completion, and
-note selection that honours a field's =:target-tags= - then writes it,
-replacing the offending value or inserting a missing field. It is the
-headless building block UIs use to offer one-key fixes (for example the
-schema health widget in vulpea-ui).
+note selection that honours a field's target-tag restrictions - then
+writes it, replacing the offending value or inserting a missing field.
+It is the headless building block UIs use to offer one-key fixes (for
+example the schema health widget in vulpea-ui).
 
 ** Validation at sync
 
