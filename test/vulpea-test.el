@@ -258,64 +258,43 @@
           (delete-file path))))))
 
 (ert-deftest vulpea-find-backlink-expand-aliases ()
-  "Test expanding aliases in `vulpea-find-backlink'.
-
-Test that vulpea-find-backlink' calls `vulpea-select-from' with the
-value of the `:expand-aliases' argument depending on
-`vulpea-find-backlink-expand-aliases'."
+  "Alias expansion in `vulpea-find-backlink' follows the variable."
   (vulpea-test--with-temp-db
-   (vulpea-db)
-   (let*
-       (candidates
-        expand-aliases-was-set
-        require-match-was-set
-        (note1-id "note1-id")
-        (note2-id "note2-id")
-        (note3-id "note3-id")
-        (path1
-         (vulpea-test--create-temp-org-file
-          (format
-           ":PROPERTIES:\n:ID: %s\n:END:\n#+TITLE: Note 1\n\nContent here."
-           note1-id)))
-        (path2
-         (vulpea-test--create-temp-org-file
-          (format
-           ":PROPERTIES:\n:ID: %s\n:END:\n#+TITLE: Note 2\n\nContent here. [[id:%s][A link to Note 1]]"
-           note2-id note1-id)))
-        (path3
-         (vulpea-test--create-temp-org-file
-          (format
-           ":PROPERTIES:\n:ID: %s\n:END:\n#+TITLE: Note 3\n\nContent here. [[id:%s][A link to Note 1]]"
-           note3-id note1-id))))
-
-     (vulpea-db-update-file path1)
-     (vulpea-db-update-file path2)
-     (vulpea-db-update-file path3)
-
-     (cl-letf (((symbol-function 'vulpea-select-from)
-                (lambda (_prompt
-                         notes
-                         &key
-                         _require-match
-                         _initial-prompt
-                         expand-aliases)
-                  (setq candidates notes)
-                  (setq expand-aliases-was-set expand-aliases)
-                  (vulpea-db-get-by-id note2-id))))
-
-       (should (equal (length (vulpea-db-query)) 3))
-
-       (let ((vulpea-find-backlink-expand-aliases t))
-         (vulpea-visit note1-id)
-         (vulpea-find-backlink)
-         (should (equal (length candidates) 2))
-         (should expand-aliases-was-set))
-
-       (let ((vulpea-find-backlink-expand-aliases nil))
-         (vulpea-visit note1-id)
-         (vulpea-find-backlink)
-         (should (equal (length candidates) 2))
-         (should (null expand-aliases-was-set)))))))
+    (vulpea-db)
+    (let* (candidates
+           (target-id "target-id")
+           (source-id "source-id")
+           (target-path (vulpea-test--create-temp-org-file
+                         (format ":PROPERTIES:\n:ID: %s\n:END:\n#+TITLE: Target\n"
+                                 target-id)))
+           (source-path (vulpea-test--create-temp-org-file
+                         (format ":PROPERTIES:\n:ID: %s\n:ALIASES: \"Source Alias\"\n:END:\n#+TITLE: Source\n\n[[id:%s][link]]\n"
+                                 source-id target-id))))
+      (unwind-protect
+          (progn
+            (vulpea-db-update-file target-path)
+            (vulpea-db-update-file source-path)
+            (cl-letf (((symbol-function 'completing-read)
+                       (lambda (_prompt collection &rest _)
+                         (setq candidates (all-completions "" collection))
+                         (car candidates))))
+              ;; with expansion the source note appears twice: once under its
+              ;; title, once under its alias
+              (let ((vulpea-find-backlink-expand-aliases t))
+                (vulpea-visit target-id)
+                (vulpea-find-backlink)
+                (should (equal (length candidates) 2)))
+              ;; without expansion it appears once, under its title
+              (let ((vulpea-find-backlink-expand-aliases nil))
+                (vulpea-visit target-id)
+                (vulpea-find-backlink)
+                (should (equal (length candidates) 1))
+                (should (string-prefix-p "Source" (car candidates))))))
+        (dolist (path (list target-path source-path))
+          (when (file-exists-p path)
+            (when-let* ((buf (get-file-buffer path)))
+              (kill-buffer buf))
+            (delete-file path)))))))
 
 ;;; vulpea-find Tests
 
