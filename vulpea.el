@@ -2970,8 +2970,9 @@ NOTE gives context and REQUIRED is non-nil when the field is required.
 Honors :type (note selection for `note' / `link', `org-read-date' with
 its calendar for `date' / `datetime' - a datetime prompt also asks for
 a time - writing an active timestamp, or an inactive one when the
-field says :active nil), :one-of (completion) and :target-tags
-\(restricting note selection to notes carrying every listed tag).  A
+field says :active nil), :one-of (completion) and the target-tag
+restrictions \(:target-tags and :target-tags-any, restricting note
+selection to the targets validation would accept).  A
 field marked :multiple collects several values: note fields select
 repeatedly - each pick leaves the candidate pool, and quitting via
 `keyboard-quit' or confirming empty input ends the collection - date
@@ -2989,13 +2990,17 @@ entered value, a list of values, or an empty value when skipped."
          (one-of (vulpea-schema--call-or-value (plist-get field :one-of) note))
          (multiple (plist-get field :multiple))
          (target-tags (plist-get field :target-tags))
+         (target-tags-any (plist-get field :target-tags-any))
          (label (format "%s%s" (plist-get field :key)
                         (if required " (required)" "")))
-         (filter-fn (when target-tags
+         (filter-fn (when (or target-tags target-tags-any)
                       (lambda (n)
-                        (cl-every (lambda (tag)
-                                    (member tag (vulpea-note-tags n)))
-                                  target-tags))))
+                        (let ((tags (vulpea-note-tags n)))
+                          (and (cl-every (lambda (tag) (member tag tags))
+                                         target-tags)
+                               (or (null target-tags-any)
+                                   (cl-some (lambda (tag) (member tag tags))
+                                            target-tags-any)))))))
          (candidates (lambda () (mapcar (lambda (v) (format "%s" v)) one-of)))
          (active (if (plist-member field :active)
                      (plist-get field :active)
@@ -3147,7 +3152,8 @@ Prompts for one of the schema's fields - the ones the note does not
 carry yet come first, required before optional, then the fields
 already present - and then for its value, the way
 `vulpea-schema-insert-fields' does: :one-of values as completion,
-note selection for `note' fields, restricted to :target-tags.
+note selection for `note' fields, restricted to the field's
+target-tag restrictions.
 
 The field is written into the note at point: the heading's subtree
 when point is inside one, otherwise the file-level metadata.  A
@@ -3222,8 +3228,9 @@ flow, or one more value to a :multiple field."
 Resolves the violated field from VIOLATION's schema and prompts for a
 value the way `vulpea-schema-insert-fields' does - offering :one-of
 values as completion, selecting a note for `note' fields, restricting to
-:target-tags - then writes it, replacing the offending value or
-inserting the field when it was missing.  For a :multiple field every
+the field's target-tag restrictions - then writes it, replacing the
+offending value or inserting the field when it was missing.  For a
+:multiple field every
 value of the key is replaced by the collected answer, since the write
 has set semantics.  Returns the value written, or nil when the prompt
 is skipped.
