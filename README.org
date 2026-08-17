@@ -155,8 +155,9 @@ For best performance, especially with large collections, install these external 
 |-----------+------------------------------------+---------------------------------------------------------+----------------------------------------------------------------------|
 | =fd=      | Fast directory scanning            | 15× faster than =find=, critical for polling mode       | =brew install fd= / =apt install fd-find= / =pacman -S fd=           |
 | =fswatch= | Reliable external change detection | Instant detection of git/Dropbox/external changes       | =brew install fswatch= / =apt install fswatch= / =pacman -S fswatch= |
+| =rg=      | Unlinked mention search            | Required by unlinked mentions, unused elsewhere         | =brew install ripgrep= / =apt install ripgrep= / =pacman -S ripgrep= |
 
-Without =fswatch=, Vulpea falls back to polling (periodic directory scanning). Without =fd=, polling uses =find= which is significantly slower. With both tools installed, external changes are detected instantly with near-zero overhead.
+Without =fswatch=, Vulpea falls back to polling (periodic directory scanning). Without =fd=, polling uses =find= which is significantly slower. With both tools installed, external changes are detected instantly with near-zero overhead. Without =rg=, everything else keeps working and the unlinked mention search reports that ripgrep is missing.
 
 ** Documentation
 
