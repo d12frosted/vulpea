@@ -363,6 +363,73 @@ as the original annotation function (called with the note object)."
       ;; Check that wrapper returns empty string for non-candidate input
       (should (equal (funcall wrapped-annotate-fn "not-a-candidate") "")))))
 
+(defun vulpea-select-test--face-at (string substring)
+  "Return the `face' property at the start of SUBSTRING within STRING."
+  (let ((pos (string-match (regexp-quote substring) string)))
+    (should pos)
+    (get-text-property pos 'face string)))
+
+(ert-deftest vulpea-select-describe-keeps-faces-set-by-annotate-fn ()
+  "Faces set by the annotation function survive the annotation face.
+
+The annotation face is applied underneath, so plain parts of the
+annotation still look like an annotation while a section that styles
+itself keeps its own face."
+  (let* ((vulpea-select-annotate-fn
+          (lambda (_note)
+            (concat " " (propertize "styled" 'face 'bold) " plain")))
+         (note (make-vulpea-note
+                :id "test-id"
+                :title "Test Note"
+                :level 0))
+         (described (vulpea-select-describe note)))
+    (should (equal (vulpea-select-test--face-at described "styled")
+                   '(bold completions-annotations)))
+    (should (equal (vulpea-select-test--face-at described "plain")
+                   'completions-annotations))))
+
+(ert-deftest vulpea-select-describe-does-not-mutate-annotation ()
+  "Applying the annotation face leaves the annotation function's string alone."
+  (let* ((annotation (concat " " (propertize "styled" 'face 'bold)))
+         (vulpea-select-annotate-fn (lambda (_note) annotation))
+         (note (make-vulpea-note
+                :id "test-id"
+                :title "Test Note"
+                :level 0)))
+    (vulpea-select-describe note)
+    (should (equal (vulpea-select-test--face-at annotation "styled") 'bold))))
+
+(ert-deftest vulpea-select-annotate-wrapper-keeps-faces-set-by-annotate-fn ()
+  "The annotation function path preserves faces the same way.
+
+This is the path taken when `vulpea-select-annotate-matchable' is nil."
+  (let* ((vulpea-select-annotate-matchable nil)
+         (annotation-fn
+          (lambda (_note)
+            (concat " " (propertize "styled" 'face 'bold) " plain")))
+         (note (make-vulpea-note
+                :id "test-id"
+                :title "Test Note"
+                :level 0))
+         (candidate (vulpea-select-describe note))
+         (annotation (funcall (vulpea-select--create-annotate-wrapper annotation-fn)
+                              candidate)))
+    (should (equal (vulpea-select-test--face-at annotation "styled")
+                   '(bold completions-annotations)))
+    (should (equal (vulpea-select-test--face-at annotation "plain")
+                   'completions-annotations))))
+
+(ert-deftest vulpea-select-describe-handles-empty-annotation ()
+  "An annotation function returning an empty string does not error."
+  (let* ((vulpea-select-annotate-fn (lambda (_note) ""))
+         (note (make-vulpea-note
+                :id "test-id"
+                :title "Test Note"
+                :level 0))
+         (described (vulpea-select-describe note)))
+    (should (string-match-p "Test Note" described))))
+
+
 ;;; Dynamic Context Tests
 
 (ert-deftest vulpea-select-describe-passes-context-to-2-arg-describe-fn ()
