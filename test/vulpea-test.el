@@ -257,6 +257,45 @@
         (when (file-exists-p path)
           (delete-file path))))))
 
+(ert-deftest vulpea-find-backlink-expand-aliases ()
+  "Alias expansion in `vulpea-find-backlink' follows the variable."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* (candidates
+           (target-id "target-id")
+           (source-id "source-id")
+           (target-path (vulpea-test--create-temp-org-file
+                         (format ":PROPERTIES:\n:ID: %s\n:END:\n#+TITLE: Target\n"
+                                 target-id)))
+           (source-path (vulpea-test--create-temp-org-file
+                         (format ":PROPERTIES:\n:ID: %s\n:ALIASES: \"Source Alias\"\n:END:\n#+TITLE: Source\n\n[[id:%s][link]]\n"
+                                 source-id target-id))))
+      (unwind-protect
+          (progn
+            (vulpea-db-update-file target-path)
+            (vulpea-db-update-file source-path)
+            (cl-letf (((symbol-function 'completing-read)
+                       (lambda (_prompt collection &rest _)
+                         (setq candidates (all-completions "" collection))
+                         (car candidates))))
+              ;; with expansion the source note appears twice: once under its
+              ;; title, once under its alias
+              (let ((vulpea-find-backlink-expand-aliases t))
+                (vulpea-visit target-id)
+                (vulpea-find-backlink)
+                (should (equal (length candidates) 2)))
+              ;; without expansion it appears once, under its title
+              (let ((vulpea-find-backlink-expand-aliases nil))
+                (vulpea-visit target-id)
+                (vulpea-find-backlink)
+                (should (equal (length candidates) 1))
+                (should (string-prefix-p "Source" (car candidates))))))
+        (dolist (path (list target-path source-path))
+          (when (file-exists-p path)
+            (when-let* ((buf (get-file-buffer path)))
+              (kill-buffer buf))
+            (delete-file path)))))))
+
 ;;; vulpea-find Tests
 
 (ert-deftest vulpea-find-uses-create-fn ()

@@ -76,6 +76,8 @@ M-x vulpea-find-backlink
 
 This is useful for discovering connections - seeing what other notes reference the one you're viewing. After you select a note, point lands on the link pointing back to the current note, so you see the mention in its context instead of the beginning of the note.
 
+If a note that links to the current one has aliases, it appears multiple times in the list of candidates when =vulpea-find-backlink= is called, one with its primary title, and one for each of its aliases. This behavior can be changed by setting the =vulpea-find-backlink-expand-aliases= variable to =nil=.
+
 ** Customizing How Notes Are Displayed
 
 By default each candidate shows the note's title followed by its aliases and tags. You can change what every selection command (=vulpea-find=, =vulpea-insert=, and any custom =vulpea-select=) shows by setting two variables:

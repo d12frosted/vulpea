@@ -720,6 +720,15 @@ Template variables for :file-name:
 ;;; Variables
 
 (defvar vulpea-db-sync-directories)  ; Defined in vulpea-db
+
+(defcustom vulpea-find-backlink-expand-aliases t
+  "Whether `vulpea-find-backlink' expands aliases during completion.
+
+When nil, each backlink appears exactly once, under its primary title,
+and its aliases are not matchable during completion."
+  :type 'boolean
+  :group 'vulpea)
+
 (defcustom vulpea-find-default-filter nil
   "Default filter to use in `vulpea-find'."
   :type '(choice (const :tag "No filter" nil) function)
@@ -1110,7 +1119,7 @@ the file changed since the last sync), point stays at the note."
       (user-error "There are no backlinks to the current note"))
     (let ((note (vulpea-select-from "Note" backlinks
                                     :require-match t
-                                    :expand-aliases t)))
+                                    :expand-aliases vulpea-find-backlink-expand-aliases)))
       (when (vulpea-note-id note)
         (vulpea-visit note)
         ;; Land on the link itself rather than the beginning of the note
