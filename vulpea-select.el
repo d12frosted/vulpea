@@ -54,6 +54,10 @@ Accepts a `vulpea-note'. Returns a `string'."
 
 Accepts a `vulpea-note'. Returns a `string'.
 
+The annotation is rendered in `completions-annotations', applied
+underneath whatever faces the string already carries, so a section
+that styles itself keeps its own face.
+
 When nil, candidates are not annotated at all."
   :type '(choice (const :tag "No annotation" nil) function)
   :group 'vulpea-select)
@@ -131,6 +135,16 @@ are unaffected."
       (funcall fn note context)
     (funcall fn note)))
 
+(defun vulpea-select--annotation-face (annotation)
+  "Return ANNOTATION with the annotation face applied under its own faces.
+
+`completions-annotations' is applied as a base rather than across the
+whole string, so a section that styles itself keeps its face while plain
+text still looks like an annotation.  ANNOTATION is not modified."
+  (let ((result (copy-sequence annotation)))
+    (add-face-text-property 0 (length result) 'completions-annotations t result)
+    result))
+
 (defun vulpea-select-describe (note &optional context)
   "Describe a NOTE for completion.
 
@@ -160,9 +174,9 @@ string self-describing for code that only ever sees strings - a
          (annotation-part
           (if (and vulpea-select-annotate-matchable
                    vulpea-select-annotate-fn)
-              (propertize (vulpea-select--funcall
-                           vulpea-select-annotate-fn note context)
-                          'face 'completions-annotations)
+              (vulpea-select--annotation-face
+               (vulpea-select--funcall
+                vulpea-select-annotate-fn note context))
             ""))
          (invisible-id-part
           (when (and vulpea-select-match-ids id)
@@ -238,9 +252,8 @@ annotation."
     (let ((note (vulpea-select-candidate-note candidate))
           (context (vulpea-select-candidate-context candidate)))
       (if note
-          (propertize (vulpea-select--funcall
-                       annotation-fn note context)
-                      'face 'completions-annotations)
+          (vulpea-select--annotation-face
+           (vulpea-select--funcall annotation-fn note context))
         ""))))
 
 ;;; Describe Functions
