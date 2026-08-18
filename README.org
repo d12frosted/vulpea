@@ -174,24 +174,51 @@ Without =fswatch=, Vulpea falls back to polling (periodic directory scanning). W
 
 ** Ecosystem
 
-Companion packages that extend Vulpea:
+Companion packages that extend Vulpea, grouped by what they help with.
+
+*** Workflows and modules
 
 - [[https://github.com/d12frosted/vulpea-ui][vulpea-ui]] - Visual tools for your notes: a per-note sidebar of widgets (outline, backlinks, stats, and more) plus standalone views, with an easy API for your own widgets. Schemas get especially nice treatment here: a sidebar health widget that flags the current note's violations with one-key fixes, and a collection-wide schema dashboard that shows how every note measures up to the schemas that apply to it.
 - [[https://github.com/d12frosted/vulpea-journal][vulpea-journal]] - Daily journaling with calendar integration. Creates one note per day with sidebar widgets for navigation, calendar view, and "on this day" from previous years.
 - [[https://github.com/d12frosted/vulpea-para][vulpea-para]] - The PARA method (Projects, Areas, Resources, Archives) on top of Vulpea. A note's role is read from its tags rather than its folder, with a self-updating agenda, capture that files itself, and views for areas, projects, and people.
+
+*** Finding and inserting notes
+
 - [[https://github.com/fabcontigiani/consult-vulpea][consult-vulpea]] - Consult integration for Vulpea. Provides =consult-vulpea-find= and =consult-vulpea-insert= with live preview and consult's narrowing features.
-- [[https://github.com/fabcontigiani/citar-vulpea][citar-vulpea]] - Citar integration for Vulpea. Minor mode for managing bibliographic notes, linking citation library entries to Vulpea notes.
 - [[https://github.com/fabcontigiani/embark-vulpea][embark-vulpea]] - Embark actions and export for Vulpea notes.
-- [[https://github.com/jwiegley/vulpea-field][vulpea-field]] - Extension for easily adding new database fields. Compatible with v1 only - it builds on the org-roam-backed =vulpea-db-define-table= mechanism; in v2 use the [[file:docs/plugin-guide.org][plugin system]] instead.
+- [[https://github.com/fabcontigiani/citar-vulpea][citar-vulpea]] - Citar integration for Vulpea. Minor mode for managing bibliographic notes, linking citation library entries to Vulpea notes.
+- [[https://github.com/neonmei/vulpea-capf][vulpea-capf]] - Completion-at-point for note titles and aliases: type a prefix in an Org buffer, pick a note, get an =id:= link.
+- [[https://github.com/alberti42/org-semantic][org-semantic]] - Semantic and lexical search over a tree of Org notes (single static binary, no Python). Not Vulpea-specific, but composes with it: Vulpea indexes what a note is, org-semantic indexes what it says, and it keeps its index current from Vulpea's file watchers via =vulpea-db-updated-functions=.
+
+*** Tags, agenda, and dynamic content
+
+- [[https://github.com/darcamo/vulpea-auto-tag][vulpea-auto-tag]] - Rules that add or remove tags on save (for example, keep a =todo= tag in sync with the presence of TODO keywords).
+- [[https://github.com/darcamo/vulpea-agenda][vulpea-agenda]] - Builds =org-agenda-files= from notes carrying certain tags, so agenda follows your notes instead of a static file list. Pairs with vulpea-auto-tag.
+- [[https://github.com/darcamo/vulpea-tag-links][vulpea-tag-links]] - Extractor plugin that turns selected tags into links to the notes they stand for, Logseq style.
+- [[https://github.com/Arenile/vulpea-dblock][vulpea-dblock]] - Declarative =#+BEGIN: vulpea= dynamic blocks (by tags, todo, sort, limit) that refresh incrementally when the database changes.
+
+*** Graphs and analysis
+
+- [[https://github.com/neonmei/vulpea-graph][vulpea-graph (neonmei)]] - Force-directed graph of your notes rendered as SVG inside an Emacs buffer; click a node to open the note.
+- [[https://github.com/Arenile/vulpea-graph-ui][vulpea-graph-ui]] - Live, org-roam-ui style graph in your browser, fed from the Vulpea database and updated as notes change; meta links become typed edges.
+- [[https://codeberg.org/nicolas-graves/vulpea-graph][vulpea-graph (nicolas-graves)]] - Graph metrics over your notes (related notes, centrality, communities, lexical similarity, co-citations) with a Python engine and Elisp adapter; exposes the results as vulpea-mcp tools and vulpea-ui widgets.
+
+*** Outside Emacs: LLMs, web, publishing
+
+- [[https://codeberg.org/nicolas-graves/vulpea-mcp][vulpea-mcp]] - MCP server in pure Elisp that exposes your notes to LLM tools (Claude Code, Claude Desktop): search, backlinks, tasks, corpus health checks, note creation via =vulpea-create=.
+- [[https://github.com/majorgreys/claude-orgmode][claude-orgmode]] - Claude Code plugin with a vulpea skill: create, search, link, and tag notes from Claude Code through =emacsclient=.
+- [[https://github.com/smclaren727/emacs-org-serve][emacs-org-serve]] - Go service that reads the Vulpea database directly and serves an Org vault as JSON + PWA to mobile devices.
 - [[https://github.com/d12frosted/publicatorg][publicatorg]] - Make your Vulpea notes public.
+
+*** Legacy
+
+- [[https://github.com/jwiegley/vulpea-field][vulpea-field]] - Extension for easily adding new database fields. Compatible with v1 only - it builds on the org-roam-backed =vulpea-db-define-table= mechanism; in v2 use the [[file:docs/plugin-guide.org][plugin system]] instead.
 
 ** Real-World Usage
 
 Applications built on Vulpea:
 
 - [[https://github.com/d12frosted/vino][vino]] - Wine cellar management with rich metadata
-- [[https://github.com/majorgreys/claude-orgmode][claude-orgmode]] - Connects Claude with org-mode notes
-- [[https://github.com/smclaren727/emacs-org-serve][emacs-org-serve]] - Go service that reads the Vulpea database directly and serves an Org vault as JSON + PWA to mobile devices
 
 Notable user configurations:
 
