@@ -1621,6 +1621,64 @@ whitespace, producing an indented (hence nested) item."
    (should (equal (substring-no-properties (buffer-string))
                   "#+title: T\n\n- grapes :: a\n- grapes :: b\n   \nBody\n"))))
 
+;;; vulpea-buffer-meta-set-batch keeps order - regression tests
+
+(ert-deftest vulpea-buffer-meta-set-batch-keeps-existing-in-place ()
+  "An existing property is rewritten where it is."
+  (vulpea-buffer-test--with-temp-buffer
+   "#+title: T\n\n- a :: 1\n- b :: 2\n- c :: 3\n\nBody\n"
+   (vulpea-buffer-meta-set-batch '(("b" . "9")))
+   (should (equal (substring-no-properties (buffer-string))
+                  "#+title: T\n\n- a :: 1\n- b :: 9\n- c :: 3\n\nBody\n"))))
+
+(ert-deftest vulpea-buffer-meta-set-batch-keeps-order-of-several ()
+  "Several existing properties keep their relative order."
+  (vulpea-buffer-test--with-temp-buffer
+   "#+title: T\n\n- a :: 1\n- b :: 2\n- c :: 3\n\nBody\n"
+   (vulpea-buffer-meta-set-batch '(("c" . "7") ("a" . "8")))
+   (should (equal (substring-no-properties (buffer-string))
+                  "#+title: T\n\n- a :: 8\n- b :: 2\n- c :: 7\n\nBody\n"))))
+
+(ert-deftest vulpea-buffer-meta-set-batch-all-props-keep-order ()
+  "Rewriting every property keeps the list and its trailing blank line."
+  (vulpea-buffer-test--with-temp-buffer
+   "#+title: T\n\n- a :: 1\n- b :: 2\n- c :: 3\n\nBody\n"
+   (vulpea-buffer-meta-set-batch '(("c" . "9") ("a" . "8") ("b" . "7")))
+   (should (equal (substring-no-properties (buffer-string))
+                  "#+title: T\n\n- a :: 8\n- b :: 7\n- c :: 9\n\nBody\n"))))
+
+(ert-deftest vulpea-buffer-meta-set-batch-new-props-go-first ()
+  "New properties are inserted at the top, in alist order."
+  (vulpea-buffer-test--with-temp-buffer
+   "#+title: T\n\n- a :: 1\n- b :: 2\n- c :: 3\n\nBody\n"
+   (vulpea-buffer-meta-set-batch '(("d" . "4") ("b" . "9") ("e" . "5")))
+   (should (equal (substring-no-properties (buffer-string))
+                  "#+title: T\n\n- d :: 4\n- e :: 5\n- a :: 1\n- b :: 9\n- c :: 3\n\nBody\n"))))
+
+(ert-deftest vulpea-buffer-meta-set-batch-list-value-in-place ()
+  "A list value expands where the property was."
+  (vulpea-buffer-test--with-temp-buffer
+   "#+title: T\n\n- a :: 1\n- b :: 2\n- c :: 3\n\nBody\n"
+   (vulpea-buffer-meta-set-batch '(("b" . ("x" "y"))))
+   (should (equal (substring-no-properties (buffer-string))
+                  "#+title: T\n\n- a :: 1\n- b :: x\n- b :: y\n- c :: 3\n\nBody\n"))))
+
+(ert-deftest vulpea-buffer-meta-set-batch-duplicates-collapse-to-first ()
+  "Repeated occurrences collapse into the position of the first one."
+  (vulpea-buffer-test--with-temp-buffer
+   "#+title: T\n\n- a :: 1\n- b :: 2\n- a :: 3\n- c :: 4\n\nBody\n"
+   (vulpea-buffer-meta-set-batch '(("a" . "9")))
+   (should (equal (substring-no-properties (buffer-string))
+                  "#+title: T\n\n- a :: 9\n- b :: 2\n- c :: 4\n\nBody\n"))))
+
+(ert-deftest vulpea-buffer-meta-set-batch-last-item-keeps-blank-line ()
+  "Rewriting the last item keeps the blank line after the list."
+  (vulpea-buffer-test--with-temp-buffer
+   "#+title: T\n\n- a :: 1\n- c :: 3\n\nBody\n"
+   (vulpea-buffer-meta-set-batch '(("c" . "9")))
+   (should (equal (substring-no-properties (buffer-string))
+                  "#+title: T\n\n- a :: 1\n- c :: 9\n\nBody\n"))))
+
 ;;; vulpea-buffer-meta-change-functions Tests
 
 (ert-deftest vulpea-buffer-meta-change-set-new-prop ()

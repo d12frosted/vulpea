@@ -865,7 +865,10 @@ VALUE can be a single value or a list of values.
 BOUND controls the scope - see `vulpea-buffer-meta' for details.
 
 This function parses the buffer only once, making it much more
-efficient than calling `vulpea-buffer-meta-set' multiple times.
+efficient than calling `vulpea-buffer-meta-set' multiple times,
+and places values the same way: a PROP that is already set is
+rewritten where it is, a new one is inserted at the beginning of
+the meta, in PROPS-ALIST order.
 
 Example:
   (vulpea-buffer-meta-set-batch
@@ -885,64 +888,72 @@ Example:
            (buffer (plist-get meta :buffer))
            (pl (plist-get meta :pl))
            (items-all (when pl (org-element-map pl 'item #'identity)))
-           (template-item (org-element-copy (car items-all)))
-           (props-to-set (mapcar #'car props-alist))
-           ;; Collect all items that need to be deleted
-           (items-to-delete
-            (when items-all
+           (values-of (lambda (pair)
+                        (if (listp (cdr pair)) (cdr pair) (list (cdr pair)))))
+           ;; (ITEM . PROP) for every item whose tag is being set, in
+           ;; buffer order
+           (touched
+            (seq-keep
+             (lambda (item)
+               (let ((tag (substring-no-properties
+                           (org-element-interpret-data
+                            (org-element-contents
+                             (org-element-property :tag item))))))
+                 (when (assoc tag props-alist)
+                   (cons item tag))))
+             items-all))
+           ;; the first occurrence of a prop is where its new values go,
+           ;; as in `vulpea-buffer-meta-set'; later ones are removed
+           (anchors
+            (let (seen)
               (seq-filter
-               (lambda (item)
-                 (member
-                  (substring-no-properties
-                   (org-element-interpret-data
-                    (org-element-contents
-                     (org-element-property :tag item))))
-                  props-to-set))
-               items-all)))
-           ;; Check if we're removing all items (need to delete whole list)
-           (removing-all (and items-to-delete
-                              (= (length items-to-delete)
-                                 (length items-all)))))
+               (lambda (it)
+                 (unless (member (cdr it) seen)
+                   (push (cdr it) seen)))
+               touched)))
+           (fresh (seq-remove
+                   (lambda (pair) (rassoc (car pair) touched))
+                   props-alist)))
       (cond
        ;; Case 1: descriptive list exists
        (pl
-        (let ((insert-point (org-element-property :begin pl)))
-          ;; Delete items in reverse order to preserve positions
-          (if removing-all
-              ;; Delete whole list if removing all items
-              (delete-region (org-element-property :begin pl)
-                             (org-element-property :end pl))
-            ;; Delete individual items
-            (dolist (item (sort (copy-sequence items-to-delete)
-                                (lambda (a b)
-                                  (> (org-element-property :begin a)
-                                     (org-element-property :begin b)))))
-              (delete-region (org-element-property :begin item)
-                             (org-element-property :end item))))
-          ;; Insert new values
-          (goto-char insert-point)
-          (if removing-all
-              ;; Need to create new list from scratch
-              (dolist (pair props-alist)
-                (let ((prop (car pair))
-                      (values (if (listp (cdr pair)) (cdr pair) (list (cdr pair)))))
-                  (dolist (val values)
-                    (insert "- " prop " :: "
-                            (vulpea-buffer-meta-format val)
-                            "\n"))))
-            ;; Use template item for formatting
-            (dolist (pair props-alist)
-              (let ((prop (car pair))
-                    (values (if (listp (cdr pair)) (cdr pair) (list (cdr pair)))))
-                (dolist (val values)
+        ;; Rewrite from the bottom up so earlier positions stay valid.
+        (dolist (it (reverse touched))
+          (let ((item (car it)))
+            (goto-char (org-element-property :begin item))
+            (delete-region (point) (org-element-property :end item))
+            (when (memq it anchors)
+              (let ((rest (funcall values-of (assoc (cdr it) props-alist))))
+                (while rest
                   (insert
                    (org-element-interpret-data
                     (org-element-set-contents
+                     ;; only the last copy keeps the blank lines that
+                     ;; followed the old item
                      (org-element-put-property
-                      (org-element-copy template-item)
-                      :tag
-                      prop)
-                     (vulpea-buffer-meta-format val))))))))))
+                      (org-element-copy item)
+                      :post-blank
+                      (if (cdr rest)
+                          0
+                        (org-element-property :post-blank item)))
+                     (vulpea-buffer-meta-format (car rest)))))
+                  (setq rest (cdr rest)))))))
+        ;; New props go to the top of the list, in alist order.
+        (when fresh
+          (let ((template (org-element-put-property
+                           (org-element-copy (car items-all))
+                           :post-blank 0)))
+            (goto-char (org-element-property :begin pl))
+            (dolist (pair fresh)
+              (dolist (val (funcall values-of pair))
+                (insert
+                 (org-element-interpret-data
+                  (org-element-set-contents
+                   (org-element-put-property
+                    (org-element-copy template)
+                    :tag
+                    (car pair))
+                   (vulpea-buffer-meta-format val)))))))))
 
        ;; Case 2: no descriptive list, create one
        (t

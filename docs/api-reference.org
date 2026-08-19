@@ -669,7 +669,7 @@ These operate on the current buffer (must be an org file).
    ("reviewed" . t)))
 #+end_src
 
-When setting multiple metadata properties, prefer =vulpea-meta-set-batch= over multiple =vulpea-meta-set= calls - it's significantly faster (up to 10x for 20 properties) since it only parses the file once.
+When setting multiple metadata properties, prefer =vulpea-meta-set-batch= over multiple =vulpea-meta-set= calls - it's significantly faster (up to 10x for 20 properties) since it only parses the file once. The result is the same: existing keys are rewritten in place, new keys go to the top of the list in alist order.
 
 =vulpea-buffer-meta-set= replaces every occurrence of the key, re-formatting the values on the way. To grow a multi-value key use =vulpea-buffer-meta-add= instead: the existing items are left byte-for-byte as written (nothing passes through =vulpea-buffer-meta-format= again) and the new value is inserted right after the last of them. When the key is absent it behaves like set with append.
 
