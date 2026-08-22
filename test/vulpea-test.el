@@ -6245,5 +6245,65 @@ handlers (e.g. schema validation).")
     (should (boundp var))
     (should-not (custom-variable-p var))))
 
+(defun vulpea-test--schema-two-headings-buffer ()
+  "Fill the current buffer with two note headings, leave point in the second."
+  (org-mode)
+  (insert ":PROPERTIES:\n:ID: file\n:END:\n#+title: Journal\n\n"
+          "* Target :execution:\n:PROPERTIES:\n:ID: h1\n:END:\nsomething\n\n"
+          "* Editing :execution:\n:PROPERTIES:\n:ID: h2\n:END:\n")
+  (goto-char (point-max)))
+
+(defun vulpea-test--schema-assert-written-in-second (s)
+  "Assert `- link ::` in S is under the second heading only."
+  (should (string-match-p "- link :: \\[\\[id:h1\\]\\[Target\\]\\]" s))
+  (should (> (string-match "- link ::" s) (string-match "\\* Editing" s)))
+  (should-not (string-match-p "ID: +h1\n:END:\n-" s)))
+
+(ert-deftest vulpea-schema-insert-field-survives-prompt-moving-point ()
+  "A note prompt that moves point (preview) does not redirect the write.
+See https://github.com/d12frosted/vulpea/issues/491."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq)))
+    (vulpea-schema-define 'execution :predicate #'ignore
+      :fields '((:key "link" :type note)))
+    (with-temp-buffer
+      (vulpea-test--schema-two-headings-buffer)
+      (cl-letf (((symbol-function 'completing-read) (lambda (&rest _) "link"))
+                ((symbol-function 'vulpea-select)
+                 (lambda (&rest _)
+                   (goto-char (point-min))
+                   (make-vulpea-note :id "h1" :title "Target"))))
+        (vulpea-schema-insert-field 'execution))
+      (vulpea-test--schema-assert-written-in-second (buffer-string)))))
+
+(ert-deftest vulpea-schema-insert-fields-survives-prompt-moving-point ()
+  "Same as the single-field command, for the guided flow."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq)))
+    (vulpea-schema-define 'execution :predicate #'ignore
+      :fields '((:key "link" :type note)))
+    (with-temp-buffer
+      (vulpea-test--schema-two-headings-buffer)
+      (cl-letf (((symbol-function 'vulpea-select)
+                 (lambda (&rest _)
+                   (goto-char (point-min))
+                   (make-vulpea-note :id "h1" :title "Target"))))
+        (vulpea-schema-insert-fields 'execution))
+      (vulpea-test--schema-assert-written-in-second (buffer-string)))))
+
+(ert-deftest vulpea-schema-fix-violation-survives-prompt-moving-point ()
+  "Same for fixing a violation."
+  (let ((vulpea-schema--registry (make-hash-table :test 'eq)))
+    (vulpea-schema-define 'execution :predicate #'ignore
+      :fields '((:key "link" :type note :required t)))
+    (with-temp-buffer
+      (vulpea-test--schema-two-headings-buffer)
+      (let ((v (car (vulpea-schema-validate
+                     (vulpea--schema-buffer-note 'execution) 'execution))))
+        (cl-letf (((symbol-function 'vulpea-select)
+                   (lambda (&rest _)
+                     (goto-char (point-min))
+                     (make-vulpea-note :id "h1" :title "Target"))))
+          (vulpea-schema-fix-violation v)))
+      (vulpea-test--schema-assert-written-in-second (buffer-string)))))
+
 (provide 'vulpea-test)
 ;;; vulpea-test.el ends here
