@@ -3142,7 +3142,10 @@ id-less target untouched."
       (vulpea--schema-insert-field-values
        fields (vulpea--schema-field-defaults fields note) 'heading))
      (t
-      (let ((values (vulpea--schema-prompt-fields fields note)))
+      ;; the prompts may move point (a completion preview jumping to a
+      ;; candidate in this very buffer); the write must land in the note
+      ;; the command was invoked on
+      (let ((values (save-excursion (vulpea--schema-prompt-fields fields note))))
         (when values
           (vulpea--ensure-id)
           (vulpea--schema-insert-field-values
@@ -3213,9 +3216,13 @@ flow, or one more value to a :multiple field."
                         ;; require-match still lets empty input through
                         (user-error "No field chosen")))
              (required (vulpea-schema--call-or-value (plist-get field :required) note))
-             (value (vulpea--schema-prompt-field
-                     field note required
-                     (vulpea--schema-field-default field note)))
+             ;; the prompt may move point (a completion preview jumping
+             ;; to a candidate in this very buffer); the write below must
+             ;; land in the note the command was invoked on
+             (value (save-excursion
+                      (vulpea--schema-prompt-field
+                       field note required
+                       (vulpea--schema-field-default field note))))
              (value (if (listp value) (remove "" value) value)))
         (when (and value (not (equal value "")))
           (vulpea--ensure-id)
@@ -3260,9 +3267,13 @@ This is the headless building block UIs use to offer one-key fixes for a
                          :test #'equal))
          (note (vulpea--schema-buffer-note schema))
          (required (vulpea-schema--call-or-value (plist-get field :required) note))
-         (value (vulpea--schema-prompt-field
-                 field note required
-                 (vulpea--schema-field-default field note)))
+         ;; the prompt may move point (a completion preview jumping to a
+         ;; candidate in this very buffer); the write must land in the
+         ;; violating note
+         (value (save-excursion
+                  (vulpea--schema-prompt-field
+                   field note required
+                   (vulpea--schema-field-default field note))))
          (value (if (listp value) (remove "" value) value)))
     (when (and field value (not (equal value "")))
       (vulpea-buffer-meta-set (plist-get field :key) value 'append (or bound 'heading))
