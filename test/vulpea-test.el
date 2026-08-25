@@ -6259,6 +6259,26 @@ handlers (e.g. schema validation).")
   (should (> (string-match "- link ::" s) (string-match "\\* Editing" s)))
   (should-not (string-match-p "ID: +h1\n:END:\n-" s)))
 
+(defmacro vulpea-test--with-point-moving-select (&rest body)
+  "Run BODY with note selection going through the real select path.
+The database offers a single note titled Target, and `completing-read'
+simulates a completion preview that leaves point on that candidate
+before returning it. Any other prompt (the field choice) answers
+\"link\". Candidates are kept to the bare title so the mock's answer
+matches them."
+  (declare (indent 0))
+  `(let ((vulpea-select-match-ids nil)
+         (vulpea-select-annotate-fn nil))
+     (cl-letf (((symbol-function 'vulpea-db-query)
+                (lambda (&rest _)
+                  (list (make-vulpea-note :id "h1" :title "Target" :level 1))))
+               ((symbol-function 'completing-read)
+                (lambda (prompt &rest _)
+                  (if (string-prefix-p "link" prompt)
+                      (progn (goto-char (point-min)) "Target")
+                    "link"))))
+       ,@body)))
+
 (ert-deftest vulpea-schema-insert-field-survives-prompt-moving-point ()
   "A note prompt that moves point (preview) does not redirect the write.
 See https://github.com/d12frosted/vulpea/issues/491."
@@ -6267,11 +6287,7 @@ See https://github.com/d12frosted/vulpea/issues/491."
       :fields '((:key "link" :type note)))
     (with-temp-buffer
       (vulpea-test--schema-two-headings-buffer)
-      (cl-letf (((symbol-function 'completing-read) (lambda (&rest _) "link"))
-                ((symbol-function 'vulpea-select)
-                 (lambda (&rest _)
-                   (goto-char (point-min))
-                   (make-vulpea-note :id "h1" :title "Target"))))
+      (vulpea-test--with-point-moving-select
         (vulpea-schema-insert-field 'execution))
       (vulpea-test--schema-assert-written-in-second (buffer-string)))))
 
@@ -6282,10 +6298,7 @@ See https://github.com/d12frosted/vulpea/issues/491."
       :fields '((:key "link" :type note)))
     (with-temp-buffer
       (vulpea-test--schema-two-headings-buffer)
-      (cl-letf (((symbol-function 'vulpea-select)
-                 (lambda (&rest _)
-                   (goto-char (point-min))
-                   (make-vulpea-note :id "h1" :title "Target"))))
+      (vulpea-test--with-point-moving-select
         (vulpea-schema-insert-fields 'execution))
       (vulpea-test--schema-assert-written-in-second (buffer-string)))))
 
@@ -6298,12 +6311,29 @@ See https://github.com/d12frosted/vulpea/issues/491."
       (vulpea-test--schema-two-headings-buffer)
       (let ((v (car (vulpea-schema-validate
                      (vulpea--schema-buffer-note 'execution) 'execution))))
-        (cl-letf (((symbol-function 'vulpea-select)
-                   (lambda (&rest _)
-                     (goto-char (point-min))
-                     (make-vulpea-note :id "h1" :title "Target"))))
+        (vulpea-test--with-point-moving-select
           (vulpea-schema-fix-violation v)))
       (vulpea-test--schema-assert-written-in-second (buffer-string)))))
+
+(ert-deftest vulpea-insert-survives-prompt-moving-point ()
+  "The link lands where `vulpea-insert' was invoked, not where preview left point.
+See https://github.com/d12frosted/vulpea/issues/491."
+  (with-temp-buffer
+    (vulpea-test--schema-two-headings-buffer)
+    (let ((vulpea-select-match-ids nil)
+          (vulpea-select-annotate-fn nil))
+      (cl-letf (((symbol-function 'completing-read)
+                 (lambda (&rest _)
+                   (goto-char (point-min))
+                   "Target")))
+        (vulpea-insert
+         :candidates-fn
+         (lambda (_)
+           (list (make-vulpea-note :id "h1" :title "Target" :level 1))))))
+    (let ((s (buffer-string)))
+      (should (string-match-p "\\[\\[id:h1\\]\\[Target\\]\\]" s))
+      (should (> (string-match "\\[\\[id:h1\\]" s)
+                 (string-match "\\* Editing" s))))))
 
 (provide 'vulpea-test)
 ;;; vulpea-test.el ends here

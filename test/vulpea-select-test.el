@@ -731,5 +731,21 @@ This is the path taken when `vulpea-select-annotate-matchable' is nil."
       (vulpea-select-from "Note" (list note)))
     (should (eq seen-category 'vulpea-note))))
 
+(ert-deftest vulpea-select-from-restores-point ()
+  "Test that vulpea-select-from restores point moved by the completion UI.
+A completion preview jumping to a candidate in the current buffer must
+not redirect whatever the caller does at point next. See
+https://github.com/d12frosted/vulpea/issues/491."
+  (let ((note (make-vulpea-note :id "id1" :title "One" :level 0)))
+    (with-temp-buffer
+      (insert "0123456789")
+      (goto-char 5)
+      (cl-letf (((symbol-function 'completing-read)
+                 (lambda (&rest _)
+                   (goto-char (point-min))
+                   "One")))
+        (vulpea-select-from "Note" (list note)))
+      (should (= (point) 5)))))
+
 (provide 'vulpea-select-test)
 ;;; vulpea-select-test.el ends here

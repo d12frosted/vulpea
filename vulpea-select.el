@@ -390,7 +390,12 @@ When EXPAND-ALIASES is non-nil, each note with aliases will appear
 multiple times in the completion list - once for the original title
 and once for each alias. When an alias is selected, the returned
 note will have that alias as `vulpea-note-title' and the original
-title stored in `vulpea-note-primary-title'."
+title stored in `vulpea-note-primary-title'.
+
+Point and the current buffer are restored after the prompt: a
+completion preview (consult and friends) that jumps to a candidate
+living in the current buffer must not redirect whatever the caller
+does at point next (vulpea#491)."
   (let* ((expanded-notes (if expand-aliases
                              (seq-mapcat #'vulpea-note-expand-aliases notes)
                            notes))
@@ -401,10 +406,11 @@ title stored in `vulpea-note-primary-title'."
                          (cons (vulpea-select-describe n context)
                                n))
                        expanded-notes)))
-    (let* ((note (completing-read
-                  (concat prompt ": ")
-                  (vulpea-select--completion-table completions)
-                  nil require-match initial-prompt)))
+    (let* ((note (save-excursion
+                   (completing-read
+                    (concat prompt ": ")
+                    (vulpea-select--completion-table completions)
+                    nil require-match initial-prompt))))
       (or (cdr (assoc note completions))
           (make-vulpea-note
            :title (substring-no-properties note)
