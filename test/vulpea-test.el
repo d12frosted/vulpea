@@ -4853,24 +4853,66 @@ reads them from the buffer instead."
         (should (string-match-p "- inherited ::" s))
         (should (string-match-p "- own ::" s))))))
 
-(ert-deftest vulpea-schema-insert-fields-crm-multi ()
-  "A :one-of :multiple field inserts each chosen value as its own item."
+(ert-deftest vulpea-schema-insert-fields-one-of-multi ()
+  "A :one-of :multiple field prompts until `C-g' and inserts every pick."
   (let ((vulpea-schema--registry (make-hash-table :test 'eq)))
     (vulpea-schema-define 'w :predicate #'ignore
       :fields '((:key "tags" :one-of (a b c) :multiple t)))
     (with-temp-buffer
       (org-mode)
       (insert ":PROPERTIES:\n:ID: x\n:END:\n#+title: T\n")
-      (cl-letf (((symbol-function 'completing-read-multiple) (lambda (&rest _) '("a" "b"))))
-        (vulpea-schema-insert-fields 'w))
+      (let ((picks '("a" "b" quit)))
+        (cl-letf (((symbol-function 'completing-read)
+                   (lambda (&rest _)
+                     (let ((a (pop picks)))
+                       (if (eq a 'quit) (signal 'quit nil) a)))))
+          (vulpea-schema-insert-fields 'w)))
       (let ((s (buffer-string)))
         (should (string-match-p "- tags :: a" s))
         (should (string-match-p "- tags :: b" s))))))
 
-(ert-deftest vulpea-schema-prompt-fields-drops-empty-crm-list ()
+(ert-deftest vulpea-schema-prompt-field-one-of-multi-shrinks-pool ()
+  "Each :one-of :multiple pick leaves the candidate pool."
+  (let ((note (make-vulpea-note))
+        (picks '("a" "b" quit))
+        collections)
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (_prompt collection &rest _)
+                 (push collection collections)
+                 (let ((a (pop picks)))
+                   (if (eq a 'quit) (signal 'quit nil) a)))))
+      (should (equal '("a" "b")
+                     (vulpea--schema-prompt-field
+                      '(:key "tags" :one-of (a b c) :multiple t) note nil))))
+    (should (equal '(("a" "b" "c") ("b" "c") ("c"))
+                   (nreverse collections)))))
+
+(ert-deftest vulpea-schema-prompt-field-one-of-multi-stops-when-exhausted ()
+  "Collection ends on its own once every candidate is taken."
+  (let ((note (make-vulpea-note))
+        (calls 0))
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (&rest _) (cl-incf calls) "a")))
+      (should (equal '("a")
+                     (vulpea--schema-prompt-field
+                      '(:key "tags" :one-of (a) :multiple t) note nil))))
+    (should (equal 1 calls))))
+
+(ert-deftest vulpea-schema-prompt-field-one-of-multi-stops-on-empty ()
+  "Confirming empty input ends the collection without keeping the blank."
+  (let ((note (make-vulpea-note))
+        (picks '("a" "")))
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (&rest _) (pop picks))))
+      (should (equal '("a")
+                     (vulpea--schema-prompt-field
+                      '(:key "tags" :one-of (a b c) :multiple t) note nil))))))
+
+(ert-deftest vulpea-schema-prompt-fields-drops-empty-one-of-list ()
   "An optional multi-value field with a blank-only answer is dropped, not written."
   (let ((note (make-vulpea-note)))
-    (cl-letf (((symbol-function 'completing-read-multiple) (lambda (&rest _) '(""))))
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (&rest _) (signal 'quit nil))))
       (should-not (vulpea--schema-prompt-fields
                    '((:key "tags" :one-of (a b) :multiple t)) note)))))
 
@@ -5410,7 +5452,7 @@ even when it declines."
         (should (string-match-p (regexp-quote "- executes :: [[id:x1][One]]") s))
         (should (string-match-p (regexp-quote "- executes :: [[id:x2][Two]]") s))))))
 
-(ert-deftest vulpea-schema-insert-field-crm-appends-all ()
+(ert-deftest vulpea-schema-insert-field-one-of-appends-all ()
   "A :one-of :multiple answer appends every chosen value."
   (let ((vulpea-schema--registry (make-hash-table :test 'eq)))
     (vulpea-schema-define 'w :predicate #'ignore
@@ -5418,10 +5460,12 @@ even when it declines."
     (with-temp-buffer
       (org-mode)
       (insert ":PROPERTIES:\n:ID: x\n:END:\n#+title: T\n\n- tags :: a\n")
-      (cl-letf (((symbol-function 'completing-read) (lambda (&rest _) "tags"))
-                ((symbol-function 'completing-read-multiple)
-                 (lambda (&rest _) '("b" "c"))))
-        (vulpea-schema-insert-field 'w))
+      (let ((answers '("tags" "b" "c" quit)))
+        (cl-letf (((symbol-function 'completing-read)
+                   (lambda (&rest _)
+                     (let ((a (pop answers)))
+                       (if (eq a 'quit) (signal 'quit nil) a)))))
+          (vulpea-schema-insert-field 'w)))
       (let ((s (buffer-string)))
         (should (string-match-p "- tags :: a" s))
         (should (string-match-p "- tags :: b" s))

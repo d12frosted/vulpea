@@ -2982,13 +2982,14 @@ a time - writing an active timestamp, or an inactive one when the
 field says :active nil), :one-of (completion) and the target-tag
 restrictions \(:target-tags and :target-tags-any, restricting note
 selection to the targets validation would accept).  A
-field marked :multiple collects several values: note fields select
-repeatedly - each pick leaves the candidate pool, and quitting via
-`keyboard-quit' or confirming empty input ends the collection - date
-fields read timestamps until `keyboard-quit', :one-of fields use
-`completing-read-multiple', and free-form fields read strings until a
-blank answer.  Quitting a note or date prompt before the first pick
-skips that field.  DEFAULT is the field's already-resolved :default
+field marked :multiple prompts repeatedly, collecting values until the
+prompt is ended: note and :one-of fields select repeatedly - each pick
+leaves the candidate pool, and quitting via `keyboard-quit' or
+confirming empty input ends the collection, as does taking every
+candidate - date fields read timestamps until `keyboard-quit', and
+free-form fields read strings until a blank answer.  Quitting a note,
+:one-of or date prompt before the first pick skips that field.
+DEFAULT is the field's already-resolved :default
 \(see `vulpea--schema-field-default'; resolution is the caller's job,
 so a function default runs exactly once): it prefills the single-value
 prompts - initial input for free-form, default candidate for :one-of,
@@ -3056,7 +3057,19 @@ entered value, a list of values, or an empty value when skipped."
            (eq type 'datetime) active)
         (quit nil)))
      ((and one-of multiple)
-      (completing-read-multiple (concat label ": ") (funcall candidates)))
+      (let (result
+            (pool (funcall candidates))
+            (inhibit-quit t))
+        (with-local-quit
+          (while pool
+            (let ((pick (completing-read
+                         (format "%s (C-g to stop): " label) pool)))
+              (if (string-blank-p pick)
+                  (setq pool nil)
+                (setq pool (delete pick pool))
+                (push pick result)))))
+        (setq quit-flag nil)
+        (nreverse result)))
      (one-of
       (completing-read (concat label ": ") (funcall candidates)
                        nil nil nil nil prefill))

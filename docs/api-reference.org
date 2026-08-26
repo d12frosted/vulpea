@@ -1737,10 +1737,10 @@ metadata:
 ;;   - prompts for each field the note does not already have, required
 ;;     ones first, offering :one-of values as completion and a note
 ;;     selection for `note' fields
-;;   - a :multiple field collects several values: note selection
-;;     repeats (C-g or empty input to stop), :one-of fields use
-;;     completing-read-multiple, free-form fields read strings until
-;;     a blank answer
+;;   - a :multiple field collects several values by prompting again
+;;     after every answer: note and :one-of selection repeat (C-g or
+;;     empty input to stop, and each pick leaves the candidate pool),
+;;     free-form fields read strings until a blank answer
 ;;   - inserts the answers as metadata, one "- key :: value" line per
 ;;     value
 ;;
