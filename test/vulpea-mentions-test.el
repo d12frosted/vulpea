@@ -424,6 +424,36 @@ Covers the property manipulation only; the effect on mentions is
      (should (equal 0 (length (vulpea-mentions-test--collect-incoming-mentions-for-note
                                "git")))))))
 
+(ert-deftest vulpea-mentions-ignored-notes ()
+  "Returned notes should match note ids in the per note ignore property."
+  (vulpea-test--with-temp-db-and-files
+   `((:name "source.org"
+            :content
+            ,(concat ":PROPERTIES:\n:ID: source\n"
+                     (format ":%s: ignored1 ignored2\n" vulpea-mentions-per-note-ignore-property-key)
+                     ":END:\n#+title: Source\n\n"))
+     (:name "ignored1.org"
+            :content
+            ,(concat ":PROPERTIES:\n:ID: ignored1\n:END:\n"
+                     "#+title: Ignored 1\n\n"))
+     (:name "ignored2.org"
+            :content
+            ,(concat ":PROPERTIES:\n:ID: ignored2\n:END:\n"
+                     "#+title: Ignored 2\n\n")))
+   (let ((source-note (vulpea-db-get-by-id "source"))
+         (ignored1-note (vulpea-db-get-by-id "ignored1"))
+         (ignored2-note (vulpea-db-get-by-id "ignored2")))
+     (let ((ignored-notes (vulpea-mentions-ignored-notes source-note)))
+       (should (eq 2 (length ignored-notes)))
+       (should (seq-find (lambda (note)
+                           (equal (vulpea-note-id note) "ignored1"))
+                         ignored-notes))
+       (should (seq-find (lambda (note)
+                           (equal (vulpea-note-id note) "ignored2"))
+                         ignored-notes)))
+     (let ((ignored-notes (vulpea-mentions-ignored-notes ignored1-note)))
+       (should (eq 0 (length ignored-notes)))))))
+
 ;;; Collection (DB-backed)
 
 (ert-deftest vulpea-mentions--collect-maps-and-filters ()

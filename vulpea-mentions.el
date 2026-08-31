@@ -461,6 +461,15 @@ candidate dictionary."
     (mapc (lambda (path) (puthash (expand-file-name path) t result)) paths)
     result))
 
+(defun vulpea-mentions-ignored-notes (note)
+  "Return a list of notes whose mentions to NOTE are ignored."
+  (when-let* ((properties (vulpea-note-properties note))
+              (ignore-mentions
+               (assoc (upcase vulpea-mentions-per-note-ignore-property-key)
+                      properties))
+              (ignored-ids (split-string (cdr ignore-mentions))))
+    (vulpea-db-query-by-ids ignored-ids)))
+
 (defun vulpea-mentions--ignore-mention-ids (note)
   "Return note ids that mentions from them are ignored by NOTE."
   (let* ((result (make-hash-table :test 'equal))
