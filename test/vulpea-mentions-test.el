@@ -315,7 +315,13 @@ give the ignore commands both file level and heading level targets."
            ,(concat "A file contains no file level note id!\n"
                     "* Heading\n"
                     ":PROPERTIES:\n:ID: fileless\n:END:\n"
-                    "Git rebasing sometimes can be confusing.\n"))))
+                    "Git rebasing sometimes can be confusing.\n"))
+    (:name "ignored-heading-note.org"
+           :content
+           ,(concat ":PROPERTIES:\n:ID: ignored-heading-note\n"
+                    (format ":%s: maps\n" vulpea-mentions-per-note-ignore-property-key)
+                    ":END:\n"
+                    "If we have an id of a heading note ignored, unignore it should work."))))
 
 (defun vulpea-mentions-test--id-ignored-p (id)
   "Return non-nil when ID is ignored by the note at point."
@@ -336,7 +342,8 @@ Covers the property manipulation only; the effect on mentions is
          (git-note (vulpea-db-get-by-id "git"))
          (maps-note (vulpea-db-get-by-id "maps"))
          (maptool-note (vulpea-db-get-by-id "maptool"))
-         (fileless-note (vulpea-db-get-by-id "fileless")))
+         (fileless-note (vulpea-db-get-by-id "fileless"))
+         (ihn-note (vulpea-db-get-by-id "ignored-heading-note")))
 
      (vulpea-utils-with-note sets-note
        ;; At the beginning, there is no such property
@@ -394,7 +401,11 @@ Covers the property manipulation only; the effect on mentions is
      ;; When we ignore from a heading note which does not reside in a file level note
      (vulpea-mentions-ignore-from git-note fileless-note)
      (vulpea-utils-with-note git-note
-       (should (vulpea-mentions-test--id-ignored-p "fileless"))))))
+       (should (vulpea-mentions-test--id-ignored-p "fileless")))
+     ;; Unignore a heading note id should work when it also has a file level note id
+     (vulpea-mentions-unignore-from ihn-note maps-note)
+     (vulpea-utils-with-note ihn-note
+       (should (null (org-find-property vulpea-mentions-per-note-ignore-property-key)))))))
 
 (ert-deftest vulpea-mentions-ignore-from-silences-mentions ()
   "Ignoring a note drops its mentions, unignoring brings them back."
