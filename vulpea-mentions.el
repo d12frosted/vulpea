@@ -461,25 +461,20 @@ candidate dictionary."
     (mapc (lambda (path) (puthash (expand-file-name path) t result)) paths)
     result))
 
-(defun vulpea-mentions-ignored-notes (note)
-  "Return a list of notes whose mentions to NOTE are ignored."
+(defun vulpea-mentions--ignore-mention-ids (note)
+  "Return note ids that mentions from them are ignored by NOTE in a list."
   (when-let* ((properties (vulpea-note-properties note))
               (ignore-mentions
                (assoc (upcase vulpea-mentions-per-note-ignore-property-key)
                       properties))
               (ignored-ids (split-string (cdr ignore-mentions))))
-    (vulpea-db-query-by-ids ignored-ids)))
+    ignored-ids))
 
-(defun vulpea-mentions--ignore-mention-ids (note)
-  "Return note ids that mentions from them are ignored by NOTE."
-  (let* ((result (make-hash-table :test 'equal))
-         (properties (vulpea-note-properties note))
-         (ignore-mentions
-          (assoc (upcase vulpea-mentions-per-note-ignore-property-key)
-                 properties)))
-    (when ignore-mentions
-      (let ((ignored-ids (split-string (cdr ignore-mentions))))
-        (mapc (lambda (id) (puthash id t result)) ignored-ids)))
+(defun vulpea-mentions--ignore-mention-ids-table (note)
+  "Return note ids that mentions from them are ignored by NOTE in a table."
+  (let ((result (make-hash-table :test 'equal))
+        (ignored-ids (vulpea-mentions--ignore-mention-ids note)))
+    (mapc (lambda (id) (puthash id t result)) ignored-ids)
     result))
 
 (defun vulpea-mentions--ignore-unignore-from (note-or-id from-note-or-id &optional unignore-p)
@@ -525,6 +520,14 @@ drawer, dropping the property once nothing is left, saves the file and
 syncs the database."
   (vulpea-mentions--ignore-unignore-from note-or-id from-note-or-id t))
 
+(defun vulpea-mentions-ignored-notes (note)
+  "Return a list of notes whose mentions to NOTE are ignored.
+
+Note that `vulpea-db-query-by-ids' silently drops ids without a note,
+thus the returned note list has no knowledge of such ids."
+  (when-let* ((ignored-ids (vulpea-mentions--ignore-mention-ids note)))
+    (vulpea-db-query-by-ids ignored-ids)))
+
 (defun vulpea-mentions--collect (output note own-path)
   "Collect unlinked mentions of NOTE from ripgrep OUTPUT.
 
@@ -543,7 +546,7 @@ was written there does not matter.  Returns a list of plists with
          (paths-link-to-note
           (when (and vulpea-mentions-exclude-linked hits)
             (vulpea-mentions--paths-link-to-note note)))
-         (ignore-mention-ids (vulpea-mentions--ignore-mention-ids note))
+         (ignore-mention-ids (vulpea-mentions--ignore-mention-ids-table note))
          (result nil))
     (dolist (hit hits)
       (let* ((path (plist-get hit :path))
@@ -614,7 +617,7 @@ search for \"[[\" is also much cheaper than the plain-link regexp."
 
 (defun vulpea-mentions--ignored-by-note-p (ids note)
   "Return non-nil if at least one of IDS is ignored by NOTE."
-  (let ((ignore-mentions-id (vulpea-mentions--ignore-mention-ids note)))
+  (let ((ignore-mentions-id (vulpea-mentions--ignore-mention-ids-table note)))
     (seq-some (lambda (id) (gethash id ignore-mentions-id)) ids)))
 
 (defun vulpea-mentions--collect-outgoing (output dict self-ids linked-ids)
