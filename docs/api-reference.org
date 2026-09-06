@@ -382,8 +382,9 @@ dropped for the note carrying the property. An id silences the whole
 file it lives in, in both directions, so it does not matter whether a
 file-level id or a heading id was written
 there. =vulpea-mentions-ignored-notes= returns a list of ignored notes
-of a given note by reading the value of the property. It silently
-drops any stale id with no note. =vulpea-mentions-ignore-from= and
+of a given note by resolving each id appears in the property to the
+note in the same way as collecting mentions. It also silently drops
+any stale id with no note. =vulpea-mentions-ignore-from= and
 =vulpea-mentions-unignore-from= maintain that list, so the drawer
 never has to be edited by hand. =vulpea-mentions-ignore-from= resolves
 a silenced note to the note that a mention is attributed to. (Usually

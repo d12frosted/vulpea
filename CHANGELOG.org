@@ -15,7 +15,7 @@
 
 *Features*
 
-- [[https://github.com/d12frosted/vulpea/pull/497][vulpea#497]] Add a new function =vulpea-mentions-ignored-notes= which returns a list of notes that are ignored by the given note. Note that the if there is any stale id (id without a note) in the per note ignore property, it is silently dropped.
+- [[https://github.com/d12frosted/vulpea/pull/497][vulpea#497]] Add a new function =vulpea-mentions-ignored-notes= which returns a list of notes that are ignored by the given note. The notes are computed by resolving the note ids in the per-note ignore list to the notes in the same way as collecting mentions. Note that the if there is any stale id (id without a note) in the list, it is silently dropped.
 
 - [[https://github.com/d12frosted/vulpea/issues/329][vulpea#329]] Schema =note= fields take =:target-tags-any=, the any-of counterpart of =:target-tags=: the linked target has to carry at least one of the listed tags instead of all of them, and fails with the same =invalid-target= violation, naming the whole set. Declared next to =:target-tags= the two compose - every tag of the one, at least one of the other - so ="the owner is a person, and on one of these two teams"= is a pair of plain lists rather than a hand-written =:validate=. Like =:target-tags= it also narrows the note selection in =vulpea-schema-insert-fields=, =vulpea-schema-insert-field= and =vulpea-schema-fix-violation=, which is what a =:validate= function cannot do: it only speaks at validation time, so the picker keeps offering targets you are not allowed to choose. Thanks to =@alexjp= for asking for the any-of case.
 
