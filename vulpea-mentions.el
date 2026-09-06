@@ -522,10 +522,22 @@ syncs the database."
 (defun vulpea-mentions-ignored-notes (note)
   "Return a list of notes whose mentions to NOTE are ignored.
 
-Note that `vulpea-db-query-by-ids' silently drops ids without a note,
-thus the returned note list has no knowledge of such ids."
-  (when-let* ((ignored-ids (vulpea-mentions--ignore-mention-ids note)))
-    (vulpea-db-query-by-ids ignored-ids)))
+Each note id is resolved to the note, which may no be the note possesses
+that id, in the same way as `vulpea-mentions--collect'.  Also, stale ids
+not belonging to any note are dropped."
+  (let* ((cache (make-hash-table :test 'equal))
+         (ignored-ids (vulpea-mentions--ignore-mention-ids note))
+         (ignored-notes (vulpea-db-query-by-ids ignored-ids))
+         (result-table (make-hash-table :test 'equal))
+         (result '()))
+    (dolist (ignored-note ignored-notes)
+      (let ((resolved-note (vulpea-mentions--file-note
+                            (vulpea-note-path ignored-note)
+                            cache)))
+        (puthash resolved-note t result-table)))
+    (maphash (lambda (key _) (push key result))
+             result-table)
+    result))
 
 (defun vulpea-mentions--collect (output note own-path)
   "Collect unlinked mentions of NOTE from ripgrep OUTPUT.

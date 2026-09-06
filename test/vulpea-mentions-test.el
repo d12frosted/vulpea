@@ -436,34 +436,70 @@ Covers the property manipulation only; the effect on mentions is
                                "git")))))))
 
 (ert-deftest vulpea-mentions-ignored-notes ()
-  "Returned notes should match note ids in the per note ignore property."
+  "Note ids should be resolved to notes in the same way as collecting mentions."
   (vulpea-test--with-temp-db-and-files
    `((:name "source.org"
             :content
             ,(concat ":PROPERTIES:\n:ID: source\n"
-                     (format ":%s: ignored1 ignored2\n" vulpea-mentions-per-note-ignore-property-key)
                      ":END:\n#+title: Source\n\n"))
-     (:name "ignored1.org"
+     (:name "file.org"
             :content
-            ,(concat ":PROPERTIES:\n:ID: ignored1\n:END:\n"
-                     "#+title: Ignored 1\n\n"))
-     (:name "ignored2.org"
+            ,(concat ":PROPERTIES:\n:ID: file\n:END:\n"
+                     "#+title: File\n"
+                     "Source\n"))
+     (:name "heading-only.org"
             :content
-            ,(concat ":PROPERTIES:\n:ID: ignored2\n:END:\n"
-                     "#+title: Ignored 2\n\n")))
-   (let ((source-note (vulpea-db-get-by-id "source"))
-         (ignored1-note (vulpea-db-get-by-id "ignored1"))
-         (ignored2-note (vulpea-db-get-by-id "ignored2")))
-     (let ((ignored-notes (vulpea-mentions-ignored-notes source-note)))
-       (should (eq 2 (length ignored-notes)))
-       (should (seq-find (lambda (note)
-                           (equal (vulpea-note-id note) "ignored1"))
-                         ignored-notes))
-       (should (seq-find (lambda (note)
-                           (equal (vulpea-note-id note) "ignored2"))
-                         ignored-notes)))
-     (let ((ignored-notes (vulpea-mentions-ignored-notes ignored1-note)))
-       (should (eq 0 (length ignored-notes)))))))
+            ,(concat "* Heading Only\n"
+                     ":PROPERTIES:\n:ID: heading-only\n:END:\n"
+                     "Source\n"))
+     (:name "heading-with-file.org"
+            :content
+            ,(concat ":PROPERTIES:\n:ID: heading-with-file\n:END:\n"
+                     "#+title: Heading With File\n"
+                     "* Heading\n"
+                     ":PROPERTIES:\n:ID: heading\n:END:\n"
+                     "Source\n"))
+     (:name "headings.org"
+            :content
+            ,(concat "* Heading 1\n"
+                     ":PROPERTIES:\n:ID: heading1\n:END:\n"
+                     "* Heading 2\n"
+                     ":PROPERTIES:\n:ID: heading2\n:END:\n"
+                     "Source\n"))
+     (:name "merge-dup.org"
+            :content
+            ,(concat "* Duplicate 1\n"
+                     ":PROPERTIES:\n:ID: duplicate1\n:END:\n"
+                     "* Duplicate 2\n"
+                     ":PROPERTIES:\n:ID: duplicate2\n:END:\n"
+                     "Source\n") ))
+   ;; Initially, there is nothing ignored by the source note.
+   (let ((ignored-notes (vulpea-mentions-ignored-notes (vulpea-db-get-by-id "source"))))
+     (should (equal (length ignored-notes) 0)))
+   ;; We need to test it resolves note ids to notes the same way as
+   ;; `vulpea-mentions--collect'. Compute the mentions first.
+   (let* ((mentions (vulpea-mentions-test--collect-incoming-mentions-for-note "source"))
+          (notes-collected-by-mention (mapcar (lambda (mention) (plist-get mention :note))
+                                              mentions)))
+     ;; Add ignore ids, we have to edit the file directly to insert
+     ;; the ids, so we can test the function correctly resolve certain
+     ;; ids to notes follow the same rule as the collector.
+     (vulpea-utils-with-note-sync (vulpea-db-get-by-id "source")
+       (dolist (id '("file" "heading-only" "heading" "heading2" "duplicate1" "dupliate2"))
+         (org-entry-add-to-multivalued-property
+          (point)
+          vulpea-mentions-per-note-ignore-property-key
+          id)))
+     ;; Very each note appears in mention also appears in the ignored
+     ;; note list, since we have ignored them all.
+     (let ((ignored-notes (vulpea-mentions-ignored-notes (vulpea-db-get-by-id "source"))))
+       (dolist (note-resolved-by-mention notes-collected-by-mention)
+         (should (seq-find (lambda (ignored-note)
+                             (equal (vulpea-note-id ignored-note)
+                                    (vulpea-note-id note-resolved-by-mention)))
+                           ignored-notes)))
+       ;; Also, the ignored note list has not false positive entries
+       (should (equal (length ignored-notes) (length notes-collected-by-mention)))))))
 
 ;;; Collection (DB-backed)
 
