@@ -520,7 +520,7 @@ syncs the database."
         (org-delete-property vulpea-mentions-per-note-ignore-property-key)))))
 
 (defun vulpea-mentions-ignored-notes (note)
-  "Return the notes whose mentions NOTE ignores.
+  "Return the notes whose mentions are ignored by NOTE.
 
 Each id in `vulpea-mentions-per-note-ignore-property-key' is resolved
 to the note a mention from its file is attributed to: the file-level
