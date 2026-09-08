@@ -315,7 +315,13 @@ give the ignore commands both file level and heading level targets."
            ,(concat "A file contains no file level note id!\n"
                     "* Heading\n"
                     ":PROPERTIES:\n:ID: fileless\n:END:\n"
-                    "Git rebasing sometimes can be confusing.\n"))))
+                    "Git rebasing sometimes can be confusing.\n"))
+    (:name "ignored-heading-note.org"
+           :content
+           ,(concat ":PROPERTIES:\n:ID: ignored-heading-note\n"
+                    (format ":%s: maps\n" vulpea-mentions-per-note-ignore-property-key)
+                    ":END:\n"
+                    "If we have an id of a heading note ignored, unignore it should work."))))
 
 (defun vulpea-mentions-test--id-ignored-p (id)
   "Return non-nil when ID is ignored by the note at point."
@@ -336,7 +342,8 @@ Covers the property manipulation only; the effect on mentions is
          (git-note (vulpea-db-get-by-id "git"))
          (maps-note (vulpea-db-get-by-id "maps"))
          (maptool-note (vulpea-db-get-by-id "maptool"))
-         (fileless-note (vulpea-db-get-by-id "fileless")))
+         (fileless-note (vulpea-db-get-by-id "fileless"))
+         (ihn-note (vulpea-db-get-by-id "ignored-heading-note")))
 
      (vulpea-utils-with-note sets-note
        ;; At the beginning, there is no such property
@@ -394,7 +401,11 @@ Covers the property manipulation only; the effect on mentions is
      ;; When we ignore from a heading note which does not reside in a file level note
      (vulpea-mentions-ignore-from git-note fileless-note)
      (vulpea-utils-with-note git-note
-       (should (vulpea-mentions-test--id-ignored-p "fileless"))))))
+       (should (vulpea-mentions-test--id-ignored-p "fileless")))
+     ;; Unignore a heading note id should work when it also has a file level note id
+     (vulpea-mentions-unignore-from ihn-note maps-note)
+     (vulpea-utils-with-note ihn-note
+       (should (null (org-find-property vulpea-mentions-per-note-ignore-property-key)))))))
 
 (ert-deftest vulpea-mentions-ignore-from-silences-mentions ()
   "Ignoring a note drops its mentions, unignoring brings them back."
@@ -423,6 +434,72 @@ Covers the property manipulation only; the effect on mentions is
      (vulpea-mentions-ignore-from git-note fileless-note)
      (should (equal 0 (length (vulpea-mentions-test--collect-incoming-mentions-for-note
                                "git")))))))
+
+(ert-deftest vulpea-mentions-ignored-notes ()
+  "Note ids should be resolved to notes in the same way as collecting mentions."
+  (vulpea-test--with-temp-db-and-files
+   `((:name "source.org"
+            :content
+            ,(concat ":PROPERTIES:\n:ID: source\n"
+                     ":END:\n#+title: Source\n\n"))
+     (:name "file.org"
+            :content
+            ,(concat ":PROPERTIES:\n:ID: file\n:END:\n"
+                     "#+title: File\n"
+                     "Source\n"))
+     (:name "heading-only.org"
+            :content
+            ,(concat "* Heading Only\n"
+                     ":PROPERTIES:\n:ID: heading-only\n:END:\n"
+                     "Source\n"))
+     (:name "heading-with-file.org"
+            :content
+            ,(concat ":PROPERTIES:\n:ID: heading-with-file\n:END:\n"
+                     "#+title: Heading With File\n"
+                     "* Heading\n"
+                     ":PROPERTIES:\n:ID: heading\n:END:\n"
+                     "Source\n"))
+     (:name "headings.org"
+            :content
+            ,(concat "* Heading 1\n"
+                     ":PROPERTIES:\n:ID: heading1\n:END:\n"
+                     "* Heading 2\n"
+                     ":PROPERTIES:\n:ID: heading2\n:END:\n"
+                     "Source\n"))
+     (:name "merge-dup.org"
+            :content
+            ,(concat "* Duplicate 1\n"
+                     ":PROPERTIES:\n:ID: duplicate1\n:END:\n"
+                     "* Duplicate 2\n"
+                     ":PROPERTIES:\n:ID: duplicate2\n:END:\n"
+                     "Source\n") ))
+   ;; Initially, there is nothing ignored by the source note.
+   (let ((ignored-notes (vulpea-mentions-ignored-notes (vulpea-db-get-by-id "source"))))
+     (should (equal (length ignored-notes) 0)))
+   ;; We need to test it resolves note ids to notes the same way as
+   ;; `vulpea-mentions--collect'. Compute the mentions first.
+   (let* ((mentions (vulpea-mentions-test--collect-incoming-mentions-for-note "source"))
+          (notes-collected-by-mention (mapcar (lambda (mention) (plist-get mention :note))
+                                              mentions)))
+     ;; Add ignore ids, we have to edit the file directly to insert
+     ;; the ids, so we can test the function correctly resolve certain
+     ;; ids to notes follow the same rule as the collector.
+     (vulpea-utils-with-note-sync (vulpea-db-get-by-id "source")
+       (dolist (id '("file" "heading-only" "heading" "heading2" "duplicate1" "dupliate2"))
+         (org-entry-add-to-multivalued-property
+          (point)
+          vulpea-mentions-per-note-ignore-property-key
+          id)))
+     ;; Very each note appears in mention also appears in the ignored
+     ;; note list, since we have ignored them all.
+     (let ((ignored-notes (vulpea-mentions-ignored-notes (vulpea-db-get-by-id "source"))))
+       (dolist (note-resolved-by-mention notes-collected-by-mention)
+         (should (seq-find (lambda (ignored-note)
+                             (equal (vulpea-note-id ignored-note)
+                                    (vulpea-note-id note-resolved-by-mention)))
+                           ignored-notes)))
+       ;; Also, the ignored note list has not false positive entries
+       (should (equal (length ignored-notes) (length notes-collected-by-mention)))))))
 
 ;;; Collection (DB-backed)
 
