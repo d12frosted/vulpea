@@ -485,12 +485,12 @@ Covers the property manipulation only; the effect on mentions is
      ;; the ids, so we can test the function correctly resolve certain
      ;; ids to notes follow the same rule as the collector.
      (vulpea-utils-with-note-sync (vulpea-db-get-by-id "source")
-       (dolist (id '("file" "heading-only" "heading" "heading2" "duplicate1" "dupliate2"))
+       (dolist (id '("file" "heading-only" "heading" "heading2" "duplicate1" "duplicate2"))
          (org-entry-add-to-multivalued-property
           (point)
           vulpea-mentions-per-note-ignore-property-key
           id)))
-     ;; Very each note appears in mention also appears in the ignored
+     ;; Verify each note appearing in mentions also appears in the ignored
      ;; note list, since we have ignored them all.
      (let ((ignored-notes (vulpea-mentions-ignored-notes (vulpea-db-get-by-id "source"))))
        (dolist (note-resolved-by-mention notes-collected-by-mention)
@@ -498,7 +498,7 @@ Covers the property manipulation only; the effect on mentions is
                              (equal (vulpea-note-id ignored-note)
                                     (vulpea-note-id note-resolved-by-mention)))
                            ignored-notes)))
-       ;; Also, the ignored note list has not false positive entries
+       ;; Also, the ignored note list has no false positive entries
        (should (equal (length ignored-notes) (length notes-collected-by-mention)))))))
 
 ;;; Collection (DB-backed)
