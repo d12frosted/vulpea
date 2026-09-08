@@ -380,23 +380,20 @@ Incoming mentions can be silenced per note. The property named by
 separated list of note ids, and mentions coming from those notes are
 dropped for the note carrying the property. An id silences the whole
 file it lives in, in both directions, so it does not matter whether a
-file-level id or a heading id was written
-there. =vulpea-mentions-ignored-notes= returns a list of ignored notes
-of a given note by resolving each id appears in the property to the
-note in the same way as collecting mentions. It also silently drops
-any stale id with no note. =vulpea-mentions-ignore-from= and
-=vulpea-mentions-unignore-from= maintain that list, so the drawer
-never has to be edited by hand. =vulpea-mentions-ignore-from= resolves
-a silenced note to the note that a mention is attributed to. (Usually
-a file level note, or the first heading note in the file when that is
-absent.) Then it adds the note id to the property, saves the file and
-syncs the database before returning. =vulpea-mentions-unignore-from=,
-on the other hand, removes all the note ids appear in the silenced
-note file from the property. This handles the case when the id listed
-in the property is no longer the note id that mentions from that file
-is attributed to. Then it also saves the file and syncs the database
-before returning. The ignore list is read from the database, so an
+file-level id or a heading id was written there.
+=vulpea-mentions-ignore-from= and =vulpea-mentions-unignore-from=
+maintain that list, so the drawer never has to be edited by hand. Both
+take a note or an id. Ignoring resolves the silenced note to the
+file-level note that a mention is attributed to (or the first note in
+the file when there is none) and writes that id; unignoring removes
+every id of the silenced file, so an entry is gone no matter which id
+of the file was written there. Both save the file and sync the
+database before returning - the list is read from the database, so an
 unsaved drawer would leave the mention on screen.
+=vulpea-mentions-ignored-notes= is the read side: it resolves each
+listed id the same way and returns the notes, one per file, dropping
+ids that no longer belong to any note. This is what an ignore list in
+a UI shows next to the mentions.
 
 Matching is script-aware. Titles in scripts that separate words with
 spaces (Latin, Cyrillic, ...) match only as standalone words: =art=

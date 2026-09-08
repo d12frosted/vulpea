@@ -520,11 +520,13 @@ syncs the database."
         (org-delete-property vulpea-mentions-per-note-ignore-property-key)))))
 
 (defun vulpea-mentions-ignored-notes (note)
-  "Return a list of notes whose mentions to NOTE are ignored.
+  "Return the notes whose mentions NOTE ignores.
 
-Each note id is resolved to the note, which may no be the note possesses
-that id, in the same way as `vulpea-mentions--collect'.  Also, stale ids
-not belonging to any note are dropped."
+Each id in `vulpea-mentions-per-note-ignore-property-key' is resolved
+to the note a mention from its file is attributed to: the file-level
+note, or the first note in the file when there is none.  Two ids of one
+file therefore yield one note.  Ids that no longer belong to any note
+are dropped."
   (let* ((cache (make-hash-table :test 'equal))
          (ignored-ids (vulpea-mentions--ignore-mention-ids note))
          (ignored-notes (vulpea-db-query-by-ids ignored-ids))
