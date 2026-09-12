@@ -743,17 +743,27 @@ Returns the ripgrep process, so the caller can wait on or
                        (setq output (concat output chunk)))
              :sentinel
              (lambda (proc _event)
-               (when (memq (process-status proc) '(exit signal))
-                 (let ((code (process-exit-status proc)))
-                   ;; rg exits 0 with matches, 1 with none, >1 on error.
-                   (if (memq code '(0 1))
+               (let ((status (process-status proc)))
+                 (when (memq status '(exit signal))
+                   (let ((code (process-exit-status proc)))
+                     ;; rg exits 0 with matches, 1 with none, >1 on
+                     ;; error.  For a signalled process the exit status
+                     ;; is the signal number, and SIGHUP is 1: only an
+                     ;; actual exit counts.
+                     (cond
+                      ((and (eq status 'exit) (memq code '(0 1)))
                        (condition-case err
                            (funcall resolve
                                     (vulpea-mentions--collect
                                      output note own-path))
-                         (error (funcall reject (error-message-string err))))
-                     (funcall reject
-                              (format "ripgrep failed (exit %s)" code))))))))))))))
+                         (error (funcall reject (error-message-string err)))))
+                      ((eq status 'exit)
+                       (funcall reject
+                                (format "ripgrep failed (exit %s)" code)))
+                      (t
+                       (funcall reject
+                                (format "ripgrep killed (signal %s)"
+                                        code))))))))))))))))
 
 ;;;###autoload
 (defun vulpea-buffer-unlinked-mentions-async (resolve reject)
@@ -844,21 +854,30 @@ target a specific buffer."
                      :coding 'utf-8
                      :sentinel
                      (lambda (proc _event)
-                       (when (memq (process-status proc) '(exit signal))
-                         (let ((code (process-exit-status proc))
-                               (output (with-current-buffer output-buffer
-                                         (buffer-string))))
-                           (cleanup)
-                           ;; rg exits 0 with matches, 1 with none, >1
-                           ;; on error.
-                           (if (memq code '(0 1))
+                       (let ((status (process-status proc)))
+                         (when (memq status '(exit signal))
+                           (let ((code (process-exit-status proc))
+                                 (output (with-current-buffer output-buffer
+                                           (buffer-string))))
+                             (cleanup)
+                             ;; rg exits 0 with matches, 1 with none, >1
+                             ;; on error.  For a signalled process the
+                             ;; exit status is the signal number, and
+                             ;; SIGHUP is 1: only an actual exit counts.
+                             (cond
+                              ((and (eq status 'exit) (memq code '(0 1)))
                                (condition-case err
                                    (funcall resolve
                                             (vulpea-mentions--collect-outgoing
                                              output dict self-ids linked-ids))
-                                 (error (funcall reject (error-message-string err))))
-                             (funcall reject
-                                      (format "ripgrep failed (exit %s)" code))))))))
+                                 (error (funcall reject (error-message-string err)))))
+                              ((eq status 'exit)
+                               (funcall reject
+                                        (format "ripgrep failed (exit %s)" code)))
+                              (t
+                               (funcall reject
+                                        (format "ripgrep killed (signal %s)"
+                                                code))))))))))
                 ;; The promise settles even when the search never
                 ;; starts - a full TMPDIR, ripgrep gone since
                 ;; `executable-find' saw it - and nothing is left behind.
