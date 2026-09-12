@@ -1207,6 +1207,52 @@ and the output buffer must not outlive it."
           (should-not (file-exists-p file)))
         (should-not (buffer-live-p out-buf))))))
 
+(ert-deftest vulpea-mentions-incoming-rejects-when-ripgrep-is-killed ()
+  "A signalled incoming search REJECTs instead of resolving truncated output.
+Same shape as the outgoing loader: a reactive UI cancels a superseded
+search with `delete-process', and `process-exit-status' reports the
+signal number, which for SIGHUP is ripgrep's no-match code 1."
+  (vulpea-test--with-temp-db-and-files
+      `((:name "cab.org"
+         :content ,(concat ":PROPERTIES:\n:ID: cab\n:END:\n"
+                           "#+title: Cabernet Sauvignon\n\n")))
+    (cl-letf (((symbol-function 'executable-find) (lambda (&rest _) "rg"))
+              ((symbol-function 'vulpea-mentions--rg-command)
+               (lambda (&rest _) (list "sh" "-c" "exec sleep 30"))))
+      (let* ((state nil)
+             (proc (vulpea-note-unlinked-mentions-async
+                    (vulpea-db-get-by-id "cab")
+                    (lambda (_ms) (setq state 'resolved))
+                    (lambda (err) (setq state (list 'rejected err))))))
+        (should (processp proc))
+        (signal-process proc 1)
+        (vulpea-mentions-test--await (lambda () state))
+        (should (eq (car-safe state) 'rejected))
+        (should (string-match-p "signal" (cadr state)))))))
+
+(ert-deftest vulpea-mentions-outgoing-rejects-when-ripgrep-is-killed ()
+  "A ripgrep that dies from a signal REJECTs instead of resolving truncated output.
+`process-exit-status' reports the signal number for a signalled
+process, and SIGHUP is 1 - the code ripgrep exits with when nothing
+matched.  Read as an exit code, a hangup would resolve with whatever
+output had arrived so far."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "cab" "Cabernet Sauvignon" :path "/n/cab.org")
+    (with-temp-buffer
+      (insert "Cabernet Sauvignon.\n")
+      (cl-letf (((symbol-function 'executable-find) (lambda (&rest _) "rg"))
+                ((symbol-function 'vulpea-mentions--rg-file-command)
+                 (lambda (&rest _) (list "sh" "-c" "exec sleep 30"))))
+        (let* ((state nil)
+               (proc (vulpea-buffer-unlinked-mentions-async
+                      (lambda (_ms) (setq state 'resolved))
+                      (lambda (err) (setq state (list 'rejected err))))))
+          (signal-process proc 1)
+          (vulpea-mentions-test--await (lambda () state))
+          (should (eq (car-safe state) 'rejected))
+          (should (string-match-p "signal" (cadr state))))))))
+
 (ert-deftest vulpea-mentions-outgoing-rejects-when-the-search-cannot-start ()
   "A failure before ripgrep runs REJECTs and leaves nothing behind.
 The promise contract is that exactly one of RESOLVE or REJECT is
