@@ -983,6 +983,43 @@ coming back."
         (should (equal (plist-get (car mentions) :matched) "Cabernet"))
         (should (equal (plist-get (car mentions) :line) 2))))))
 
+(ert-deftest vulpea-mentions--collect-outgoing-decides-ignore-once-per-candidate ()
+  "The per-note ignore check runs once per candidate, not once per hit.
+
+`vulpea-mentions--ignored-by-note-p' scans every id of the buffer's
+file, and a large file holds hundreds of them; a candidate mentioned on
+every other line asked the same question hundreds of times over.  With
+6743 hits against 758 self ids that check alone took 0.8 s in the
+process sentinel, after the search itself had finished in 0.1 s."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "cab" "Cabernet" :path "/n/cab.org")
+    (vulpea-test--insert-test-note "merlot" "Merlot" :path "/n/merlot.org")
+    (let* ((dict (car (vulpea-mentions--title-dictionary)))
+           (self-ids (mapcar (lambda (i) (format "self-%d" i))
+                             (number-sequence 1 50)))
+           (mk (lambda (line n term)
+                 (format (concat "{\"type\":\"match\",\"data\":{\"path\":{\"text\":\"<stdin>\"},"
+                                 "\"lines\":{\"text\":%S},\"line_number\":%d,"
+                                 "\"submatches\":[{\"match\":{\"text\":%S},\"start\":0,\"end\":1}]}}\n")
+                         line n term)))
+           (output (mapconcat
+                    (lambda (n)
+                      (concat (funcall mk "had some Cabernet" n "Cabernet")
+                              (funcall mk "and Merlot" (1+ n) "Merlot")))
+                    (number-sequence 1 200 2)
+                    ""))
+           (calls 0))
+      (cl-letf* ((orig (symbol-function 'vulpea-mentions--ignored-by-note-p))
+                 ((symbol-function 'vulpea-mentions--ignored-by-note-p)
+                  (lambda (&rest args)
+                    (cl-incf calls)
+                    (apply orig args))))
+        (let ((mentions (vulpea-mentions--collect-outgoing
+                         output dict self-ids (make-hash-table :test 'equal))))
+          (should (= (length mentions) 200))
+          (should (= calls 2)))))))
+
 (ert-deftest vulpea-mentions-outgoing-with-real-rg ()
   "Real ripgrep over a snapshot of buffer content yields candidate notes; links excluded."
   (vulpea-test--require-rg)

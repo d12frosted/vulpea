@@ -650,11 +650,19 @@ it are dropped.  Pass an empty table to keep them all.
 Returns a list of plists with :note (a candidate note to link to),
 :line, :context, and :matched (the text that matched)."
   (let ((id->note (make-hash-table :test 'equal))
+        ;; The ignore check walks every one of SELF-IDS, and a candidate
+        ;; can be hit on hundreds of lines: decide it once per candidate.
+        (id->ignored (make-hash-table :test 'equal))
         (result nil))
     (cl-flet ((resolve-note (id)
                 (let ((cached (gethash id id->note 'miss)))
                   (if (not (eq cached 'miss)) cached
-                    (puthash id (vulpea-db-get-by-id id) id->note)))))
+                    (puthash id (vulpea-db-get-by-id id) id->note))))
+              (ignored-p (id cand)
+                (let ((cached (gethash id id->ignored 'miss)))
+                  (if (not (eq cached 'miss)) cached
+                    (puthash id (vulpea-mentions--ignored-by-note-p self-ids cand)
+                             id->ignored)))))
       (let ((hits (vulpea-mentions--parse-rg-json output)))
         (dolist (hit hits)
           (let ((line-text (plist-get hit :line-text))
@@ -666,7 +674,7 @@ Returns a list of plists with :note (a candidate note to link to),
                     (unless (or (member id self-ids)
                                 (gethash id linked-ids))
                       (when-let* ((cand (resolve-note id)))
-                        (unless (vulpea-mentions--ignored-by-note-p self-ids cand)
+                        (unless (ignored-p id cand)
                           (push (list :note cand :line line-no
                                     :context (string-trim line-text)
                                     :matched term)
