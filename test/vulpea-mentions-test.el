@@ -52,20 +52,15 @@ NOTE can be either an ID or a `vulpea-note' object."
             (setq note (vulpea-db-get-by-id note)))
           (with-temp-file patterns
             (insert (mapconcat #'vulpea-mentions--rg-pattern terms "\n") "\n"))
-          (let* (linked-ids
-                 (cmd (vulpea-mentions--rg-stdin-command
-                       (executable-find "rg") patterns))
-                 (note-path (expand-file-name (vulpea-note-path note)))
+          (let* ((note-path (expand-file-name (vulpea-note-path note)))
+                 (cmd (vulpea-mentions--rg-file-command
+                       (executable-find "rg") patterns note-path))
+                 (linked-ids (with-temp-buffer
+                               (insert-file-contents note-path)
+                               (vulpea-mentions--buffer-link-ids)))
                  (output (with-temp-buffer
-                           (insert-file-contents note-path)
-                           (setq linked-ids
-                                 (vulpea-mentions--buffer-link-ids))
-                           (let ((out (generate-new-buffer " *rg*")))
-                             (apply #'call-process-region
-                                    (point-min) (point-max) (car cmd)
-                                    nil out nil (cdr cmd))
-                             (prog1 (with-current-buffer out (buffer-string))
-                               (kill-buffer out)))))
+                           (apply #'call-process (car cmd) nil t nil (cdr cmd))
+                           (buffer-string)))
                  (self-ids (mapcar #'vulpea-note-id
                                    (vulpea-db-query-by-file-path note-path))))
             (vulpea-mentions--collect-outgoing
@@ -228,15 +223,16 @@ a bytes submatch is dropped from :matched while text ones survive."
     (should (member "(?-u:\\b)Wine(?-u:\\b)" cmd))
     (should (member "金阁寺" cmd))))
 
-(ert-deftest vulpea-mentions--rg-stdin-command-shape ()
-  "The stdin ripgrep command reads patterns from a file and input from -."
-  (let ((cmd (vulpea-mentions--rg-stdin-command "rg" "/tmp/patterns")))
+(ert-deftest vulpea-mentions--rg-file-command-shape ()
+  "The single-file ripgrep command reads patterns and input from files."
+  (let ((cmd (vulpea-mentions--rg-file-command "rg" "/tmp/patterns" "/tmp/input")))
     (should (equal (car cmd) "rg"))
     (should (member "--json" cmd))
     (should (member "--ignore-case" cmd))
     (should-not (member "--fixed-strings" cmd))
     (should-not (member "--word-regexp" cmd))
-    (should (equal (last cmd 3) '("-f" "/tmp/patterns" "-")))))
+    (should-not (member "-" cmd))
+    (should (equal (last cmd 3) '("-f" "/tmp/patterns" "/tmp/input")))))
 
 (ert-deftest vulpea-mentions--rg-quote-escapes-metacharacters ()
   "Rust regex metacharacters are escaped; plain text is untouched."
@@ -988,7 +984,7 @@ coming back."
         (should (equal (plist-get (car mentions) :line) 2))))))
 
 (ert-deftest vulpea-mentions-outgoing-with-real-rg ()
-  "Real ripgrep over buffer content (stdin) yields candidate notes; links excluded."
+  "Real ripgrep over a snapshot of buffer content yields candidate notes; links excluded."
   (vulpea-test--require-rg)
   (vulpea-test--with-temp-db
     (vulpea-db)
@@ -1003,26 +999,25 @@ coming back."
     (let* ((terms (cdr (vulpea-mentions--title-dictionary)))
            (dict (car (vulpea-mentions--title-dictionary)))
            (patterns (make-temp-file "vmp-"))
+           (input (make-temp-file "vmi-"))
            (content (concat "We had Cabernet Sauvignon and [[id:merlot][Merlot]].\n"
                             "More Merlot and Syrah later.\n")))
       (unwind-protect
           (progn
             (with-temp-file patterns
               (insert (mapconcat #'vulpea-mentions--rg-pattern terms "\n") "\n"))
+            (with-temp-file input (insert content))
             (let* (linked-ids-exclude-linked
                    (linked-ids-no-exclude-linked (make-hash-table :test 'equal))
-                   (cmd (vulpea-mentions--rg-stdin-command
-                         (executable-find "rg") patterns))
+                   (cmd (vulpea-mentions--rg-file-command
+                         (executable-find "rg") patterns input))
                    (output (with-temp-buffer
                              (insert content)
                              (setq linked-ids-exclude-linked
                                    (vulpea-mentions--buffer-link-ids))
-                             (let ((out (generate-new-buffer " *rg*")))
-                               (apply #'call-process-region
-                                      (point-min) (point-max) (car cmd)
-                                      nil out nil (cdr cmd))
-                               (prog1 (with-current-buffer out (buffer-string))
-                                 (kill-buffer out))))))
+                             (erase-buffer)
+                             (apply #'call-process (car cmd) nil t nil (cdr cmd))
+                             (buffer-string))))
               ;; when `vulpea-mentions-exclude-linked' is non-nil
               (let ((mentions
                      (vulpea-mentions--collect-outgoing
@@ -1051,7 +1046,8 @@ coming back."
                   (should (equal (plist-get merlot :line) 2))
                   (should (equal (plist-get merlot :matched) "Merlot"))
                   (should (equal (plist-get merlot :context) "More Merlot and Syrah later."))))))
-        (delete-file patterns)))))
+        (delete-file patterns)
+        (delete-file input)))))
 
 (ert-deftest vulpea-mentions-outgoing-cjk-with-real-rg ()
   "The outgoing scan finds CJK candidates mentioned inline in prose.
@@ -1079,9 +1075,9 @@ occurrence is not a mention."
 (ert-deftest vulpea-mentions-outgoing-cjk-hostile-process-coding ()
   "Outgoing CJK and Cyrillic mentions survive a non-UTF-8 coding setup.
 
-The patterns file and the ripgrep stdin/stdout must stay UTF-8 even
-when `coding-system-for-write' and `default-process-coding-system'
-say otherwise."
+The patterns file, the snapshot of the buffer and ripgrep's output
+must stay UTF-8 even when `coding-system-for-write' and
+`default-process-coding-system' say otherwise."
   (vulpea-test--require-rg)
   (vulpea-test--with-temp-db-and-files
       `((:name "kinkakuji.org"
@@ -1106,6 +1102,108 @@ say otherwise."
                                      result)
                              #'string<)
                        '("Київ" "金阁寺")))))))
+
+(defun vulpea-mentions-test--outgoing-temp-files (proc)
+  "Return the temporary files PROC's ripgrep command reads, patterns first."
+  (let ((cmd (process-command proc)))
+    (list (cadr (member "-f" cmd)) (car (last cmd)))))
+
+(ert-deftest vulpea-mentions-outgoing-searches-a-snapshot-of-the-buffer ()
+  "The outgoing scan hands ripgrep a snapshot file, not its standard input.
+
+Writing the buffer to a file lets `make-process' return at once: with
+stdin, `process-send-string' blocked until ripgrep had drained the
+whole buffer, and on a multi-megabyte note that was a second-long
+freeze inside a loader that promised to be asynchronous.  The snapshot
+carries the buffer's live text, so unsaved edits still count, and both
+temporary files are gone once the search has settled."
+  (vulpea-test--require-rg)
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "cab" "Cabernet Sauvignon" :path "/n/cab.org")
+    (with-temp-buffer
+      (insert "Unsaved prose about Cabernet Sauvignon.\n")
+      (let* ((state nil)
+             (result nil)
+             (proc (vulpea-buffer-unlinked-mentions-async
+                    (lambda (ms) (setq state 'resolved result ms))
+                    (lambda (err) (setq state (list 'rejected err)))))
+             (files (vulpea-mentions-test--outgoing-temp-files proc)))
+        (should (processp proc))
+        ;; Nothing has been pumped yet, so the sentinel has not run and
+        ;; the snapshot is still on disk: it must be the buffer's text.
+        (should (equal (with-temp-buffer
+                         (insert-file-contents (cadr files))
+                         (buffer-string))
+                       "Unsaved prose about Cabernet Sauvignon.\n"))
+        (vulpea-mentions-test--await (lambda () state))
+        (should (eq state 'resolved))
+        (should (equal (mapcar (lambda (m) (plist-get m :matched)) result)
+                       '("Cabernet Sauvignon")))
+        (should (equal (plist-get (car result) :line) 1))
+        (dolist (file files)
+          (should-not (file-exists-p file)))
+        (should-not (buffer-live-p (process-buffer proc)))))))
+
+(ert-deftest vulpea-mentions-outgoing-cleans-up-when-cancelled ()
+  "Killing the ripgrep process mid-search still removes its temporary files.
+A reactive UI cancels a superseded load with `delete-process'; the
+sentinel runs for that signal too, so the patterns file, the snapshot
+and the output buffer must not outlive it."
+  (vulpea-test--require-rg)
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "cab" "Cabernet Sauvignon" :path "/n/cab.org")
+    (with-temp-buffer
+      (insert "Cabernet Sauvignon.\n")
+      (let* ((state nil)
+             (proc (vulpea-buffer-unlinked-mentions-async
+                    (lambda (_ms) (setq state 'resolved))
+                    (lambda (err) (setq state (list 'rejected err)))))
+             (files (vulpea-mentions-test--outgoing-temp-files proc))
+             (out-buf (process-buffer proc)))
+        (should (buffer-live-p out-buf))
+        (delete-process proc)
+        (vulpea-mentions-test--await (lambda () state))
+        (should state)
+        (dolist (file files)
+          (should-not (file-exists-p file)))
+        (should-not (buffer-live-p out-buf))))))
+
+(ert-deftest vulpea-mentions-outgoing-rejects-when-the-search-cannot-start ()
+  "A failure before ripgrep runs REJECTs and leaves nothing behind.
+The promise contract is that exactly one of RESOLVE or REJECT is
+called; a `make-process' that signals (ripgrep gone since
+`executable-find' found it, say) must not escape the loader with the
+snapshot still on disk and an output buffer still live."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "cab" "Cabernet Sauvignon" :path "/n/cab.org")
+    (with-temp-buffer
+      (insert "Cabernet Sauvignon.\n")
+      (let ((temp-files nil)
+            (state nil))
+        (cl-letf* ((orig-make-temp-file (symbol-function 'make-temp-file))
+                   ((symbol-function 'make-temp-file)
+                    (lambda (&rest args)
+                      (let ((file (apply orig-make-temp-file args)))
+                        (push file temp-files)
+                        file)))
+                   ((symbol-function 'executable-find) (lambda (&rest _) "rg"))
+                   ((symbol-function 'make-process)
+                    (lambda (&rest _)
+                      (signal 'file-missing '("Searching for program" "rg")))))
+          (should-not (vulpea-buffer-unlinked-mentions-async
+                       (lambda (_ms) (setq state 'resolved))
+                       (lambda (err) (setq state (list 'rejected err))))))
+        (should (eq (car-safe state) 'rejected))
+        (should (= (length temp-files) 2))
+        (dolist (file temp-files)
+          (should-not (file-exists-p file)))
+        (should-not (seq-some (lambda (b)
+                                (string-prefix-p " *vulpea-mentions-out*"
+                                                 (buffer-name b)))
+                              (buffer-list)))))))
 
 (ert-deftest vulpea-mentions-outgoing-rejects-without-rg ()
   "When ripgrep is unavailable, the outgoing search REJECTs."
