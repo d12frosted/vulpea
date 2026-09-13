@@ -2349,6 +2349,82 @@ quadratic path takes several times the bound on any machine."
     (should (= (length org-id-files) (* 2 n)))
     (should (= (hash-table-count org-id-locations) n))))
 
+(ert-deftest vulpea-db-extract-unregisters-released-ids-with-org-id ()
+  "An id a re-parse no longer finds is dropped from `org-id-locations'.
+The heading is deleted from a file that stays tracked; its id must
+leave the table while the file-level id stays registered."
+  (let ((org-id-track-globally t)
+        (org-id-locations (make-hash-table :test #'equal))
+        (org-id-files nil)
+        (vulpea-db-index-heading-level t))
+    (vulpea-test--with-temp-db
+      (vulpea-db)
+      (let ((path (vulpea-test--create-temp-org-file
+                   ":PROPERTIES:\n:ID: released-file-id\n:END:\n#+TITLE: F\n\n* H\n:PROPERTIES:\n:ID: released-heading-id\n:END:\n")))
+        (unwind-protect
+            (let ((afile (abbreviate-file-name path)))
+              (vulpea-db-update-file path)
+              (should (equal (gethash "released-heading-id" org-id-locations) afile))
+              (with-temp-file path
+                (insert ":PROPERTIES:\n:ID: released-file-id\n:END:\n#+TITLE: F\n"))
+              (vulpea-db-update-file path)
+              (should-not (gethash "released-heading-id" org-id-locations))
+              (should (equal (gethash "released-file-id" org-id-locations) afile)))
+          (delete-file path))))))
+
+(ert-deftest vulpea-db-extract-unregister-keeps-refiled-id ()
+  "Releasing an id leaves a registration that names another file.
+A heading refiled from A to B: when B is indexed first, the id is
+registered at B; re-indexing A then releases it, and that must not
+erase the newer registration."
+  (let ((org-id-track-globally t)
+        (org-id-locations (make-hash-table :test #'equal))
+        (org-id-files nil)
+        (vulpea-db-index-heading-level t))
+    (vulpea-test--with-temp-db
+      (vulpea-db)
+      (let ((a (vulpea-test--create-temp-org-file
+                ":PROPERTIES:\n:ID: refile-a\n:END:\n#+TITLE: A\n\n* H\n:PROPERTIES:\n:ID: refile-heading\n:END:\n"))
+            (b (vulpea-test--create-temp-org-file
+                ":PROPERTIES:\n:ID: refile-b\n:END:\n#+TITLE: B\n")))
+        (unwind-protect
+            (progn
+              (vulpea-db-update-file a)
+              (vulpea-db-update-file b)
+              (with-temp-file b
+                (insert ":PROPERTIES:\n:ID: refile-b\n:END:\n#+TITLE: B\n\n* H\n:PROPERTIES:\n:ID: refile-heading\n:END:\n"))
+              (with-temp-file a
+                (insert ":PROPERTIES:\n:ID: refile-a\n:END:\n#+TITLE: A\n"))
+              (vulpea-db-update-file b)
+              (vulpea-db-update-file a)
+              (should (equal (gethash "refile-heading" org-id-locations)
+                             (abbreviate-file-name b))))
+          (delete-file a)
+          (delete-file b))))))
+
+(ert-deftest vulpea-db-extract-forget-file-unregisters-ids ()
+  "Forgetting a file drops its ids from `org-id-locations' and no others."
+  (let ((org-id-track-globally t)
+        (org-id-locations (make-hash-table :test #'equal))
+        (org-id-files nil))
+    (vulpea-test--with-temp-db
+      (vulpea-db)
+      (let ((gone (vulpea-test--create-temp-org-file
+                   ":PROPERTIES:\n:ID: forget-gone\n:END:\n#+TITLE: Gone\n"))
+            (kept (vulpea-test--create-temp-org-file
+                   ":PROPERTIES:\n:ID: forget-kept\n:END:\n#+TITLE: Kept\n")))
+        (unwind-protect
+            (progn
+              (vulpea-db-update-file gone)
+              (vulpea-db-update-file kept)
+              (delete-file gone)
+              (vulpea-db--forget-file gone)
+              (should-not (gethash "forget-gone" org-id-locations))
+              (should (equal (gethash "forget-kept" org-id-locations)
+                             (abbreviate-file-name kept))))
+          (when (file-exists-p gone) (delete-file gone))
+          (delete-file kept))))))
+
 ;;; Content Hash Tests
 
 (ert-deftest vulpea-db-extract-hash-matches-string-hash ()

@@ -1733,6 +1733,33 @@ stores this spelling and looks it up again."
               (file-name-nondirectory path))
     (abbreviate-file-name path)))
 
+(defun vulpea-db--unregister-id-locations (ids path)
+  "Drop IDS from `org-id-locations' where they still point at PATH.
+
+The counterpart of `vulpea-db--register-id-locations', for ids leaving
+the database: a file that is no longer tracked, or ids a re-parse no
+longer finds.  `org-id' has no removal function and never drops entries
+by itself, so without this the id of a deleted note stays in the table,
+naming a file that no longer exists.  Following a link to it still
+reports an unknown id, because `org-id-find' falls back to
+`org-id-update-id-locations' and retries; what is left behind is the
+entry itself, written to `org-id-locations-file' and handed to any code
+that reads `org-id-locations' directly.
+
+An id whose registration names a different path is left alone.  That
+happens when the note was refiled and the file now holding it has
+already been indexed, so its registration is the correct one and
+removing it would break a working link.  `org-id-files' is deliberately
+not touched - it lists files to scan, and `org-id-update-id-locations'
+already skips files that no longer exist."
+  (when (and ids org-id-track-globally)
+    (unless org-id-locations (org-id-locations-load))
+    (when (hash-table-p org-id-locations)
+      (let ((afile (vulpea-db--org-id-abbreviate path)))
+        (dolist (id ids)
+          (when (equal (gethash id org-id-locations) afile)
+            (remhash id org-id-locations)))))))
+
 (defun vulpea-db--register-id-locations (ids path)
   "Register note IDS at PATH with org-id, batched.
 
@@ -1820,6 +1847,15 @@ synchronously when no transaction is open, and deferred to
           (cl-pushnew claimant vulpea-db--deferred-claimants
                       :test #'equal)))))))
 
+(defvar vulpea-db--released-ids nil
+  "Ids the last `vulpea-db--apply-parse-ctx' dropped from its file.
+
+Set on every apply, to nil when the new parse kept every id.  Exists
+for callers that pass SKIP-ORG-ID: the apply cannot unregister the
+ids itself in a process without org-id state, so the extraction
+worker let-binds this around the apply and ships the list to the
+main process, which hands it to `vulpea-db--unregister-id-locations'.")
+
 (defun vulpea-db--apply-parse-ctx (ctx &optional skip-org-id)
   "Write extraction results from CTX to the database.
 
@@ -1833,7 +1869,10 @@ Deletes the file's previous notes, inserts the new ones (honoring
 `vulpea-db-note-index-filter-functions'), updates the stored file
 hash, and registers note IDs with org-id - unless SKIP-ORG-ID is
 non-nil, for callers that own no org-id state (the extraction
-worker registers IDs in the main process instead).
+worker registers IDs in the main process instead).  The ids the
+new parse no longer contains are left in `vulpea-db--released-ids'
+for the same callers: they have to be unregistered where org-id
+lives, and this function cannot reach it.
 
 Stamps identity (:path, :level, :pos) onto every node plist before
 anything runs, so extractor plugins observe the full identity on
@@ -1924,7 +1963,10 @@ Returns number of notes written (file-level + headings)."
 
     ;; Release ids the new parse no longer contains: a file with a
     ;; pending claim on one of them is re-indexed and wins it.
-    (when-let* ((released (seq-difference previous-ids ids)))
+    (setq vulpea-db--released-ids (seq-difference previous-ids ids))
+    (when-let* ((released vulpea-db--released-ids))
+      (unless skip-org-id
+        (vulpea-db--unregister-id-locations released path))
       (vulpea-db--resolve-released-ids released norm-path))
 
     ;; Accumulate db timing

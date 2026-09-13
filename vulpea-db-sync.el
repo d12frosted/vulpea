@@ -863,7 +863,11 @@ all files under that directory are removed."
                                    (emacsql db [:select path :from files
                                                 :where (glob path $s1)]
                                             glob-pattern)))
-          (vulpea-db--delete-file-notes file-path)
+          ;; Read the ids before the rows holding them go: `org-id'
+          ;; keeps its own index of them, and nothing else prunes it.
+          (let ((ids (vulpea-db--get-file-note-ids file-path)))
+            (vulpea-db--delete-file-notes file-path)
+            (vulpea-db--unregister-id-locations ids file-path))
           ;; One announcement per tracked file under the directory,
           ;; never one for the directory itself.
           (vulpea-db--announce-removal file-path))
