@@ -51,6 +51,8 @@
 (require 'json)
 (require 'ucs-normalize)
 
+(declare-function vulpea-db--unregister-id-locations "vulpea-db-extract"
+                  (ids path))
 (declare-function vulpea-db--resolve-released-ids "vulpea-db-extract"
                   (released-ids &optional releasing-path))
 
@@ -997,6 +999,8 @@ tracked announces nothing."
                        (vulpea-db--forget-file-1 path)
                      (emacsql-with-transaction (vulpea-db)
                        (vulpea-db--forget-file-1 path)))))
+    (when (and released (fboundp 'vulpea-db--unregister-id-locations))
+      (vulpea-db--unregister-id-locations released path))
     (when (and released (fboundp 'vulpea-db--resolve-released-ids))
       (vulpea-db--resolve-released-ids
        released (vulpea-db-normalize-path path)))

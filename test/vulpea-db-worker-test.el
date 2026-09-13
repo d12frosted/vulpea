@@ -371,6 +371,32 @@ note IDs must still be registered with org-id in the main process."
         (should (equal (plist-get sync-dump table)
                        (plist-get full-dump table)))))))
 
+(ert-deftest vulpea-db-worker-full-write-unregisters-released-ids ()
+  "Full-write mode drops the org-id registration of an id a re-parse lost.
+The worker's apply runs with SKIP-ORG-ID, so the released ids travel
+in the `written' reply and are unregistered in the main process."
+  (vulpea-db-worker-test--with-file
+      ":PROPERTIES:\n:ID: fw-released-file\n:END:\n#+TITLE: F\n\n* H\n:PROPERTIES:\n:ID: fw-released-heading\n:END:\n"
+    (let ((vulpea-db-index-heading-level t)
+          (org-id-track-globally t)
+          (org-id-locations (make-hash-table :test #'equal))
+          (org-id-files nil))
+      (vulpea-test--with-temp-db
+        (vulpea-db)
+        (let ((vulpea-db-async-extraction 'full)
+              (vulpea-db-note-index-filter-functions nil)
+              (afile (abbreviate-file-name path)))
+          (vulpea-db-worker-request path)
+          (vulpea-db-worker-test--wait)
+          (should (equal (gethash "fw-released-heading" org-id-locations) afile))
+          (with-temp-file path
+            (insert ":PROPERTIES:\n:ID: fw-released-file\n:END:\n#+TITLE: F\n"))
+          (vulpea-db-worker-request path 'force)
+          (vulpea-db-worker-test--wait)
+          (should (equal (vulpea-db--get-file-note-ids path) '("fw-released-file")))
+          (should-not (gethash "fw-released-heading" org-id-locations))
+          (should (equal (gethash "fw-released-file" org-id-locations) afile)))))))
+
 (ert-deftest vulpea-db-worker-full-write-honors-main-process-filters ()
   "Full-write degrades to extract-only while index filters exist.
 `vulpea-db-note-index-filter-functions' run in the main process, so

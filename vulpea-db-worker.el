@@ -803,10 +803,12 @@ file behind it."
                               (* 1000 (float-time
                                        (time-subtract (current-time) t0))))))
     ;; Full-write mode: the worker wrote the database itself; the
-    ;; main process only registers org-ids and re-checks freshness.
-    ;; The trailing claimants element is matched as a rest so a reply
-    ;; from a worker running older code (a mid-session upgrade) still
-    ;; lands here instead of being silently dropped.
+    ;; main process only maintains org-ids and re-checks freshness.
+    ;; The trailing elements (claimants, then the ids the write
+    ;; released) are matched as a rest so a reply from a worker
+    ;; running older code (a mid-session upgrade) still lands here
+    ;; instead of being silently dropped - with fewer elements, the
+    ;; missing ones read as nil.
     (`(written ,path ,_hash ,mtime ,size ,count ,ids . ,rest)
      (vulpea-db-worker--note-success)
      (vulpea-db-worker--log "written %s: %s notes" path count)
@@ -830,6 +832,9 @@ file behind it."
                              path 'missing nil))
         (t
          (vulpea-db--register-id-locations ids path)
+         ;; Ids the re-parse no longer found: the worker's apply ran
+         ;; with SKIP-ORG-ID, so their registrations are dropped here.
+         (vulpea-db--unregister-id-locations (cadr rest) path)
          (when (or (not (equal (float-time
                                 (file-attribute-modification-time attrs))
                                mtime))
@@ -1172,8 +1177,9 @@ else must surface instead of looping through silent retries forever."
   "Extract PATH and write the results to the database at DB.
 
 Full-write mode: this worker owns the database write; the reply
-tells the main process what happened so it can register org-ids
-\(`written'), note the no-op (`stamped'), or re-queue a file whose
+tells the main process what happened so it can register org-ids and
+unregister the ones the write released (`written'), note the no-op
+\(`stamped'), or re-queue a file whose
 result became outdated (`stale') - because the file changed
 mid-parse, or because the main process indexed newer content
 concurrently (see `vulpea-db-worker--apply-guarded').
@@ -1222,8 +1228,10 @@ result is written even when the content hash matches."
             ;; re-index another file from this process; collect the
             ;; deferred claimants and let the main process queue them.
             (let* ((vulpea-db--deferred-claimants nil)
+                   (vulpea-db--released-ids nil)
                    (count (vulpea-db-worker--apply-guarded ctx stored))
-                   (claimants vulpea-db--deferred-claimants))
+                   (claimants vulpea-db--deferred-claimants)
+                   (released vulpea-db--released-ids))
               (cond
                ((eq count 'conflict)
                 (vulpea-db-worker--reply `(stale ,path)))
@@ -1237,7 +1245,8 @@ result is written even when the content hash matches."
                            ,(vulpea-parse-ctx-size ctx)
                            ,count
                            ,(vulpea-db-worker--ctx-ids ctx)
-                           ,claimants)))))))))
+                           ,claimants
+                           ,released)))))))))
       (error
        (vulpea-db-worker--reply
         `(error ,path ,(error-message-string err)))))))
