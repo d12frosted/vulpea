@@ -350,7 +350,10 @@ The dual direction - which existing notes does /this/ buffer mention
 without linking? - is =vulpea-buffer-unlinked-mentions-async=. It
 searches the current buffer's live content (so unsaved edits count) for
 the titles and aliases of the candidate notes, and resolves with the
-candidate note(s) each match could link to.
+candidate note(s) each match could link to. The buffer is snapshotted
+to a temporary file for ripgrep, so the call returns at once; a buffer
+visiting an encrypted note (any extension other than =.org=) goes over
+a pipe instead and the call blocks while the text is sent.
 
 #+begin_src emacs-lisp
 (vulpea-buffer-unlinked-mentions-async

@@ -288,8 +288,21 @@ boundaries."
 PATTERNS-FILE holds one regex per line (see
 `vulpea-mentions--rg-pattern').  INPUT-FILE is given as an explicit
 path, which ripgrep searches whatever its extension and regardless of
-any ignore rules."
+any ignore rules; \"-\" makes it read standard input instead."
   (list rg "--json" "--ignore-case" "-f" patterns-file input-file))
+
+(defun vulpea-mentions--snapshot-buffer-p ()
+  "Return non-nil when the current buffer may be written to a temporary file.
+
+A buffer with no file, or visiting a plain .org file, may be
+snapshotted to disk for ripgrep to read.  An indirect buffer is judged
+by its base buffer's file.  Any other extension is one
+of `vulpea-db-extra-extensions', which exist for encrypted notes
+\(.org.gpg, .org.age): their decrypted content must not leave the
+buffer, so they are fed to ripgrep over a pipe instead."
+  (let ((file (buffer-file-name (or (buffer-base-buffer) (current-buffer)))))
+    (or (null file)
+        (string-suffix-p ".org" file))))
 
 (defun vulpea-mentions--parse-rg-json (output)
   "Parse ripgrep --json OUTPUT into a list of raw hit plists.
@@ -780,12 +793,12 @@ buffer's live content is searched, so unsaved edits are included -
 both for the mentions and for the links that exclude them.
 
 The accessible portion of the buffer is snapshotted to a temporary file
-for ripgrep to read, so the process is started and control returns
-without waiting on the search.  Feeding the text over standard input
-instead made `process-send-string' block until ripgrep had consumed
-all of it - and while blocked, Emacs was also draining ripgrep's
-output through the filter - which on a multi-megabyte note was a
-second-long freeze inside a loader that promised to be asynchronous.
+for ripgrep to read, so the call returns as soon as the process is
+started.  A buffer visiting an encrypted note (any extension other
+than .org, see `vulpea-mentions--snapshot-buffer-p') is fed to
+ripgrep over a pipe instead, so its decrypted content never touches
+the disk; for such a buffer the call blocks until ripgrep has
+consumed the text.
 
 Asynchronous and promise-style: exactly one of RESOLVE or REJECT is
 called.  RESOLVE receives a list of plists with :note (a candidate note
@@ -819,7 +832,8 @@ target a specific buffer."
           ;; output (concatenating each chunk onto a string copied
           ;; everything received so far on every chunk).  One cleanup
           ;; serves both the sentinel and a setup that fails part way.
-          (let (patterns-file input-file output-buffer)
+          (let ((snapshot (vulpea-mentions--snapshot-buffer-p))
+                patterns-file input-file output-buffer proc)
             (cl-flet ((cleanup ()
                         (when patterns-file
                           (ignore-errors (delete-file patterns-file)))
@@ -830,7 +844,8 @@ target a specific buffer."
               (condition-case err
                   (progn
                     (setq patterns-file (make-temp-file "vulpea-mentions-pat-")
-                          input-file (make-temp-file "vulpea-mentions-in-")
+                          input-file (when snapshot
+                                       (make-temp-file "vulpea-mentions-in-"))
                           output-buffer (generate-new-buffer
                                          " *vulpea-mentions-out*" t))
                     ;; rg rejects a patterns file that is not valid
@@ -841,43 +856,65 @@ target a specific buffer."
                       (with-temp-file patterns-file
                         (insert (mapconcat #'vulpea-mentions--rg-pattern terms "\n")
                                 "\n"))
-                      (write-region (point-min) (point-max) input-file nil 'silent))
-                    (make-process
-                     :name "vulpea-mentions-out"
-                     :buffer output-buffer
-                     :command (vulpea-mentions--rg-file-command
-                               rg patterns-file input-file)
-                     :connection-type 'pipe
-                     :noquery t
-                     ;; Pin the JSON output to UTF-8 no matter what
-                     ;; `default-process-coding-system' says.
-                     :coding 'utf-8
-                     :sentinel
-                     (lambda (proc _event)
-                       (let ((status (process-status proc)))
-                         (when (memq status '(exit signal))
-                           (let ((code (process-exit-status proc))
-                                 (output (with-current-buffer output-buffer
-                                           (buffer-string))))
-                             (cleanup)
-                             ;; rg exits 0 with matches, 1 with none, >1
-                             ;; on error.  For a signalled process the
-                             ;; exit status is the signal number, and
-                             ;; SIGHUP is 1: only an actual exit counts.
-                             (cond
-                              ((and (eq status 'exit) (memq code '(0 1)))
-                               (condition-case err
-                                   (funcall resolve
-                                            (vulpea-mentions--collect-outgoing
-                                             output dict self-ids linked-ids))
-                                 (error (funcall reject (error-message-string err)))))
-                              ((eq status 'exit)
-                               (funcall reject
-                                        (format "ripgrep failed (exit %s)" code)))
-                              (t
-                               (funcall reject
-                                        (format "ripgrep killed (signal %s)"
-                                                code))))))))))
+                      (when input-file
+                        (write-region (point-min) (point-max) input-file nil 'silent)))
+                    (setq proc
+                          (make-process
+                           :name "vulpea-mentions-out"
+                           :buffer output-buffer
+                           :command (vulpea-mentions--rg-file-command
+                                     rg patterns-file (or input-file "-"))
+                           :connection-type 'pipe
+                           :noquery t
+                           ;; Pin the JSON output to UTF-8 no matter what
+                           ;; `default-process-coding-system' says.
+                           :coding 'utf-8
+                           :sentinel
+                           (lambda (proc _event)
+                             (let ((status (process-status proc)))
+                               (when (memq status '(exit signal))
+                                 (let ((code (process-exit-status proc))
+                                       (output (with-current-buffer output-buffer
+                                                 (buffer-string))))
+                                   (cleanup)
+                                   ;; rg exits 0 with matches, 1 with none, >1
+                                   ;; on error.  For a signalled process the
+                                   ;; exit status is the signal number, and
+                                   ;; SIGHUP is 1: only an actual exit counts.
+                                   (cond
+                                    ((and (eq status 'exit) (memq code '(0 1)))
+                                     (condition-case err
+                                         (funcall resolve
+                                                  (vulpea-mentions--collect-outgoing
+                                                   output dict self-ids linked-ids))
+                                       (error
+                                        (funcall reject (error-message-string err)))))
+                                    ((eq status 'exit)
+                                     (funcall reject
+                                              (format "ripgrep failed (exit %s)" code)))
+                                    (t
+                                     (funcall reject
+                                              (format "ripgrep killed (signal %s)"
+                                                      code))))))))))
+                    (unless input-file
+                      ;; An encrypted note goes over the pipe, and the
+                      ;; send blocks the caller.  If it fails, ripgrep
+                      ;; is gone (a broken pipe) or has to go; if the
+                      ;; user quits while it blocks, ripgrep has to go
+                      ;; too, or it waits on stdin forever.  Either way
+                      ;; the sentinel settles the promise.
+                      (let ((sent nil))
+                        (unwind-protect
+                            (condition-case nil
+                                (progn
+                                  (process-send-region proc (point-min) (point-max))
+                                  (process-send-eof proc)
+                                  (setq sent t))
+                              (error nil))
+                          (unless sent
+                            (when (process-live-p proc)
+                              (delete-process proc))))))
+                    proc)
                 ;; The promise settles even when the search never
                 ;; starts - a full TMPDIR, ripgrep gone since
                 ;; `executable-find' saw it - and nothing is left behind.
