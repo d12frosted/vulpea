@@ -629,6 +629,13 @@ Once configured, encrypted files work like regular org files:
 regular =.org= files. For large collections, keep the number of
 encrypted files manageable.
 
+*Unlinked mentions:* an encrypted note is searched for outgoing
+mentions like any other note, from its decrypted buffer (fed to
+ripgrep over a pipe, never through a temporary file). It can be the
+target of the incoming search like any note, but it never appears
+there as a mentioning note: that search reads files from disk, where
+the note is ciphertext.
+
 * Tips and Workflows
 
 ** Zettelkasten-Style Notes

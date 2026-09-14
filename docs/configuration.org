@@ -81,6 +81,10 @@ Default: =nil= (only =.org= files)
 - Change detection uses raw (encrypted) file bytes — decrypted content
   is never persisted outside of the temporary parse buffer
 - The parse buffer is killed immediately after extraction
+- The outgoing unlinked mentions search
+  (=vulpea-buffer-unlinked-mentions-async=) feeds such a buffer to
+  ripgrep over a pipe rather than through a temporary file, so the
+  decrypted text stays off the disk there too
 
 *Security note:* Metadata extracted from encrypted files (titles, tags,
 links, properties) is stored in the *plaintext* database. Only opt in

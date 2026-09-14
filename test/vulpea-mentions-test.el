@@ -1288,6 +1288,121 @@ snapshot still on disk and an output buffer still live."
                                                  (buffer-name b)))
                               (buffer-list)))))))
 
+(ert-deftest vulpea-mentions--snapshot-buffer-p-only-for-plain-org ()
+  "Only a buffer with no file or a plain .org file may be snapshotted to disk.
+Any other extension is one of `vulpea-db-extra-extensions', which exist
+for encrypted notes (.org.gpg, .org.age): their decrypted content must
+never be written outside the buffer."
+  (with-temp-buffer
+    (should (vulpea-mentions--snapshot-buffer-p))
+    (dolist (case '(("/n/plain.org" . t)
+                    ("/n/secret.org.gpg" . nil)
+                    ("/n/secret.org.age" . nil)
+                    ("/n/Notes.ORG" . nil)))
+      (setq buffer-file-name (car case))
+      (should (eq (and (vulpea-mentions--snapshot-buffer-p) t) (cdr case))))
+    ;; An indirect buffer has no `buffer-file-name' of its own; the
+    ;; base buffer's file decides (org makes such buffers routinely).
+    (setq buffer-file-name "/n/secret.org.gpg")
+    (set-buffer-modified-p nil)
+    (let ((indirect (make-indirect-buffer (current-buffer) " *vmt-indirect*")))
+      (unwind-protect
+          (with-current-buffer indirect
+            (should-not buffer-file-name)
+            (should-not (vulpea-mentions--snapshot-buffer-p)))
+        (kill-buffer indirect)))
+    (setq buffer-file-name nil)))
+
+(ert-deftest vulpea-mentions-outgoing-feeds-an-encrypted-buffer-over-stdin ()
+  "A buffer visiting an encrypted note is searched over stdin, not a snapshot.
+The configuration guide promises that decrypted content is never
+persisted outside the parse buffer, and epa-file itself turns off
+auto-save for such buffers.  The search still runs on the live text and
+still cleans up the patterns file and the output buffer."
+  (vulpea-test--require-rg)
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "cab" "Cabernet Sauvignon" :path "/n/cab.org")
+    (with-temp-buffer
+      (insert "Secret prose about Cabernet Sauvignon.\n")
+      (setq buffer-file-name "/n/secret.org.gpg")
+      (set-buffer-modified-p nil)
+      (let ((temp-files nil)
+            (state nil)
+            (result nil))
+        (cl-letf* ((orig-make-temp-file (symbol-function 'make-temp-file))
+                   ((symbol-function 'make-temp-file)
+                    (lambda (&rest args)
+                      (let ((file (apply orig-make-temp-file args)))
+                        (push file temp-files)
+                        file))))
+          (let* ((proc (vulpea-buffer-unlinked-mentions-async
+                        (lambda (ms) (setq state 'resolved result ms))
+                        (lambda (err) (setq state (list 'rejected err)))))
+                 (out-buf (process-buffer proc)))
+            (should (processp proc))
+            (should (equal (car (last (process-command proc))) "-"))
+            ;; Only the patterns file was created: no snapshot of the
+            ;; decrypted buffer ever touched the disk.
+            (should (= (length temp-files) 1))
+            (should (string-match-p "vulpea-mentions-pat-" (car temp-files)))
+            (vulpea-mentions-test--await (lambda () state))
+            (should (eq state 'resolved))
+            (should (equal (mapcar (lambda (m) (plist-get m :matched)) result)
+                           '("Cabernet Sauvignon")))
+            (should-not (file-exists-p (car temp-files)))
+            (should-not (buffer-live-p out-buf))))
+        (setq buffer-file-name nil)))))
+
+(ert-deftest vulpea-mentions-outgoing-quit-during-send-still-settles ()
+  "Quitting while the pipe send blocks kills ripgrep and REJECTs.
+The send of an encrypted buffer blocks the caller, so `C-g' is the one
+thing a user will press there.  A quit is not an `error', so it must
+not slip past the handlers and leave the promise unsettled, ripgrep
+waiting on stdin, and the patterns file on disk."
+  (vulpea-test--require-rg)
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "cab" "Cabernet Sauvignon" :path "/n/cab.org")
+    (with-temp-buffer
+      (insert "Cabernet Sauvignon.\n")
+      (setq buffer-file-name "/n/secret.org.gpg")
+      (set-buffer-modified-p nil)
+      (let ((state nil)
+            (temp-files nil)
+            (procs nil))
+        (cl-letf* ((orig-make-temp-file (symbol-function 'make-temp-file))
+                   ((symbol-function 'make-temp-file)
+                    (lambda (&rest args)
+                      (let ((file (apply orig-make-temp-file args)))
+                        (push file temp-files)
+                        file)))
+                   (orig-make-process (symbol-function 'make-process))
+                   ((symbol-function 'make-process)
+                    (lambda (&rest args)
+                      (let ((proc (apply orig-make-process args)))
+                        (push proc procs)
+                        proc)))
+                   ((symbol-function 'process-send-region)
+                    (lambda (&rest _) (signal 'quit nil))))
+          ;; `should-error' catches `error' conditions only.
+          (should (eq 'quit
+                      (condition-case nil
+                          (progn
+                            (vulpea-buffer-unlinked-mentions-async
+                             (lambda (_ms) (setq state 'resolved))
+                             (lambda (err) (setq state (list 'rejected err))))
+                            'no-quit)
+                        (quit 'quit)))))
+        (vulpea-mentions-test--await (lambda () state) 3)
+        (should (eq (car-safe state) 'rejected))
+        (should (= (length procs) 1))
+        (should-not (process-live-p (car procs)))
+        (should-not (buffer-live-p (process-buffer (car procs))))
+        (dolist (file temp-files)
+          (should-not (file-exists-p file)))
+        (setq buffer-file-name nil)))))
+
 (ert-deftest vulpea-mentions-outgoing-rejects-without-rg ()
   "When ripgrep is unavailable, the outgoing search REJECTs."
   (cl-letf (((symbol-function 'executable-find) (lambda (&rest _) nil)))
