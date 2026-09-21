@@ -327,6 +327,26 @@ notes behind them are invisible to sync.  List the real location (or
 the link itself) as its own entry in =vulpea-db-sync-directories=
 instead.
 
+* Links Cannot Be Followed
+
+** Symptom
+
+=vulpea-find= finds a note, but following an =id:= link to it fails with "Cannot find entry with ID". Opening the note by hand and re-saving it makes the link work.
+
+** Cause
+
+Vulpea finds notes through its own database. Org follows =id:= links through =org-id-locations=, a separate index that vulpea fills as it indexes files, and that org saves only when Emacs exits. A session that was killed, two Emacs sessions on one vault (each saves its own copy at exit, the last one wins), or a moved or missing =org-id-locations-file= leaves org's index behind. Nothing in normal operation repairs it, because files that did not change are never indexed, and so never registered, again.
+
+** Solution
+
+=vulpea-db-autosync-mode= repairs this on its own after the initial scan: it walks the ids in the database and registers the ones org's index lacks, without reading a file. To repair by hand, run:
+
+#+begin_src emacs-lisp
+M-x vulpea-db-register-org-ids
+#+end_src
+
+It reports how many ids it had to register. A forced =vulpea-db-sync-full-scan= repairs the index too, by re-reading every file, which on a large collection takes much longer.
+
 * Database Issues
 
 ** Stale or Incorrect Data
