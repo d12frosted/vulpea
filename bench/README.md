@@ -77,6 +77,10 @@ Core benchmarking utilities:
 ;; cold (empty index) and warm (nothing to do)
 (vulpea-bench-org-id-repair 100000)
 ;; => (cold . warm) in seconds
+;; Benchmark the sync queue over unchanged files: per-batch cost of
+;; the org-id check the batches make for files they skip
+(vulpea-bench-queue-unchanged "/path/to/notes" "/path/to/db.db")
+;; => ((cold-total cold-max) (warm-total warm-max)) in seconds
 ```
 
 ### Benchmark Runner (`run-benchmarks.sh`)

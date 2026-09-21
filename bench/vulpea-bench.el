@@ -216,6 +216,61 @@ in seconds."
       (when vulpea-db--connection (vulpea-db-close))
       (delete-file db-file))))
 
+(defun vulpea-bench-queue-unchanged (notes-dir db-file)
+  "Benchmark the sync queue over the unchanged files of NOTES-DIR.
+
+Indexes NOTES-DIR into DB-FILE synchronously, then pushes every file
+through `vulpea-db-sync--process-queue' twice: cold, with an empty
+org-id index, so each batch registers the ids of the files it skips;
+and warm, right after, so each batch finds them in place.  Reports
+the total, mean and maximum batch time, which is what the main thread
+pays per idle tick during the initial scan.  Extraction stays in this
+process.  Returns ((cold-total cold-max) (warm-total warm-max)) in
+seconds."
+  (let* ((vulpea-db-location db-file)
+         (vulpea-db--connection nil)
+         (vulpea-db-sync-directories (list notes-dir))
+         (vulpea-db-async-extraction nil)
+         (vulpea-db-sync-progress-interval nil)
+         (org-id-track-globally t)
+         (org-id-locations (make-hash-table :test #'equal))
+         (org-id-files nil)
+         (vulpea-db--org-id-files-seen (make-hash-table :test #'equal))
+         (results nil))
+    (when (file-exists-p db-file) (delete-file db-file))
+    (vulpea-db)
+    (vulpea-bench-measure "Index for queue bench"
+      (vulpea-db-sync-update-directory notes-dir))
+    (let ((files (vulpea-db-sync--list-org-files notes-dir)))
+      (dolist (label '("cold" "warm"))
+        (when (equal label "cold")
+          (clrhash org-id-locations)
+          (setq org-id-files nil)
+          (clrhash vulpea-db--org-id-files-seen))
+        (let ((vulpea-db-autosync-mode t)
+              (vulpea-db-sync--queue nil)
+              (vulpea-db-sync--queue-tail nil)
+              (vulpea-db-sync--queue-set (make-hash-table :test #'equal))
+              (vulpea-db-sync--processed-total 0)
+              (batches 0) (total 0.0) (max-batch 0.0))
+          (dolist (f files) (vulpea-db-sync--enqueue f))
+          (while vulpea-db-sync--queue
+            (let ((t0 (current-time)))
+              (vulpea-db-sync--process-queue)
+              (let ((b (float-time (time-subtract (current-time) t0))))
+                (setq batches (1+ batches)
+                      total (+ total b)
+                      max-batch (max max-batch b)))))
+          (message "[queue %s] %d files, %d batches: total %s, mean %s, max %s, org-id has %d ids"
+                   label (length files) batches
+                   (vulpea-bench--format-time total)
+                   (vulpea-bench--format-time (/ total batches))
+                   (vulpea-bench--format-time max-batch)
+                   (hash-table-count org-id-locations))
+          (push (list total max-batch) results))))
+    (when vulpea-db--connection (vulpea-db-close))
+    (nreverse results)))
+
 (defun vulpea-bench-report (name results)
   "Print formatted benchmark report for NAME with RESULTS.
 RESULTS is an alist of (label . (time count)) pairs."
