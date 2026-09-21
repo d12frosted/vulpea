@@ -421,6 +421,131 @@ even with `vulpea-db-sync-scan-on-enable' set to nil."
           (vulpea-db-sync--stop)
           (delete-directory dir t))))))
 
+;;; Org-id Registration Tests
+
+(ert-deftest vulpea-db-sync-register-org-ids-registers-missing ()
+  "`vulpea-db-register-org-ids' registers the ids org-id lacks.
+Reads ids and paths from the database, no file is opened."
+  (let ((org-id-track-globally t)
+        (org-id-locations (make-hash-table :test #'equal))
+        (org-id-files nil)
+        (vulpea-db-index-heading-level t))
+    (vulpea-test--with-temp-db
+      (vulpea-db)
+      (let ((path (vulpea-test--create-temp-org-file
+                   ":PROPERTIES:\n:ID: reg-file\n:END:\n#+TITLE: F\n\n* H\n:PROPERTIES:\n:ID: reg-heading\n:END:\n")))
+        (unwind-protect
+            (let ((afile (abbreviate-file-name path)))
+              (vulpea-db-update-file path)
+              ;; A fresh session with nothing saved: empty index.
+              (clrhash org-id-locations)
+              (setq org-id-files nil)
+              (should (= (vulpea-db-register-org-ids) 2))
+              (should (equal (gethash "reg-file" org-id-locations) afile))
+              (should (equal (gethash "reg-heading" org-id-locations) afile))
+              (should (member afile org-id-files)))
+          (delete-file path))))))
+
+(ert-deftest vulpea-db-sync-register-org-ids-skips-present ()
+  "Ids org-id already has at the right path are not written again.
+This is the steady state, and it must cost lookups only."
+  (let ((org-id-track-globally t)
+        (org-id-locations (make-hash-table :test #'equal))
+        (org-id-files nil))
+    (vulpea-test--with-temp-db
+      (vulpea-db)
+      (let ((path (vulpea-test--create-temp-org-file
+                   ":PROPERTIES:\n:ID: reg-present\n:END:\n#+TITLE: F\n")))
+        (unwind-protect
+            (progn
+              (vulpea-db-update-file path)
+              (let ((files (copy-sequence org-id-files)))
+                (should (= (vulpea-db-register-org-ids) 0))
+                (should (equal org-id-files files))))
+          (delete-file path))))))
+
+(ert-deftest vulpea-db-sync-register-org-ids-repairs-other-path ()
+  "An id org-id knows at another path is pointed at the database's.
+The database saw the note move; org-id's saved entry did not."
+  (let ((org-id-track-globally t)
+        (org-id-locations (make-hash-table :test #'equal))
+        (org-id-files nil))
+    (vulpea-test--with-temp-db
+      (vulpea-db)
+      (let ((path (vulpea-test--create-temp-org-file
+                   ":PROPERTIES:\n:ID: reg-moved\n:END:\n#+TITLE: F\n")))
+        (unwind-protect
+            (progn
+              (vulpea-db-update-file path)
+              (puthash "reg-moved" "~/elsewhere/old.org" org-id-locations)
+              (should (= (vulpea-db-register-org-ids) 1))
+              (should (equal (gethash "reg-moved" org-id-locations)
+                             (abbreviate-file-name path))))
+          (delete-file path))))))
+
+(ert-deftest vulpea-db-sync-register-org-ids-noop-when-tracking-off ()
+  "With `org-id-track-globally' nil the registration touches nothing."
+  (let ((org-id-track-globally nil)
+        (org-id-locations (make-hash-table :test #'equal))
+        (org-id-files nil))
+    (vulpea-test--with-temp-db
+      (vulpea-db)
+      (let ((path (vulpea-test--create-temp-org-file
+                   ":PROPERTIES:\n:ID: reg-off\n:END:\n#+TITLE: F\n")))
+        (unwind-protect
+            (progn
+              (vulpea-db-update-file path)
+              (should (= (vulpea-db-register-org-ids) 0))
+              (should (zerop (hash-table-count org-id-locations))))
+          (delete-file path))))))
+
+(defun vulpea-db-sync-test--start-registers-unchanged-file (scan-mode)
+  "Check that `vulpea-db-sync--start' under SCAN-MODE registers an
+indexed, unchanged file's id when org-id starts empty.  The file is
+skipped by any scan as unchanged, so only the registration pass from
+the database can put it back."
+  (let ((org-id-track-globally t)
+        (org-id-locations (make-hash-table :test #'equal))
+        (org-id-files nil))
+    (vulpea-test--with-temp-db
+      (vulpea-db)
+      (let* ((dir (make-temp-file "vulpea-scan-test-" t))
+             (path (expand-file-name "note.org" dir))
+             (vulpea-db-sync-scan-on-enable scan-mode)
+             (vulpea-db-sync-external-method nil)
+             (vulpea-db-sync-directories (list dir))
+             (vulpea-db-sync--idle-timer nil)
+             (vulpea-db-sync--watchers nil))
+        (with-temp-file path
+          (insert ":PROPERTIES:\n:ID: start-reg-id\n:END:\n#+TITLE: N\n"))
+        (vulpea-db-update-file path)
+        (clrhash org-id-locations)
+        (setq org-id-files nil)
+        ;; The async subprocess is replaced by a direct callback.
+        (cl-letf (((symbol-function 'vulpea-db-sync--scan-files-async)
+                   (lambda (dirs callback)
+                     (funcall callback
+                              (mapcan #'vulpea-db-sync--list-org-files dirs)))))
+          (unwind-protect
+              (let ((vulpea-db-autosync-mode t))
+                (vulpea-db-sync--start)
+                (should (equal (gethash "start-reg-id" org-id-locations)
+                               (abbreviate-file-name path))))
+            (vulpea-db-sync--stop)
+            (delete-directory dir t)))))))
+
+(ert-deftest vulpea-db-sync-start-registers-missing-org-ids-async ()
+  "An async initial scan is followed by a registration pass."
+  (vulpea-db-sync-test--start-registers-unchanged-file 'async))
+
+(ert-deftest vulpea-db-sync-start-registers-missing-org-ids-blocking ()
+  "A blocking initial scan is followed by a registration pass."
+  (vulpea-db-sync-test--start-registers-unchanged-file 'blocking))
+
+(ert-deftest vulpea-db-sync-start-registers-missing-org-ids-no-scan ()
+  "With no scan on enable the registration pass still runs."
+  (vulpea-db-sync-test--start-registers-unchanged-file nil))
+
 ;;; Manual Update Tests
 
 (ert-deftest vulpea-db-sync-update-file-sync ()

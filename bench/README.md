@@ -73,6 +73,10 @@ Core benchmarking utilities:
 ;; (no notes on disk needed)
 (vulpea-bench-org-id-registration 100000)
 ;; => time in seconds
+;; Benchmark the startup org-id repair pass over 100k database rows,
+;; cold (empty index) and warm (nothing to do)
+(vulpea-bench-org-id-repair 100000)
+;; => (cold . warm) in seconds
 ```
 
 ### Benchmark Runner (`run-benchmarks.sh`)

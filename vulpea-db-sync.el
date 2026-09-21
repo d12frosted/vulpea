@@ -423,6 +423,21 @@ a manual `vulpea-db-sync-full-scan'."
      "Vulpea: database is empty, scanning all files...")
     'async)))
 
+(defun vulpea-db-sync--register-missing-org-ids ()
+  "Run `vulpea-db-register-org-ids' once the initial scan is in place.
+Errors are contained: org-id is a convenience next to the database,
+and a failure here must not cost activation the rest of its work."
+  (let ((t0 (current-time)))
+    (condition-case err
+        (let ((count (vulpea-db-register-org-ids)))
+          (when vulpea-db-sync-debug
+            (message "[vulpea-sync] org-id registration: %d ids in %.0fms"
+                     count
+                     (* 1000 (float-time (time-subtract (current-time) t0))))))
+      (error
+       (message "Vulpea: org-id registration failed: %s"
+                (error-message-string err))))))
+
 (defun vulpea-db-sync--start ()
   "Start file watching and async update.
 
@@ -525,7 +540,11 @@ a subprocess.  The `blocking' mode still scans synchronously."
                     (when vulpea-db-sync-debug
                       (message "[vulpea-sync] async enqueue: %.0fms (%d files)"
                                (* 1000 (float-time (time-subtract (current-time) enqueue-start)))
-                               (length files)))))))))
+                               (length files))))
+                  ;; Files the scan skips as unchanged register nothing
+                  ;; with org-id; put back whatever this session's
+                  ;; org-id is missing, from the database.
+                  (vulpea-db-sync--register-missing-org-ids))))))
           ('blocking
            ;; Scan synchronously (blocks Emacs)
            (setq t-phase (current-time))
@@ -549,13 +568,15 @@ a subprocess.  The `blocking' mode still scans synchronously."
              (vulpea-db-sync-update-directory dir))
            (when vulpea-db-sync-debug
              (message "[vulpea-sync] blocking-scan: %.0fms"
-                      (* 1000 (float-time (time-subtract (current-time) t-phase)))))))
+                      (* 1000 (float-time (time-subtract (current-time) t-phase)))))
+           (vulpea-db-sync--register-missing-org-ids)))
       ;; No scan requested, but still cleanup deleted files
       (setq t-phase (current-time))
       (vulpea-db-sync--cleanup-deleted-files)
       (when vulpea-db-sync-debug
         (message "[vulpea-sync] cleanup-deleted-files: %.0fms"
-                 (* 1000 (float-time (time-subtract (current-time) t-phase))))))
+                 (* 1000 (float-time (time-subtract (current-time) t-phase)))))
+      (vulpea-db-sync--register-missing-org-ids))
 
     ;; If schema was rebuilt, extraction settings changed, the parser
     ;; epoch changed, or a plugin migrated its schema, trigger forced
@@ -1756,6 +1777,48 @@ polling backend; live file watchers react through
         (mapcar #'car changes)))))
 
 ;;; Manual Update
+
+;;;###autoload
+(defun vulpea-db-register-org-ids ()
+  "Register with `org-id' every note in the database it does not know.
+
+Indexing a file registers the ids it holds, and only the files vulpea
+reads are indexed: a tree indexed in an earlier session reports every
+file unchanged, so nothing is registered for it.  `org-id-locations'
+is a separate index that org saves only when Emacs exits.  A killed
+session loses what it registered, two sessions on one vault overwrite
+each other's file at exit, and a moved or missing
+`org-id-locations-file' loses everything.  The symptom is one-sided:
+`vulpea-find' finds a note that an `id:' link cannot follow.
+
+This walks the ids in the database and registers the ones org-id
+lacks or knows at another path.  Nothing is parsed: one query, one
+lookup per id, and a write only for the drift, so the steady state
+costs a few milliseconds per thousand notes.  `vulpea-db-autosync-mode'
+runs it after its initial scan; it can also be run by hand.  Returns
+the number of ids registered."
+  (interactive)
+  (let ((registered 0)
+        (total 0))
+    (when org-id-track-globally
+      (unless org-id-locations (org-id-locations-load))
+      (when (and org-id-locations (not (hash-table-p org-id-locations)))
+        (setq org-id-locations (org-id-alist-to-hash org-id-locations)))
+      (let ((missing (make-hash-table :test #'equal)))
+        (pcase-dolist (`(,id ,path)
+                       (emacsql (vulpea-db) [:select [id path] :from notes]))
+          (setq total (1+ total))
+          (unless (equal (gethash id org-id-locations)
+                         (vulpea-db--org-id-abbreviate path))
+            (push id (gethash path missing))))
+        (maphash (lambda (path ids)
+                   (vulpea-db--register-id-locations ids path)
+                   (setq registered (+ registered (length ids))))
+                 missing)))
+    (when (called-interactively-p 'interactive)
+      (message "Vulpea: registered %d of %d note%s with org-id"
+               registered total (if (= total 1) "" "s")))
+    registered))
 
 ;;;###autoload
 (defun vulpea-db-sync-full-scan (&optional arg)

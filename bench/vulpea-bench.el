@@ -176,6 +176,46 @@ Returns time in seconds."
              (vulpea-bench--format-throughput file-count (car result)))
     (car result)))
 
+(defun vulpea-bench-org-id-repair (note-count)
+  "Benchmark `vulpea-db-register-org-ids' over NOTE-COUNT database rows.
+
+Fills a temporary database with NOTE-COUNT notes (one per file, no
+files on disk) and times the pass twice: cold, with an empty org-id
+index, so every id is written; and warm, right after, so every id is
+found in place and nothing is written.  The warm number is what a
+normal start of `vulpea-db-autosync-mode' pays.  Returns (cold . warm)
+in seconds."
+  (let* ((db-file (make-temp-file "vulpea-bench-" nil ".db"))
+         (vulpea-db-location db-file)
+         (vulpea-db--connection nil)
+         (org-id-track-globally t)
+         (org-id-locations (make-hash-table :test #'equal))
+         (org-id-files nil)
+         (vulpea-db--org-id-files-seen (make-hash-table :test #'equal)))
+    (unwind-protect
+        (progn
+          (vulpea-db)
+          (emacsql-with-transaction (vulpea-db)
+            (dotimes (i note-count)
+              (emacsql (vulpea-db) [:insert :into notes :values $v1]
+                       (vector (format "id-%06d" i)
+                               (expand-file-name
+                                (format "~/vault/dir%02d/note-%06d.org"
+                                        (% i 100) i))
+                               0 1 (format "Note %d" i) "{}"
+                               nil nil nil nil nil nil nil nil nil nil
+                               nil nil nil nil
+                               (format-time-string "%FT%T") nil))))
+          (let ((cold (car (vulpea-bench-measure
+                               (format "org-id repair, cold: %d notes" note-count)
+                             (vulpea-db-register-org-ids))))
+                (warm (car (vulpea-bench-measure
+                               (format "org-id repair, warm: %d notes" note-count)
+                             (vulpea-db-register-org-ids)))))
+            (cons cold warm)))
+      (when vulpea-db--connection (vulpea-db-close))
+      (delete-file db-file))))
+
 (defun vulpea-bench-report (name results)
   "Print formatted benchmark report for NAME with RESULTS.
 RESULTS is an alist of (label . (time count)) pairs."
