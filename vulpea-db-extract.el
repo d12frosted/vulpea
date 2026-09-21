@@ -1686,13 +1686,19 @@ Returns number of notes updated (file-level + headings)."
     (vulpea-db--apply-parse-ctx ctx)))
 
 (defvar vulpea-db--org-id-files-seen (make-hash-table :test 'equal)
-  "Session shadow of paths vulpea has pushed onto `org-id-files'.
+  "Session shadow of the paths known to be on `org-id-files'.
 `org-id-files' is a list; a `member' scan per registered file is
-quadratic over a full rebuild.  The shadow makes the membership check
-O(1).  It is conservative: cleared whenever `org-id-files' is
-observed empty (e.g. after an external reset), and a stale positive
-merely leaves a path unlisted - id lookups go through
-`org-id-locations' regardless.")
+quadratic over a full rebuild - minutes at 100k files.  The shadow
+answers membership in O(1) and is the only check made.  It is seeded
+from `org-id-files' the first time registration finds the list
+non-empty and the shadow empty, which is how a fresh session looks
+once `org-id-locations-load' has run, and cleared whenever the list
+is observed empty (an external reset).  It can drift from the list:
+a stale positive leaves a path unlisted, a stale negative (a path
+pushed by `org-id-add-location' behind the shadow's back) lists it
+twice.  Both are harmless - id lookups go through `org-id-locations'
+regardless, and `org-id-update-id-locations' dedups the list before
+scanning it.")
 
 (defun vulpea-db--register-id-locations (ids path)
   "Register note IDS at PATH with org-id, batched.
@@ -1707,14 +1713,17 @@ repeated path abbreviation and `org-id-files' scans that would do."
     ;; alist, causing "Wrong type argument: hash-table-p".
     (when (and org-id-locations (not (hash-table-p org-id-locations)))
       (setq org-id-locations (org-id-alist-to-hash org-id-locations)))
-    (when (null org-id-files)
+    (cond
+     ((null org-id-files)
       (clrhash vulpea-db--org-id-files-seen))
+     ((zerop (hash-table-count vulpea-db--org-id-files-seen))
+      (dolist (file org-id-files)
+        (puthash file t vulpea-db--org-id-files-seen))))
     (let ((afile (abbreviate-file-name path)))
       (dolist (id ids)
         (puthash id afile org-id-locations))
       (unless (gethash afile vulpea-db--org-id-files-seen)
-        (unless (member afile org-id-files)
-          (push afile org-id-files))
+        (push afile org-id-files)
         (puthash afile t vulpea-db--org-id-files-seen)))))
 
 ;;; Pending id claims

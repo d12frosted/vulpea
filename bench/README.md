@@ -68,6 +68,11 @@ Core benchmarking utilities:
 (vulpea-bench-measure "my-operation"
   (do-expensive-work))
 ;; => (time . result)
+
+;; Benchmark org-id registration of 100k files in a fresh session
+;; (no notes on disk needed)
+(vulpea-bench-org-id-registration 100000)
+;; => time in seconds
 ```
 
 ### Benchmark Runner (`run-benchmarks.sh`)

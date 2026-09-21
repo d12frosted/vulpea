@@ -148,6 +148,34 @@ Returns (time file-count)."
 
       (list time count))))
 
+(defun vulpea-bench-org-id-registration (file-count)
+  "Benchmark registering FILE-COUNT files with org-id in a fresh session.
+
+Models a session right after `org-id-locations-load': `org-id-files'
+already lists FILE-COUNT paths and vulpea's shadow of it is empty.
+Then registers one id for each of FILE-COUNT other paths, one call
+per file, the way a forced scan does.  Nothing touches the disk or
+the database; this isolates the org-id side of indexing.
+Returns time in seconds."
+  (let* ((org-id-track-globally t)
+         (org-id-locations (make-hash-table :test #'equal))
+         (org-id-files (mapcar (lambda (i) (format "~/vault/old/note-%06d.org" i))
+                               (number-sequence 1 file-count)))
+         (vulpea-db--org-id-files-seen (make-hash-table :test #'equal))
+         (paths (mapcar (lambda (i)
+                          (expand-file-name
+                           (format "~/vault/new/note-%06d.org" i)))
+                        (number-sequence 1 file-count)))
+         (result (vulpea-bench-measure
+                     (format "org-id registration: %d files" file-count)
+                   (dolist (path paths)
+                     (vulpea-db--register-id-locations
+                      (list (concat "id-" path)) path))
+                   file-count)))
+    (message "  Throughput: %s"
+             (vulpea-bench--format-throughput file-count (car result)))
+    (car result)))
+
 (defun vulpea-bench-report (name results)
   "Print formatted benchmark report for NAME with RESULTS.
 RESULTS is an alist of (label . (time count)) pairs."

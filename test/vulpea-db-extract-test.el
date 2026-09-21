@@ -2269,6 +2269,57 @@ exactly as per-ID `org-id-add-location' calls would have done."
               (should (null org-id-files)))
           (delete-file path))))))
 
+(ert-deftest vulpea-db-extract-org-id-registration-learns-loaded-files ()
+  "Registration takes `org-id-files' as org loaded it, without scanning it.
+`org-id-locations-load' fills `org-id-files' with every known path
+before vulpea registers anything, so the session shadow starts empty
+while the list does not.  Registering a path already on that list
+must not push it again, and registering a new one must append it."
+  (let* ((org-id-track-globally t)
+         (org-id-locations (make-hash-table :test #'equal))
+         (loaded (mapcar (lambda (i) (format "~/vault/loaded-%d.org" i))
+                         (number-sequence 1 5)))
+         (org-id-files (copy-sequence loaded))
+         (vulpea-db--org-id-files-seen (make-hash-table :test #'equal)))
+    ;; A path org already listed: registered, not pushed twice.
+    (vulpea-db--register-id-locations
+     '("loaded-3-id") (expand-file-name "~/vault/loaded-3.org"))
+    (should (equal (gethash "loaded-3-id" org-id-locations)
+                   "~/vault/loaded-3.org"))
+    (should (= (length org-id-files) 5))
+    ;; A new path: appended once.
+    (vulpea-db--register-id-locations
+     '("new-id") (expand-file-name "~/vault/new.org"))
+    (vulpea-db--register-id-locations
+     '("new-id") (expand-file-name "~/vault/new.org"))
+    (should (= (length org-id-files) 6))
+    (should (member "~/vault/new.org" org-id-files))
+    ;; The shadow now knows every listed path, loaded ones included.
+    (dolist (f org-id-files)
+      (should (gethash f vulpea-db--org-id-files-seen)))))
+
+(ert-deftest vulpea-db-extract-org-id-registration-is-linear-in-files ()
+  "Registering many files stays linear when `org-id-files' is large.
+A fresh session has a loaded `org-id-files' and an empty shadow; a
+membership scan of the list per registered file would make a full
+rebuild quadratic (minutes at 100k files).  Sized so that the
+quadratic path takes several times the bound on any machine."
+  (let* ((n 20000)
+         (org-id-track-globally t)
+         (org-id-locations (make-hash-table :test #'equal))
+         (org-id-files (mapcar (lambda (i) (format "~/vault/old/note-%06d.org" i))
+                               (number-sequence 1 n)))
+         (vulpea-db--org-id-files-seen (make-hash-table :test #'equal))
+         (paths (mapcar (lambda (i) (expand-file-name
+                                     (format "~/vault/new/note-%06d.org" i)))
+                        (number-sequence 1 n)))
+         (start (float-time)))
+    (dolist (path paths)
+      (vulpea-db--register-id-locations (list (concat "id-" path)) path))
+    (should (< (- (float-time) start) 4.0))
+    (should (= (length org-id-files) (* 2 n)))
+    (should (= (hash-table-count org-id-locations) n))))
+
 ;;; Content Hash Tests
 
 (ert-deftest vulpea-db-extract-hash-matches-string-hash ()
