@@ -2298,6 +2298,35 @@ must not push it again, and registering a new one must append it."
     (dolist (f org-id-files)
       (should (gethash f vulpea-db--org-id-files-seen)))))
 
+(ert-deftest vulpea-db-extract-org-id-abbreviation-matches-org ()
+  "The per-directory abbreviation spells a path exactly as org does.
+`org-id' stores the `abbreviate-file-name' form and vulpea must store
+the same string, whether the directory was seen before or not, and
+whether `directory-abbrev-alist' changed since it was cached."
+  (let* ((vulpea-db--org-id-abbrev-cache (make-hash-table :test #'equal))
+         (vulpea-db--org-id-abbrev-key nil)
+         (home (expand-file-name "~/"))
+         (nested (concat home "vault/a/b.org")))
+    (dolist (path (list (concat home "note.org")
+                        nested
+                        (concat home "vault/a/c.org")
+                        "/tmp/elsewhere/x.org"
+                        (concat home "vault/")))
+      (should (equal (vulpea-db--org-id-abbreviate path)
+                     (abbreviate-file-name path)))
+      ;; Second call is served from the cache and still agrees.
+      (should (equal (vulpea-db--org-id-abbreviate path)
+                     (abbreviate-file-name path))))
+    ;; A changed `directory-abbrev-alist' is honored, not served stale.
+    (let ((directory-abbrev-alist
+           (list (cons (concat "\\`" (regexp-quote (concat home "vault/")))
+                       "/v/"))))
+      (should (equal (vulpea-db--org-id-abbreviate nested) "/v/a/b.org"))
+      (should (equal (vulpea-db--org-id-abbreviate nested)
+                     (abbreviate-file-name nested))))
+    (should (equal (vulpea-db--org-id-abbreviate nested)
+                   (abbreviate-file-name nested)))))
+
 (ert-deftest vulpea-db-extract-org-id-registration-is-linear-in-files ()
   "Registering many files stays linear when `org-id-files' is large.
 A fresh session has a loaded `org-id-files' and an empty shadow; a

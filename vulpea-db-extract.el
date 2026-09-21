@@ -1700,6 +1700,39 @@ twice.  Both are harmless - id lookups go through `org-id-locations'
 regardless, and `org-id-update-id-locations' dedups the list before
 scanning it.")
 
+(defvar vulpea-db--org-id-abbrev-cache (make-hash-table :test 'equal)
+  "Directory to its `abbreviate-file-name' spelling, for this session.
+See `vulpea-db--org-id-abbreviate'.")
+
+(defvar vulpea-db--org-id-abbrev-key nil
+  "The settings `vulpea-db--org-id-abbrev-cache' was filled under.
+A cons of `directory-abbrev-alist' and `abbreviated-home-dir'; when
+either changes the cache is dropped, since both decide the spelling.")
+
+(defun vulpea-db--org-id-abbreviate (path)
+  "Return PATH as `abbreviate-file-name' would, cached per directory.
+
+Everything `abbreviate-file-name' rewrites is a directory prefix, the
+home directory or a `directory-abbrev-alist' entry, so a file's
+abbreviation is its directory's abbreviation plus the basename.  Notes
+cluster into a few hundred directories, so nearly every call is a
+lookup and a `concat' instead of the regexp matching and, on some
+systems, the case-sensitivity syscall `abbreviate-file-name' pays per
+call: 100k paths take about 0.2 s this way and about 1 s the direct
+way.  The string is identical either way, which matters because org
+stores this spelling and looks it up again."
+  (let ((key (cons directory-abbrev-alist
+                   (bound-and-true-p abbreviated-home-dir))))
+    (unless (equal key vulpea-db--org-id-abbrev-key)
+      (clrhash vulpea-db--org-id-abbrev-cache)
+      (setq vulpea-db--org-id-abbrev-key key)))
+  (if-let* ((dir (file-name-directory path)))
+      (concat (or (gethash dir vulpea-db--org-id-abbrev-cache)
+                  (puthash dir (abbreviate-file-name dir)
+                           vulpea-db--org-id-abbrev-cache))
+              (file-name-nondirectory path))
+    (abbreviate-file-name path)))
+
 (defun vulpea-db--register-id-locations (ids path)
   "Register note IDS at PATH with org-id, batched.
 
@@ -1719,7 +1752,7 @@ repeated path abbreviation and `org-id-files' scans that would do."
      ((zerop (hash-table-count vulpea-db--org-id-files-seen))
       (dolist (file org-id-files)
         (puthash file t vulpea-db--org-id-files-seen))))
-    (let ((afile (abbreviate-file-name path)))
+    (let ((afile (vulpea-db--org-id-abbreviate path)))
       (dolist (id ids)
         (puthash id afile org-id-locations))
       (unless (gethash afile vulpea-db--org-id-files-seen)
