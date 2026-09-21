@@ -171,6 +171,46 @@ https://github.com/d12frosted/vulpea/issues/399"
     (should (null (vulpea-note-title-source
                    (vulpea-db-get-by-id "ts-nil-id"))))))
 
+(ert-deftest vulpea-db-insert-note-category-source-round-trip ()
+  "Category source is stored in the notes table and decoded back.
+https://github.com/d12frosted/vulpea/issues/501"
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-db--insert-note
+     :id "cs-id"
+     :path "/tmp/cs.org"
+     :level 0
+     :pos 0
+     :title "Titled"
+     :category "cs-cat"
+     :category-source 'keyword
+     :modified-at "2025-11-16 10:00:00")
+    (should (eq 'keyword
+                (caar (emacsql (vulpea-db)
+                               [:select [category-source] :from notes
+                                :where (= id $s1)]
+                               "cs-id"))))
+    (should (eq 'keyword
+                (vulpea-note-category-source (vulpea-db-get-by-id "cs-id"))))))
+
+(ert-deftest vulpea-db-insert-note-category-source-nil ()
+  "A note inserted without category source decodes with a nil slot.
+Nil means unknown; the column is nullable so hand-inserted rows
+stay representable.
+https://github.com/d12frosted/vulpea/issues/501"
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-db--insert-note
+     :id "cs-nil-id"
+     :path "/tmp/cs-nil.org"
+     :level 0
+     :pos 0
+     :title "Mystery"
+     :category "cs-nil"
+     :modified-at "2025-11-16 10:00:00")
+    (should (null (vulpea-note-category-source
+                   (vulpea-db-get-by-id "cs-nil-id"))))))
+
 (ert-deftest vulpea-db-insert-note-evicts-stale-row-after-file-move ()
   "Re-indexing a moved file wins over a stale row keeping the old path.
 

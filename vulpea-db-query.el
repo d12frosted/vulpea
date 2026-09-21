@@ -112,7 +112,8 @@ ROW is a vector from the notes table with all fields in schema order."
         (file-title (elt row 18))
         (created-at (elt row 19))
         (modified-at (elt row 20))
-        (title-source (elt row 21)))
+        (title-source (elt row 21))
+        (category-source (elt row 22)))
     (make-vulpea-note
      :id id
      :path path
@@ -141,7 +142,8 @@ ROW is a vector from the notes table with all fields in schema order."
      :file-title file-title
      :created-at created-at
      :modified-at modified-at
-     :title-source title-source)))
+     :title-source title-source
+     :category-source category-source)))
 
 ;;; Core Query Functions
 
@@ -520,6 +522,29 @@ Returns list of `vulpea-note' structs."
                         :where (= category $s1)]
                        category)))
     (mapcar #'vulpea-db--row-to-note rows)))
+
+(defun vulpea-db-query-categories ()
+  "Return the categories someone wrote down or configured, sorted.
+
+Every note has a category (see `vulpea-note-category'), but for most
+notes it is only the file base name, which nobody chose and which
+is useless as a completion candidate.  This returns the distinct
+categories whose `vulpea-note-category-source' is not `filename':
+a CATEGORY drawer property, a #+CATEGORY keyword or `org-category'.
+A nil source means unknown, not filename, so such notes count too.
+
+Under the `single-temp-buffer' parse method dir-locals never apply,
+so a category set only through `.dir-locals.el' resolves to the
+file name there and is not listed; see `vulpea-db-parse-method'.
+
+Returns a sorted list of category strings."
+  (mapcar #'car
+          (emacsql (vulpea-db)
+                   [:select :distinct [category] :from notes
+                    :where (or (is category-source nil)
+                               (!= category-source $s1))
+                    :order :by category]
+                   'filename)))
 
 ;;; Stale Note Queries
 

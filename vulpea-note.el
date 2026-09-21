@@ -76,6 +76,12 @@ Slots:
                  \\=(#+title), `heading' (heading text) or `filename'
                  (fallback to the file base name).  Nil means unknown
                  (e.g. a hand-constructed note), not untitled.
+  category-source - Where the category comes from: symbol `property'
+                 (a CATEGORY drawer property, own, inherited or
+                 file-level), `keyword' (last #+CATEGORY), `variable'
+                 (`org-category') or `filename' (fallback to the file
+                 base name).  Nil means unknown (e.g. a hand-constructed
+                 note), not uncategorized.
 
 New slots are only ever appended: plugin bytecode compiled against an
 older layout accesses slots positionally and would silently read the
@@ -102,7 +108,8 @@ wrong slot if the order changed."
   file-title
   created-at
   modified-at
-  title-source)
+  title-source
+  category-source)
 
 ;;; Predicates
 
@@ -153,6 +160,17 @@ file-name fallback does not imply anonymous - deliberately named
 files are a legitimate setup - which is why this filter is opt-in
 and nothing hides such notes by default."
   (not (eq (vulpea-note-title-source note) 'filename)))
+
+(defun vulpea-note-category-explicit-p (note)
+  "Return non-nil when NOTE's category was written down or configured.
+
+Explicit means `vulpea-note-category-source' is the symbol
+`property' (a CATEGORY drawer property), `keyword' (a #+CATEGORY
+keyword) or `variable' (`org-category', set globally or through
+dir-locals).  Returns nil when the category is the file base name
+fallback (`filename') and when the source is unknown (nil slot,
+e.g. a hand-constructed note)."
+  (memq (vulpea-note-category-source note) '(property keyword variable)))
 
 ;;; Note Expansion
 

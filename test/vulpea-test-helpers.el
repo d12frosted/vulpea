@@ -195,6 +195,8 @@ ARGS is a plist with optional fields:
   :todo       - TODO state
   :priority   - priority character
   :file-title - title of the file containing this note
+  :category   - resolved category
+  :category-source - where the category came from (symbol)
   :modified-at - modification timestamp (default: 2025-11-16 10:00:00)
 
 This inserts directly into the database without creating actual
