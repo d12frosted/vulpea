@@ -499,11 +499,12 @@ The database saw the note move; org-id's saved entry did not."
               (should (zerop (hash-table-count org-id-locations))))
           (delete-file path))))))
 
-(defun vulpea-db-sync-test--start-registers-unchanged-file (scan-mode)
-  "Check that `vulpea-db-sync--start' under SCAN-MODE registers an
-indexed, unchanged file's id when org-id starts empty.  The file is
-skipped by any scan as unchanged, so only the registration pass from
-the database can put it back."
+(defun vulpea-db-sync-test--with-unchanged-indexed-file (scan-mode body)
+  "Call BODY with an indexed, unchanged file and an empty org-id index.
+SCAN-MODE is bound as `vulpea-db-sync-scan-on-enable'.  BODY takes the
+file path.  The async subprocess is replaced by a direct callback.  The
+file is skipped by any scan as unchanged, so only the registration of
+skipped files can put its id back."
   (let ((org-id-track-globally t)
         (org-id-locations (make-hash-table :test #'equal))
         (org-id-files nil))
@@ -515,36 +516,83 @@ the database can put it back."
              (vulpea-db-sync-external-method nil)
              (vulpea-db-sync-directories (list dir))
              (vulpea-db-sync--idle-timer nil)
-             (vulpea-db-sync--watchers nil))
+             (vulpea-db-sync--watchers nil)
+             (vulpea-db-sync--queue nil)
+             (vulpea-db-sync--queue-tail nil)
+             (vulpea-db-sync--queue-set (make-hash-table :test #'equal))
+             (vulpea-db-sync--processed-total 0)
+             ;; A migration flag left by an earlier test would force a
+             ;; re-index, which registers by reading; these tests are
+             ;; about the files a scan skips.
+             (vulpea-db--schema-rebuilt nil)
+             (vulpea-db--settings-changed nil)
+             (vulpea-db--parser-changed nil)
+             (vulpea-db--plugin-schema-changed nil))
         (with-temp-file path
           (insert ":PROPERTIES:\n:ID: start-reg-id\n:END:\n#+TITLE: N\n"))
         (vulpea-db-update-file path)
         (clrhash org-id-locations)
         (setq org-id-files nil)
-        ;; The async subprocess is replaced by a direct callback.
         (cl-letf (((symbol-function 'vulpea-db-sync--scan-files-async)
                    (lambda (dirs callback)
                      (funcall callback
                               (mapcan #'vulpea-db-sync--list-org-files dirs)))))
           (unwind-protect
               (let ((vulpea-db-autosync-mode t))
-                (vulpea-db-sync--start)
-                (should (equal (gethash "start-reg-id" org-id-locations)
-                               (abbreviate-file-name path))))
+                (funcall body path))
             (vulpea-db-sync--stop)
             (delete-directory dir t)))))))
 
+(ert-deftest vulpea-db-sync-queue-registers-unchanged-files-with-org-id ()
+  "A queue batch registers the ids of files it skips as unchanged.
+The batch already queries the files table for those paths; one more
+query fetches their ids, and only the ones org-id lacks are written."
+  (vulpea-db-sync-test--with-unchanged-indexed-file
+   nil
+   (lambda (path)
+     (vulpea-db-sync--enqueue path)
+     (vulpea-db-sync--process-queue)
+     (should (equal (gethash "start-reg-id" org-id-locations)
+                    (abbreviate-file-name path)))
+     ;; Present already: the next batch writes nothing.
+     (let ((files (copy-sequence org-id-files)))
+       (vulpea-db-sync--enqueue path)
+       (vulpea-db-sync--process-queue)
+       (should (equal org-id-files files))))))
+
 (ert-deftest vulpea-db-sync-start-registers-missing-org-ids-async ()
-  "An async initial scan is followed by a registration pass."
-  (vulpea-db-sync-test--start-registers-unchanged-file 'async))
+  "An async initial scan enqueues every file; the batches that skip
+them as unchanged register what org-id is missing."
+  (vulpea-db-sync-test--with-unchanged-indexed-file
+   'async
+   (lambda (path)
+     (vulpea-db-sync--start)
+     (should (null (gethash "start-reg-id" org-id-locations)))
+     (vulpea-db-sync--process-queue)
+     (should (equal (gethash "start-reg-id" org-id-locations)
+                    (abbreviate-file-name path))))))
 
 (ert-deftest vulpea-db-sync-start-registers-missing-org-ids-blocking ()
-  "A blocking initial scan is followed by a registration pass."
-  (vulpea-db-sync-test--start-registers-unchanged-file 'blocking))
+  "A blocking initial scan registers what org-id is missing for the
+files it skips as unchanged, before it returns."
+  (vulpea-db-sync-test--with-unchanged-indexed-file
+   'blocking
+   (lambda (path)
+     (let ((vulpea-db-autosync-mode nil))
+       (vulpea-db-sync--start))
+     (should (equal (gethash "start-reg-id" org-id-locations)
+                    (abbreviate-file-name path))))))
 
-(ert-deftest vulpea-db-sync-start-registers-missing-org-ids-no-scan ()
-  "With no scan on enable the registration pass still runs."
-  (vulpea-db-sync-test--start-registers-unchanged-file nil))
+(ert-deftest vulpea-db-sync-start-no-scan-registers-nothing ()
+  "With no scan on enable no file is looked at, so nothing is
+registered either: opting out of the startup scan opts out of the
+repair, and `vulpea-db-register-org-ids' remains for by-hand use."
+  (vulpea-db-sync-test--with-unchanged-indexed-file
+   nil
+   (lambda (_path)
+     (vulpea-db-sync--start)
+     (vulpea-db-sync--process-queue)
+     (should (zerop (hash-table-count org-id-locations))))))
 
 ;;; Manual Update Tests
 

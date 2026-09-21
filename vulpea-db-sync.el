@@ -423,21 +423,6 @@ a manual `vulpea-db-sync-full-scan'."
      "Vulpea: database is empty, scanning all files...")
     'async)))
 
-(defun vulpea-db-sync--register-missing-org-ids ()
-  "Run `vulpea-db-register-org-ids' once the initial scan is in place.
-Errors are contained: org-id is a convenience next to the database,
-and a failure here must not cost activation the rest of its work."
-  (let ((t0 (current-time)))
-    (condition-case err
-        (let ((count (vulpea-db-register-org-ids)))
-          (when vulpea-db-sync-debug
-            (message "[vulpea-sync] org-id registration: %d ids in %.0fms"
-                     count
-                     (* 1000 (float-time (time-subtract (current-time) t0))))))
-      (error
-       (message "Vulpea: org-id registration failed: %s"
-                (error-message-string err))))))
-
 (defun vulpea-db-sync--start ()
   "Start file watching and async update.
 
@@ -540,11 +525,7 @@ a subprocess.  The `blocking' mode still scans synchronously."
                     (when vulpea-db-sync-debug
                       (message "[vulpea-sync] async enqueue: %.0fms (%d files)"
                                (* 1000 (float-time (time-subtract (current-time) enqueue-start)))
-                               (length files))))
-                  ;; Files the scan skips as unchanged register nothing
-                  ;; with org-id; put back whatever this session's
-                  ;; org-id is missing, from the database.
-                  (vulpea-db-sync--register-missing-org-ids))))))
+                               (length files)))))))))
           ('blocking
            ;; Scan synchronously (blocks Emacs)
            (setq t-phase (current-time))
@@ -568,15 +549,13 @@ a subprocess.  The `blocking' mode still scans synchronously."
              (vulpea-db-sync-update-directory dir))
            (when vulpea-db-sync-debug
              (message "[vulpea-sync] blocking-scan: %.0fms"
-                      (* 1000 (float-time (time-subtract (current-time) t-phase)))))
-           (vulpea-db-sync--register-missing-org-ids)))
+                      (* 1000 (float-time (time-subtract (current-time) t-phase)))))))
       ;; No scan requested, but still cleanup deleted files
       (setq t-phase (current-time))
       (vulpea-db-sync--cleanup-deleted-files)
       (when vulpea-db-sync-debug
         (message "[vulpea-sync] cleanup-deleted-files: %.0fms"
-                 (* 1000 (float-time (time-subtract (current-time) t-phase)))))
-      (vulpea-db-sync--register-missing-org-ids))
+                 (* 1000 (float-time (time-subtract (current-time) t-phase))))))
 
     ;; If schema was rebuilt, extraction settings changed, the parser
     ;; epoch changed, or a plugin migrated its schema, trigger forced
@@ -1056,6 +1035,7 @@ them."
                (db (vulpea-db))
                (updated 0)
                (unchanged 0)
+               (unchanged-paths nil)
                (dispatched 0))
 
           ;; Initialize totals if starting fresh
@@ -1125,7 +1105,8 @@ them."
                                   (setq vulpea-db-sync--async-dispatched
                                         (1+ vulpea-db-sync--async-dispatched))
                                   (setq dispatched (1+ dispatched)))
-                              (setq unchanged (1+ unchanged))))
+                              (setq unchanged (1+ unchanged))
+                              (push path unchanged-paths)))
                         (error
                          ;; Worker spawn/send failure: fall back to
                          ;; synchronous processing in this batch so an
@@ -1151,10 +1132,15 @@ them."
                              ((vulpea-db-sync--update-file-if-changed path hash-cache)
                               (setq updated (1+ updated)))
                              (t
-                              (setq unchanged (1+ unchanged)))))
+                              (setq unchanged (1+ unchanged))
+                              (push path unchanged-paths))))
                         (error
                          (message "Vulpea: Error updating %s: %s"
-                                  path (error-message-string err))))))))))
+                                  path (error-message-string err)))))))))
+
+            ;; Skipped files were not read, so nothing registered
+            ;; their ids with org-id; put back what it is missing.
+            (vulpea-db-sync--register-org-ids-for unchanged-paths))
 
           ;; Update totals
           (setq vulpea-db-sync--processed-total (+ vulpea-db-sync--processed-total updated unchanged)
@@ -1778,6 +1764,47 @@ polling backend; live file watchers react through
 
 ;;; Manual Update
 
+(defun vulpea-db-sync--register-org-ids-from-rows (rows)
+  "Register with `org-id' the ids in ROWS it lacks or knows elsewhere.
+ROWS are (id path) lists from the notes table.  One lookup per id, a
+write only for the drift.  Returns the number of ids registered."
+  (let ((registered 0))
+    (when (and rows org-id-track-globally)
+      (unless org-id-locations (org-id-locations-load))
+      (when (and org-id-locations (not (hash-table-p org-id-locations)))
+        (setq org-id-locations (org-id-alist-to-hash org-id-locations)))
+      (let ((missing (make-hash-table :test #'equal)))
+        (pcase-dolist (`(,id ,path) rows)
+          (unless (equal (gethash id org-id-locations)
+                         (vulpea-db--org-id-abbreviate path))
+            (push id (gethash path missing))))
+        (maphash (lambda (path ids)
+                   (vulpea-db--register-id-locations ids path)
+                   (setq registered (+ registered (length ids))))
+                 missing)))
+    registered))
+
+(defun vulpea-db-sync--register-org-ids-for (paths)
+  "Register with `org-id' whatever it is missing for PATHS.
+
+For files a scan skipped as unchanged: indexing registers the ids it
+reads, and a skipped file is not read, so a session whose org-id
+index fell behind (a crash, another Emacs saving its own copy, a
+moved `org-id-locations-file') would never get those ids back.  One
+query for the whole batch, then
+`vulpea-db-sync--register-org-ids-from-rows'.  Errors are contained:
+org-id is a convenience next to the database and must not cost a
+batch its update."
+  (when (and paths org-id-track-globally)
+    (condition-case err
+        (vulpea-db-sync--register-org-ids-from-rows
+         (emacsql (vulpea-db) [:select [id path] :from notes
+                               :where (in path $v1)]
+                  (vconcat paths)))
+      (error
+       (message "Vulpea: org-id registration failed: %s"
+                (error-message-string err))))))
+
 ;;;###autoload
 (defun vulpea-db-register-org-ids ()
   "Register with `org-id' every note in the database it does not know.
@@ -1791,33 +1818,21 @@ each other's file at exit, and a moved or missing
 `org-id-locations-file' loses everything.  The symptom is one-sided:
 `vulpea-find' finds a note that an `id:' link cannot follow.
 
-This walks the ids in the database and registers the ones org-id
-lacks or knows at another path.  Nothing is parsed: one query, one
-lookup per id, and a write only for the drift, so the steady state
-costs a few milliseconds per thousand notes.  `vulpea-db-autosync-mode'
-runs it after its initial scan; it can also be run by hand.  Returns
-the number of ids registered."
+A scan repairs this as it goes: every batch registers what org-id is
+missing for the files it skipped as unchanged, so the initial scan of
+`vulpea-db-autosync-mode' and `vulpea-db-sync-full-scan' both leave
+org-id complete.  This command does the same for the whole database
+at once, for a session that scanned nothing
+\(`vulpea-db-sync-scan-on-enable' nil) or to repair by hand.  Nothing
+is parsed: one query, one lookup per id, and a write only for the
+drift.  Returns the number of ids registered."
   (interactive)
-  (let ((registered 0)
-        (total 0))
-    (when org-id-track-globally
-      (unless org-id-locations (org-id-locations-load))
-      (when (and org-id-locations (not (hash-table-p org-id-locations)))
-        (setq org-id-locations (org-id-alist-to-hash org-id-locations)))
-      (let ((missing (make-hash-table :test #'equal)))
-        (pcase-dolist (`(,id ,path)
-                       (emacsql (vulpea-db) [:select [id path] :from notes]))
-          (setq total (1+ total))
-          (unless (equal (gethash id org-id-locations)
-                         (vulpea-db--org-id-abbreviate path))
-            (push id (gethash path missing))))
-        (maphash (lambda (path ids)
-                   (vulpea-db--register-id-locations ids path)
-                   (setq registered (+ registered (length ids))))
-                 missing)))
+  (let ((registered
+         (vulpea-db-sync--register-org-ids-from-rows
+          (emacsql (vulpea-db) [:select [id path] :from notes]))))
     (when (called-interactively-p 'interactive)
-      (message "Vulpea: registered %d of %d note%s with org-id"
-               registered total (if (= total 1) "" "s")))
+      (message "Vulpea: registered %d id%s with org-id"
+               registered (if (= registered 1) "" "s")))
     registered))
 
 ;;;###autoload
@@ -1926,6 +1941,7 @@ settings migrations from freezing the session."
       (let ((db (vulpea-db))
             (updated 0)
             (unchanged 0)
+            (unchanged-paths nil)
             (total (length files))
             (processed 0))
         (if force
@@ -1959,7 +1975,8 @@ settings migrations from freezing the session."
                       ;; Smart detection mode with hash cache
                       (if (vulpea-db-sync--update-file-if-changed file hash-cache)
                           (setq updated (1+ updated))
-                        (setq unchanged (1+ unchanged))))
+                        (setq unchanged (1+ unchanged))
+                        (push file unchanged-paths)))
                   (error
                    (message "Vulpea: Error updating %s: %s"
                             file (error-message-string err))))
@@ -1970,6 +1987,9 @@ settings migrations from freezing the session."
                            (zerop (mod processed vulpea-db-sync-progress-interval)))
                   (vulpea-db-sync--message "Vulpea: Progress: %d/%d files (%d updated, %d unchanged)"
                                            processed total updated unchanged)))))
+          ;; Skipped files were not read, so nothing registered their
+          ;; ids with org-id; put back what it is missing.
+          (vulpea-db-sync--register-org-ids-for unchanged-paths)
           (vulpea-db-sync--message "Vulpea: Checked %d file%s (%d updated, %d unchanged)"
                                    (+ updated unchanged)
                                    (if (= (+ updated unchanged) 1) "" "s")

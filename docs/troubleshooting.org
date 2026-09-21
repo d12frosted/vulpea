@@ -339,7 +339,7 @@ Vulpea finds notes through its own database. Org follows =id:= links through =or
 
 ** Solution
 
-=vulpea-db-autosync-mode= repairs this on its own after the initial scan: it walks the ids in the database and registers the ones org's index lacks, without reading a file. To repair by hand, run:
+Scans repair this on their own: every batch registers what org's index is missing for the files it skipped as unchanged, without reading them, so the initial scan of =vulpea-db-autosync-mode= and a smart =vulpea-db-sync-full-scan= both leave the index complete. If you scan nothing on enable (=vulpea-db-sync-scan-on-enable= set to nil), or want to repair the whole database at once, run:
 
 #+begin_src emacs-lisp
 M-x vulpea-db-register-org-ids
