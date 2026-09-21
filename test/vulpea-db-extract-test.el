@@ -3068,6 +3068,158 @@ file base name."
       (should (equal (vulpea-note-category (vulpea-db-get-by-id "cat-e2e-h-id"))
                      "heading-cat")))))
 
+;; https://github.com/d12frosted/vulpea/issues/501
+;;
+;; Extraction resolves the category itself, so it knows which branch
+;; won.  :category-source keeps that: `property' (own, ancestor or
+;; file drawer), `keyword' (last #+CATEGORY), `variable'
+;; (`org-category'), `filename' (file base name fallback).
+
+(defun vulpea-db-extract-test--category-matrix (fixtures)
+  "Parse each of FIXTURES under every parse method.
+
+FIXTURES is a list of (LABEL PATH ORG-CATEGORY) - ORG-CATEGORY is
+bound around the parse when non-nil.  Returns a list of
+\(LABEL METHOD FILE-CATEGORY FILE-SOURCE HEADING-CATEGORY
+HEADING-SOURCE), one per fixture and method, the first heading node
+standing for the heading side.  The parse buffer is reset between
+methods, mirroring the session restart a method change goes through."
+  (let ((reset (lambda ()
+                 (when (buffer-live-p vulpea-db--parse-buffer)
+                   (kill-buffer vulpea-db--parse-buffer)
+                   (setq vulpea-db--parse-buffer nil))))
+        (rows nil))
+    (unwind-protect
+        (pcase-dolist (`(,label ,path ,var) fixtures)
+          (dolist (method '(single-temp-buffer temp-buffer find-file))
+            (funcall reset)
+            (let* ((vulpea-db-parse-method method)
+                   (vulpea-db-index-heading-level t)
+                   (ctx (if var
+                            (let ((org-category var))
+                              (vulpea-db--parse-file path))
+                          (vulpea-db--parse-file path)))
+                   (f (vulpea-parse-ctx-file-node ctx))
+                   (h (car (vulpea-parse-ctx-heading-nodes ctx))))
+              (push (list label method
+                          (plist-get f :category)
+                          (plist-get f :category-source)
+                          (plist-get h :category)
+                          (plist-get h :category-source))
+                    rows))))
+      (funcall reset))
+    (nreverse rows)))
+
+(ert-deftest vulpea-db-extract-category-source-matrix ()
+  "Every category source is recorded, under every parse method.
+
+The matrix crosses the resolution branches (file drawer, keyword,
+`org-category' set globally, `org-category' from dir-locals, file
+name) with the three parse methods, on both the file note and a
+heading inheriting from it.  The only cell that differs by method
+is the dir-local one: single-temp-buffer never applies dir-locals,
+so there the file name wins and the source says so."
+  (let* ((plain (make-temp-file "vulpea-cat-src-" t))
+         (dl (make-temp-file "vulpea-cat-src-dl-" t))
+         (heading "\n* Heading\n:PROPERTIES:\n:ID: h-%s\n:END:\n")
+         (write (lambda (dir name head)
+                  (let ((p (expand-file-name name dir)))
+                    (with-temp-file p
+                      (insert head (format heading name)))
+                    p))))
+    (unwind-protect
+        (progn
+          (with-temp-file (expand-file-name ".dir-locals.el" dl)
+            (insert "((org-mode . ((org-category . \"dl-cat\"))))\n"))
+          (let ((rows (vulpea-db-extract-test--category-matrix
+                       (list
+                        (list 'drawer
+                              (funcall write plain "drawer.org"
+                                       ":PROPERTIES:\n:ID: drawer\n:CATEGORY: drawer-cat\n:END:\n#+TITLE: T\n")
+                              nil)
+                        (list 'keyword
+                              (funcall write plain "keyword.org"
+                                       ":PROPERTIES:\n:ID: keyword\n:END:\n#+TITLE: T\n#+CATEGORY: kw-cat\n")
+                              nil)
+                        (list 'global
+                              (funcall write plain "global.org"
+                                       ":PROPERTIES:\n:ID: global\n:END:\n#+TITLE: T\n")
+                              "global-cat")
+                        (list 'dir-local
+                              (funcall write dl "dirlocal.org"
+                                       ":PROPERTIES:\n:ID: dirlocal\n:END:\n#+TITLE: T\n")
+                              nil)
+                        (list 'nothing
+                              (funcall write plain "nothing.org"
+                                       ":PROPERTIES:\n:ID: nothing\n:END:\n#+TITLE: T\n")
+                              nil)))))
+            (dolist (method '(single-temp-buffer temp-buffer find-file))
+              (pcase-dolist (`(,label ,expected-cat ,expected-src)
+                             `((drawer "drawer-cat" property)
+                               (keyword "kw-cat" keyword)
+                               (global "global-cat" variable)
+                               (dir-local
+                                ,@(if (eq method 'single-temp-buffer)
+                                      '("dirlocal" filename)
+                                    '("dl-cat" variable)))
+                               (nothing "nothing" filename)))
+                (let ((row (seq-find (lambda (r) (and (eq (nth 0 r) label)
+                                                      (eq (nth 1 r) method)))
+                                     rows)))
+                  ;; Same category and source on the file note and on
+                  ;; the heading that inherits from it.
+                  (should (equal (list label method
+                                       expected-cat expected-src
+                                       expected-cat expected-src)
+                                 row)))))))
+      (delete-directory plain t)
+      (delete-directory dl t))))
+
+(ert-deftest vulpea-db-extract-category-source-heading-drawers ()
+  "A heading's own or ancestor drawer records the `property' source.
+
+The file itself falls back to its name here, so the heading's
+source is visibly its own, not inherited from the file."
+  (let ((path (vulpea-test--create-temp-org-file
+               (concat ":PROPERTIES:\n:ID: file-id\n:END:\n#+TITLE: File\n\n"
+                       "* Own\n:PROPERTIES:\n:ID: own-id\n:CATEGORY: own-cat\n:END:\n"
+                       "* Anc\n:PROPERTIES:\n:CATEGORY: anc-cat\n:END:\n"
+                       "** Leaf\n:PROPERTIES:\n:ID: leaf-id\n:END:\n"
+                       "* Bare\n:PROPERTIES:\n:ID: bare-id\n:END:\n"))))
+    (unwind-protect
+        (let* ((vulpea-db-index-heading-level t)
+               (ctx (vulpea-db--parse-file path))
+               (by-id (lambda (id)
+                        (seq-find (lambda (n) (equal (plist-get n :id) id))
+                                  (vulpea-parse-ctx-heading-nodes ctx)))))
+          (should (eq 'filename
+                      (plist-get (vulpea-parse-ctx-file-node ctx) :category-source)))
+          (should (equal '("own-cat" property)
+                         (let ((n (funcall by-id "own-id")))
+                           (list (plist-get n :category)
+                                 (plist-get n :category-source)))))
+          (should (equal '("anc-cat" property)
+                         (let ((n (funcall by-id "leaf-id")))
+                           (list (plist-get n :category)
+                                 (plist-get n :category-source)))))
+          (should (equal (list (file-name-base path) 'filename)
+                         (let ((n (funcall by-id "bare-id")))
+                           (list (plist-get n :category)
+                                 (plist-get n :category-source))))))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-category-source-end-to-end ()
+  "Category source lands in the notes table and decodes back."
+  (let ((vulpea-db-index-heading-level t))
+    (vulpea-test--with-temp-db-and-file "cs-e2e-id"
+      "#+TITLE: E2E\n#+CATEGORY: e2e-cat\n\n* Heading\n:PROPERTIES:\n:ID: cs-e2e-h-id\n:CATEGORY: heading-cat\n:END:\n\n* Plain\n:PROPERTIES:\n:ID: cs-e2e-p-id\n:END:\n"
+      (should (eq 'keyword
+                  (vulpea-note-category-source (vulpea-db-get-by-id "cs-e2e-id"))))
+      (should (eq 'property
+                  (vulpea-note-category-source (vulpea-db-get-by-id "cs-e2e-h-id"))))
+      (should (eq 'keyword
+                  (vulpea-note-category-source (vulpea-db-get-by-id "cs-e2e-p-id")))))))
+
 ;;; Title Link Stripping Tests
 
 (ert-deftest vulpea-db-extract-file-title-strips-links ()

@@ -273,6 +273,30 @@ from being inserted into the normalized tags table."
   (vulpea-test--with-temp-db
     (vulpea-db)
     (should (null (vulpea-db-query-tags)))))
+;;; Category List Queries
+
+(ert-deftest vulpea-db-query-categories ()
+  "Categories that were written down or configured, sorted, unique.
+A file-name fallback is not a category anyone chose, so it is left
+out; an unknown (nil) source is kept, like `vulpea-note-titled-p'.
+https://github.com/d12frosted/vulpea/issues/501"
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "n1" "N1" :category "work" :category-source 'keyword)
+    (vulpea-test--insert-test-note "n2" "N2" :category "work" :category-source 'property)
+    (vulpea-test--insert-test-note "n3" "N3" :category "home" :category-source 'variable)
+    (vulpea-test--insert-test-note "n4" "N4" :category "20240101-n4" :category-source 'filename)
+    (vulpea-test--insert-test-note "n5" "N5" :category "legacy")
+    (should (equal '("home" "legacy" "work") (vulpea-db-query-categories)))))
+
+(ert-deftest vulpea-db-query-categories-empty ()
+  "No notes, or only file-name categories, gives an empty list."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (should (null (vulpea-db-query-categories)))
+    (vulpea-test--insert-test-note "n1" "N1" :category "n1" :category-source 'filename)
+    (should (null (vulpea-db-query-categories)))))
+
 
 ;;; Link Query Tests
 

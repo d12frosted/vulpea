@@ -30,6 +30,7 @@ All query functions return =vulpea-note= structs:
 (vulpea-note-created-at note)    ; Creation date "YYYY-MM-DD" or nil
 (vulpea-note-modified-at note)   ; File mtime "YYYY-MM-DD HH:MM:SS"
 (vulpea-note-title-source note)  ; Where the title came from, or nil
+(vulpea-note-category-source note) ; Where the category came from, or nil
 #+end_src
 
 =vulpea-note-created-at= is the note's creation date, derived from its
@@ -74,6 +75,19 @@ is non-nil when the title was written down (=keyword= or =heading=),
 and =vulpea-note-titled-p= is the opt-in completion filter that drops
 only notes whose title is /known/ to be filename-derived (see the
 [[file:user-guide.org][User Guide]] on untitled micro-notes).
+
+=vulpea-note-category-source= does the same for the category: =property=
+(a =CATEGORY= drawer property, the note's own, an ancestor's or the
+file-level one), =keyword= (the =#+CATEGORY= keyword), =variable=
+(=org-category=, set globally or through dir-locals) or =filename= (the
+file base name fallback). The category itself is always what org
+shows; the source says whether anyone chose it. Nil means unknown, not
+uncategorized. =vulpea-note-category-explicit-p= is non-nil for
+=property=, =keyword= and =variable=. Note that under the
+=single-temp-buffer= parse method dir-locals never apply, so a
+category set only in =.dir-locals.el= resolves to the file name there
+and is recorded as =filename=; the source is truthful about what
+extraction saw.
 
 * Getting Notes
 
@@ -194,6 +208,18 @@ Matches the computed category (see =vulpea-note-category=), so notes
 that merely inherit a category from an ancestor, a =#+CATEGORY=
 keyword, or the file name are found too.
 
+To offer categories as completion candidates, ask for the ones that
+were actually written down or configured:
+
+#+begin_src emacs-lisp
+(vulpea-db-query-categories)
+;; => ("journal" "people" "wine")
+#+end_src
+
+File-name fallbacks are left out: every note has one, nobody chose
+it, and on a collection with dated file names it would drown the real
+categories (see =vulpea-note-category-source=).
+
 ** By File Paths
 
 #+begin_src emacs-lisp
@@ -231,6 +257,17 @@ For complex queries:
 (vulpea-db-query-tags)
 ;; => ("project" "task" "meeting" ...)
 #+end_src
+
+** Get All Categories
+
+#+begin_src emacs-lisp
+(vulpea-db-query-categories)
+;; => ("journal" "people" "wine")
+#+end_src
+
+Only categories with an explicit source (drawer property, =#+CATEGORY=
+keyword or =org-category=); file-name fallbacks are skipped. See
+[[*By Category][By Category]].
 
 * Diagnostics
 
@@ -2003,6 +2040,7 @@ package - it flags the same violations inline as you edit.)
 | =vulpea-db-query-by-file-paths=       | Notes from specific files            |
 | =vulpea-db-query-by-level=            | Notes at specific level              |
 | =vulpea-db-query-tags=                | Get all unique tags                  |
+| =vulpea-db-query-categories=          | Explicit categories, file names skipped |
 | =vulpea-db-query-dead-links=          | Find broken ID links                 |
 | =vulpea-db-query-orphan-notes=        | Notes with no incoming ID links      |
 | =vulpea-db-query-isolated-notes=      | Notes with no connections at all     |

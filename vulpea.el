@@ -2292,13 +2292,13 @@ Category resolves through the file when a note does not set it, so a
 heading leaving its file would silently take the new file's name as its
 category.  Carrying it over keeps the note answering the same queries.
 The file name fallback itself is not carried: it describes the old file
-rather than the note."
+rather than the note.  Extraction records which it was in
+`vulpea-note-category-source', so no guessing from the path."
   (let ((category (vulpea-note-category note)))
     (when (and category
                ;; Already in the drawer, which travels with the note.
                (not (assoc "CATEGORY" (vulpea-note-properties note)))
-               (not (equal category
-                           (file-name-base (vulpea-note-path note)))))
+               (not (eq (vulpea-note-category-source note) 'filename)))
       (concat "#+category: " category))))
 
 (defun vulpea-split--read-directory (title initial)

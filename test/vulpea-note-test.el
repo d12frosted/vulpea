@@ -339,14 +339,30 @@ https://github.com/d12frosted/vulpea/issues/399"
   (should-not (vulpea-note-titled-p
                (make-vulpea-note :title "T" :title-source 'filename))))
 
-(ert-deftest vulpea-note-title-source-slot-is-last ()
-  "The title-source slot stays appended at the struct end.
+(ert-deftest vulpea-note-category-explicit-p-cases ()
+  "Explicit means someone wrote the category down or configured it.
+Drawer property, keyword and `org-category' count; the file name
+fallback and an unknown (nil) source do not.
+https://github.com/d12frosted/vulpea/issues/501"
+  (should (vulpea-note-category-explicit-p
+           (make-vulpea-note :category "c" :category-source 'property)))
+  (should (vulpea-note-category-explicit-p
+           (make-vulpea-note :category "c" :category-source 'keyword)))
+  (should (vulpea-note-category-explicit-p
+           (make-vulpea-note :category "c" :category-source 'variable)))
+  (should-not (vulpea-note-category-explicit-p
+               (make-vulpea-note :category "c" :category-source 'filename)))
+  (should-not (vulpea-note-category-explicit-p
+               (make-vulpea-note :category "c"))))
+
+(ert-deftest vulpea-note-newest-slot-is-last ()
+  "The newest slot (category-source) stays appended at the struct end.
 Old plugin bytecode compiled against earlier struct layouts reads
 slots positionally, so new slots must only ever be appended (same
 reason as vulpea#395).
 https://github.com/d12frosted/vulpea/issues/399"
   (let ((slots (mapcar #'car (cl-struct-slot-info 'vulpea-note))))
-    (should (eq (car (last slots)) 'title-source))))
+    (should (equal (last slots 2) '(title-source category-source)))))
 
 ;;; Expand Aliases Tests
 
