@@ -615,7 +615,8 @@ Returns list of `vulpea-note' structs."
 Uses normalized meta table for efficient filtering.
 
 KEY is a metadata key string.
-VALUE is the metadata value to match.
+VALUE is the metadata value to match, or a list of values any of which
+matches - one query, however many values.
 
 Returns list of `vulpea-note' structs."
   (let ((rows (emacsql (vulpea-db)
@@ -624,8 +625,8 @@ Returns list of `vulpea-note' structs."
                         :inner :join meta
                         :on (= notes:id meta:note-id)
                         :where (and (= meta:key $s1)
-                                    (= meta:value $s2))]
-                       key value)))
+                                    (in meta:value $v2))]
+                       key (vconcat (ensure-list value)))))
     (mapcar #'vulpea-db--row-to-note rows)))
 
 ;;; Tag Queries
