@@ -4,31 +4,18 @@
 
 * Overview
 
-Vulpea v2 features a plugin system that allows you to extend the database with
-custom extractors and tables. The system is designed around a *parse-once
-architecture*: files are parsed once using =org-element=, and the resulting AST
-is shared across all extractors.
+An extractor is a function vulpea calls for every note it indexes,
+with the note's parsed data in hand and the org-element tree on
+request. It can write to tables of its own, declared next to it and
+created for you, or change the note's core data before it is stored.
+Every extractor sees the same parse, runs inside the same transaction
+as the core write, and carries a version, so bumping a number is
+enough to rebuild its tables.
 
-** Key Features
-
-- *Parse-once architecture*: Single org-element parse shared across all
-  extractors
-- *Custom database schemas*: Define your own tables with foreign key
-  constraints
-- *Priority-based execution*: Control the order in which extractors run
-- *Version tracking*: Built-in schema versioning for migration support
-- *Automatic schema creation*: Tables and indices created automatically
-- *Transactional updates*: All extractors run within a single transaction
-
-** When to Write a Plugin
-
-Write a plugin when you need to:
-
-1. Extract domain-specific data from notes (citations, TODOs, code blocks, etc.)
-2. Create relationships between notes beyond standard links
-3. Add computed properties or derived data
-4. Integrate with external systems
-5. Build specialized queries not covered by core functionality
+Write one when the data you want lives in the note text but in no
+column vulpea keeps: citations, code blocks, a reading time, a
+relation between notes that is not an =id:= link. Anything you can
+express as a query over the existing tables does not need a plugin.
 
 * The Plugin System Architecture
 
@@ -275,24 +262,17 @@ registered extractor: it always runs first and produces the
 =note-data= your extractor receives. Registered extractors then run in
 priority order, lower numbers first. The default is 100.
 
-Choose priority based on:
-
-1. *Dependencies*: If plugin B uses data from plugin A, A should have lower
-   priority
-2. *Performance*: Heavy extractors should run later (higher priority)
-3. *Importance*: Critical data extraction should run earlier
-
-Example:
+The only reason to pick a number is ordering: when extractor B reads a
+transient key that extractor A put into =note-data= (see
+[[*Extractor Dependencies][Extractor Dependencies]]), A needs the lower priority. Otherwise leave
+the default.
 
 #+begin_src emacs-lisp
-;; Citations: other plugins might query citation data
+;; Citations: writes :citations into note-data for others to read
 :priority 30
 
-;; Backlinks: depends on links being extracted first
+;; Reading time: counts the citations, so it runs after them
 :priority 50
-
-;; Statistics: aggregate data from other extractors
-:priority 900
 #+end_src
 
 * Extractors and Async Extraction
@@ -491,47 +471,25 @@ See =test/vulpea-db-extract-test.el= for the complete test:
 
 * Best Practices
 
-** Database Design
+Each of these is cheap to do and expensive to skip, and skipping any
+of them fails without an error.
 
-1. *Always use foreign key constraints*: Ensures data integrity
-2. *Use composite primary keys*: =(note-id, field)= prevents duplicates
-3. *Add indices for query performance*: On columns used in WHERE clauses
-4. *Use =:on-delete :cascade=*: Automatic cleanup when notes deleted
-5. *Normalize data*: Separate tables for many-to-many relationships
-
-** Extraction Logic
-
-1. *Declare =:requires-ast= explicitly*: =t= if you read the AST
-   (without it the AST is nil), =nil= if you work from note data
-2. *Use =org-element-map=*: Efficient AST traversal
-3. *Handle missing data gracefully*: Check for nil before inserting
-4. *Use =delete-dups=*: Remove duplicate entries before insertion
-5. *Batch inserts*: Use =:values $v1= with vector list
-6. *Keep extractors focused*: One table/concept per extractor
-
-** Performance
-
-1. *Minimize AST traversals*: Extract all needed data in one pass
-2. *Use prepared statements*: Let emacsql handle parameterization
-3. *Avoid deep recursion*: Use =org-element-map= instead
-4. *Test with large files*: Ensure extractor scales
-5. *Profile if needed*: Use =benchmark-run= to measure
-
-** Error Handling
-
-1. *Use transactions*: Extractors run within =emacsql-with-transaction=
-2. *Don't catch errors*: Let transaction rollback on failure
-3. *Validate data*: Check types before insertion
-4. *Log warnings*: Use =lwarn= for non-critical issues
-5. *Test edge cases*: Empty files, malformed content, etc.
-
-** Documentation
-
-1. *Document the schema*: Explain what each table/column represents
-2. *Show query examples*: How to retrieve the extracted data
-3. *Explain use cases*: When/why to use the extractor
-4. *Provide tests*: Executable documentation
-5. *Version changes*: Document migration steps in comments
+- Declare =:requires-ast= either way. An AST reader that forgets it
+  extracts nothing and never errors.
+- Give every table a foreign key to =notes= with =:on-delete :cascade=,
+  and a primary key that makes a duplicate row impossible
+  (=(note-id, field)= is the usual shape). Deleted notes then clean up
+  after themselves, and re-extraction cannot double rows.
+- Strip text properties from strings pulled out of the AST
+  (=substring-no-properties=). emacsql stores a propertized string in
+  its printed =#("...")= form, and the value is then wrong in every
+  query.
+- Do not catch errors. Extractors run inside the write transaction, so
+  an error rolls back the whole file, which is the state you want: no
+  half-extracted note. Use =lwarn= for things worth knowing that
+  should not abort.
+- Walk the AST once. Each =org-element-map= over a 10MB file is paid
+  in full, so collect everything you need in one pass.
 
 * Advanced Topics
 
@@ -667,29 +625,6 @@ Extract summary data across the entire file:
                  [:insert :into file-summaries :values $v1]
                  (list (vector (plist-get note-data :id)
                               total-todos)))))
-
-    note-data))
-#+end_src
-
-** External Data Integration
-
-Fetch data from external sources:
-
-#+begin_src emacs-lisp
-(defun my-external-enrichment (ctx note-data)
-  ;; Get external data based on note properties
-  (let* ((properties (plist-get note-data :properties))
-         (external-id (alist-get "EXTERNAL_ID" properties nil nil #'equal)))
-
-    (when external-id
-      (let ((external-data (fetch-from-external-api external-id)))
-        (when external-data
-          (emacsql (vulpea-db)
-                   [:insert :or :replace :into external-cache :values $v1]
-                   (list (vector (plist-get note-data :id)
-                                external-id
-                                external-data
-                                (format-time-string "%Y-%m-%d %H:%M:%S")))))))
 
     note-data))
 #+end_src
