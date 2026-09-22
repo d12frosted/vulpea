@@ -137,19 +137,21 @@ Emacs hangs when enabling =vulpea-db-autosync-mode=.
 
 *** Cause
 
-Initial scan is processing all files synchronously.
+=vulpea-db-sync-scan-on-enable= is set to ='blocking=, so the initial
+scan processes every file before the mode returns.
 
 *** Solutions
 
-1. *Use async scan* (recommended, non-blocking):
+1. *Use the async scan* (the default):
 
    #+begin_src emacs-lisp
    (setq vulpea-db-sync-scan-on-enable 'async)
    #+end_src
 
-   With async scan, startup returns in ~240ms.  File listing runs as
-   a subprocess (=fd= or =find=), and changed files are processed
-   incrementally via idle timer.
+   Enabling the mode then returns in a few milliseconds (~8ms
+   measured on a 13.8k-file collection). File listing runs as a
+   subprocess (=fd= or =find=), and changed files are processed in
+   batches from an idle timer.
 
 2. *Skip startup scan entirely:*
 
@@ -466,23 +468,6 @@ Placeholders like =${title}= appear literally in created notes.
 - Variables: =${title}=, =${slug}=, =${timestamp}=, =${id}=
 - Elisp: =%(user-full-name)=, =%(format-time-string "%Y")=
 - Timestamps: =%<[%Y-%m-%d]>=
-
-** Journal Template Not Applied
-
-*** Symptom
-
-Journal notes don't use your configured template.
-
-*** Check
-
-Ensure template is set before opening journal:
-
-#+begin_src emacs-lisp
-(setq vulpea-journal-default-template
-      '(:file-name "journal/%Y%m%d.org"
-        :title "%Y-%m-%d %A"
-        :tags ("journal")))
-#+end_src
 
 * Compatibility Issues
 

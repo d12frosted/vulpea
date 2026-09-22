@@ -418,7 +418,7 @@ An entry is considered archived if:
 - It has the =org-archive-tag= (default: "Archive") directly or inherited from parent headlines or filetags
 - It has the =ARCHIVE_TIME= property (set automatically by =org-archive-subtree=)
 
-This keeps your database clean by excluding historical entries that are typically only kept for reference. If you need to query archived content, set this to =nil= and run =vulpea-db-sync= to rebuild.
+This keeps your database clean by excluding historical entries that are typically only kept for reference. If you need to query archived content, set this to =nil= and run =C-u M-x vulpea-db-sync-full-scan= to re-index.
 
 ** Custom Index Filters
 

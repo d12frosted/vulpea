@@ -270,13 +270,10 @@ A few rules:
 
 * Priorities and Execution Order
 
-Extractors run in priority order (lower numbers first):
-
-- 0-9: Reserved for future core extractors
-- 10: =notes= extractor (core data)
-- 20-99: High-priority plugins that other plugins may depend on
-- 100-999: Normal priority plugins
-- 1000+: Low-priority plugins
+Core extraction (the =notes= row and the normalized tables) is not a
+registered extractor: it always runs first and produces the
+=note-data= your extractor receives. Registered extractors then run in
+priority order, lower numbers first. The default is 100.
 
 Choose priority based on:
 
@@ -805,11 +802,7 @@ See =test/vulpea-db-extract-test.el= for:
 
 * Contributing
 
-If you write a useful plugin:
-
-1. Submit a PR with the plugin in =contrib/= directory
-2. Include comprehensive tests
-3. Add documentation with usage examples
-4. Update this guide with lessons learned
-
-Popular plugins may be promoted to core extractors in future versions.
+Plugins live in their own packages, not in this repository.
+[[https://github.com/darcamo/vulpea-tag-links][vulpea-tag-links]] is one to
+learn from. When yours is ready, open a pull request adding it to the
+Ecosystem section of the README.
