@@ -425,27 +425,6 @@ without discarding the database. Existing databases predating the
 epoch mechanism are treated as stale and re-extracted on first open.
 
 
-* Performance Characteristics
-
-** Immediate mode (autosync OFF)
-
-- *Pros*: Predictable, simple, good for small repos
-- *Cons*: Blocks UI during updates, no batching
-- *Best for*: <100 notes, manual workflows
-
-** Async mode (autosync ON)
-
-- *Pros*: Non-blocking, batched, handles external changes
-- *Cons*: Slight delay before DB reflects changes
-- *Best for*: Large repos, collaborative workflows, sync tools
-
-** Smart detection
-
-- *Speedup*: 10-100x faster than force mode
-- *Cost*: One hash per file checked
-- *Use case*: Directory sync, polling, startup scan
-
-
 * Event Flows Summary
 
 #+begin_example
@@ -541,12 +520,3 @@ crash loop (three quick deaths) or repeated hangs
 synchronous indexing with a warning. =M-x vulpea-db-worker-reset=
 re-arms it, =M-x vulpea-db-worker-diagnose= explains the current
 state end to end, and =vulpea-db-worker-debug= logs the protocol.
-
-* Key Insights
-
-1. *Single entry point*: All updates go through ~vulpea-db-update-file~
-2. *Mode independence*: Watchers always async, create always immediate
-3. *Smart by default*: Change detection via hash saves parsing
-4. *Batch processing*: 100 files = 1 transaction = faster
-5. *Debouncing*: Rapid changes batched automatically
-6. *org-id integration*: Happens in ~vulpea-db-update-file~, so all flows get it
