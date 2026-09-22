@@ -593,8 +593,6 @@ With =vulpea-db-autosync-mode= enabled, Vulpea automatically:
 - Detects external changes (git pull, sync tools) if =fswatch= is installed
 - Updates the database in the background
 
-You don't need to do anything - it just works.
-
 ** Manual Sync
 
 If you need to force a sync:
@@ -637,13 +635,6 @@ there as a mentioning note: that search reads files from disk, where
 the note is ciphertext.
 
 * Tips and Workflows
-
-** Zettelkasten-Style Notes
-
-1. Create atomic notes with =vulpea-find= (type new title to create)
-2. Link related notes with =vulpea-insert=
-3. Explore connections with =vulpea-find-backlink=
-4. Use tags for broad categories, metadata for specific attributes
 
 ** Project Notes
 
