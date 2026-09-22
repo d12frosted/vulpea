@@ -241,13 +241,7 @@ v2 is a complete rewrite:
 
 ** Contributing
 
-Contributions welcome! See [[file:docs/architecture.org][Architecture]] for design decisions.
-
-Areas where help is needed:
-- Performance testing with large collections
-- Platform testing (Windows, Linux, macOS)
-- Plugin examples
-- Documentation improvements
+Contributions welcome. [[file:docs/architecture.org][Architecture]] records the decisions behind v2 and why, and the [[file:docs/plugin-guide.org][Plugin Guide]] is the way in if you want to extend the database rather than change it.
 
 ** License
 
