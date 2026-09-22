@@ -400,10 +400,11 @@ For large collections (10k+ notes):
 If files modified by git or sync tools aren't updating:
 
 1. Install =fswatch=: =brew install fswatch= (macOS) or =apt install fswatch= (Linux)
-2. Verify it's being used:
-   #+begin_src emacs-lisp
-   (setq vulpea-db-sync-external-method 'auto)  ; or 'fswatch
-   #+end_src
+2. Check that Emacs can see it: =M-x vulpea-doctor= lists it under
+   External Tools, and =*Messages*= shows =Vulpea: Started fswatch
+   monitoring= when autosync starts. If it is installed but not
+   found, your GUI Emacs has a shorter =PATH= than your shell (see
+   [[file:troubleshooting.org::*Make sure Emacs can find fswatch][Troubleshooting]]).
 
 * Next Steps
 
