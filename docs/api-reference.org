@@ -523,11 +523,11 @@ out the way the note spells them.
 
 There are multiple ways to read metadata, each with different trade-offs:
 
-| Function                  | Source                | Speed   | Always Fresh?   |
-|---------------------------+-----------------------+---------+-----------------|
-| =vulpea-note-meta-get=    | Note struct (from DB) | Fast    | No (needs sync) |
-| =vulpea-meta-get=         | File on disk          | Slower  | Yes             |
-| =vulpea-buffer-meta-get!= | Pre-parsed metadata   | Fastest | Depends         |
+| Function                  | Source                | Speed   | Always Fresh?                     |
+|---------------------------+-----------------------+---------+-----------------------------------|
+| =vulpea-note-meta-get=    | Note struct (from DB) | Fast    | No (needs sync)                   |
+| =vulpea-meta-get=         | File on disk          | Slower  | Yes                               |
+| =vulpea-buffer-meta-get!= | Pre-parsed metadata   | Fastest | As fresh as the parse you hand it |
 
 *Prefer =vulpea-note-meta-get=* for most cases - it reads from the note struct which is populated from the database:
 
@@ -795,7 +795,7 @@ Operate on multiple notes efficiently using =vulpea-utils-process-notes=:
 (vulpea-tags-batch-remove notes "active")
 ;; => count of notes processed
 
-;; Rename a tag across all notes (implements #120)
+;; Rename a tag across all notes
 (vulpea-tags-batch-rename "old-tag" "new-tag")
 ;; => count of notes modified
 
@@ -2038,15 +2038,15 @@ package - it flags the same violations inline as you edit.)
 
 ** Sync Functions
 
-| Function                          | Description                    |
-|-----------------------------------+--------------------------------|
-| =vulpea-db-autosync-mode=         | Toggle auto-sync               |
-| =vulpea-db-update-file=           | Immediate sync update          |
+| Function                          | Description                     |
+|-----------------------------------+---------------------------------|
+| =vulpea-db-autosync-mode=         | Toggle auto-sync                |
+| =vulpea-db-update-file=           | Immediate sync update           |
 | =vulpea-db-sync-update-file=      | Re-read file (async if enabled) |
-| =vulpea-db-sync-update-directory= | Update directory               |
-| =vulpea-db-sync-full-scan=        | Scan all directories           |
-| =vulpea-db-sync-add-directory=    | Add sync directory at runtime  |
-| =vulpea-db-sync-remove-directory= | Remove sync directory          |
+| =vulpea-db-sync-update-directory= | Update directory                |
+| =vulpea-db-sync-full-scan=        | Scan all directories            |
+| =vulpea-db-sync-add-directory=    | Add sync directory at runtime   |
+| =vulpea-db-sync-remove-directory= | Remove sync directory           |
 
 * Next Steps
 
