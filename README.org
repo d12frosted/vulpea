@@ -29,14 +29,14 @@ Vulpea solves this by maintaining a database of your notes that stays in sync wi
 - *Fast note finding* - Search by title, tags, or content across thousands of notes
 - *Connection discovery* - Find what links to what, explore backlinks
 - *Rich queries* - Filter notes by tags, metadata, links, or custom predicates
-- *Non-blocking sync* - Database updates happen in the background, never interrupts your typing
+- *Non-blocking sync* - File watchers feed a background queue, and an opt-in worker process takes parsing off the main thread
 - *External change detection* - Works with git, Dropbox, Syncthing - files changed outside Emacs are detected automatically
 
 *** Use Cases
 
 *Personal knowledge management* - Use =M-x vulpea-find= to navigate your notes, =M-x vulpea-insert= to create links between ideas. Vulpea handles Zettelkasten-style workflows where connections matter.
 
-*Building applications* - Vulpea provides a foundation for note-based apps. [[https://github.com/d12frosted/vino][Vino]] uses Vulpea to manage wine collections with ratings, producers, and regions. The included journal module provides daily notes with widgets.
+*Building applications* - Vulpea provides a foundation for note-based apps. [[https://github.com/d12frosted/vino][Vino]] uses Vulpea to manage wine collections with ratings, producers, and regions. [[https://github.com/d12frosted/vulpea-journal][vulpea-journal]] provides daily notes with widgets.
 
 *Large collections* - Designed to scale. The async architecture and optimized queries handle 100k+ notes without degrading performance.
 
@@ -141,7 +141,7 @@ git clone https://github.com/d12frosted/vulpea
 
 *** Dependencies
 
-- Emacs 27.2+
+- Emacs 29.1+
 - =org-mode= 9.4.4+
 - =emacsql= 4.3.0+ (with =emacsql-sqlite-builtin=)
 - =s= 1.12+

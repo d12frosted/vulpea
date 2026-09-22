@@ -29,9 +29,8 @@ Note your current v1 configuration - you'll need to translate settings to v2 equ
 
 #+begin_src emacs-lisp
 ;; v2 uses its own database, separate from org-roam-db-location
-;; Can be stored in cache directory
 (setq vulpea-db-location
-      (expand-file-name "vulpea/vulpea.db" user-emacs-cache-directory))
+      (expand-file-name "vulpea/vulpea.db" user-emacs-directory))
 #+end_src
 
 * Configuration Migration
@@ -91,7 +90,11 @@ Most query functions have similar names but may have different signatures.
 
 *v1:*
 #+begin_src emacs-lisp
-(vulpea-create title template-key nil nil 'immediate-finish)
+(vulpea-create title
+               "${slug}.org"  ; file-name was required
+               :tags '("project" "work")
+               :head "#+created: %<[%Y-%m-%d]>"
+               :immediate-finish t)
 #+end_src
 
 *v2:*
@@ -102,7 +105,7 @@ Most query functions have similar names but may have different signatures.
                :head "#+created: %<[%Y-%m-%d]>")
 #+end_src
 
-Note: v2 always creates notes immediately (no capture buffer). The old =immediate-finish= parameter is gone.
+Note: v2 always creates notes immediately (no capture buffer). The =:immediate-finish=, =:unnarrowed= and =:capture-properties= keywords are gone, and =file-name= is optional.
 
 ** Metadata
 

@@ -75,7 +75,7 @@ Add to your Emacs configuration:
 ** Dependencies
 
 *Required:*
-- Emacs 27.2 or later
+- Emacs 29.1 or later
 - =org-mode= 9.4.4 or later
 - =emacsql= 4.3.0+ with =emacsql-sqlite-builtin=
 - =s= 1.12+

@@ -15,7 +15,7 @@ All query functions return =vulpea-note= structs:
 (vulpea-note-primary-title note) ; Primary title (without aliases)
 (vulpea-note-aliases note)       ; List of alias strings
 (vulpea-note-tags note)          ; List of tag strings
-(vulpea-note-links note)         ; List of (type . target) pairs
+(vulpea-note-links note)         ; List of plists (:dest :type :pos :description)
 (vulpea-note-meta note)          ; Alist of metadata (document order)
 (vulpea-note-properties note)    ; Alist of org properties
 (vulpea-note-todo note)          ; TODO state string or nil
@@ -156,11 +156,8 @@ This is an optimized query that retrieves all attachment link destinations along
 ;; Notes with a specific metadata key
 (vulpea-db-query-by-meta-key "status")
 
-;; Notes where key equals value
+;; Notes where key equals value (matched as the string written in the note)
 (vulpea-db-query-by-meta "status" "active")
-
-;; With type specification
-(vulpea-db-query-by-meta "region" "region-id" "note")
 #+end_src
 
 ** By Properties
@@ -1467,7 +1464,7 @@ also interactive commands.
 
 ;; Convert title to URL-friendly slug
 (vulpea-title-to-slug "My Note Title")
-;; => "my-note-title"
+;; => "my_note_title"
 
 ;; Make org link to note
 (vulpea-utils-link-make-string note)

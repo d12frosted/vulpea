@@ -40,7 +40,7 @@ Vulpea v2 will NOT depend on org-roam. Compatibility layer will be provided as s
 - Users can run old vulpea in one Emacs session, new in another during transition
 
 *** Today
-Vulpea v2 has no org-roam dependency.
+Vulpea v2 has no org-roam dependency. The compatibility package was never written: nobody asked for it, and the two coexist on separate databases without it.
 
 ** DECISION 2: Hybrid Database Schema
 *** Decision
