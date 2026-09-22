@@ -193,19 +193,26 @@ Full scans take a long time, even on subsequent runs.
    (setq vulpea-db-index-heading-level nil)
    #+end_src
 
-** Performance Degrades Over Time
+** A Long Scan Slows Down as It Goes
 
 *** Symptom
 
-Operations get slower with repeated use.
+A full scan starts at hundreds of files per second and ends at a
+crawl.
 
 *** Cause
 
-Heavy =org-mode-hook= functions running during parsing.
+The default parse method, =temp-buffer=, re-runs =org-mode= for every
+file, and =org-mode-hook= with it. On the bench harness that holds
+~460 files/s through 10k files and is down to ~56/s by 100k, with
+stock org-mode and no hooks of your own; whatever your hooks cost is
+added per file on top (see =bench/PERFORMANCE.md=).
 
 *** Solution
 
-Guard hook functions to skip during Vulpea parsing:
+Either switch to =single-temp-buffer=, which never re-runs the hooks
+(see [[file:configuration.org::*Parse Method][Parse Method]] for what you give up), or keep the method and guard
+the heavy hooks so they skip Vulpea's parse buffers:
 
 #+begin_src emacs-lisp
 (add-hook 'org-mode-hook
@@ -432,7 +439,8 @@ Or force a full scan: =C-u M-x vulpea-db-sync-full-scan=
 
 *** Symptom
 
-Errors when querying, or Emacs crashes when using Vulpea.
+SQLite errors (=database disk image is malformed= and the like) on
+every query, and a forced scan does not clear them.
 
 *** Solution
 
@@ -491,15 +499,17 @@ See the [[file:getting-started.org][Getting Started guide]] for the recommended 
 
 ** With Other Packages
 
-If conflicts occur with other org-mode packages:
+With the default =temp-buffer= method, Vulpea loads each note into a
+reused buffer and re-runs =org-mode= there. =buffer-file-name= is set,
+but it is not a real visit: =find-file-hook= does not run and
+=.dir-locals.el= is not applied. A package whose =org-mode-hook=
+function depends on either can misbehave in that buffer. Two ways
+out: guard that function with =vulpea-db--active-parse-method= (see
+[[*A Long Scan Slows Down as It Goes][above]]), or parse with real file visits:
 
-1. *Load order:* Load Vulpea after org-mode
-
-2. *Hook conflicts:* Guard Vulpea's hooks:
-
-   #+begin_src emacs-lisp
-   (setq vulpea-db-parse-method 'find-file)  ; Most compatible
-   #+end_src
+#+begin_src emacs-lisp
+(setq vulpea-db-parse-method 'find-file)  ; slowest, runs every hook as usual
+#+end_src
 
 * Async Extraction Issues
 
