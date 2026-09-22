@@ -163,6 +163,23 @@ This is an optimized query that retrieves all attachment link destinations along
 (vulpea-db-query-by-meta "region" "region-id" "note")
 #+end_src
 
+** By Properties
+
+Every key in a property drawer is indexed, at file level and on
+headings alike. Keys are stored upcased.
+
+#+begin_src emacs-lisp
+;; Notes that have a property key
+(vulpea-db-query-by-property-key "ISBN")
+
+;; Notes where key equals value
+(vulpea-db-query-by-property "AUTHOR" "Ursula K. Le Guin")
+#+end_src
+
+For a note in hand, =vulpea-note-properties= returns the same
+drawer as an alist. To match property values while selecting a
+note in =vulpea-find=, see [[*Customizing Selection Display][Customizing Selection Display]].
+
 ** By Category
 
 #+begin_src emacs-lisp
@@ -1199,6 +1216,30 @@ A candidate is rendered as =describe-fn= output followed by =annotate-fn= output
 
 By default the annotation is part of the candidate string, so typing =#tag= or an alias narrows the selection - that matchability is why it is the default. Set =vulpea-select-annotate-matchable= to =nil= to serve the same =annotate-fn= output through the standard =annotation-function= (completion metadata) instead. The annotation then behaves like any other minibuffer annotation: it is display-only, so typed text no longer matches it (unless your completion style makes it match, e.g. orderless style dispatchers), marginalia recognizes it as the =builtin= annotator for the =vulpea-note= category (so you can register additional annotators and cycle them with =marginalia-cycle=), and display modes that hide annotations to save space (such as =vertico-multiform-grid=) actually hide it.
 
+The same mechanism makes any note field matchable. Selection does
+not search the database: it matches against the candidate string,
+so a value that is indexed but absent from the string cannot narrow
+the list. To find notes by a property value, append the values you
+care about to the annotation (keys are upcased):
+
+#+begin_src emacs-lisp
+(defun my-vulpea-annotate (note)
+  (let ((props (vulpea-note-properties note)))
+    (concat (vulpea-select-annotate note)
+            (mapconcat (lambda (key)
+                         (if-let* ((value (cdr (assoc key props))))
+                             (concat " " value)
+                           ""))
+                       '("AUTHOR" "ISBN")
+                       ""))))
+
+(setq vulpea-select-annotate-fn #'my-vulpea-annotate)
+#+end_src
+
+Name the keys explicitly rather than appending the whole drawer:
+=ID= and =CREATED= are on every note and only add noise and false
+matches.
+
 Both functions take a =vulpea-note= and return a string, so you can assemble any layout from the note's slots. Combining fields from the note alone is straightforward. Some layouts, though, want data that is expensive to compute per candidate - a backlink count is the classic example. For those, use the shared context hook.
 
 *** Shared context for the whole selection
@@ -1950,6 +1991,8 @@ package - it flags the same violations inline as you edit.)
 | =vulpea-db-query-attachments-by-path= | Attachment (dest . attach-dir) pairs |
 | =vulpea-db-query-by-meta=             | Notes with metadata key=value        |
 | =vulpea-db-query-by-meta-key=         | Notes having metadata key            |
+| =vulpea-db-query-by-property=         | Notes with property key=value        |
+| =vulpea-db-query-by-property-key=     | Notes having property key            |
 | =vulpea-db-query-by-file-paths=       | Notes from specific files            |
 | =vulpea-db-query-by-level=            | Notes at specific level              |
 | =vulpea-db-query-tags=                | Get all unique tags                  |
