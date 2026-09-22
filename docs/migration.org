@@ -23,9 +23,8 @@ Vulpea v2 is a complete rewrite. This guide helps you migrate from v1.
 
 * Before You Migrate
 
-We recommend testing v2 in a separate Emacs session before fully switching.
-
-Note your current v1 configuration - you'll need to translate settings to v2 equivalents.
+Try v2 in a separate Emacs session first. v1 and v2 can index the same
+files, since each keeps its own database:
 
 #+begin_src emacs-lisp
 ;; v2 uses its own database, separate from org-roam-db-location
@@ -74,17 +73,10 @@ Note: =vulpea-default-notes-directory= defaults to the entry of =vulpea-db-sync-
 
 ** Query Functions
 
-Most query functions have similar names but may have different signatures.
-
-| v1 Function                      | v2 Equivalent                    |
-|----------------------------------+----------------------------------|
-| =vulpea-db-query=                | =vulpea-db-query=                |
-| =vulpea-db-get-by-id=            | =vulpea-db-get-by-id=            |
-| =vulpea-db-get-title=            | Use =vulpea-db-search-by-title=  |
-| =vulpea-db-query-by-tags-some=   | =vulpea-db-query-by-tags-some=   |
-| =vulpea-db-query-by-tags-every=  | =vulpea-db-query-by-tags-every=  |
-| =vulpea-db-query-by-links-some=  | =vulpea-db-query-by-links-some=  |
-| =vulpea-db-query-by-links-every= | =vulpea-db-query-by-links-every= |
+The query functions keep their names: =vulpea-db-query=,
+=vulpea-db-get-by-id=, and the =-by-tags-= and =-by-links-= families
+are all still there. The one casualty is =vulpea-db-get-title=; use
+=vulpea-db-search-by-title= instead.
 
 ** Note Creation
 
@@ -157,20 +149,9 @@ If you want to keep org-roam for some features while using Vulpea for others, bo
 
 * Breaking Changes Summary
 
-1. *Different database* - Must rebuild, cannot migrate
-2. *No org-roam dependency* - org-roam functions not available
-3. *Async sync* - Updates happen in background, not on save
-4. *New configuration variables* - Review all settings
-5. *API changes* - Some functions renamed or have new signatures
+1. *Different database* - rebuilt from your files, nothing to migrate
+2. *No org-roam dependency* - org-roam functions are not loaded for you
+3. *Async sync* - the database catches up a moment after a save, not during it
+4. *=vulpea-create=* - capture keywords are gone and =file-name= is optional (see above)
 
-* Getting Help
-
-If you encounter migration issues:
-
-1. Check [[file:troubleshooting.org][Troubleshooting]] for common problems
-2. Open an issue at [[https://github.com/d12frosted/vulpea/issues][GitHub]]
-
-Include:
-- Your v1 configuration
-- What you're trying to migrate
-- Error messages
+If something does not migrate cleanly, check [[file:troubleshooting.org][Troubleshooting]], then [[https://github.com/d12frosted/vulpea/issues][open an issue]] with your v1 configuration and the error.
