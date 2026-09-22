@@ -16,7 +16,7 @@ M-x vulpea-find
 This opens a completion interface showing all your notes. Type to filter, then select a note to open it.
 
 Features:
-- Searches titles and aliases
+- Searches titles, aliases and tags (any note field can be made matchable, see [[*Customizing How Notes Are Displayed][Customizing How Notes Are Displayed]])
 - Shows tags in the completion display
 - Resolves a fully typed id to the existing note (see [[*Selecting by Id][Selecting by Id]])
 - Creates a new note if you enter a title that doesn't exist
@@ -83,7 +83,7 @@ If a note that links to the current one has aliases, it appears in the candidate
 By default each candidate shows the note's title followed by its aliases and tags. You can change what every selection command (=vulpea-find=, =vulpea-insert=, and any custom =vulpea-select=) shows by setting two variables:
 
 - =vulpea-select-describe-fn= - builds the main, searchable part of the candidate. It takes a =vulpea-note= and returns a string. The default is =vulpea-note-title=.
-- =vulpea-select-annotate-fn= - builds a trailing annotation (shown dimmed). It also takes a =vulpea-note= and returns a string. The default appends the primary title (when matched through an alias) and =#tags=. The annotation is embedded in the candidate string, so typing a tag or an alias narrows the selection; set =vulpea-select-annotate-matchable= to =nil= to serve it through the standard =annotation-function= instead - display-only, but friendlier to marginalia annotators and to display modes that hide annotations. Setting the function itself to =nil= disables annotations entirely.
+- =vulpea-select-annotate-fn= - builds a trailing annotation (shown dimmed). It also takes a =vulpea-note= and returns a string. The default appends the primary title (when matched through an alias) and =#tags=. The annotation is embedded in the candidate string, so typing a tag or an alias narrows the selection; set =vulpea-select-annotate-matchable= to =nil= to serve it through the standard =annotation-function= instead - display-only, but friendlier to marginalia annotators and to display modes that hide annotations. Setting the function itself to =nil= disables annotations entirely. Because matching runs against this string and not against the database, the same trick makes any indexed field searchable: append a property value to the annotation and typing it narrows to the note. See [[file:api-reference.org::*Customizing Selection Display][Customizing Selection Display]] in the API reference for an example.
 
 For notes that live in headings, two ready-made describe functions prefix the title with its location so same-named notes are easy to tell apart:
 

@@ -237,6 +237,7 @@ Vulpea extracts and stores:
 | Tags       | =#+filetags:= and heading tags    | =vulpea-db-query-by-tags-some=    |
 | Links      | =id:= links in content            | =vulpea-db-query-by-links-some=   |
 | Metadata   | Description lists (=key :: val=)  | =vulpea-db-query-by-meta=         |
+| Properties | Property drawers (=:KEY: val=)    | =vulpea-db-query-by-property=     |
 | Aliases    | =ALIASES= property (configurable) | Included in completion candidates |
 | TODO state | =TODO=, =DONE=, etc.              | Available in =vulpea-note= struct |
 | Timestamps | =SCHEDULED=, =DEADLINE=, =CLOSED= | Available in =vulpea-note= struct |
