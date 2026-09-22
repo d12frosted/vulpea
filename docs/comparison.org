@@ -289,7 +289,6 @@ Benefits of the clean API:
 
 - *Byte compiler is your friend* - Type errors caught at compile time, less reliance on tests (vs raw SQL which only fails at runtime)
 - *Safe refactoring* - Internals can change without breaking apps. The complete v2 rewrite (from org-roam backend to custom backend) required no major changes in apps built on vulpea.
-- *LLM-friendly* - An AI can help write queries, transformations, and entire applications because the API expresses intent clearly
 
 * When to Choose What
 
@@ -315,7 +314,6 @@ Benefits of the clean API:
 - You want to use it alongside org-roam - they coexist without problems
 - You run multiple Emacs instances or sync files across machines
 - You have large files or a large collection and want indexing off the UI thread
-- You like the ecosystem (growing steadily, not chasing hype)
 - You want programmatic usage with confidence (stable API, clean abstractions)
 - You want to build applications on top of your notes
 
@@ -357,7 +355,7 @@ vulpea is designed with large collections in mind (100k+ files as the target):
 | org-node | "org-roam but fast"                               |
 | vulpea   | "Foundation for building note-based applications" |
 
-Choose based on what you're building. For simple note-taking, any will work. For building applications or complex workflows, vulpea's structured approach and stable API provide the foundation you need.
+For plain note-taking, any of the three will do. For building on top of your notes, vulpea is the one designed for it.
 
 * Notes
 
