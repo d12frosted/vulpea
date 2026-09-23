@@ -105,15 +105,16 @@ normalization is disabled or PATH is nil."
 
 Can be:
 - t: index all headings (default)
-- nil: index only file-level notes (2-3x faster)
+- nil: index only file-level notes
 - function: predicate (path) -> boolean for selective indexing
 
 In a file whose headings are not indexed, a heading with an ID is
 not a note, just part of the file-level note: links written under it
 count as the file note's.
 
-For 100k+ notes, disabling heading-level indexing can provide
-significant performance improvement."
+Disabling it saves what extracting and writing heading notes costs,
+which grows with how many heading notes your files have; see the
+Reference Numbers in bench/README.md."
   :type '(choice boolean function)
   :group 'vulpea-db)
 
