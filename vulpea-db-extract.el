@@ -402,7 +402,7 @@ that matches your configuration:
 
   \\='single-temp-buffer (FASTEST)
     Reuses one hidden buffer and never re-runs `org-mode'.
-    - ⚡ Best throughput (~1.3k files/sec)
+    - ⚡ Best throughput (about twice the default)
     - ✗ Skips `org-mode-hook' entirely
     - ✗ Ignores per-file `#+TODO', `#+PROPERTY', `org-attach-dir'
     Use when your Org setup is 100% global.
@@ -419,9 +419,9 @@ that matches your configuration:
   \\='find-file (SLOWEST)
     Visits files with `find-file-noselect' as if opened manually.
     - ✓ Respects `.dir-locals.el' and file-visiting hooks
-    - ✗ 30-40x slower than temp-buffer strategies
+    - ✗ Slowest: every file goes through the full visit machinery
 
-See README.org and bench/PERFORMANCE.md for guidance."
+Measured throughput is in bench/README.md (Reference Numbers)."
   :group 'vulpea
   :type '(choice (const :tag "Single temp buffer (fastest, skips hooks)" single-temp-buffer)
           (const :tag "Temp buffer (default, runs org-mode per file)" temp-buffer)
