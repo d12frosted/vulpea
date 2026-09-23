@@ -18,50 +18,25 @@
 </p>
 #+end_html
 
-A database layer for your org-mode notes. Vulpea indexes your notes and provides fast queries for tags, links, metadata, and full-text search - all without blocking your workflow.
+Vulpea turns a folder of org files into a note collection you can query. Any org entry with an =ID= is a note, a whole file or a single heading. Vulpea indexes them in its own SQLite database and, with autosync on, keeps it current even when git or Syncthing change files outside Emacs. You get commands for daily work with notes, and the same index as an API for building your own tools.
 
-** Why Vulpea?
+** What You Get
 
-Org-mode is powerful, but working with hundreds or thousands of notes becomes difficult. Finding notes, discovering connections, and querying your knowledge base requires tooling beyond what org-mode provides.
+- *Find and link* - =vulpea-find= and =vulpea-insert= search titles, aliases and tags. Typing a title that doesn't exist yet creates the note. Works with consult, embark and marginalia.
+- *Headings are notes too* - one file can hold a whole collection, and each heading is found, linked and queried on its own.
+- *Backlinks and unlinked mentions* - what links to this note, and what mentions it without a link.
+- *Refactoring that keeps links intact* - rename, move, split a heading out into its own file, or merge two notes. Links and their descriptions are updated to match.
+- *Metadata and schemas* - typed fields (numbers, dates, links to notes) in plain description lists. A schema declares what a kind of note should carry, flags violations and prompts you to fill in the missing fields.
+- *Queries from Elisp* - by tags, links, metadata, properties or any predicate.
+- *Stays out of your way* - file watchers feed a background queue, and an opt-in worker process takes parsing off the main thread.
+- *Extensible* - extractor plugins index your own data into your own tables.
+- *Checks its own setup* - =M-x vulpea-doctor= verifies directories, database, watchers and external tools.
 
-Vulpea solves this by maintaining a database of your notes that stays in sync with your files. You get:
+** Design
 
-- *Fast note finding* - Search by title, tags, or content across thousands of notes
-- *Connection discovery* - Find what links to what, explore backlinks
-- *Rich queries* - Filter notes by tags, metadata, links, or custom predicates
-- *Non-blocking sync* - File watchers feed a background queue, and an opt-in worker process takes parsing off the main thread
-- *External change detection* - Works with git, Dropbox, Syncthing - files changed outside Emacs are detected automatically
+Vulpea is a tool and a library at once. The commands above are built on the same public API you get: functions and the =vulpea-note= struct, never SQL tables, so the database can change without breaking your code. v2 replaced the whole backend that way. Core leaves out UI: sidebars, dashboards and journals live in companion packages (see [[*Ecosystem][Ecosystem]]). Vulpea and org-roam keep separate databases and can run side by side.
 
-*** Use Cases
-
-*Personal knowledge management* - Use =M-x vulpea-find= to navigate your notes, =M-x vulpea-insert= to create links between ideas. Vulpea handles Zettelkasten-style workflows where connections matter.
-
-*Building applications* - Vulpea provides a foundation for note-based apps. [[https://github.com/d12frosted/vino][Vino]] uses Vulpea to manage wine collections with ratings, producers, and regions. [[https://github.com/d12frosted/vulpea-journal][vulpea-journal]] provides daily notes with widgets.
-
-*Large collections* - Designed to scale. The async architecture and optimized queries handle 100k+ notes without degrading performance.
-
-** Design Philosophy
-
-Vulpea is designed as a *foundation*, not an application. Where tools like [[https://github.com/org-roam/org-roam][org-roam]] aim to replicate Roam Research in Emacs (and do it very well), Vulpea provides a stable API layer for building your own note-based workflows and applications.
-
-Key differences:
-
-- *Schema as implementation detail* - Vulpea's database structure is internal. The public API is functions and data structures, not SQL tables. This allows the backend to evolve without breaking user code.
-- *Library-first* - Vulpea exposes clean abstractions like =vulpea-note= that don't leak internals. Build applications on top without coupling to implementation details.
-- *Coexistence* - Vulpea and org-roam can run side-by-side; they use separate databases and don't interfere.
-
-For a detailed comparison with org-roam and org-node, see [[file:docs/comparison.org][Comparison with Other Libraries]].
-
-Vulpea originally started as a layer over org-roam, but v2 is a complete rewrite with its own database and indexing. For the full history and design rationale, see [[https://d12frosted.io/posts/2025-11-28-vulpea-v2-breaking-up-with-org-roam][Vulpea v2: a story of breaking up with org-roam]].
-
-** Key Features
-
-- 🌳 *Files or headings* - A note is any org node with an =ID=: a whole file, or a single heading inside a larger file
-- 🚀 *Actually async* - File watchers, background processing, and an opt-in worker process (=vulpea-db-async-extraction=) that parses and writes off the main thread - saving a 100MB file blocks Emacs for about a millisecond
-- 📊 *Optimized queries* - Hybrid database schema for fast reads
-- 🔌 *Extensible* - Plugin system for custom extractors and tables
-- 🏷️ *Rich metadata* - Type-aware metadata with automatic coercion
-- ⚡ *Scales* - Tested with 100k+ notes
+v1 was a layer over org-roam; v2 is a rewrite with its own database and indexing. [[https://d12frosted.io/posts/2025-11-28-vulpea-v2-breaking-up-with-org-roam][Vulpea v2: a story of breaking up with org-roam]] tells why, and the [[file:docs/migration.org][Migration Guide]] covers upgrading. For how vulpea compares to org-roam and org-node, see [[file:docs/comparison.org][Comparison with Other Libraries]].
 
 ** Quick Start
 
@@ -77,7 +52,7 @@ Vulpea originally started as a layer over org-roam, but v2 is a complete rewrite
 ;; M-x vulpea-insert  - insert link to a note
 #+end_src
 
-*Note:* A note is any org node with an =ID= - a whole file /or/ a single heading. One file can hold many notes: keep every swim session as a heading in =swimming.org= and each one is a first-class, queryable note. Vulpea indexes exactly these ID-carrying entries; use =M-x org-id-get-create= to add one to the entry at point.
+*Note:* Only entries with an =ID= are indexed; =M-x org-id-get-create= adds one to the entry at point. One file can hold many notes: keep every swim session as a heading in =swimming.org= and each one is its own queryable note.
 
 *** Best performance
 
@@ -162,7 +137,7 @@ Without =fswatch=, Vulpea falls back to polling (periodic directory scanning). W
 |----------+-------------|
 | [[file:docs/getting-started.org][Getting Started]] | Installation, first steps, basic concepts |
 | [[file:docs/user-guide.org][User Guide]] | Daily usage, interactive commands, working with notes |
-| [[file:docs/configuration.org][Configuration]] | All options explained, performance tuning |
+| [[file:docs/configuration.org][Configuration]] | Indexing, sync and note creation options |
 | [[file:docs/api-reference.org][API Reference]] | Programmatic usage, query functions, data structures |
 | [[https://github.com/d12frosted/vulpea-journal][Journal Module]] | Daily notes with widgets and calendar integration (separate package) |
 | [[file:docs/plugin-guide.org][Plugin Guide]] | Writing custom extractors for domain-specific data |
@@ -224,17 +199,6 @@ Notable user configurations:
 - [[https://github.com/chrisbarrett/emacs-d][chrisbarrett/emacs-d]]
 - [[https://github.com/d4ncer/.emacs.d][d4ncer/.emacs.d]]
 - [[https://github.com/benthamite/dotfiles][benthamite/dotfiles]]
-
-** What's New in v2
-
-v2 is a complete rewrite:
-
-- *No org-roam dependency* - Standalone library with custom database
-- *Async-first* - Non-blocking updates via file watchers
-- *Plugin system* - Custom extractors with schema versioning
-- *Performance* - Optimized for 100k+ notes
-
-→ [[file:docs/migration.org][Migration Guide from v1]]
 
 ** Contributing
 
