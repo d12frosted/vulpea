@@ -84,7 +84,7 @@ Both use Org's native =org-element= parser. This means:
 - *Complete* - Handles all Org syntax correctly
 - *Slower* - Full parse is more expensive
 
-vulpea softens the cost in two ways: by default it parses at =element= granularity, skipping inline objects that extraction never reads (the parse itself runs about 2.2x faster than a full one, with links located by org's own link parser so link semantics are unchanged), and it can run the whole parse in a background Emacs process (see Sync Architecture below), so the remaining cost doesn't block the UI.
+vulpea softens the cost in two ways: by default it parses at =element= granularity, skipping inline objects that extraction never reads (the parse itself runs about 2.6x faster than a full one, with links located by org's own link parser so link semantics are unchanged), and it can run the whole parse in a background Emacs process (see Sync Architecture below), so the remaining cost doesn't block the UI.
 
 *** org-node: Custom regex parser
 
@@ -335,8 +335,8 @@ With async extraction enabled, vulpea gets the property that used to be unique t
 
 | Save-path freeze  | sync path | worker (=t=) | worker (=full=) |
 |-------------------+-----------+--------------+-----------------|
-| 1MB file          | 421ms     | 64ms         | 14ms            |
-| 10MB file         | 3.73s     | 0.89s        | 1.7ms           |
+| 1MB file          | 252ms     | 43ms         | 12ms            |
+| 10MB file         | 2.28s     | 0.45s        | 1.1ms           |
 
 In =full= mode the worker writes the database itself, so the freeze stays flat (1.3ms at 100MB); the 1MB figures are mostly the first request of a session spawning the worker.
 

@@ -237,13 +237,13 @@ How Vulpea reads org files during sync:
 
 | Method               | Speed        | Compatibility                                |
 |----------------------+--------------+----------------------------------------------|
-| =single-temp-buffer= | ~730 files/s | Skips org-mode hooks and locals, fastest     |
-| =temp-buffer=        | ~440 files/s | Runs org-mode hooks and dir-locals per file  |
-| =find-file=          | ~300 files/s | Full compatibility (all file-visiting hooks) |
+| =single-temp-buffer= | ~840 files/s | Skips org-mode hooks and locals, fastest     |
+| =temp-buffer=        | ~500 files/s | Runs org-mode hooks and dir-locals per file  |
+| =find-file=          | ~370 files/s | Full compatibility (all file-visiting hooks) |
 
-Files per second for a full sync of generated notes with stock
-org-mode (100k notes, =find-file= 10k); your hooks add their own cost
-per file.
+Files per second for a full sync of 100k generated notes with stock
+org-mode; every method holds its rate across the run. Your hooks add
+their own cost per file.
 
 =single-temp-buffer= is about 1.7 times as fast as the default, but it ignores
 per-file =#+TODO= / =#+PROPERTY= keywords, =org-mode-hook= and dir-locals.
@@ -294,9 +294,8 @@ please report it. Known exception: radio links are only picked up in
 =vulpea-db-register-extractor=, a full =object= parse is used
 regardless, since plugins may inspect inline objects.
 
-The parse step itself gets about 2.2x faster (2.4s to 1.1s for a 10MB
-file); since parsing is one step of indexing, saving that file gets
-about 16% faster overall.
+The parse step itself gets about 2.6x faster (2.4s to 0.9s for a 10MB
+file), and saving that file takes 2.3s instead of 3.6s.
 
 ** Plain Link Indexing
 
@@ -314,8 +313,8 @@ most expensive part of link extraction. Bracketed links
 (=[[id:...][desc]]=) are found with a cheap literal search. Since
 =id:= links - the ones that carry the note graph - are practically
 always bracketed, collections that do not query plain links can
-disable this for a shorter save freeze on large files (a 10MB file
-re-indexes in 3.1s instead of 3.7s).
+disable this for a slightly shorter save freeze on large files (a 10MB
+file re-indexes in 2.2s instead of 2.3s).
 
 After changing it, run =vulpea-db-sync-full-scan= with a prefix
 argument to re-index existing files.
@@ -335,7 +334,7 @@ thread - the UI freezes for as long as the file takes to index.
 With async extraction (=t=), reading, hashing, parsing, and
 extraction run in a persistent =emacs --batch= worker; the main
 thread only blocks for the database write of the results (a 1MB
-file: 64ms instead of 421ms; a 10MB file: 0.89s instead of 3.73s).
+file: 43ms instead of 252ms; a 10MB file: 0.45s instead of 2.28s).
 
 With ='full=, the worker also writes the results through its own
 database connection, and the main thread only registers note IDs
@@ -431,8 +430,8 @@ Control whether headings with IDs are indexed:
 
 If you only use file-level notes, turning this off skips heading
 extraction. How much that saves depends on how many heading notes your
-files have: nothing for a collection without them, and 3.7s down to
-2.2s for a 10MB file with 3.6k of them.
+files have: nothing for a collection without them, and 2.3s down to
+1.7s for a 10MB file with 3.7k of them.
 
 With heading-level indexing off for a file, a heading with an =ID= is
 just part of the file-level note: links written under it are the file

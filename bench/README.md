@@ -24,35 +24,34 @@ The performance figures quoted in the guides come from this section.
 Each one names the benchmark that produced it, so it can be re-run.
 
 Measured on 2026-09-23 on a MacBook Pro with an Apple M1 Pro (32GB),
-macOS 26.3, Emacs 31.0.50, stock org-mode, vulpea at commit da3fac2
-(2.7.x). Every run is byte-compiled: pass `-c` to `eldev exec`
-(`eldev -p` compiles too). Without it vulpea runs interpreted from
-source and the numbers come out several times slower. Absolute times
-move with hardware and Emacs build; ratios between rows of one table
-are what the guides rely on.
+macOS 26.3, Emacs 31.0.50, stock org-mode, vulpea at commit 21747c2.
+Every run is byte-compiled: pass `-c` to `eldev exec` (`eldev -p`
+compiles too). Without it vulpea runs interpreted from source and the
+numbers come out several times slower. Absolute times move with
+hardware and Emacs build; ratios between rows of one table are what the
+guides rely on.
 
 ### Full sync throughput
 
 `vulpea-bench-sync` over generated notes with headings
-(`vulpea-bench-generate-notes DIR N t`), one `eldev -p exec` run per
-parse method:
+(`vulpea-bench-generate-notes DIR N t`), one `eldev -p -dtT exec` run
+per parse method and size:
 
-| parse method         | notes | time   | files/s |
-|----------------------|-------|--------|---------|
-| `single-temp-buffer` | 10k   | 17.7s  | 566     |
-| `temp-buffer`        | 10k   | 35.3s  | 283     |
-| `temp-buffer`        | 100k  | 17.3min| 96      |
-| `find-file`          | 1k    | 4.6s   | 216     |
-| `temp-buffer`        | 1k    | 3.2s   | 310     |
-| `single-temp-buffer` | 1k    | 1.8s   | 549     |
+| parse method         | 1k            | 10k            | 100k            |
+|----------------------|---------------|----------------|-----------------|
+| `single-temp-buffer` | 1.8s (563/s)  | 12.8s (783/s)  | 2.0min (844/s)  |
+| `temp-buffer`        | 2.6s (381/s)  | 20.6s (486/s)  | 3.3min (499/s)  |
+| `find-file`          | 3.3s (304/s)  | 27.2s (367/s)  | 4.5min (368/s)  |
 
-`temp-buffer` slows down as a run goes on: 283 files/s over the first
-10k, 96/s averaged over 100k. `single-temp-buffer` does not re-run
-`org-mode` per file and holds its rate.
+Every method holds its rate across a run: each 10k files of the 100k
+runs took 11.4s, 19.7s and 26.8s respectively, from the first 10k to
+the last. (Until #523, org registered every parsed file with its
+persistent element cache and each file cost more than the one before;
+100k took 16 minutes with `single-temp-buffer`.) The 1k runs include
+start-up, which is why their rate is lower.
 
 The November 2025 numbers in [PERFORMANCE.md](PERFORMANCE.md) came from
-a different setup; on this one v2.0.0 itself does ~600 files/s with
-`single-temp-buffer` at 10k.
+a different setup.
 
 ### Saving one large file
 
@@ -63,14 +62,14 @@ save, which is the freeze you feel:
 
 | file  | notes  | synchronous | async `t` | async `full` |
 |-------|--------|-------------|-----------|--------------|
-| 1MB   | 362    | 421ms       | 64ms      | 14ms         |
-| 10MB  | 3.6k   | 3.73s       | 0.89s     | 1.7ms        |
-| 100MB | 36.7k  | (not run)   | 8.5s      | 1.3ms        |
+| 1MB   | 365    | 252ms       | 43ms      | 12ms         |
+| 10MB  | 3.7k   | 2.28s       | 0.45s     | 1.1ms        |
+| 100MB | 36.7k  | 25.9s       | 6.0s      | 1.3ms        |
 
 The first request of a session also spawns the worker, which is most
 of the 1MB async figures. In `full` mode the database is written by the
-worker, so the data becomes queryable later: 1.5s, 4.9s and 4.1min
-after the save for the three sizes.
+worker, so the data becomes queryable later: 1.4s, 3.4s and 25s after
+the save for the three sizes.
 
 ### What the indexing options change
 
@@ -79,15 +78,15 @@ default at a time:
 
 | setting                                  | save path | AST parse |
 |------------------------------------------|-----------|-----------|
-| defaults                                 | 3.73s     | 1.11s     |
-| `vulpea-db-parse-granularity 'object`    | 4.32s     | 2.42s     |
-| `vulpea-db-index-plain-links nil`        | 3.08s     | 0.91s     |
-| `vulpea-db-index-heading-level nil`      | 2.20s     | 0.90s     |
+| defaults                                 | 2.28s     | 0.92s     |
+| `vulpea-db-parse-granularity 'object`    | 3.64s     | 2.39s     |
+| `vulpea-db-index-plain-links nil`        | 2.16s     | 0.90s     |
+| `vulpea-db-index-heading-level nil`      | 1.68s     | 0.90s     |
 
-The object parse itself is 2.2x slower; it is one step of indexing, so
-the whole save gets about 16% slower. The file has 3.6k heading notes,
-which is why turning heading notes off saves this much; a collection of
-file-level notes gains nothing from it.
+The object parse is 2.6x slower than the element parse, and a whole
+save is 1.6x slower with it. The file has 3.7k heading notes, which is
+what turning heading notes off saves; a collection of file-level notes
+gains nothing from it.
 
 ### Metadata: one call per property vs a batch
 
@@ -96,9 +95,9 @@ file-level notes gains nothing from it.
 
 | properties | one by one | batch  | ratio |
 |------------|------------|--------|-------|
-| 5          | 4.4ms      | 1.7ms  | 2.6x  |
-| 20         | 22.5ms     | 3.8ms  | 5.9x  |
-| 50         | 87.9ms     | 5.1ms  | 17x   |
+| 5          | 4.2ms      | 1.7ms  | 2.5x  |
+| 20         | 21.8ms     | 3.7ms  | 5.9x  |
+| 50         | 88.5ms     | 4.9ms  | 18x   |
 
 ### Listing files and starting autosync
 
@@ -116,7 +115,7 @@ The listing commands alone take 15ms (`fd`) and 35ms (`find`); the rest
 is vulpea reading and normalizing the list. `sync-timing-test-run` with
 `VULPEA_NOTES_DIR` pointing at the same tree: enabling
 `vulpea-db-autosync-mode` (async startup scan, fswatch) returns in
-16ms, the listing subprocess finishes 0.9s later, and checking all
+10ms, the listing subprocess finishes 0.9s later, and checking all
 14k unchanged files takes another 0.9s, spread over idle batches.
 
 ## Components

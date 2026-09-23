@@ -38,7 +38,7 @@ and **this choice has dramatic performance and correctness implications**.
 
 | Aspect | single-temp-buffer | temp-buffer (default) | find-file |
 |--------|-------------------|-----------------------|-----------|
-| **Speed** | ⚡ **~560 files/sec** | ⚠️ **~280/s** (slows to a 96/s average over 100k) | 🐌 ~216 files/sec at 1k |
+| **Speed** | ⚡ **~840 files/sec** | **~500 files/sec** | 🐌 ~370 files/sec |
 | **Hooks** | ✗ Never run | ✓ `org-mode` + hooks each file | ✓ All file-visiting hooks |
 | **Dir-locals** | ✗ Ignored | ✓ Respected | ✓ Respected |
 | **#+TODO / #+PROPERTY** | ✗ Ignored after first file | ✓ Respected | ✓ Respected |
@@ -83,11 +83,11 @@ and **this choice has dramatic performance and correctness implications**.
 
 > **These tables are from November 2025.** Current numbers, with the
 > command behind each one, are in [README.md](README.md#reference-numbers).
-> Re-measured on the same model of machine in September 2026, the ratio
-> between `single-temp-buffer` and `temp-buffer` holds (about 2x), but
-> absolute throughput is lower (v2.0.0 itself measures ~600 files/s with
-> `single-temp-buffer` there), and `find-file` is much closer to the
-> others (216 files/s vs 310 for `temp-buffer` at 1k).
+> Re-measured on the same model of machine in September 2026 (100k
+> notes, each method at a steady rate): `single-temp-buffer` ~840
+> files/s, `temp-buffer` ~500, `find-file` ~370. `find-file` is much
+> closer to the others than below, and the slowdown at scale shown for
+> `temp-buffer` came from org-persist, fixed in #523.
 >
 > **Benchmark Environment:** MacBook Pro 2021 with Apple M1 Pro and APPLE SSD
 > AP0512R. All benchmarks below use **stock org-mode configuration** (no custom
