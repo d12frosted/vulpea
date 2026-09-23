@@ -700,9 +700,9 @@ Excludes:
 - Files not matching tracked extensions
 - Files in hidden directories (paths containing /.)"
   (and path
-       (seq-some (lambda (ext) (string-suffix-p ext path))
-                 (vulpea-db--all-extensions))
-       (not (string-match-p "/\\." path))))
+       (cl-loop for ext in (vulpea-db--all-extensions)
+                thereis (string-suffix-p ext path))
+       (not (string-search "/." path))))
 
 (defun vulpea-db-sync--list-org-files (dir)
   "List all tracked org files in DIR recursively.
@@ -723,12 +723,32 @@ and prevents tilde-vs-absolute mismatches in database queries."
             (seq-filter #'vulpea-db-sync--org-file-p
                         (directory-files-recursively dir regex)))))
 
+(defun vulpea-db-sync--parse-scan-output (output)
+  "Return the tracked org files listed in OUTPUT, one path per line.
+
+Subprocess output bypasses filename decoding, so paths arrive in
+whatever normalization the file system uses (NFD on macOS); each is
+canonicalized with `vulpea-db-normalize-path' to match paths obtained
+through filename syscalls."
+  (let ((start 0)
+        (end (length output))
+        files)
+    ;; A literal search per line: `split-string' goes through the
+    ;; regexp engine, several times slower on a long listing
+    (while (< start end)
+      (let* ((eol (or (string-search "\n" output start) end))
+             (path (substring output start eol)))
+        (when (vulpea-db-sync--org-file-p path)
+          (push (vulpea-db-normalize-path path) files))
+        (setq start (1+ eol))))
+    (nreverse files)))
+
 (defun vulpea-db-sync--scan-files-async (dirs callback)
   "List org files in DIRS asynchronously, call CALLBACK with file list.
 
 Uses fd (or find as fallback) subprocess to avoid blocking Emacs.
 CALLBACK receives a list of absolute file paths."
-  (let* ((buffer "")
+  (let* ((chunks nil)
          (dir (car dirs))
          (expanded-dir (expand-file-name dir))
          (extensions (vulpea-db--all-extensions))
@@ -763,19 +783,14 @@ CALLBACK receives a list of absolute file paths."
      :command cmd
      :connection-type 'pipe
      :noquery t
+     ;; Chunks are joined once at the end: appending each chunk to
+     ;; the output read so far copies it again on every read
      :filter (lambda (_proc output)
-               (setq buffer (concat buffer output)))
+               (push output chunks))
      :sentinel (lambda (_proc event)
                  (when (string-prefix-p "finished" event)
-                   ;; Subprocess output bypasses filename decoding, so
-                   ;; paths arrive in whatever normalization the file
-                   ;; system uses (NFD on macOS); canonicalize them to
-                   ;; match paths obtained through filename syscalls.
-                   (let ((files (mapcar
-                                 #'vulpea-db-normalize-path
-                                 (seq-filter
-                                  #'vulpea-db-sync--org-file-p
-                                  (split-string buffer "\n" t)))))
+                   (let ((files (vulpea-db-sync--parse-scan-output
+                                 (apply #'concat (nreverse chunks)))))
                      (if (cdr dirs)
                          ;; More directories to scan
                          (vulpea-db-sync--scan-files-async
