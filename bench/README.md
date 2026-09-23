@@ -283,11 +283,16 @@ times `vulpea-schema-collection-health` and prints a summary line
 (scale, time, invalid count):
 
 ```bash
-eldev -dtT exec "(progn \
+eldev -c -dtT exec "(progn \
   (add-to-list 'load-path (expand-file-name \"bench\")) \
   (require 'vulpea-bench-schema) \
   (vulpea-bench-schema-run))"
 ```
+
+The `-c` matters: it makes eldev byte-compile vulpea and load the `.elc`
+files. Without it vulpea runs interpreted from source, and validation is
+about 6x slower (roughly 500ms at 10k instead of 90ms). That measures the
+interpreter, not the code a user runs.
 
 `vulpea-bench-schema-run` takes optional SCALES and INVALID-FRACTION
 arguments; it defaults to scales `(1000 10000 100000)` and a 0.2 invalid
@@ -295,17 +300,19 @@ fraction.
 
 ### Measured reference numbers
 
-Numbers I measured while building this, so you know what good looks like.
+Measured on an Apple M1 Pro with Emacs 31.0.50, byte-compiled (`-c`).
 Hardware and Emacs version shift the absolutes; the shape (linear) is the
 thing to watch.
 
-Validation is linear, roughly 6us per note:
+Validation is linear, roughly 8us per note:
 
 | scale | time  |
 |-------|-------|
-| 1k    | 6ms   |
-| 10k   | 66ms  |
-| 100k  | 665ms |
+| 1k    | 29ms  |
+| 10k   | 91ms  |
+| 100k  | 770ms |
+
+The 1k row is mostly fixed overhead; the per-note cost shows from 10k up.
 
 The takeaway: schema validation is linear and cheap, so the validation
 pipeline itself is not a bottleneck at realistic collection sizes.

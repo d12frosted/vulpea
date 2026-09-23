@@ -43,10 +43,13 @@
 ;;
 ;; Run it with:
 ;;
-;;   eldev -dtT exec "(progn \
+;;   eldev -c -dtT exec "(progn \
 ;;     (add-to-list 'load-path (expand-file-name \"bench\")) \
 ;;     (require 'vulpea-bench-schema) \
 ;;     (vulpea-bench-schema-run))"
+;;
+;; The -c flag loads byte-compiled vulpea; without it the numbers
+;; measure the interpreter and come out several times slower.
 ;;
 ;; See bench/README.md ("Schema Pipeline Benchmarks").
 ;;
