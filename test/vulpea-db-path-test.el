@@ -25,6 +25,7 @@
 ;;; Code:
 
 (require 'ert)
+(require 'cl-lib)
 (require 'vulpea-db)
 (require 'vulpea-db-query)
 (require 'vulpea-db-sync)
@@ -52,6 +53,51 @@
   (let ((vulpea-db-path-normalization nil))
     (should (equal (vulpea-db-normalize-path vulpea-db-path-test--nfd)
                    vulpea-db-path-test--nfd))))
+
+;; NFC is the identity on ASCII, so `vulpea-db-normalize-path' skips
+;; `ucs-normalize-NFC-string' for ASCII paths.  The results below must
+;; match a plain `ucs-normalize-NFC-string' call for every path.
+(defconst vulpea-db-path-test--samples
+  (list "/tmp/notes/plain-ascii.org"
+        "/tmp/notes/with space/and-dots.v2.org"
+        "/tmp/notes/"
+        ""
+        ;; é precomposed and decomposed
+        (concat "/tmp/notes/caf" (string #xe9) ".org")
+        (concat "/tmp/notes/cafe" (string #x301) ".org")
+        vulpea-db-path-test--nfc
+        vulpea-db-path-test--nfd
+        ;; Hangul syllable written as jamo
+        (concat "/tmp/notes/" (string #x1100 #x1161) ".org")
+        ;; CJK, emoji and a non-ASCII directory with an ASCII name
+        (concat "/tmp/" (string #x6f22 #x5b57) "/note.org")
+        (concat "/tmp/notes/" (string #x1f98a) ".org"))
+  "Paths whose normalization is checked against `ucs-normalize-NFC-string'.")
+
+(ert-deftest vulpea-db-normalize-path/matches-ucs-normalize ()
+  "Normalization gives what `ucs-normalize-NFC-string' gives."
+  (let ((vulpea-db-path-normalization 'nfc))
+    (dolist (path vulpea-db-path-test--samples)
+      (should (equal (vulpea-db-normalize-path path)
+                     (ucs-normalize-NFC-string path))))))
+
+(ert-deftest vulpea-db-normalize-path/ascii-skips-ucs-normalize ()
+  "An ASCII path is returned as is without running the normalizer."
+  (let ((vulpea-db-path-normalization 'nfc))
+    (cl-letf (((symbol-function 'ucs-normalize-NFC-string)
+               (lambda (&rest _) (error "Normalizer called"))))
+      (should (equal (vulpea-db-normalize-path "/tmp/notes/plain.org")
+                     "/tmp/notes/plain.org")))))
+
+(ert-deftest vulpea-db-ascii-string-p/multibyte-and-unibyte ()
+  "ASCII detection covers multibyte, unibyte and raw-byte strings."
+  (should (vulpea-db--ascii-string-p ""))
+  (should (vulpea-db--ascii-string-p "/tmp/note.org"))
+  (should (vulpea-db--ascii-string-p (string-to-multibyte "/tmp/note.org")))
+  (should-not (vulpea-db--ascii-string-p vulpea-db-path-test--nfc))
+  (should-not (vulpea-db--ascii-string-p "/tmp/\351.org"))
+  (should-not (vulpea-db--ascii-string-p
+               (string-to-multibyte "/tmp/\351.org"))))
 
 (ert-deftest vulpea-db-normalize-path/nil-path ()
   "nil input returns nil."
