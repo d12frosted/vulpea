@@ -118,6 +118,30 @@ This is the correctness contract of async extraction."
         (should (equal (plist-get sync-dump table)
                        (plist-get async-dump table)))))))
 
+(ert-deftest vulpea-db-worker-async-database-equals-sync-headings-off ()
+  "The worker agrees with sync indexing when heading notes are off.
+Heading content then belongs to the file note, so the links table is
+where a mismatch in the mirrored setting would show."
+  (vulpea-db-worker-test--with-file
+      vulpea-db-extract-test--granularity-corpus
+    (let ((vulpea-db-index-heading-level nil)
+          sync-dump async-dump)
+      (vulpea-test--with-temp-db
+        (vulpea-db)
+        (vulpea-db-update-file path)
+        (setq sync-dump (vulpea-db-worker-test--db-dump)))
+      (vulpea-test--with-temp-db
+        (vulpea-db)
+        (should (vulpea-db-worker-can-handle-p path))
+        (vulpea-db-worker-request path)
+        (vulpea-db-worker-test--wait)
+        (setq async-dump (vulpea-db-worker-test--db-dump)))
+      (should (member "h-body-target"
+                      (mapcar #'cadr (plist-get sync-dump :links))))
+      (dolist (table '(:notes :tags :links :meta :properties))
+        (should (equal (plist-get sync-dump table)
+                       (plist-get async-dump table)))))))
+
 (ert-deftest vulpea-db-worker-unchanged-content-refreshes-stamp ()
   "Touching a file without changing content only refreshes the stamp.
 The worker reports the same content hash; no notes are rewritten and

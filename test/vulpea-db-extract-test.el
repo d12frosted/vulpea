@@ -4341,6 +4341,157 @@ AST was produced."
       (should (vulpea-db-get-by-id "ic-e2e-container"))
       (should-not (vulpea-db-get-by-id "ic-e2e-child")))))
 
+;;; Heading Notes Off: Link Ownership Tests
+
+(defconst vulpea-db-extract-test--headings-off-file
+  (concat
+   ":PROPERTIES:\n:ID: off-file-id\n:END:\n"
+   "#+TITLE: F\n\n"
+   "Top [[id:top-target][a]].\n\n"
+   "* H [[id:h-title-target][t]]\n"
+   ":PROPERTIES:\n:ID: off-heading-id\n:END:\n"
+   "- rating :: 10\n\n"
+   "Inside [[id:h-body-target][b]].\n\n"
+   "** Nested\n"
+   ":PROPERTIES:\n:ID: off-nested-id\n:END:\n"
+   "Deep [[id:nested-target][c]].\n\n"
+   "* Plain\n"
+   "Plain [[id:plain-target][d]].\n")
+  "A file whose ID headings are notes only when headings are indexed.")
+
+(defun vulpea-db-extract-test--file-link-dests (path)
+  "Return the link destinations of PATH's file-level note."
+  (mapcar (lambda (l) (plist-get l :dest))
+          (plist-get (vulpea-parse-ctx-file-node (vulpea-db--parse-file path))
+                     :links)))
+
+(ert-deftest vulpea-db-extract-headings-off-links-belong-to-file ()
+  "With heading notes off, an ID heading's links belong to the file note.
+The heading is not a note, so it is not a boundary: its title and body
+links, and those of its descendants, are the file note's.  Otherwise
+they belong to no note at all and their targets lose the backlinks."
+  (let ((path (vulpea-test--create-temp-org-file
+               vulpea-db-extract-test--headings-off-file)))
+    (unwind-protect
+        (dolist (granularity '(object element))
+          (let* ((vulpea-db-index-heading-level nil)
+                 (vulpea-db-parse-granularity granularity)
+                 (dests (vulpea-db-extract-test--file-link-dests path)))
+            (should (equal dests '("top-target" "h-title-target"
+                                   "h-body-target" "nested-target"
+                                   "plain-target")))))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-folded-title-link-pos ()
+  "A title link of a heading that is not a note has an exact position.
+The priority cookie counts with its trailing space, as it does for
+heading notes; otherwise the position is one short and title-change
+propagation misses the link."
+  (let ((path (vulpea-test--create-temp-org-file
+               (concat
+                ":PROPERTIES:\n:ID: file-id\n:END:\n"
+                "#+TITLE: F\n\n"
+                "* TODO [#A] With id [[id:id-target][x]]\n"
+                ":PROPERTIES:\n:ID: h1\n:END:\n"
+                "* TODO [#B] Without id [[id:plain-target][y]]\n"))))
+    (unwind-protect
+        (dolist (heading-level '(nil t))
+          (let* ((vulpea-db-index-heading-level heading-level)
+                 (links (plist-get (vulpea-parse-ctx-file-node
+                                    (vulpea-db--parse-file path))
+                                   :links)))
+            (should links)
+            (with-temp-buffer
+              (insert-file-contents path)
+              (dolist (link links)
+                (goto-char (plist-get link :pos))
+                (should (looking-at-p
+                         (regexp-quote
+                          (format "[[id:%s]" (plist-get link :dest)))))))))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-headings-off-by-predicate ()
+  "A predicate declining a file folds its headings like nil does."
+  (let ((path (vulpea-test--create-temp-org-file
+               vulpea-db-extract-test--headings-off-file)))
+    (unwind-protect
+        (let* ((vulpea-db-index-heading-level (lambda (_path) nil))
+               (dests (vulpea-db-extract-test--file-link-dests path)))
+          (should (member "h-body-target" dests))
+          (should (member "nested-target" dests)))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-headings-on-keeps-boundaries ()
+  "With heading notes on, ID headings stay boundaries of the file note."
+  (let ((path (vulpea-test--create-temp-org-file
+               vulpea-db-extract-test--headings-off-file)))
+    (unwind-protect
+        (let* ((vulpea-db-index-heading-level t)
+               (dests (vulpea-db-extract-test--file-link-dests path)))
+          (should (equal dests '("top-target" "plain-target"))))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-headings-off-meta-unchanged ()
+  "Heading notes off does not move a heading's metadata to the file.
+The file note's metadata is its first description list before any
+heading, whether or not headings are indexed."
+  (let ((path (vulpea-test--create-temp-org-file
+               vulpea-db-extract-test--headings-off-file)))
+    (unwind-protect
+        (let* ((vulpea-db-index-heading-level nil)
+               (ctx (vulpea-db--parse-file path)))
+          (should-not (plist-get (vulpea-parse-ctx-file-node ctx) :meta)))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-headings-off-granularity-equivalence ()
+  "Both granularities agree on the corpus with heading notes off."
+  (let ((path (vulpea-test--create-temp-org-file
+               vulpea-db-extract-test--granularity-corpus)))
+    (unwind-protect
+        (let* ((vulpea-db-index-heading-level nil)
+               (ctx-object (let ((vulpea-db-parse-granularity 'object))
+                             (vulpea-db--parse-file path)))
+               (ctx-element (let ((vulpea-db-parse-granularity 'element))
+                              (vulpea-db--parse-file path)))
+               (dests (mapcar (lambda (l) (plist-get l :dest))
+                              (plist-get (vulpea-parse-ctx-file-node ctx-object)
+                                         :links))))
+          (dolist (dest '("h-title-target" "h-body-target" "sub-target"))
+            (should (member dest dests)))
+          (should (equal (vulpea-parse-ctx-file-node ctx-object)
+                         (vulpea-parse-ctx-file-node ctx-element))))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-ignore-children-file-level-drops-links ()
+  "The file-level marker is an exclusion, not heading notes off.
+Headings it skips leave the graph with their links, as the marker does
+on a heading, instead of folding into the file note."
+  (let ((path (vulpea-test--create-temp-org-file
+               (concat
+                ":PROPERTIES:\n:ID: file-id\n:VULPEA_IGNORE_CHILDREN: t\n:END:\n"
+                "#+TITLE: Area\n\n"
+                "Top [[id:top-target][a]].\n\n"
+                "* One\n:PROPERTIES:\n:ID: h1\n:END:\n"
+                "Inside [[id:h1-target][b]].\n"))))
+    (unwind-protect
+        (let ((vulpea-db-index-heading-level t))
+          (should (equal (vulpea-db-extract-test--file-link-dests path)
+                         '("top-target"))))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-headings-off-backlinks-end-to-end ()
+  "A link inside an ID heading is a backlink of the file note."
+  (let ((vulpea-db-index-heading-level nil))
+    (vulpea-test--with-temp-db-and-file "off-e2e-file"
+        (concat
+         "#+TITLE: F\n\n"
+         "* H\n:PROPERTIES:\n:ID: off-e2e-heading\n:END:\n"
+         "Inside [[id:off-e2e-target][b]].\n")
+      (should-not (vulpea-db-get-by-id "off-e2e-heading"))
+      (should (equal (mapcar (lambda (l) (plist-get l :source))
+                             (vulpea-db-query-links-to "off-e2e-target"))
+                     '("off-e2e-file"))))))
+
 ;;; Updated Hook Tests
 
 (ert-deftest vulpea-db-extract-updated-hook-fires-on-sync-update ()
