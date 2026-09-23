@@ -196,6 +196,8 @@ See [[id:other-note-id][Other Note]] for details.
 
 This enables backlink queries - finding all notes that link to a given note.
 
+Links inside generated content are not indexed: dynamic blocks (=#+BEGIN: ... #+END:=) and babel output under =#+RESULTS:= are views that get rewritten, not something the note says, so a collection block listing other notes does not make its note a backlink of each of them.
+
 ** Metadata
 
 Vulpea supports structured metadata using description lists:

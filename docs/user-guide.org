@@ -227,6 +227,8 @@ Metadata lets you attach structured data to notes using description lists:
 - rating :: 95
 #+end_src
 
+Metadata is read from the first description list of the note. Lists inside dynamic blocks and babel =#+RESULTS:= are skipped, so generated output never takes the place of what you wrote.
+
 ** Reading Metadata
 
 In elisp (for scripts or custom commands):
