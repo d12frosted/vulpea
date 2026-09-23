@@ -3,287 +3,78 @@
 
 * Overview
 
-This is a decision log: the architectural choices that shaped Vulpea v2 and the reasoning behind them, kept for contributors who want to understand /why/ things are the way they are. It is not a reference for how the code works today - for that, see [[file:sync-architecture.org][sync-architecture]] (the sync and async extraction design), [[file:api-reference.org][api-reference]], and [[file:plugin-guide.org][plugin-guide]]. The database schema lives in one place only: =vulpea-db--schema= in the source.
+This is a decision log: the choices that shaped Vulpea v2 and why they were made, for contributors who want to know why things are the way they are. It does not describe how the code works today. For that, see [[file:sync-architecture.org][sync-architecture]] (sync and async extraction), [[file:api-reference.org][api-reference]] and [[file:plugin-guide.org][plugin-guide]]. The database schema lives in one place only: =vulpea-db--schema= in the source.
 
-* Core Problems with v1
+* Where v1 Hurt
 
-** Dependency on org-roam
-- Not extensible: Hard to add new tables, impossible to reuse parsed data
-- Advice-based integration is fragile across org-roam versions
-- Forced to repeat parsing operations (see vulpea-db implementation)
+Vulpea v1 was a layer over org-roam. It read org-roam's database and extended it through advice, which broke whenever org-roam changed its internals. Any data org-roam did not store meant parsing the file a second time, because org-roam's parse could not be reused.
 
-** Performance Issues
-- Save hooks are obtrusive and block user during normal usage
-- No handling of external file changes (git pulls, sync tools)
-- Full buffer re-parsing on every save
+Indexing happened in save hooks, so every save waited for the database, and changes made outside Emacs (a git pull, Syncthing) went unnoticed until the file was saved again. Reading a note meant assembling it from several tables; v1 bolted on its own materialized table to avoid that, which was one more thing to keep in sync with someone else's schema.
 
-** Database Design
-- Not optimized for read-heavy workloads (most common operation)
-- No materialized views in org-roam (though vulpea added them)
-- Generic queries load entire database into memory
+* Decisions
 
-* Key Decisions
+** 1. No org-roam dependency
 
-** DECISION 1: Clean Break from org-roam
-*** Decision
-Vulpea v2 will NOT depend on org-roam. Compatibility layer will be provided as separate package.
+v2 owns its database and its parser, so the schema, the sync and the extension points can be designed for vulpea instead of worked around. The price was a breaking release, and a compatibility package that would fill org-roam's tables was planned for anyone who needed both.
 
-*** Rationale
-- Allows complete control over database schema
-- No fragile advice-based integration
-- Can optimize for our specific use cases
-- Org-roam compatibility can be added later via adapter layer that populates org-roam tables
+*Today:* no org-roam dependency. The compatibility package was never written: nobody asked for it, and the two run side by side on separate databases.
 
-*** Implementation
-- Version bump to 2.0.0
-- Separate package: =vulpea-compat-org-roam.el= (future work)
-- Users can run old vulpea in one Emacs session, new in another during transition
+** 2. A materialized notes table next to normalized tables
 
-*** Today
-Vulpea v2 has no org-roam dependency. The compatibility package was never written: nobody asked for it, and the two coexist on separate databases without it.
+Reading a note is the most common operation, so a note is one row in the =notes= table: no joins to assemble it. This is the materialized view I proposed for org-roam in [[https://github.com/org-roam/org-roam/issues/1997][org-roam#1997]]; an implementation of it for org-roam later measured 25k nodes read in under 0.5 seconds without any cache ([[https://github.com/org-roam/org-roam/issues/2474][org-roam#2474]]).
 
-** DECISION 2: Hybrid Database Schema
-*** Decision
-Use BOTH materialized view table AND normalized tables.
+Filtering needs the opposite shape. Tags, links, metadata and properties also live in normalized tables with indices, so a query filters there and then fetches whole rows from =notes=. The cost is on the write side: every update writes both, and the data is stored twice.
 
-*** Rationale
-Performance testing shows materialized views provide 4-5x improvement for common operations:
-- Single query to get complete note (no JOINs)
-- Simpler query code for application development
-- Proven to handle 25k+ notes in <0.5s (org-roam/org-roam#2474)
+Lists and maps in =notes= (tags, aliases, links, metadata, properties) are JSON. S-expressions would read faster in Elisp, but JSON keeps the database readable outside Emacs, and SQLite can look inside it when it has to.
 
-However, normalized tables enable:
-- Efficient filtering by tags/links using proper indices
-- Fast specialized queries (backlinks, tag intersections)
-- No JSON parsing in SQL WHERE clauses
+*Today:* =notes= plus =tags=, =links=, =meta= and =properties=, with =files= for change detection. Programs outside Emacs do read the database directly (see the Ecosystem section of the README).
 
-*** Query Pattern
-#+begin_src elisp
-;; Use normalized tables to FILTER
-;; Then fetch complete data from materialized table
-(defun vulpea-db-query-by-tags (tags)
-  (let ((ids (emacsql db [:select [note-id] :from tags
-                          :where (in tag $v1)] tags)))
-    ;; Single query to get complete notes
-    (emacsql db [:select * :from notes
-                 :where (in id $v1)] ids)))
-#+end_src
+** 3. File watchers and a queue instead of save hooks
 
-*** Trade-offs
-- Storage: ~2x overhead (acceptable on modern SSDs)
-- Write complexity: Must update both materialized and normalized tables
-- Read performance: Optimal (combine benefits of both approaches)
+A save hook blocks the save and never sees changes made outside Emacs. File watchers see both, and routing their events through a queue lets many changes land in one transaction. The design came from the sync prototype in [[https://github.com/d12frosted/vulpea/pull/194][vulpea#194]].
 
-*** Today
-The schema uses both a materialized notes table and normalized tags/links/meta tables; see =vulpea-db--schema=.
+*Today:* =vulpea-db-autosync-mode= with filenotify, fswatch, or polling when neither is available. For a long time "non-blocking" only covered scheduling: once a queue timer fired, parsing and writing still ran on the main thread. v2.6 closed that gap with =vulpea-db-async-extraction=, which moves parsing, and optionally the database write, into a background =emacs --batch= worker. [[file:sync-architecture.org][sync-architecture]] has the details.
 
-** DECISION 3: Async-First Architecture
-*** Decision
-Use file watchers + async queue instead of save hooks.
+** 4. Parse once, feed every extractor
 
-*** Rationale
-- Non-blocking: Emacs UI never waits for database updates
-- Handles external changes: git pulls, Dropbox sync, etc.
-- Batching opportunity: 100 file changes = 1 transaction
-- Easy to add backpressure/throttling
+v1 could not reuse org-roam's parse. v2 parses each file once and hands the result to every extractor, and an extractor plugin can declare tables of its own, versioned so its schema can migrate.
 
-*** Implementation
-Based on existing =vulpea-sync.el= prototype (PR #194):
-- =file-notify-add-watch= for internal changes
-- =fswatch= process for external changes (with fallback to polling)
-- Transaction queue with batching delay (configurable)
-- Process updates in idle timer bursts
+*Today:* extractors are registered with =vulpea-db-register-extractor=. The AST is opt-in (=:requires-ast=), because it cannot cross the process boundary to the worker. See [[file:plugin-guide.org][plugin-guide]].
 
-*** Today
-=vulpea-db-sync.el= provides autosync-mode with file-notify, fswatch, and polling support.
+** 5. Headings are notes, and that is configurable
 
-For a long time "non-blocking" only covered scheduling: once a queue
-timer fired, parsing and writing still ran on the main thread. This
-was completed in v2.6 with =vulpea-db-async-extraction=, which moves
-parsing (and optionally the database write) into a persistent
-=emacs --batch= worker process. See [[file:sync-architecture.org][sync-architecture]] for the full
-design: modes, flow control, freshness guards, and fallbacks.
+A heading with an =ID= is a note, which is what lets one file hold a whole collection. A collection made only of file-level notes should not pay for walking every heading, so heading-level indexing can be turned off, or limited to some files with a predicate.
 
-** DECISION 4: Plugin/Extractor System
-*** Decision
-Design plugin architecture from day one for extensibility.
+*Today:* =vulpea-db-index-heading-level= takes =t= (the default), =nil= or a function of the file path.
 
-*** Rationale
-Current vulpea requires repeating org-roam parsing operations because parsed data cannot be reused. v2 will parse ONCE and pass to all extractors.
+** 6. SQLite through EmacsQL
 
-*** Architecture
-#+begin_src elisp
-(vulpea-db-register-extractor
-  (make-vulpea-extractor
-   :name 'citations
-   :version 1
-   :requires-ast t  ; reads the AST, which is opt-in
-   :schema '((citations [(note-id :not-null) (citekey :not-null)]))
-   :extract-fn #'my-extract-citations
-   :priority 100))
+SQLite gives persistence, transactions, foreign-key cascades and indices, and Emacs ships it. Hash tables in Elisp have none of that without rebuilding it by hand, an external database server is too much to ask of an Emacs package, and a custom file format would mean writing a database.
 
-;; Parse context shared across all extractors
-(cl-defstruct vulpea-parse-ctx
-  path ast file-node heading-nodes properties hash mtime)
+*Today:* EmacsQL on Emacs's built-in SQLite. The hot insert path binds parameters natively (with the same encoding EmacsQL uses), since profiling showed statement compilation dominating bulk writes.
 
-;; Single parse, multiple extractors
-(defun vulpea-db--update-file (path)
-  (let ((ctx (vulpea-db--parse-file path)))  ; Parse ONCE
-    (emacsql-with-transaction (vulpea-db)
-      (dolist (ext (vulpea-db--sorted-extractors))
-        (funcall (vulpea-extractor-fn ext) ctx)))))
-#+end_src
+** 7. org-element for parsing
 
-*** Benefits
-- Parse once, extract many times
-- Plugins can add their own tables
-- Controlled execution order (priority)
-- Easy migration via version tracking
+=org-element-parse-buffer= is what Org itself uses, so extraction sees a file the way Org does. A lighter parser would be faster on common files and wrong on the rest; that option stays open if parsing ever becomes the bottleneck it is not today.
 
-*** Today
-=vulpea-db-extract.el= provides the extractor system with parse-once architecture; see [[file:plugin-guide.org][plugin-guide]].
+*Today:* files are parsed at element granularity by default (=vulpea-db-parse-granularity=), and unchanged files are not parsed at all (see the next decision).
 
-** DECISION 5: Configurable Heading-Level Indexing
-*** Decision
-Support both file-level and heading-level notes, but make heading-level opt-in/configurable.
+** 8. Replace a file's rows instead of updating them
 
-*** Rationale
-- Many users need heading-level (org-roam compatibility)
-- Some users only need file-level (2-3x performance improvement)
-- 100k heading-level notes vs 100k file-level = significant difference
+When a file changes, its notes are deleted and inserted again rather than updated field by field. There is no need to work out what changed, and a removed tag or link disappears without special handling. This is only affordable because unchanged files are skipped: the =files= table records mtime, size and a SHA256 of the content, and a file is re-read only when they no longer match.
 
-*** Implementation
-#+begin_src elisp
-(defcustom vulpea-db-index-heading-level t
-  "Whether to index heading-level notes.
-Can be:
-- t: index all headings
-- nil: index only file-level
-- function: predicate (path) -> boolean"
-  :type '(choice boolean function))
+*Today:* =vulpea-db--apply-parse-ctx= does the replace and the sync queue does the check; forced scans skip the check after a settings change.
 
-;; Example: index headings only for project files
-(setq vulpea-db-index-heading-level
-      (lambda (path)
-        (string-prefix-p "/path/to/projects/" path)))
-#+end_src
+** Considered, not built: namespaces
 
-*** Today
-=vulpea-db-index-heading-level= supports t/nil/function for flexible control.
-
-** DECISION 6: SQLite via EmacsQL
-*** Decision
-Continue using SQLite through EmacsQL.
-
-*** Rationale
-- No better alternatives in Emacs ecosystem
-- Proven to work well (current vulpea scales to 10k notes)
-- Built-in transaction support
-- Foreign key cascades
-- JSON functions available (SQLite 3.38+)
-
-*** Alternatives Considered
-- Pure Elisp hash tables: No persistence, no transactions
-- External DB (PostgreSQL): Overkill, requires server
-- Custom binary format: Too much work, reinventing wheel
-
-*** Today
-EmacsQL with the built-in SQLite backend for queries; the hot insert path uses native parameter binding directly (byte-compatible encoding), since profiling showed statement compilation dominating bulk writes.
-
-** DECISION 7: org-element for Parsing
-*** Decision
-Use org-element-parse-buffer for now.
-
-*** Rationale
-- Standard, well-tested
-- Has built-in caching
-- Robust handling of all org syntax
-- Can optimize later if needed
-
-*** Future Optimization
-If org-element becomes bottleneck:
-- Write lightweight parser for common cases
-- Fall back to org-element for complex syntax
-- Cache AST more aggressively
-
-*** Performance Target
-- Single note parse: <10ms
-- 100 note batch parse: <1s
-- Full 100k database sync: <5 minutes
-
-*** Today
-=org-element-parse-buffer= at element granularity by default (=vulpea-db-parse-granularity=), with hash-based change detection to minimize re-parsing.
-
-** DECISION 8: Namespace-Based Partitioning
-*** Decision
-Provide built-in support for partitioning notes by tags/predicates.
-
-*** Rationale
-User has 100k+ notes growing daily. Needs ability to:
-- Query only wine-related notes
-- Query only non-wine notes
-- Fast completion within namespace
-
-*** Implementation
-#+begin_src elisp
-(defcustom vulpea-namespaces
-  '((wine :tags ("wine") :key "w")
-    (work :tags ("work") :key "W")
-    (personal :exclude-tags ("wine" "work")))
-  "Namespace definitions for partitioning notes.")
-
-(defun vulpea-find-in-namespace (namespace)
-  "Find note in NAMESPACE with fast completion."
-  (interactive ...)
-  (let* ((config (alist-get namespace vulpea-namespaces))
-         (notes (vulpea-db-query-namespace config)))
-    (vulpea-select-from notes)))
-#+end_src
-
-*** Performance
-Using normalized tags table + indices, filtering 100k notes to 10k wine notes should take <100ms.
-
-*** Today
-Not built - =vulpea-db-query= with filter functions covers the need; revisit only if benchmarks demand it.
-
-* Implementation Notes
-
-** Data Serialization
-Uses JSON for storing complex data (tags, links, meta, properties) in the notes table. JSON was chosen for:
-- Portability and standard format
-- SQLite JSON functions enable querying inside JSON columns if needed
-- Acceptable performance for current use cases
-
-S-expressions could provide faster Elisp deserialization but would sacrifice portability.
-
-** Database Update Strategy
-Uses DELETE + INSERT approach for note updates rather than field-by-field UPDATE:
-- Simpler implementation - no need to track which fields changed
-- Handles all changes correctly (including deletions)
-- Combined with smart change detection (hash-based), only changed files trigger updates
-- Performance is acceptable for typical workloads
-
-Field-by-field UPDATE could be explored if benchmarks show it provides significant benefit.
-
-** Change Detection
-Implemented smart change detection using file hashes (SHA256), mtime, and size:
-- Files tracked in =files= table
-- Only parse and update if hash/mtime/size changed
-- Significantly reduces unnecessary re-indexing
-- Force mode available to bypass detection when needed (e.g., after config changes)
+Partitioning notes into namespaces (by tags or predicates, each with its own finder) was planned for large collections that mix unrelated kinds of notes. It turned out to be unnecessary: filter functions and the indexed =tags= table cover it, and =vulpea-find= already takes a filter and a candidate source.
 
 * References
 
-** Performance Discussions
-- [[https://github.com/org-roam/org-roam/issues/2474][org-roam#2474]]: Performance issues and materialized view discussion
-- [[https://github.com/d12frosted/vulpea/pull/194][vulpea#194]]: Native synchronisation prototype
-
-** Code and Benchmarks
+- [[https://github.com/org-roam/org-roam/issues/1997][org-roam#1997]]: the materialized view proposal
+- [[https://github.com/org-roam/org-roam/issues/2474][org-roam#2474]]: org-roam performance discussion, including measurements of that view
+- [[https://github.com/d12frosted/vulpea/pull/194][vulpea#194]]: the native sync prototype
 - =vulpea-db.el=: schema (=vulpea-db--schema=) and database layer
 - =vulpea-db-sync.el= / =vulpea-db-worker.el=: sync and async extraction
 - =bench/=: benchmark harness and measured reference numbers
-
-** Documentation
-- [[file:sync-architecture.org][sync-architecture]]: how sync works today, including the worker
-- [[file:plugin-guide.org][plugin-guide]]: writing extractors (=:requires-ast=, =:worker-safe=)
-- CHANGELOG.org: evolution of features
+- =CHANGELOG.org=: how features evolved
