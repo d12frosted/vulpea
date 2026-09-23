@@ -119,7 +119,7 @@ This opens completion to select a note, then inserts an =id:= link at point:
 See [[id:abc123][Selected Note Title]] for details.
 #+end_src
 
-If you type a title that doesn't exist, Vulpea offers to create a new note. See "From vulpea-insert" under Creating Notes for customizing how that note is created.
+If you type a title that matches no note, Vulpea creates one and links to it. See "From vulpea-insert" under Creating Notes for customizing how that note is created.
 
 Typing or pasting the full id of an existing note links that note instead of creating a new one - see [[*Selecting by Id][Selecting by Id]] for details, including how the link description is picked for untitled notes.
 
@@ -127,13 +127,13 @@ Typing or pasting the full id of an existing note links that note instead of cre
 
 ** From vulpea-find
 
-When you use =vulpea-find= and type a title that doesn't exist, Vulpea asks if you want to create it.
+When you type a title in =vulpea-find= that matches no note, Vulpea creates the note and visits it, without asking.
 
 By default the note is created from the typed title via =vulpea-create=. You can customize this - for example to route through =org-capture= for interactive editing - by setting =vulpea-find-default-create-fn= (or passing =:create-fn= to =vulpea-find=). The function is called with the typed title and capture properties (currently always nil) and should return the =vulpea-note= to visit, or nil to skip visiting. This makes "capture on empty" workflows straightforward: a search that finds nothing becomes the start of note creation.
 
 ** From vulpea-insert
 
-=vulpea-insert= offers the same when you insert a link to a note that doesn't exist yet. By default the note is created via =vulpea-create= and a link to it is inserted at point.
+=vulpea-insert= does the same when you insert a link to a note that doesn't exist yet. By default the note is created via =vulpea-create= and a link to it is inserted at point.
 
 To customize creation, set =vulpea-insert-default-note-fn= (or pass =:note-fn= to =vulpea-insert=). The contract is the same as for =vulpea-find=: the function is called with the typed title and capture properties (currently always nil) and returns the created =vulpea-note=, or nil to skip. Vulpea then takes care of the rest: it replaces the selected region, inserts the link (using the region text or the note's final title as the description) and runs =vulpea-insert-handle-functions=.
 
