@@ -12,7 +12,7 @@ All query functions return =vulpea-note= structs:
 (vulpea-note-path note)          ; Absolute file path
 (vulpea-note-level note)         ; 0 = file-level, 1+ = heading
 (vulpea-note-title note)         ; Note title
-(vulpea-note-primary-title note) ; Primary title (without aliases)
+(vulpea-note-primary-title note) ; Original title when selected via an alias, else nil
 (vulpea-note-aliases note)       ; List of alias strings
 (vulpea-note-tags note)          ; List of tag strings
 (vulpea-note-links note)         ; List of plists (:dest :type :pos :description)
@@ -103,12 +103,18 @@ The fastest way to get a single note:
 
 ** By Title Search
 
-Find notes matching a title substring:
+Find notes whose title contains a pattern:
 
 #+begin_src emacs-lisp
 (vulpea-db-search-by-title "meeting")
 ;; => list of notes with "meeting" in title
+
+;; (vulpea-db-search-by-title PATTERN &optional CASE-SENSITIVE)
 #+end_src
+
+By default the match is a case-insensitive SQL =LIKE=, so =%= and =_= in
+PATTERN are wildcards. With CASE-SENSITIVE it is a =GLOB= match, where
+=*= and =?= are.
 
 * Query Functions
 
@@ -289,12 +295,12 @@ Uses the modification time recorded in the =files= table during sync. All notes 
 
 * Link Queries
 
-Query links directly from the database. All functions return plists with =:source=, =:dest=, =:type=, and =:pos= keys.
+Query links directly from the database. All functions return plists with =:source=, =:dest=, =:type=, =:pos= and =:description= keys.
 
 #+begin_src emacs-lisp
 ;; All links
 (vulpea-db-query-links)
-;; => ((:source "id1" :dest "id2" :type "id" :pos 100) ...)
+;; => ((:source "id1" :dest "id2" :type "id" :pos 100 :description "Title") ...)
 
 ;; Links of a specific type
 (vulpea-db-query-links-by-type "id")
@@ -400,7 +406,8 @@ file it lives in, in both directions, so it does not matter whether a
 file-level id or a heading id was written there.
 =vulpea-mentions-ignore-from= and =vulpea-mentions-unignore-from=
 maintain that list, so the drawer never has to be edited by hand. Both
-take a note or an id. Ignoring resolves the silenced note to the
+are called as =(FN NOTE-OR-ID FROM-NOTE-OR-ID)=: mentions of the first
+note coming from the second are silenced or shown again. Ignoring resolves the silenced note to the
 file-level note that a mention is attributed to (or the first note in
 the file when there is none) and writes that id; unignoring removes
 every id of the silenced file, so an entry is gone no matter which id
@@ -652,7 +659,7 @@ These operate on the current buffer (must be an org file).
 
 #+begin_src emacs-lisp
 (vulpea-buffer-tags-get)               ; Get tags
-(vulpea-buffer-tags-set '("a" "b"))    ; Set tags
+(vulpea-buffer-tags-set "a" "b")       ; Set tags
 (vulpea-buffer-tags-add "new-tag")     ; Add tag (interactive)
 (vulpea-buffer-tags-remove "old-tag")  ; Remove tag (interactive)
 #+end_src
@@ -982,10 +989,10 @@ note already exists.
 
 Signals a =user-error= when the note cannot be found, when it is
 already a file-level note, when its file is gone from disk or no longer
-holds the heading, when the title slugs to an empty file name, when the
-heading carries a todo keyword, a priority, planning information, a
+holds the heading, when the title has no file name to slug (punctuation
+only, say), when the heading carries a todo keyword, a priority, planning information, a
 logbook or a =COMMENT= keyword (a file-level note cannot hold any of
-them), when the title has no file name to slug, when the directory does
+them), when the directory does
 not exist, is not
 writable or lies outside =vulpea-db-sync-directories=, or when a file
 of that name already exists there.
@@ -1051,7 +1058,7 @@ Minor mode that detects title changes on save:
 When enabled:
 - Captures the title before each save
 - After save, if title changed, shows a message:
-  "Title changed. Run M-x vulpea-propagate-title-change to update references."
+  "Title changed from \"Old\" to \"New\". Run M-x vulpea-propagate-title-change to update."
 
 This mode only notifies - it doesn't automatically update anything.
 
@@ -1351,8 +1358,10 @@ Interactive command for note selection and navigation:
 (vulpea-find)
 
 ;; With custom candidates source
+;; The function receives the filter (nil when none is set) and applies it
 (vulpea-find :candidates-fn (lambda (filter-fn)
-                              (vulpea-db-query-by-tags-some '("project"))))
+                              (seq-filter (or filter-fn #'identity)
+                                          (vulpea-db-query-by-tags-some '("project")))))
 
 ;; With filter
 (vulpea-find :filter-fn (lambda (note)
@@ -1380,7 +1389,8 @@ Interactive command for inserting a link to a note:
 
 ;; With custom candidates source
 (vulpea-insert :candidates-fn (lambda (filter-fn)
-                                (vulpea-db-query-by-tags-some '("person"))))
+                                (seq-filter (or filter-fn #'identity)
+                                            (vulpea-db-query-by-tags-some '("person")))))
 
 ;; With filter
 (vulpea-insert :filter-fn (lambda (note)
@@ -1979,7 +1989,7 @@ package - it flags the same violations inline as you edit.)
 | =vulpea-db-get-by-id=                 | Get single note by ID                |
 | =vulpea-db-query-by-ids=              | Get multiple notes by IDs            |
 | =vulpea-db-get-file-by-id=            | Get file path for note ID            |
-| =vulpea-db-search-by-title=           | Search by title substring            |
+| =vulpea-db-search-by-title=           | Search by title pattern (LIKE)       |
 | =vulpea-db-query-by-tags-some=        | Notes with ANY tags                  |
 | =vulpea-db-query-by-tags-every=       | Notes with ALL tags                  |
 | =vulpea-db-query-by-tags-none=        | Notes WITHOUT tags                   |
