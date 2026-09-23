@@ -38,7 +38,7 @@ and **this choice has dramatic performance and correctness implications**.
 
 | Aspect | single-temp-buffer | temp-buffer (default) | find-file |
 |--------|-------------------|-----------------------|-----------|
-| **Speed** | ⚡ **~1k files/sec** | ⚠️ **~460/s** (degrades to ~56/s) | 🐌 ~34 files/sec (degrades to ~16/s) |
+| **Speed** | ⚡ **~560 files/sec** | ⚠️ **~280/s** (slows to a 96/s average over 100k) | 🐌 ~216 files/sec at 1k |
 | **Hooks** | ✗ Never run | ✓ `org-mode` + hooks each file | ✓ All file-visiting hooks |
 | **Dir-locals** | ✗ Ignored | ✓ Respected | ✓ Respected |
 | **#+TODO / #+PROPERTY** | ✗ Ignored after first file | ✓ Respected | ✓ Respected |
@@ -75,19 +75,27 @@ and **this choice has dramatic performance and correctness implications**.
 
 - Uses `find-file-noselect`, so file-visiting hooks and every other Emacs
   mechanism run exactly as if you visited the file.
-- 30–40x slower than the temp-buffer options, but required when you depend
+- The slowest option, but required when you depend
   on mechanisms that only trigger during real visits, such as
   `find-file-hook` or decryption.
 
 ## Performance Benchmarks
 
+> **These tables are from November 2025.** Current numbers, with the
+> command behind each one, are in [README.md](README.md#reference-numbers).
+> Re-measured on the same model of machine in September 2026, the ratio
+> between `single-temp-buffer` and `temp-buffer` holds (about 2x), but
+> absolute throughput is lower (v2.0.0 itself measures ~600 files/s with
+> `single-temp-buffer` there), and `find-file` is much closer to the
+> others (216 files/s vs 310 for `temp-buffer` at 1k).
+>
 > **Benchmark Environment:** MacBook Pro 2021 with Apple M1 Pro and APPLE SSD
 > AP0512R. All benchmarks below use **stock org-mode configuration** (no custom
 > hooks, no dir-locals, no buffer-local settings) to show the pure difference
 > between parsing methods. Real-world performance will vary based on machine
 > state, hardware specifications, note complexity, and your configuration.
 
-### Current Performance (v2 with optimizations)
+### November 2025 Measurements
 
 **single-temp-buffer** (fastest, skips hooks):
 
