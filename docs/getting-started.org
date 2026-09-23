@@ -392,5 +392,5 @@ If files modified by git or sync tools aren't updating:
 * Next Steps
 
 - [[file:user-guide.org][User Guide]] - Daily usage, interactive commands
-- [[file:configuration.org][Configuration]] - All options, performance tuning
+- [[file:configuration.org][Configuration]] - Indexing, sync and note creation options
 - [[file:api-reference.org][API Reference]] - Programmatic usage for building tools

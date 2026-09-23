@@ -216,7 +216,12 @@ In the example above, if the word "TODO" appears in the note title, the template
 
 * Performance Settings
 
-These settings affect how fast Vulpea operates, especially with large collections.
+In a large collection the cost is parsing: how much of org-mode runs
+for each file, and whether it runs on the main thread.
+=vulpea-db-parse-method= decides the first, =vulpea-db-async-extraction=
+the second, and the second is the one that stops saves and scans from
+freezing Emacs. After changing either, run =M-x vulpea-doctor=: it
+flags setups that quietly fall back to a slower path.
 
 ** Parse Method
 
@@ -240,6 +245,18 @@ How Vulpea reads org files during sync:
 per-file =#+TODO= / =#+PROPERTY= keywords, =org-mode-hook= and dir-locals.
 Use it only when your Org setup is entirely global.
 
+With =temp-buffer=, every function on =org-mode-hook= runs once per
+indexed file. A function that is only useful in buffers you visit can
+skip indexing by checking =vulpea-db--active-parse-method=, which is
+non-nil while vulpea parses:
+
+#+begin_src emacs-lisp
+(add-hook 'org-mode-hook
+          (lambda ()
+            (unless (bound-and-true-p vulpea-db--active-parse-method)
+              (my-expensive-setup))))
+#+end_src
+
 Changing the method takes effect through a re-index: it is part of
 the settings fingerprint, because extraction output depends on it
 (for example, a category coming from an =org-category= dir-local is
@@ -250,6 +267,8 @@ With =find-file= and =temp-buffer=, extraction results can depend on
 =.dir-locals.el= (the per-file =org-mode= rerun applies local
 variables); autosync re-indexes the affected subtree when such a
 file changes (see [[*Dir-Locals Changes][Dir-Locals Changes]]).
+
+Measured throughput for each method is in [[file:../bench/PERFORMANCE.md][bench/PERFORMANCE.md]].
 
 ** Parse Granularity
 
@@ -646,65 +665,6 @@ Configure how note aliases are stored:
 (setq vulpea-buffer-alias-property "ROAM_ALIASES")
 #+end_src
 
-* Performance Tuning Guide
-
-For collections of 10,000+ notes:
-
-** Fastest Configuration
-
-#+begin_src emacs-lisp
-;; Skip org-mode hooks during parsing
-(setq vulpea-db-parse-method 'single-temp-buffer)
-
-;; Don't index headings
-(setq vulpea-db-index-heading-level nil)
-
-;; Skip scan on startup (external changes then require a manual
-;; M-x vulpea-db-sync-full-scan)
-(setq vulpea-db-sync-scan-on-enable nil)
-
-;; Use fswatch for external changes
-(setq vulpea-db-sync-external-method 'fswatch)
-#+end_src
-
-Also install external tools for best results:
-
-#+begin_src bash
-# macOS
-brew install fswatch fd
-
-# Debian/Ubuntu
-apt install fswatch fd-find
-
-# Arch
-pacman -S fswatch fd
-#+end_src
-
-** Guard Heavy Hooks
-
-If you have expensive =org-mode-hook= functions:
-
-#+begin_src emacs-lisp
-(add-hook 'org-mode-hook
-          (lambda ()
-            (unless (bound-and-true-p vulpea-db--active-parse-method)
-              ;; This code only runs in interactive buffers,
-              ;; not during Vulpea parsing
-              (my-expensive-setup))))
-#+end_src
-
-** Expected Performance
-
-With optimized settings on modern hardware (M1 Mac):
-
-| Collection Size | Initial Sync | Incremental Update |
-|-----------------+--------------+--------------------|
-| 1,000 notes     | ~1 second    | <50ms              |
-| 10,000 notes    | ~10 seconds  | <50ms              |
-| 100,000 notes   | ~2 minutes   | <50ms              |
-
-→ See [[file:../bench/PERFORMANCE.md][bench/PERFORMANCE.md]] for detailed benchmarks.
-
 * Example Configurations
 
 ** Minimal (uses org-directory)
@@ -729,11 +689,8 @@ With optimized settings on modern hardware (M1 Mac):
 ;; Extra file extensions (opt-in for encrypted files)
 ;; (setq vulpea-db-extra-extensions '(".org.age" ".org.gpg"))
 
-;; Performance (for large collections)
-(setq vulpea-db-parse-method 'single-temp-buffer)
-(setq vulpea-db-index-heading-level nil)
-(setq vulpea-db-sync-scan-on-enable nil)
-(setq vulpea-db-sync-external-method 'auto)
+;; Parse and write in a background process (see Async Extraction)
+(setq vulpea-db-async-extraction 'full)
 
 ;; Note creation defaults
 (setq vulpea-create-default-template
