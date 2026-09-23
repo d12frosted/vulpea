@@ -1237,6 +1237,67 @@ see an empty directory."
       (when (file-directory-p base)
         (delete-directory base t)))))
 
+(ert-deftest vulpea-db-sync-parse-scan-output ()
+  "Scan output is split into tracked, normalized paths."
+  (let ((vulpea-db-path-normalization 'nfc)
+        (vulpea-db-extra-extensions nil))
+    (should (equal (vulpea-db-sync--parse-scan-output "") nil))
+    (should (equal (vulpea-db-sync--parse-scan-output "\n\n") nil))
+    (should (equal (vulpea-db-sync--parse-scan-output
+                    "/n/a.org\n/n/b.txt\n\n/n/.git/c.org\n/n/d.org")
+                   '("/n/a.org" "/n/d.org")))
+    (should (equal (vulpea-db-sync--parse-scan-output
+                    (concat "/n/" (string ?я ?и #x0306 ?ц ?е) ".org\n"))
+                   (list (concat "/n/" (string ?я ?й ?ц ?е) ".org"))))))
+
+;; Output well past one pipe read (`read-process-output-max'), so the
+;; process filter runs many times and paths straddle chunk boundaries.
+(defun vulpea-db-sync-test--scan-many-files (use-fd)
+  "Scan a tree of many files, with fd when USE-FD, else with find.
+Checks that every path arrives intact and in NFC."
+  (let* ((base (make-temp-file "vulpea-scan-many-" t))
+         (nfc-name (concat (string ?я ?й ?ц ?е) ".org"))
+         (vulpea-db-path-normalization 'nfc)
+         expected)
+    (unwind-protect
+        (progn
+          (dotimes (d 3)
+            (let ((dir (expand-file-name (format "directory-%d" d) base)))
+              (make-directory dir)
+              (dotimes (i 700)
+                (let ((file (expand-file-name
+                             (format "%04d-a-reasonably-long-note-name.org" i)
+                             dir)))
+                  (write-region "" nil file nil 'silent)
+                  (push file expected)))))
+          ;; Stored decomposed on macOS, so fd and find print NFD bytes
+          (let ((file (expand-file-name nfc-name base)))
+            (write-region "" nil file nil 'silent)
+            (push file expected))
+          (write-region "" nil (expand-file-name "skipped.txt" base)
+                        nil 'silent)
+          (let* ((orig (symbol-function 'executable-find))
+                 (files
+                  (cl-letf (((symbol-function 'executable-find)
+                             (lambda (name &rest args)
+                               (unless (and (not use-fd) (equal name "fd"))
+                                 (apply orig name args)))))
+                    (vulpea-db-sync-test--scan-async (list base)))))
+            (should (equal (sort (copy-sequence files) #'string<)
+                           (sort (copy-sequence expected) #'string<)))
+            (should (member (expand-file-name nfc-name base) files))))
+      (when (file-directory-p base)
+        (delete-directory base t)))))
+
+(ert-deftest vulpea-db-sync-scan-files-async-many-files-find ()
+  "The find fallback returns every path of a large listing, normalized."
+  (vulpea-db-sync-test--scan-many-files nil))
+
+(ert-deftest vulpea-db-sync-scan-files-async-many-files-fd ()
+  "fd returns every path of a large listing, normalized."
+  (skip-unless (executable-find "fd"))
+  (vulpea-db-sync-test--scan-many-files t))
+
 (ert-deftest vulpea-db-sync-enqueue-respells-truename-paths ()
   "A path reported under a configured root's truename is re-spelled.
 
