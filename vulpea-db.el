@@ -95,10 +95,22 @@ setups)."
 
 Applies the normalization selected by
 `vulpea-db-path-normalization'.  Returns PATH unchanged when
-normalization is disabled or PATH is nil."
-  (if (and path (eq vulpea-db-path-normalization 'nfc))
+normalization is disabled or PATH is nil.  NFC leaves ASCII as is,
+so an ASCII path is returned without running the normalizer."
+  (if (and path
+           (eq vulpea-db-path-normalization 'nfc)
+           (not (vulpea-db--ascii-string-p path)))
       (ucs-normalize-NFC-string path)
     path))
+
+(defun vulpea-db--ascii-string-p (string)
+  "Return non-nil if every character of STRING is ASCII."
+  ;; A multibyte string stores every non-ASCII character (raw bytes
+  ;; included) in two bytes or more, so an equal character and byte
+  ;; count means ASCII, known without scanning the string
+  (if (multibyte-string-p string)
+      (= (length string) (string-bytes string))
+    (not (string-match-p "[^\0-\177]" string))))
 
 (defcustom vulpea-db-index-heading-level t
   "Whether to index heading-level notes.
