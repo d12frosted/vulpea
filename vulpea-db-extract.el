@@ -1260,21 +1260,32 @@ each link found.
 
 Links inside inline verbatim/code markup (=...= and ~...~) or macro
 calls ({{{...}}}) are excluded, matching the full object parse:
-those objects hide their contents from org's link recognition."
-  (let ((exclusions (vulpea-db--region-link-exclusions start end)))
+those objects hide their contents from org's link recognition.
+
+Most text holds no link at all.  Every link org recognizes contains
+\"[[\" or the colon after its type, so a region with neither is
+skipped without running the link regexp, and the exclusion spans
+are only computed once a candidate turns up."
+  (let ((exclusions 'unknown))
     (save-excursion
       (goto-char start)
       (while (if vulpea-db-index-plain-links
-                 (re-search-forward org-link-any-re end t)
+                 ;; The cheap search rules out the rest of the region
+                 ;; before the expensive one scans it
+                 (and (save-excursion (re-search-forward "\\[\\[\\|:" end t))
+                      (re-search-forward org-link-any-re end t))
                (search-forward "[[" end t))
         ;; Capture the match bound before calling the parser:
         ;; `org-element-link-parser' runs its own regexps and clobbers
         ;; the global match data, so reading `match-end' after it can
         ;; move point backwards and loop forever
-        (let ((candidate-end (match-end 0)))
-          (if (vulpea-db--pos-excluded-p (match-beginning 0) exclusions)
+        (let ((candidate-end (match-end 0))
+              (candidate-start (match-beginning 0)))
+          (when (eq exclusions 'unknown)
+            (setq exclusions (vulpea-db--region-link-exclusions start end)))
+          (if (vulpea-db--pos-excluded-p candidate-start exclusions)
               (goto-char candidate-end)
-            (goto-char (match-beginning 0))
+            (goto-char candidate-start)
             (let ((link (org-element-link-parser)))
               (if (not link)
                   (goto-char candidate-end)

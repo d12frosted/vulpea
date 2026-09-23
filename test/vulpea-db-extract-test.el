@@ -2154,6 +2154,37 @@ full object parse without a behavior change."
                    do (should (equal obj-node el-node))))
       (delete-file path))))
 
+(ert-deftest vulpea-db-extract-region-links-skips-link-free-text ()
+  "Text that cannot hold a link costs no link or markup scan.
+Every link org recognizes contains \"[[\" or a \"TYPE:\" colon, so a
+region with neither is skipped before the link regexp and the
+verbatim/macro exclusion scan run.  A region with a candidate still
+gets both, and its links come out as before."
+  (dolist (plain '(t nil))
+    (let ((vulpea-db-index-plain-links plain)
+          (exclusion-scans 0))
+      (cl-letf* ((orig (symbol-function 'vulpea-db--region-link-exclusions))
+                 ((symbol-function 'vulpea-db--region-link-exclusions)
+                  (lambda (start end)
+                    (cl-incf exclusion-scans)
+                    (funcall orig start end))))
+        (with-temp-buffer
+          (org-mode)
+          (insert "Plain words, *bold* and =verbatim= text only.\n")
+          (let (links)
+            (vulpea-db--region-links (point-min) (point-max)
+                                     (lambda (l) (push l links)))
+            (should-not links)
+            (should (= exclusion-scans 0)))
+          (erase-buffer)
+          (insert "See [[id:target][desc]] and =[[id:hidden]]= here.\n")
+          (let (links)
+            (vulpea-db--region-links (point-min) (point-max)
+                                     (lambda (l) (push l links)))
+            (should (equal (mapcar (lambda (l) (plist-get l :dest)) links)
+                           '("target")))
+            (should (= exclusion-scans 1))))))))
+
 (ert-deftest vulpea-db-extract-bracket-only-links ()
   "With `vulpea-db-index-plain-links' nil, only bracket links index.
 Plain (https://...) and angle (<https://...>) links disappear from
