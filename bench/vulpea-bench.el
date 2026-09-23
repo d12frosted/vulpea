@@ -271,6 +271,130 @@ seconds."
     (when vulpea-db--connection (vulpea-db-close))
     (nreverse results)))
 
+(defun vulpea-bench-meta-batch (&optional counts runs)
+  "Compare `vulpea-meta-set' per property with `vulpea-meta-set-batch'.
+
+For each property count in COUNTS (default 5, 20 and 50), sets that
+many new meta properties on a file-level note, once through one
+`vulpea-meta-set' call per property and once through a single
+`vulpea-meta-set-batch', starting from the same file each time.
+Each variant runs RUNS times (default 20) and the mean is reported.
+The note is a struct built in memory, so no database is involved.
+
+Returns a list of (COUNT SINGLE-SECONDS BATCH-SECONDS)."
+  (require 'vulpea-meta)
+  (let* ((counts (or counts '(5 20 50)))
+         (runs (or runs 20))
+         (path (make-temp-file "vulpea-bench-meta-" nil ".org"))
+         (initial (concat ":PROPERTIES:\n:ID: bench-meta-note\n:END:\n"
+                          "#+title: Bench\n\n"
+                          "- existing :: value\n\n"
+                          "Some body text.\n"))
+         (note (make-vulpea-note :id "bench-meta-note" :path path
+                                 :level 0 :title "Bench"))
+         (reset (lambda ()
+                  (when-let* ((buffer (get-file-buffer path)))
+                    (with-current-buffer buffer
+                      (set-buffer-modified-p nil))
+                    (kill-buffer buffer))
+                  (with-temp-file path (insert initial))))
+         (time (lambda (fn)
+                 (let ((total 0.0))
+                   (dotimes (_ runs)
+                     (funcall reset)
+                     (let ((start (current-time)))
+                       (funcall fn)
+                       (setq total (+ total (float-time
+                                             (time-subtract (current-time)
+                                                            start))))))
+                   (/ total runs))))
+         (results nil))
+    ;; Warm up: the first visit loads and initializes org-mode, which
+    ;; would otherwise be charged to whichever variant runs first
+    (funcall reset)
+    (vulpea-meta-set-batch note '(("warmup" . "value")))
+    (message "\n=== Benchmarking meta set vs batch (%d runs each) ===" runs)
+    (message "%-8s %12s %12s %8s" "props" "one-by-one" "batch" "ratio")
+    (unwind-protect
+        (dolist (count counts)
+          (let* ((props (mapcar (lambda (i) (cons (format "key-%d" i)
+                                                  (format "value %d" i)))
+                                (number-sequence 1 count)))
+                 (single (funcall time
+                                  (lambda ()
+                                    (dolist (prop props)
+                                      (vulpea-meta-set note (car prop) (cdr prop))))))
+                 (batch (funcall time
+                                 (lambda ()
+                                   (vulpea-meta-set-batch note props)))))
+            (message "%-8d %12s %12s %7.1fx"
+                     count
+                     (vulpea-bench--format-time single)
+                     (vulpea-bench--format-time batch)
+                     (/ single batch))
+            (push (list count single batch) results)))
+      (when-let* ((buffer (get-file-buffer path)))
+        (with-current-buffer buffer (set-buffer-modified-p nil))
+        (kill-buffer buffer))
+      (delete-file path))
+    (nreverse results)))
+
+(defun vulpea-bench-file-listing (notes-dir &optional runs)
+  "Time the ways vulpea lists the org files under NOTES-DIR.
+
+Measures, as the median of RUNS runs (default 10) after one warmup:
+- fd: `vulpea-db-sync--scan-files-async' with fd on `exec-path'
+- find: the same function with fd hidden, so it falls back to find
+- directory-files-recursively: the synchronous Elisp listing
+
+Wall time is measured until the callback receives the file list.
+NOTES-DIR must not sit under a hidden directory: vulpea skips those.
+Returns a plist of median seconds per method and the file count."
+  (let* ((runs (or runs 10))
+         (fd-dir (when-let* ((fd (executable-find "fd")))
+                   (file-name-directory fd)))
+         (median (lambda (xs)
+                   (nth (/ (length xs) 2) (sort xs #'<))))
+         (scan (lambda (path)
+                 (let ((exec-path path)
+                       (files 'pending)
+                       (start (current-time)))
+                   (vulpea-db-sync--scan-files-async
+                    (list notes-dir)
+                    (lambda (result) (setq files result)))
+                   (while (eq files 'pending)
+                     (accept-process-output nil 0.001))
+                   (cons (float-time (time-subtract (current-time) start))
+                         (length files)))))
+         (measure (lambda (fn)
+                    (funcall fn)
+                    (let (times)
+                      (dotimes (_ runs)
+                        (push (car (funcall fn)) times))
+                      (funcall median times))))
+         (without-fd (seq-remove (lambda (dir)
+                                   (and fd-dir
+                                        (equal (file-name-as-directory dir)
+                                               fd-dir)))
+                                 exec-path))
+         (count (cdr (funcall scan exec-path)))
+         (fd (when fd-dir
+               (funcall measure (lambda () (funcall scan exec-path)))))
+         (find (funcall measure (lambda () (funcall scan without-fd))))
+         (dfr (funcall measure
+                       (lambda ()
+                         (let ((start (current-time)))
+                           (vulpea-db-sync--list-org-files notes-dir)
+                           (cons (float-time (time-subtract (current-time)
+                                                            start))
+                                 nil))))))
+    (message "\n=== File listing: %d files, median of %d runs ===" count runs)
+    (message "fd:                          %s"
+             (if fd (vulpea-bench--format-time fd) "not installed"))
+    (message "find:                        %s" (vulpea-bench--format-time find))
+    (message "directory-files-recursively: %s" (vulpea-bench--format-time dfr))
+    (list :count count :fd fd :find find :directory-files-recursively dfr)))
+
 (defun vulpea-bench-report (name results)
   "Print formatted benchmark report for NAME with RESULTS.
 RESULTS is an alist of (label . (time count)) pairs."
