@@ -15,10 +15,10 @@ trade-off between speed and correctness:
 1. **single-temp-buffer (fastest)** – Reuses a hidden buffer and never
    re-runs `org-mode`. Ideal when every Org setting is global.
 2. **temp-buffer (default)** – Reuses the buffer but re-runs `org-mode`
-   per file, so `#+TODO`, `#+PROPERTY`, and `org-mode-hook` execute with
-   the correct `buffer-file-name`.
+   per file, so `#+TODO`, `#+PROPERTY`, `org-mode-hook` and dir-locals
+   apply with the correct `buffer-file-name`.
 3. **find-file (slowest)** – Visits files exactly like `find-file`, so
-   `.dir-locals.el` and file-visiting hooks are honored.
+   file-visiting hooks (`find-file-hook`) run too.
 
 **Why temp-buffer is the default:** While single-temp-buffer is much faster,
 temp-buffer provides a safe default that prevents silent data corruption if you
@@ -40,10 +40,10 @@ and **this choice has dramatic performance and correctness implications**.
 |--------|-------------------|-----------------------|-----------|
 | **Speed** | ⚡ **~1k files/sec** | ⚠️ **~460/s** (degrades to ~56/s) | 🐌 ~34 files/sec (degrades to ~16/s) |
 | **Hooks** | ✗ Never run | ✓ `org-mode` + hooks each file | ✓ All file-visiting hooks |
-| **Dir-locals** | ✗ Ignored | ✗ Ignored | ✓ Respected |
+| **Dir-locals** | ✗ Ignored | ✓ Respected | ✓ Respected |
 | **#+TODO / #+PROPERTY** | ✗ Ignored after first file | ✓ Respected | ✓ Respected |
 | **org-attach-dir** | ⚠️ Global only | ✓ Honors per-file keywords | ✓ Honors dir-locals |
-| **Best for** | Purely global setups | Users needing per-file keywords/hooks | Complex dir-locals |
+| **Best for** | Purely global setups | Per-file keywords, hooks, dir-locals | File-visiting hooks |
 
 ### `single-temp-buffer` (fastest)
 
@@ -73,10 +73,11 @@ and **this choice has dramatic performance and correctness implications**.
 
 ### `find-file` (slowest, most correct)
 
-- Uses `find-file-noselect`, so `.dir-locals.el`, file-visiting hooks,
-  and every other Emacs mechanism run exactly as if you visited the file.
+- Uses `find-file-noselect`, so file-visiting hooks and every other Emacs
+  mechanism run exactly as if you visited the file.
 - 30–40x slower than the temp-buffer options, but required when you depend
-  on dir-locals or other mechanisms that only trigger during real visits.
+  on mechanisms that only trigger during real visits, such as
+  `find-file-hook` or decryption.
 
 ## Performance Benchmarks
 
@@ -213,10 +214,10 @@ provides 64x speedup vs find-file (102.34 min → 1.59 min for 100K files).
 ### Decision Tree
 
 ```
-Do you rely on .dir-locals.el or file-visiting hooks?
+Do you rely on file-visiting hooks (find-file-hook)?
 ├─ Yes → Use find-file (correctness wins)
 └─ No
-   └─ Do you need per-file #+TODO / hook-based tweaks?
+   └─ Do you need per-file #+TODO, dir-locals or hook-based tweaks?
       ├─ Yes → Use temp-buffer (default)
       └─ No → Use single-temp-buffer (fastest)
 ```
@@ -248,6 +249,6 @@ Do you rely on .dir-locals.el or file-visiting hooks?
 - Custom `org-attach-id-dir` in some directories
 - `.dir-locals.el` for project-specific settings
 
-**Recommendation:** ⚠️ Use `find-file`
-- Sync time: 102 min for 100K files
-- Full correctness, respects all dir-locals
+**Recommendation:** ✓ Use `temp-buffer` (default)
+- The per-file `org-mode` rerun applies dir-locals and file-local variables
+- Use `find-file` only if something also depends on `find-file-hook`
