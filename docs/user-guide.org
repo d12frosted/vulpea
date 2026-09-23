@@ -857,5 +857,5 @@ None of it went through a title.
 
 * Next Steps
 
-- [[file:configuration.org][Configuration]] - All options and performance tuning
+- [[file:configuration.org][Configuration]] - Indexing, sync and note creation options
 - [[file:api-reference.org][API Reference]] - Building custom tools
