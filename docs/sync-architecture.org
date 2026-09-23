@@ -2,11 +2,18 @@
 
 * Overview
 
-All database updates flow through a single function: ~vulpea-db-update-file~
+A file reaches the database through one write step,
+=vulpea-db--apply-parse-ctx=. ~vulpea-db-update-file~ parses the file
+and calls it, and results streamed back from the extraction worker are
+applied by it too. Two paths skip it: in full-write mode
+(=vulpea-db-async-extraction= set to ='full=) the worker writes the
+database itself, and removals have their own delete path. All of them
+announce on =vulpea-db-updated-functions=.
 
-The sync system has two modes:
-1. *Immediate (sync)* - blocks until update completes
-2. *Async (queue-based)* - non-blocking, batched processing
+Updates run in one of two ways:
+1. *Immediate* - the caller blocks until the file is written
+2. *Queued* - changes are batched and processed from timers, optionally
+   parsed in the worker
 
 * Core Components
 
@@ -35,9 +42,11 @@ outcome, including ones that changed nothing.
 
 ** Mode Control
 
-- ~vulpea-db-autosync-mode~ - global minor mode
-  - When *enabled*: async queue-based updates
-  - When *disabled*: immediate blocking updates
+~vulpea-db-autosync-mode~ decides whether anything happens on its own.
+When enabled, file watchers feed the queue, which is how saves and
+external changes reach the database. When disabled there are no
+watchers: saving a buffer updates nothing, and only manual commands and
+programmatic APIs write, immediately.
 
 * Flow Diagrams
 
@@ -85,7 +94,7 @@ vulpea-db-sync-update-directory(dir, force)
   │
   ├─ Find all .org files in dir
   │
-  ├─ FORCE mode OR autosync OFF?
+  ├─ autosync OFF, or FORCE without async extraction?
   │   │
   │   └─ Process IMMEDIATELY (synchronous)
   │       ├─ Fetch file hashes (1 query)
@@ -97,10 +106,10 @@ vulpea-db-sync-update-directory(dir, force)
   │       │           └─ vulpea-db-update-file (if changed)
   │       └─ Report: "Synced N files (X updated, Y unchanged)"
   │
-  └─ autosync ON AND NOT force?
+  └─ autosync ON, and NOT force or async extraction ON?
       │
       └─ Process ASYNCHRONOUSLY
-          └─ Enqueue all files
+          └─ Enqueue all files (forced ones keep their mark)
               └─ Queue processes them in batches
 #+end_example
 
@@ -262,13 +271,17 @@ vulpea-db-sync--enqueue(path)
   └─ Schedule: run-with-timer(0.01s, vulpea-db-sync--process-queue)
 
 Timer fires after 0.01s of quiet
+(an idle timer, 0.5s by default, also drains the queue)
   │
   └─ vulpea-db-sync--process-queue
       │
       ├─ Take up to 100 files from queue
       ├─ Fetch file hashes (1 query for batch)
       │
-      ├─ Process batch in SINGLE TRANSACTION
+      ├─ Async extraction ON and the worker takes the file?
+      │   └─ Changed (mtime/size) or forced? Send to the worker
+      │
+      ├─ The rest: process in a SINGLE TRANSACTION
       │   └─ FOR EACH FILE:
       │       └─ vulpea-db-sync--update-file-if-changed
       │           ├─ Check mtime/size/hash
@@ -290,16 +303,17 @@ Timer fires after 0.01s of quiet
 
 * Decision Table
 
-| Scenario           | autosync-mode | force | Execution         |
-|--------------------+---------------+-------+-------------------|
-| vulpea-create      | ignored       | n/a   | Immediate         |
-| Manual file update | OFF           | n/a   | Immediate         |
-| Manual file update | ON            | n/a   | Async (queued)    |
-| Directory sync     | OFF           | n/a   | Immediate + smart |
-| Directory sync     | ON            | OFF   | Async (queued)    |
-| Directory sync     | ignored       | ON    | Immediate + force |
-| File watchers      | ignored       | n/a   | Async (always)    |
-| Save buffer        | ignored       | n/a   | Async (always)    |
+| Scenario                | autosync-mode | force | Execution                         |
+|-------------------------+---------------+-------+-----------------------------------|
+| vulpea-create           | ignored       | n/a   | Immediate                         |
+| Manual file update      | OFF           | n/a   | Immediate                         |
+| Manual file update      | ON            | n/a   | Async (queued, forced)            |
+| Directory sync          | OFF           | any   | Immediate (smart, or forced)      |
+| Directory sync          | ON            | OFF   | Async (queued)                    |
+| Directory sync          | ON            | ON    | Queued with async extraction,     |
+|                         |               |       | otherwise immediate + force       |
+| Save or external change | ON            | n/a   | Async (queued) via file watchers  |
+| Save or external change | OFF           | n/a   | Nothing (no watchers)             |
 
 
 * Smart Change Detection
