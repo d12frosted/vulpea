@@ -415,6 +415,43 @@ reading them back through emacsql must return the original values."
                                     "tricky-id"))
                      meta-value)))))
 
+(ert-deftest vulpea-db-bind-scalar-matches-readable-print ()
+  "Every value binds as its readable-print form, as emacsql stores it.
+Covers strings that print verbatim between quotes as well as every
+kind of character or string property that makes the printer escape
+or annotate, so any shortcut for plain strings stays byte-identical
+to `prin1-to-string'."
+  (let ((values
+         (list "" "plain" "with space" "id:5093fc4e-1c2d"
+               "/tmp/some path/file.org" "ünïcödé" "日本語のタイトル"
+               "emoji 🦊" "’curly’" "quote \" inside" "back\\slash"
+               "new\nline" "tab\there" "cr\rhere" "nul\0byte"
+               "esc\ehere" "del\177here" "\e[1m"
+               (string ?a #x3fff80 ?b)      ; raw byte in multibyte
+               (unibyte-string ?a #xe9 ?b)  ; unibyte non-ASCII
+               (unibyte-string ?a ?b)
+               (propertize "props" 'face 'bold)
+               (concat "part" (propertize "ial" 'face 'bold))
+               'symbol 'sym\ with\ space :keyword t
+               '("list" "of" "strings") '(:dest "x" :pos 1)
+               42 3.5 nil)))
+    (dolist (value values)
+      (should (equal (vulpea-db--bind-scalar value)
+                     (cond ((null value) nil)
+                           ((numberp value) value)
+                           (t (let ((print-escape-newlines t)
+                                    (print-escape-control-characters t))
+                                (prin1-to-string value)))))))
+    ;; Printer settings a user may have changed globally still apply
+    (dolist (setting '(print-escape-nonascii print-escape-multibyte))
+      (cl-progv (list setting) '(t)
+        (dolist (value values)
+          (when (stringp value)
+            (should (equal (vulpea-db--bind-scalar value)
+                           (let ((print-escape-newlines t)
+                                 (print-escape-control-characters t))
+                             (prin1-to-string value))))))))))
+
 (ert-deftest vulpea-db-insert-note-storage-encoding ()
   "Stored column text matches emacsql's readable-print encoding.
 Locks the on-disk format: rows written by `vulpea-db--insert-note'
@@ -448,6 +485,143 @@ written before and after any insert-path change are interchangeable."
         (should (equal (elt row 1) 0))
         ;; nil is stored as NULL
         (should (null (elt row 2)))))))
+
+;;; Batched Inserts
+
+(defun vulpea-db-test--raw-dump ()
+  "Return every row of the core tables as stored, in rowid order.
+Reads through the native handle, so the comparison covers the exact
+stored encoding and the insertion order, not just decoded values."
+  (let ((handle (oref (vulpea-db) handle)))
+    (mapcar (lambda (table)
+              (cons table
+                    (sqlite-select
+                     handle
+                     (format "SELECT rowid, * FROM %s ORDER BY rowid" table))))
+            '("notes" "tags" "links" "meta" "properties"))))
+
+(defun vulpea-db-test--batch-notes (path)
+  "Return note plists at PATH exercising every insert path.
+Includes a duplicated id (the first row must win), duplicated tags
+and links, repeated meta values and properties, and nil fields."
+  (append
+   (list (list :id "file-id" :path path :level 0 :pos 0
+               :title "File" :title-source 'keyword
+               :tags '("a" "b" "a")
+               :properties '(("ID" . "file-id") ("CATEGORY" . "cat"))
+               :meta '(("k" . ("v1" "v2")) ("k2" . ("v1")))
+               :links '((:dest "x" :type "id" :pos 10 :description "X")
+                        (:dest "x" :type "id" :pos 10 :description "X")
+                        (:dest "//e.com" :type "https" :pos 20))
+               :category "cat" :category-source 'property
+               :modified-at "2026-09-23 10:00:00"))
+   (cl-loop for i from 1 to 30
+            collect (list :id (format "h-%02d" i) :path path :level 1
+                          :pos (* 100 i)
+                          :title (format "Heading \"%d\"\nsecond line" i)
+                          :title-source 'heading
+                          :tags (when (cl-evenp i) (list "t" (format "t%d" i)))
+                          :properties (list (cons "ID" (format "h-%02d" i)))
+                          :meta (when (zerop (% i 3))
+                                  (list (cons "rating" (list (number-to-string i)))))
+                          :links (when (zerop (% i 4))
+                                   (list (list :dest "file-id" :type "id"
+                                               :pos (+ 5 (* 100 i)))))
+                          :todo (when (cl-oddp i) "TODO")
+                          :priority (when (= i 7) ?A)
+                          :outline-path (list "Parent")
+                          :modified-at "2026-09-23 10:00:00"))
+   (list (list :id "h-05" :path path :level 2 :pos 9000
+               :title "Duplicate id" :tags '("dup")
+               :links '((:dest "dup" :type "id" :pos 9010))
+               :modified-at "2026-09-23 10:00:00"))))
+
+(ert-deftest vulpea-db-insert-notes-matches-one-by-one ()
+  "A batched insert stores exactly what note-by-note inserts store.
+Same rows, same encoding, same rowid order in every table.  The
+bind-parameter limit is lowered so every table spans several
+statements, including a notes row wider than the limit."
+  (let* ((path "/tmp/batch.org")
+         (notes (vulpea-db-test--batch-notes path))
+         one-by-one batched)
+    (vulpea-test--with-temp-db
+      (vulpea-db)
+      (dolist (note notes)
+        (apply #'vulpea-db--insert-note note))
+      (setq one-by-one (vulpea-db-test--raw-dump)))
+    (vulpea-test--with-temp-db
+      (vulpea-db)
+      (let ((vulpea-db--max-bind-params 7))
+        (vulpea-db--insert-notes notes))
+      (setq batched (vulpea-db-test--raw-dump)))
+    ;; Sanity: the fixture really spans several statements per table
+    (should (> (length (cdr (assoc "notes" batched))) 30))
+    (should (> (length (cdr (assoc "tags" batched))) 7))
+    (dolist (table one-by-one)
+      (should (equal table (assoc (car table) batched))))))
+
+(ert-deftest vulpea-db-insert-rows-ignores-per-row ()
+  "A constraint violation drops only the violating row of a batch.
+Its siblings in the same multi-row statement are still inserted."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-db--insert-note :id "n" :path "/tmp/n.org" :level 0 :pos 0
+                            :title "N" :tags '("b")
+                            :modified-at "2026-09-23 10:00:00")
+    (vulpea-db--insert-rows
+     (oref (vulpea-db) handle)
+     "INSERT OR IGNORE INTO tags (note_id, tag)" 2
+     '(("n" "a") ("n" "b") ("n" "c")))
+    (should (equal (emacsql (vulpea-db)
+                            [:select [tag] :from tags :where (= note-id $s1)
+                             :order-by [(asc tag)]]
+                            "n")
+                   '(("a") ("b") ("c"))))))
+
+(ert-deftest vulpea-db-insert-notes-evicts-stale-rows ()
+  "A batch evicts rows whose file is gone, and keeps live duplicates.
+Mirrors the note-by-note eviction: every stale id in the batch is
+taken over, while an id owned by a file that still exists stays with
+its owner.  The ids left with another file are returned: they are
+the batch's pending claims."
+  (vulpea-test--with-temp-db
+   (vulpea-db)
+   (let ((new-path (vulpea-test--create-temp-org-file "#+TITLE: New\n"))
+         (live-path (vulpea-test--create-temp-org-file "#+TITLE: Live\n")))
+     (unwind-protect
+         (progn
+           (vulpea-db--insert-note :id "stale-1" :path "/nonexistent/a.org"
+                                   :level 0 :pos 0 :title "Old 1"
+                                   :tags '("old") :modified-at "t")
+           (vulpea-db--insert-note :id "stale-2" :path "/nonexistent/a.org"
+                                   :level 1 :pos 10 :title "Old 2"
+                                   :modified-at "t")
+           (vulpea-db--insert-note :id "live" :path live-path
+                                   :level 0 :pos 0 :title "Live"
+                                   :modified-at "t")
+           (should
+            (equal
+             (vulpea-db--insert-notes
+              (list (list :id "stale-1" :path new-path :level 0 :pos 0
+                          :title "New 1" :tags '("new") :modified-at "t")
+                    (list :id "stale-2" :path new-path :level 1 :pos 10
+                          :title "New 2" :modified-at "t")
+                    (list :id "live" :path new-path :level 1 :pos 20
+                          :title "Not mine" :modified-at "t")))
+             '("live")))
+           (should (equal (emacsql (vulpea-db)
+                                   [:select [id title] :from notes
+					    :order-by [(asc id)]])
+                          '(("live" "Live")
+                            ("stale-1" "New 1")
+                            ("stale-2" "New 2"))))
+           (should (equal (emacsql (vulpea-db)
+                                   [:select [tag] :from tags
+					    :where (= note-id $s1)]
+                                   "stale-1")
+                          '(("new")))))
+       (delete-file new-path)
+       (delete-file live-path)))))
 
 (ert-deftest vulpea-db-delete-note ()
   "Test note deletion."
