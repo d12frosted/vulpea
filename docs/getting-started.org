@@ -294,7 +294,9 @@ carrying it, and a note can carry both to take itself and its subtree
 out together.
 
 In a file-level property drawer it applies to the whole file, so the
-file-level note is indexed and none of its headings are:
+file-level note is indexed and none of its headings are (unlike
+=vulpea-db-index-heading-level= set to =nil=, the headings are
+excluded, links included, rather than folded into the file-level note):
 
 #+begin_src org
 :PROPERTIES:

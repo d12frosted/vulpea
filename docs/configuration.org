@@ -426,6 +426,12 @@ Control whether headings with IDs are indexed:
 
 If you only use file-level notes, disable this for significant speedup.
 
+With heading-level indexing off for a file, a heading with an =ID= is
+just part of the file-level note: links written under it are the file
+note's links, so their targets keep the backlinks. Excluding headings
+with =VULPEA_IGNORE= or =VULPEA_IGNORE_CHILDREN= is different, see
+[[file:getting-started.org::*Excluding a Whole Subtree][Excluding a Whole Subtree]].
+
 ** Archive Exclusion
 
 By default, archived entries are excluded from the database:

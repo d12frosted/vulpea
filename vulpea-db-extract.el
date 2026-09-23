@@ -789,11 +789,13 @@ no ancestor provides one."
       (setq current (org-element-property :parent current)))
     category))
 
-(defun vulpea-db--extract-file-node (ast _path buffer file-title file-category)
+(defun vulpea-db--extract-file-node (ast path buffer file-title file-category)
   "Extract file-level node data from AST in BUFFER.
 
-_PATH is accepted for signature symmetry with
-`vulpea-db--extract-heading-nodes' but is not used.
+PATH decides, through `vulpea-db-index-heading-level', whether
+headings with an ID are notes of their own.  When they are, the file
+note's links stop at them; when they are not, their content is the
+file note's like that of any other heading.
 FILE-TITLE is the title of the file (from #+TITLE or filename).
 FILE-CATEGORY is the resolved file-level category as
 \(CATEGORY . SOURCE), see `vulpea-db--file-category'.
@@ -847,7 +849,8 @@ Returns nil if:
                              raw-title title-value-pos)))
              (meta (vulpea-db--extract-meta ast))
              (links (append title-links
-                            (vulpea-db--extract-links ast t)))  ; Don't recurse into headlines
+                            (vulpea-db--extract-links-stopping-at-notes
+                             ast (not (vulpea-db--should-index-headings-p path)))))
              (aliases (vulpea-db--extract-aliases properties))
              (attach-dir (vulpea-db--attach-dir
                           buffer (point-min) id
@@ -1235,14 +1238,19 @@ see `vulpea-db--generated-element-p') are never extracted."
                      (not (vulpea-db--inside-generated-p link)))
             (list :dest path :type type :pos pos :description desc)))))))
 
-(defun vulpea-db--extract-links-stopping-at-notes (node)
+(defun vulpea-db--extract-links-stopping-at-notes (node &optional no-heading-notes)
   "Extract links from NODE, stopping at note boundaries.
 
 Collects links from NODE but does not descend into child
 headlines that have an ID property (note boundaries).  Links
-inside non-note child headlines are included."
+inside non-note child headlines are included.
+
+When NO-HEADING-NOTES is non-nil, headings are not indexed as notes
+for this file, so no headline is a boundary and every link below
+NODE is collected."
   (let ((result nil))
-    (vulpea-db--walk-links-skipping-notes node (lambda (link) (push link result)))
+    (vulpea-db--walk-links-skipping-notes
+     node (lambda (link) (push link result)) no-heading-notes)
     (nreverse result)))
 
 (defun vulpea-db--region-links (start end callback)
@@ -1319,13 +1327,14 @@ calls; a full object parse never surfaces links inside either."
               (and (>= pos (car span)) (< pos (cdr span))))
             exclusions))
 
-(defun vulpea-db--walk-links-skipping-notes (node callback)
+(defun vulpea-db--walk-links-skipping-notes (node callback &optional no-heading-notes)
   "Walk NODE collecting links via CALLBACK, skipping note headlines.
 
 CALLBACK is called with a plist (:dest :type :pos :description) for
 each link.  Descends into child headlines only if they lack an ID
 property, and never into generated content (see
-`vulpea-db--generated-element-p').
+`vulpea-db--generated-element-p').  With NO-HEADING-NOTES non-nil,
+headlines with an ID are not notes and are walked like the rest.
 
 Works on both object- and element-granularity ASTs: parsed link
 objects are collected directly, while textual elements that carry no
@@ -1353,6 +1362,7 @@ the buffer NODE was parsed from."
                                     :description desc)))))
        ;; Headline with ID: skip (note boundary)
        ((and (eq child-type 'headline)
+             (not no-heading-notes)
              (org-element-property :ID child))
         nil)
        ;; Headline without ID: extract title links, then recurse
@@ -1364,12 +1374,13 @@ the buffer NODE was parsed from."
                (h-begin (org-element-property :begin child))
                (title-start (+ h-begin h-level 1
                                (if h-todo (+ (length h-todo) 1) 0)
-                               (if h-priority 4 0))))
+                               ;; "[#X] " incl. trailing space
+                               (if h-priority 5 0))))
           (when raw-value
             (dolist (link (vulpea-db--extract-links-from-string
                           raw-value title-start))
               (funcall callback link))))
-        (vulpea-db--walk-links-skipping-notes child callback))
+        (vulpea-db--walk-links-skipping-notes child callback no-heading-notes))
        ;; Textual element without parsed objects (element
        ;; granularity): scan its buffer region for links
        ((and (memq child-type '(paragraph verse-block table-row))
@@ -1381,7 +1392,7 @@ the buffer NODE was parsed from."
          callback))
        ;; Anything else (section, paragraph, etc.): recurse
        ((org-element-contents child)
-        (vulpea-db--walk-links-skipping-notes child callback))))))
+        (vulpea-db--walk-links-skipping-notes child callback no-heading-notes))))))
 
 (defun vulpea-db--normalize-timestamps (string)
   "Normalize org timestamps in STRING as an object parse prints them.

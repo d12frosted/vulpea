@@ -108,6 +108,10 @@ Can be:
 - nil: index only file-level notes (2-3x faster)
 - function: predicate (path) -> boolean for selective indexing
 
+In a file whose headings are not indexed, a heading with an ID is
+not a note, just part of the file-level note: links written under it
+count as the file note's.
+
 For 100k+ notes, disabling heading-level indexing can provide
 significant performance improvement."
   :type '(choice boolean function)
@@ -156,8 +160,10 @@ children are noise: a Meetings heading worth finding by itself, holding
 hundreds of individual meetings that are not.
 
 In a file-level property drawer it applies to the whole file, so the
-file-level note is indexed and no heading in it is - a per-file version
-of `vulpea-db-index-heading-level' set to nil.
+file-level note is indexed and no heading in it is.  Unlike
+`vulpea-db-index-heading-level' set to nil, which folds headings into
+the file-level note, this is an exclusion: the skipped headings take
+their links out of the database as described below.
 
 The value is read with `org-not-nil', like `vulpea-db-exclude-property',
 so any value other than nil excludes the descendants and can double as a
@@ -206,7 +212,7 @@ changes to extraction logic that keep the schema intact, bump
 `vulpea-db-parser-epoch' instead - it re-extracts files without
 discarding the database.")
 
-(defconst vulpea-db-parser-epoch 6
+(defconst vulpea-db-parser-epoch 7
   "Epoch of the note extraction logic.
 
 Increment this whenever the parser/extractor in `vulpea-db-extract'
