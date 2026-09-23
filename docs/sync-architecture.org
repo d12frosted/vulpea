@@ -155,10 +155,11 @@ Timer fires every N seconds
               └─ vulpea-db-sync--enqueue(path)  ← ALWAYS ASYNC
 #+end_example
 
-*Performance*: File listing runs as an async subprocess, so polling
-never blocks the editor.  With =fd=, the scan completes in ~50ms
-(vs ~900ms with =find=) for a 14k-file collection.  Install =fd= if
-using polling mode.
+*Performance*: File listing runs as a subprocess; reading the list
+back and comparing it with the database happens in Emacs.  For 14k
+notes the listing takes 208ms with =fd= and 329ms with =find=, measured
+until vulpea has the list (=bench/README.md=).  Install =fd= if using
+polling mode.
 
 *** D. Dir-locals changes (all watchers)
 
@@ -252,8 +253,8 @@ vulpea-db-autosync-mode +1
           └─ Cleanup deleted files (sync)
 #+end_example
 
-*Key feature*: With ='async= and =fswatch=, startup returns in ~8ms
-instead of ~1400ms for large collections.  File listing runs as an
+*Key feature*: With ='async= and =fswatch=, enabling the mode returns
+in 16ms for 14k notes (=bench/README.md=).  File listing runs as an
 =fd= (or =find=) subprocess.  Cleanup uses set comparison against the
 subprocess output instead of per-file =file-exists-p= calls.  When
 =fswatch= is active, filenotify watchers are skipped entirely since
@@ -401,7 +402,7 @@ reports those, naming the id and every file involved.
 (setq vulpea-db-sync-external-method 'auto)  ; fswatch or poll
 (vulpea-db-autosync-mode 1)
 ;; Everything automatic, hands-off
-;; Startup returns in ~8ms (file listing runs as subprocess)
+;; Enabling returns at once (file listing runs as subprocess)
 #+end_src
 
 ** Minimal (manual only)
@@ -490,7 +491,7 @@ extraction moves it into a persistent =emacs --batch= subprocess.
 |------------------------------+----------+----------+------------------------------|
 | =nil= (default)              | main     | main     | everything                   |
 | =t=                          | worker   | main     | db write of results          |
-| ='full=                      | worker   | worker   | org-id registration (~1ms)   |
+| ='full=                      | worker   | worker   | org-id registration (~1.5ms) |
 
 ** How a file flows through the worker
 

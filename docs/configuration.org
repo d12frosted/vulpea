@@ -272,14 +272,14 @@ With =find-file= and =temp-buffer=, extraction results can depend on
 variables); autosync re-indexes the affected subtree when such a
 file changes (see [[*Dir-Locals Changes][Dir-Locals Changes]]).
 
-Measured throughput for each method is in [[file:../bench/PERFORMANCE.md][bench/PERFORMANCE.md]].
+The timings in this chapter come from [[file:../bench/README.md][bench/README.md]] (Reference Numbers), which names the benchmark behind each one.
 
 ** Parse Granularity
 
 How deep the org-element parse goes during extraction:
 
 #+begin_src emacs-lisp
-(setq vulpea-db-parse-granularity 'element)  ; Default, 2-3x faster on large files
+(setq vulpea-db-parse-granularity 'element)  ; Default, faster parse
 ;; or
 (setq vulpea-db-parse-granularity 'object)   ; Full parse, historical behavior
 #+end_src
@@ -294,8 +294,9 @@ please report it. Known exception: radio links are only picked up in
 =vulpea-db-register-extractor=, a full =object= parse is used
 regardless, since plugins may inspect inline objects.
 
-This matters most for large files: parsing a 10MB file drops from
-~3s to ~1.1s.
+The parse step itself gets about 2.2x faster (2.4s to 1.1s for a 10MB
+file); since parsing is one step of indexing, saving that file gets
+about 16% faster overall.
 
 ** Plain Link Indexing
 
@@ -313,8 +314,8 @@ most expensive part of link extraction. Bracketed links
 (=[[id:...][desc]]=) are found with a cheap literal search. Since
 =id:= links - the ones that carry the note graph - are practically
 always bracketed, collections that do not query plain links can
-disable this for a noticeably shorter save freeze on large files
-(~20% faster re-index of a 10MB file).
+disable this for a shorter save freeze on large files (a 10MB file
+re-indexes in 3.1s instead of 3.7s).
 
 After changing it, run =vulpea-db-sync-full-scan= with a prefix
 argument to re-index existing files.
@@ -334,7 +335,7 @@ thread - the UI freezes for as long as the file takes to index.
 With async extraction (=t=), reading, hashing, parsing, and
 extraction run in a persistent =emacs --batch= worker; the main
 thread only blocks for the database write of the results (a 1MB
-file: ~50ms instead of ~360ms; a 10MB file: ~0.5s instead of ~3.5s).
+file: 64ms instead of 421ms; a 10MB file: 0.89s instead of 3.73s).
 
 With ='full=, the worker also writes the results through its own
 database connection, and the main thread only registers note IDs
@@ -416,7 +417,7 @@ never lags behind saved content.
 Control whether headings with IDs are indexed:
 
 #+begin_src emacs-lisp
-;; Disable completely (2-3× faster sync)
+;; Disable completely
 (setq vulpea-db-index-heading-level nil)
 
 ;; Enable for all files (default)
@@ -428,7 +429,10 @@ Control whether headings with IDs are indexed:
         (string-match-p "/projects/" path)))
 #+end_src
 
-If you only use file-level notes, disable this for significant speedup.
+If you only use file-level notes, turning this off skips heading
+extraction. How much that saves depends on how many heading notes your
+files have: nothing for a collection without them, and 3.7s down to
+2.2s for a 10MB file with 3.6k of them.
 
 With heading-level indexing off for a file, a heading with an =ID= is
 just part of the file-level note: links written under it are the file
@@ -571,14 +575,11 @@ When =fswatch= is not available, Vulpea falls back to polling — periodically s
 (setq vulpea-db-sync-poll-interval 2)  ; Check every 2 seconds
 #+end_src
 
-If you use polling, install =fd= — it is critical for polling performance. Benchmark on a 14k-file collection:
-
-| Method | File listing time | Blocking time (editor) |
-|--------+-------------------+------------------------|
-| =fd=   | ~50ms             | 0ms (async)            |
-| =find= | ~900ms            | 0ms (async)            |
-
-Both run asynchronously and don't block the editor, but =fd= completes the scan 15× faster, meaning changes are detected sooner.
+If you use polling, install =fd=: each poll lists every file, and =fd=
+lists faster than =find=. On a tree of 14k notes a listing takes 208ms
+with =fd= and 329ms with =find=, measured until vulpea has the list.
+The commands themselves take 15ms and 35ms; the rest is Emacs reading
+and normalizing the list.
 
 ** Windows fswatch Path Style
 

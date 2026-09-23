@@ -86,11 +86,11 @@ Add to your Emacs configuration:
 | Tool      | What it does                                              | How to install                                                       |
 |-----------+-----------------------------------------------------------+----------------------------------------------------------------------|
 | =fswatch= | Detects file changes made outside Emacs (git, sync tools) | =brew install fswatch= / =apt install fswatch= / =pacman -S fswatch= |
-| =fd=      | Fast file finding (15× faster than =find=)                | =brew install fd= / =apt install fd-find= / =pacman -S fd=           |
+| =fd=      | Faster file listing than =find=                           | =brew install fd= / =apt install fd-find= / =pacman -S fd=           |
 
-These tools are important for performance. =fswatch= provides instant detection of external changes (git pull, Dropbox sync, etc.) with near-zero cost. Without it, Vulpea falls back to polling, which periodically scans directories. =fd= makes that scanning (and startup) dramatically faster - on a 14k-file collection, =fd= takes ~50ms vs ~900ms for =find=.
+=fswatch= reports external changes (git pull, Dropbox sync, etc.) as they happen. Without it, Vulpea falls back to polling: every few seconds it lists your directories and checks what changed. =fd= makes each listing faster than =find= (208ms vs 329ms for 14k notes, see [[file:../bench/README.md][bench/README.md]]).
 
-If you sync notes via git or cloud tools, install both. At minimum, install =fd=.
+If you sync notes via git or cloud tools, install =fswatch=; =fd= helps with the startup scan and with polling when =fswatch= is missing.
 
 * First-Time Setup
 
@@ -368,7 +368,7 @@ them ("no headings in the archive directory", "nothing tagged
 
 ** Database sync is slow
 
-For large collections (10k+ notes):
+If syncing a large collection is slow:
 
 1. Install =fd= for faster file discovery
 2. Consider disabling heading-level indexing:
