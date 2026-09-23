@@ -61,6 +61,8 @@
                   (&optional create-if-not-exists-p no-fs-check))
 (declare-function org-attach-dir-from-id "org-attach"
                   (id &optional existing))
+(defvar org-attach-id-dir)
+(defvar org-attach-id-to-path-function-list)
 (declare-function vulpea-db-sync--enqueue "vulpea-db-sync"
                   (path &optional force no-count))
 
@@ -691,7 +693,31 @@ per-node property lookups entirely (see `vulpea-db--attach-dir')."
              "^[ \t]*\\(?::\\(?:DIR\\|ATTACH_DIR\\)\\+?:\\|#\\+PROPERTY:[ \t]*\\(?:DIR\\|ATTACH_DIR\\)\\)"
              nil t))))))
 
-(defun vulpea-db--attach-dir (buffer pos id props-p)
+(defconst vulpea-db--attach-rooted-functions
+  '(org-attach-id-uuid-folder-format
+    org-attach-id-ts-folder-format
+    org-attach-id-fallback-folder-format)
+  "Id-to-path functions of org whose paths stay inside the root.
+Each returns a relative path built from the ID, so for an ID that
+cannot escape (see `vulpea-db--attach-dir') the directory lands under
+`org-attach-id-dir', or under org's data/ fallback.")
+
+(defun vulpea-db--attach-root-absent-p (buffer)
+  "Return non-nil when no ID-derived attach dir can exist for BUFFER.
+True when `org-attach-id-to-path-function-list' holds only functions
+from `vulpea-db--attach-rooted-functions' and neither
+`org-attach-id-dir' nor org's data/ fallback exists, both resolved
+as in BUFFER.  Nothing under a missing root exists, so
+`org-attach-dir-from-id' with EXISTING can only return its first
+candidate (see `vulpea-db--attach-dir')."
+  (with-current-buffer buffer
+    (require 'org-attach)
+    (and (seq-every-p (lambda (fn) (memq fn vulpea-db--attach-rooted-functions))
+                      org-attach-id-to-path-function-list)
+         (not (file-directory-p (expand-file-name org-attach-id-dir)))
+         (not (file-directory-p (expand-file-name "data/"))))))
+
+(defun vulpea-db--attach-dir (buffer pos id props-p &optional no-root)
   "Compute attachment directory for the note with ID at POS in BUFFER.
 
 When PROPS-P is nil the buffer contains no DIR/ATTACH_DIR properties
@@ -699,14 +725,26 @@ When PROPS-P is nil the buffer contains no DIR/ATTACH_DIR properties
 ID directly - the same value `org-attach-dir' would return, minus its
 three per-node `org-entry-get' tree walks, which dominate heading
 extraction cost on large files (issue #359).  Otherwise falls back to
-`org-attach-dir' at POS."
+`org-attach-dir' at POS.
+
+NO-ROOT is the value of `vulpea-db--attach-root-absent-p' for BUFFER.
+When non-nil, the ID-derived result skips the filesystem check of
+each candidate directory: org returns the first candidate when none
+exists.  IDs that could name a path outside the root (a leading
+slash, tilde or dot, a slash, colon or backslash anywhere) keep the
+check."
   (with-current-buffer buffer
     (require 'org-attach)
-    (if props-p
-        (save-excursion
-          (goto-char pos)
-          (org-attach-dir nil 'no-fs-check))
-      (org-attach-dir-from-id id 'existing))))
+    (cond
+     (props-p
+      (save-excursion
+        (goto-char pos)
+        (org-attach-dir nil 'no-fs-check)))
+     ((and no-root
+           (string-match-p "\\`[^/~.:\\][^/:\\]*\\'" id))
+      (org-attach-dir-from-id id))
+     (t
+      (org-attach-dir-from-id id 'existing)))))
 
 (defun vulpea-db--extract-file-title (ast path)
   "Extract file title from AST at PATH.
@@ -866,7 +904,8 @@ Returns nil if:
              (aliases (vulpea-db--extract-aliases properties))
              (attach-dir (vulpea-db--attach-dir
                           buffer (point-min) id
-                          (vulpea-db--attach-dir-props-p buffer))))
+                          (vulpea-db--attach-dir-props-p buffer)
+                          (vulpea-db--attach-root-absent-p buffer))))
         (list :id id
               :title file-title
               ;; title-kw is the same first TITLE keyword that
@@ -968,6 +1007,9 @@ Respects `vulpea-db-index-heading-level' setting."
            ;; One scan for DIR/ATTACH_DIR properties gates the cheap
            ;; ID-derived attach-dir path for every heading
            (attach-props-p (vulpea-db--attach-dir-props-p buffer))
+           ;; And one check of the attachment root spares every
+           ;; heading a filesystem lookup when there is no root
+           (attach-no-root (vulpea-db--attach-root-absent-p buffer))
            ;; Interned once rather than per heading in the ancestor walk
            (children-key (when-let* ((name (vulpea-db--exclude-children-name)))
                            (intern (concat ":" name)))))
@@ -1067,7 +1109,8 @@ Respects `vulpea-db-index-heading-level' setting."
                                                  path)))
                                        path))
                        (attach-dir (vulpea-db--attach-dir
-                                    buffer pos id attach-props-p)))
+                                    buffer pos id attach-props-p
+                                    attach-no-root)))
 
                   (list :id id
                         :level level

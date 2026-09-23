@@ -2606,6 +2606,96 @@ computes for that ID relative to the note's file."
                          (org-attach-dir-from-id "plain-heading-id" 'existing))))
       (delete-file path))))
 
+(ert-deftest vulpea-db-extract-attach-dir-no-root-skips-fs ()
+  "Without an attachment root on disk, no candidate directory is checked.
+With the default id-to-path functions every candidate lives under
+`org-attach-id-dir' (or org's data/ fallback); when neither exists,
+`org-attach-dir-from-id' can only return its first candidate, so
+extraction computes that without a filesystem check per note."
+  (let* ((dir (make-temp-file "vulpea-attach-" t))
+         (path (expand-file-name "note.org" dir))
+         (checked nil))
+    (write-region ":PROPERTIES:\n:ID: root-file-id\n:END:\n#+TITLE: File\n\n* A\n:PROPERTIES:\n:ID: root-heading-a\n:END:\n* B\n:PROPERTIES:\n:ID: root-heading-b\n:END:\n"
+                  nil path nil 'silent)
+    (unwind-protect
+        (let* ((vulpea-db-index-heading-level t)
+               (ctx (cl-letf* ((orig (symbol-function 'file-directory-p))
+                               ((symbol-function 'file-directory-p)
+                                (lambda (file)
+                                  (push file checked)
+                                  (funcall orig file))))
+                      (vulpea-db--parse-file path)))
+               (default-directory (file-name-directory path)))
+          (require 'org-attach)
+          (dolist (node (cons (vulpea-parse-ctx-file-node ctx)
+                              (vulpea-parse-ctx-heading-nodes ctx)))
+            (should (equal (plist-get node :attach-dir)
+                           (org-attach-dir-from-id (plist-get node :id)
+                                                   'existing))))
+          (should-not (seq-find (lambda (file) (string-match-p "root-" file))
+                                checked)))
+      (delete-directory dir t))))
+
+(ert-deftest vulpea-db-extract-attach-dir-existing-candidate-wins ()
+  "An existing attachment directory is found, not just the first guess.
+When the root exists, candidates are checked on disk as org does: a
+directory matching the second id-to-path function beats the first
+function's (missing) one."
+  (let* ((dir (make-temp-file "vulpea-attach-" t))
+         (path (expand-file-name "note.org" dir))
+         ;; org-attach-id-ts-folder-format, the second default function
+         (existing (expand-file-name "data/202609/23T101010" dir)))
+    (write-region "#+TITLE: File\n\n* Heading\n:PROPERTIES:\n:ID: 20260923T101010\n:END:\n"
+                  nil path nil 'silent)
+    (make-directory existing t)
+    (unwind-protect
+        (let* ((vulpea-db-index-heading-level t)
+               (ctx (vulpea-db--parse-file path))
+               (node (car (vulpea-parse-ctx-heading-nodes ctx))))
+          (should (equal (plist-get node :attach-dir) existing)))
+      (delete-directory dir t))))
+
+(defvar org-attach-id-dir)
+
+(ert-deftest vulpea-db-extract-attach-dir-default-root-fallback ()
+  "A custom root that is missing still leaves org's data/ fallback.
+org checks candidates under data/ too when `org-attach-id-dir' points
+elsewhere, so a missing custom root alone does not skip the check."
+  (let* ((dir (make-temp-file "vulpea-attach-" t))
+         (path (expand-file-name "note.org" dir))
+         (org-attach-id-dir "attachments/")
+         ;; org-attach-id-uuid-folder-format under the fallback root
+         (existing (expand-file-name "data/fa/llback-id" dir)))
+    (write-region "#+TITLE: File\n\n* Heading\n:PROPERTIES:\n:ID: fallback-id\n:END:\n"
+                  nil path nil 'silent)
+    (make-directory existing t)
+    (unwind-protect
+        (let* ((vulpea-db-index-heading-level t)
+               (ctx (vulpea-db--parse-file path))
+               (node (car (vulpea-parse-ctx-heading-nodes ctx))))
+          (should (equal (plist-get node :attach-dir) existing)))
+      (delete-directory dir t))))
+
+(defvar org-attach-id-to-path-function-list)
+
+(ert-deftest vulpea-db-extract-attach-dir-custom-function-checks-fs ()
+  "Custom id-to-path functions keep the filesystem check.
+They may place candidates outside the attachment root, so a missing
+root proves nothing about them."
+  (let* ((target (make-temp-file "vulpea-attach-" t))
+         (org-attach-id-to-path-function-list
+          (list (lambda (_id) (expand-file-name "missing" target))
+                (lambda (_id) target)))
+         (path (vulpea-test--create-temp-org-file
+                "#+TITLE: File\n\n* Heading\n:PROPERTIES:\n:ID: custom-fn-id\n:END:\n")))
+    (unwind-protect
+        (let* ((vulpea-db-index-heading-level t)
+               (ctx (vulpea-db--parse-file path))
+               (node (car (vulpea-parse-ctx-heading-nodes ctx))))
+          (should (equal (plist-get node :attach-dir) target)))
+      (delete-directory target t)
+      (delete-file path))))
+
 (ert-deftest vulpea-db-extract-attach-dir-dir-property ()
   "The modern DIR property sets attach-dir, same as ATTACH_DIR."
   (let ((path (vulpea-test--create-temp-org-file
