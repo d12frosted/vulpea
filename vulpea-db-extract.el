@@ -54,6 +54,9 @@
 (require 'vulpea-note)
 (require 'vulpea-buffer)
 
+;; Org 9.5+ (absent before org-persist existed)
+(defvar org-element-cache-persistent)
+
 (declare-function org-attach-dir "org-attach"
                   (&optional create-if-not-exists-p no-fs-check))
 (declare-function org-attach-dir-from-id "org-attach"
@@ -621,6 +624,15 @@ For non-.org files (e.g., .org.age, .org.gpg), always uses the
 `find-file' method regardless of `vulpea-db-parse-method' to
 ensure decryption hooks run properly."
   (let* ((vulpea-db--active-parse-method vulpea-db-parse-method)
+         ;; Keep parsing away from org-persist.  Every parse buffer
+         ;; carries the parsed file's `buffer-file-name', so with the
+         ;; persistent element cache on, org registers each file with
+         ;; org-persist (and loads its stored cache on visit).  The
+         ;; index then grows by one entry per parsed file, every cache
+         ;; reset gets slower (a full sync turns quadratic), and org
+         ;; writes a cache entry for every note on exit.  The cache is
+         ;; reset for each file anyway, so persisting it buys nothing.
+         (org-element-cache-persistent nil)
          (method (if (string-suffix-p ".org" path)
                      vulpea-db-parse-method
                    'find-file)))

@@ -202,11 +202,19 @@ crawl.
 
 *** Cause
 
-The default parse method, =temp-buffer=, re-runs =org-mode= for every
-file, and =org-mode-hook= with it. On the bench harness that holds
-~460 files/s through 10k files and is down to ~56/s by 100k, with
-stock org-mode and no hooks of your own; whatever your hooks cost is
-added per file on top (see =bench/PERFORMANCE.md=).
+With stock org-mode a full scan holds its rate: on the bench harness
+the default =temp-buffer= method takes about 22s for every 10k files,
+from the first 10k to the last of 100k (see =bench/README.md=). So a
+scan that slows down points at something that runs for every file and
+gets slower the more files it has seen, usually a function on
+=org-mode-hook=: =temp-buffer= re-runs =org-mode= for every file, and
+the hook with it.
+
+Vulpea versions up to 2.7 had such a slowdown of their own: org
+registered every parsed file with its persistent element cache
+(=org-persist=), and each file took longer than the one before (100k
+files took 18 minutes instead of 4). On those versions, =(setq
+org-element-cache-persistent nil)= avoids it.
 
 *** Solution
 
