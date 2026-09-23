@@ -1896,6 +1896,18 @@ synchronously when no transaction is open, and deferred to
           (cl-pushnew claimant vulpea-db--deferred-claimants
                       :test #'equal)))))))
 
+(defun vulpea-db--id-difference (previous current)
+  "Return the ids of PREVIOUS that are not in CURRENT, in PREVIOUS order.
+
+Ids are compared with `equal' through a hash table of CURRENT, so the
+cost is linear.  A membership scan per id (what `seq-difference' does)
+is quadratic: re-indexing a file with 36k notes spent minutes here."
+  (when previous
+    (let ((seen (make-hash-table :test #'equal :size (length current))))
+      (dolist (id current)
+        (puthash id t seen))
+      (seq-remove (lambda (id) (gethash id seen)) previous))))
+
 (defvar vulpea-db--released-ids nil
   "Ids the last `vulpea-db--apply-parse-ctx' dropped from its file.
 
@@ -2012,7 +2024,7 @@ Returns number of notes written (file-level + headings)."
 
     ;; Release ids the new parse no longer contains: a file with a
     ;; pending claim on one of them is re-indexed and wins it.
-    (setq vulpea-db--released-ids (seq-difference previous-ids ids))
+    (setq vulpea-db--released-ids (vulpea-db--id-difference previous-ids ids))
     (when-let* ((released vulpea-db--released-ids))
       (unless skip-org-id
         (vulpea-db--unregister-id-locations released path))

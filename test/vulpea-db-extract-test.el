@@ -2360,6 +2360,39 @@ quadratic path takes several times the bound on any machine."
     (should (= (length org-id-files) (* 2 n)))
     (should (= (hash-table-count org-id-locations) n))))
 
+(ert-deftest vulpea-db-extract-id-difference ()
+  "Ids of PREVIOUS missing from CURRENT, in PREVIOUS order."
+  (should (equal (vulpea-db--id-difference '("a" "b" "c" "d") '("d" "b" "x"))
+                 '("a" "c")))
+  (should (equal (vulpea-db--id-difference '("a" "b") nil) '("a" "b")))
+  (should-not (vulpea-db--id-difference nil '("a")))
+  (should-not (vulpea-db--id-difference '("a" "b") '("b" "a")))
+  ;; Ids are compared by content, not identity: the previous ids come
+  ;; from the database and the current ones from a fresh parse.
+  (should-not (vulpea-db--id-difference (list (copy-sequence "a"))
+                                        (list (copy-sequence "a")))))
+
+(ert-deftest vulpea-db-extract-id-difference-is-linear ()
+  "Diffing the ids of a large file stays linear.
+Re-indexing a file compares the ids it held against the ids the new
+parse found; a membership scan per id made saving a 100MB file with
+36k notes take minutes.  Sized so that the quadratic path takes
+several times the bound on any machine."
+  (let* ((n 40000)
+         (previous (mapcar (lambda (i) (format "%08x-0000-4000-8000-%012d" i i))
+                           (number-sequence 1 n)))
+         ;; Same ids as fresh strings, in the opposite order, minus
+         ;; every tenth one.
+         (current (seq-remove #'null
+                              (seq-map-indexed
+                               (lambda (id i)
+                                 (unless (zerop (% i 10)) (copy-sequence id)))
+                               (reverse previous))))
+         (start (float-time))
+         (released (vulpea-db--id-difference previous current)))
+    (should (< (- (float-time) start) 2.0))
+    (should (= (length released) (/ n 10)))))
+
 (ert-deftest vulpea-db-extract-unregisters-released-ids-with-org-id ()
   "An id a re-parse no longer finds is dropped from `org-id-locations'.
 The heading is deleted from a file that stays tracked; its id must
