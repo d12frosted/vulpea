@@ -96,7 +96,7 @@ echo ""
 if [[ $(find "$NOTES_DIR" -name "*.org" | wc -l) -lt "$NOTE_COUNT" ]]; then
     echo "Generating $NOTE_COUNT notes..."
     cd "$PROJECT_ROOT"
-    eldev -dtT exec "(progn
+    eldev -c -dtT exec "(progn
       (add-to-list 'load-path \"$SCRIPT_DIR\")
       (require 'vulpea-bench-generate)
       (vulpea-bench-generate-notes \"$NOTES_DIR\" $NOTE_COUNT t))"
@@ -107,7 +107,7 @@ fi
 if [[ $RUN_SYNC -eq 1 || $RUN_ALL -eq 1 ]]; then
     echo "Running sync benchmark..."
     cd "$PROJECT_ROOT"
-    eldev -dtT exec "(progn
+    eldev -c -dtT exec "(progn
       (add-to-list 'load-path \"$SCRIPT_DIR\")
       (require 'vulpea-bench)
       (vulpea-bench-sync \"$NOTES_DIR\" \"$DB_FILE\"))"
@@ -119,7 +119,7 @@ if [[ $RUN_EXTRACT -eq 1 || $RUN_ALL -eq 1 ]]; then
     echo "Running extraction benchmark..."
     SAMPLE_SIZE=$((NOTE_COUNT < 100 ? NOTE_COUNT : 100))
     cd "$PROJECT_ROOT"
-    eldev -dtT exec "(progn
+    eldev -c -dtT exec "(progn
       (add-to-list 'load-path \"$SCRIPT_DIR\")
       (require 'vulpea-bench)
       (vulpea-bench-extraction \"$NOTES_DIR\" $SAMPLE_SIZE))"
@@ -130,7 +130,7 @@ fi
 if [[ $RUN_QUERY -eq 1 || $RUN_ALL -eq 1 ]]; then
     echo "Running query benchmarks..."
     cd "$PROJECT_ROOT"
-    eldev -dtT exec "(progn
+    eldev -c -dtT exec "(progn
       (add-to-list 'load-path \"$SCRIPT_DIR\")
       (require 'vulpea-bench)
 
