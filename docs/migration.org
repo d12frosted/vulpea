@@ -10,7 +10,7 @@ Vulpea v2 is a complete rewrite. This guide helps you migrate from v1.
 | Aspect       | v1                          | v2                        |
 |--------------+-----------------------------+---------------------------|
 | Database     | org-roam's database         | Custom database           |
-| Sync         | Save hooks (blocking)       | File watchers (async)     |
+| Sync         | Save hooks (blocking)       | File watchers + queue     |
 | Dependencies | Requires org-roam           | Standalone                |
 | API          | Built on org-roam functions | Native functions          |
 | Performance  | Limited by org-roam         | Optimized for 100k+ notes |
