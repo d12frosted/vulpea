@@ -101,22 +101,26 @@ gains nothing from it.
 
 ### Listing files and starting autosync
 
-14,000 generated notes spread over 140 directories, with a git history
-next to them. `vulpea-bench-file-listing`, median of 10 runs, measured
-until vulpea has the file list:
+Generated notes in plain directories under one root, with a git
+history next to them (`git init`, the notes committed, the repository
+packed): 14,000 notes in 140 directories of 100, 100,000 and 1,000,000
+notes in directories of 1,000. `vulpea-bench-file-listing`, measured
+until vulpea has the file list; median of 10 runs (5 at 1M):
 
-| method                           | time  |
-|----------------------------------|-------|
-| `fd` (vulpea's scan)             | 208ms |
-| `find` (vulpea's scan, fd absent)| 329ms |
-| `directory-files-recursively`    | 125ms, blocking |
+| notes | `fd` (vulpea's scan) | `find` (fd absent) | `directory-files-recursively` |
+|-------|----------------------|--------------------|-------------------------------|
+| 14k   | 29ms                 | 72ms               | 34ms, blocking                |
+| 100k  | 197ms                | 547ms              | 253ms, blocking               |
+| 1M    | 1.60s                | 13.2s              | 3.08s, blocking               |
 
-The listing commands alone take 15ms (`fd`) and 35ms (`find`); the rest
-is vulpea reading and normalizing the list. `sync-timing-test-run` with
-`VULPEA_NOTES_DIR` pointing at the same tree: enabling
+The listing commands alone (output to `/dev/null`, `/usr/bin/find`)
+take 19ms, 76ms and 0.57s with `fd`, and 80ms, 458ms and 13.3s with
+`find`; the rest is vulpea reading the list back, in the process
+sentinel on the main thread. `sync-timing-test-run` with
+`VULPEA_NOTES_DIR` pointing at the 14k tree: enabling
 `vulpea-db-autosync-mode` (async startup scan, fswatch) returns in
-10ms, the listing subprocess finishes 0.9s later, and checking all
-14k unchanged files takes another 0.9s, spread over idle batches.
+10ms, the scan finishes 0.4s later, and checking all 14k unchanged
+files takes another 0.85s, spread over idle batches.
 
 ## Components
 

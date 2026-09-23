@@ -568,17 +568,16 @@ How Vulpea detects files changed outside Emacs (git, Dropbox, etc.).
 
 ** Polling Interval
 
-When =fswatch= is not available, Vulpea falls back to polling — periodically scanning directories for changes. Polling runs file listing as an asynchronous subprocess (=fd= or =find=), so it does not block the editor.
+When =fswatch= is not available, Vulpea falls back to polling — periodically scanning directories for changes. Polling runs file listing as an asynchronous subprocess (=fd= or =find=); only reading the finished list back happens in Emacs.
 
 #+begin_src emacs-lisp
 (setq vulpea-db-sync-poll-interval 2)  ; Check every 2 seconds
 #+end_src
 
 If you use polling, install =fd=: each poll lists every file, and =fd=
-lists faster than =find=. On a tree of 14k notes a listing takes 208ms
-with =fd= and 329ms with =find=, measured until vulpea has the list.
-The commands themselves take 15ms and 35ms; the rest is Emacs reading
-and normalizing the list.
+lists faster than =find=. On a tree of 14k notes a listing takes 29ms
+with =fd= and 72ms with =find=, measured until vulpea has the list; on
+100k notes, 197ms and 547ms.
 
 ** Windows fswatch Path Style
 

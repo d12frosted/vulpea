@@ -157,7 +157,7 @@ Timer fires every N seconds
 
 *Performance*: File listing runs as a subprocess; reading the list
 back and comparing it with the database happens in Emacs.  For 14k
-notes the listing takes 208ms with =fd= and 329ms with =find=, measured
+notes the listing takes 29ms with =fd= and 72ms with =find=, measured
 until vulpea has the list (=bench/README.md=).  Install =fd= if using
 polling mode.
 

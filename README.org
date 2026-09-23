@@ -129,7 +129,7 @@ For best performance, especially with large collections, install these external 
 | =fswatch= | Reliable external change detection | Reports git/Dropbox/external changes as they happen        | =brew install fswatch= / =apt install fswatch= / =pacman -S fswatch= |
 | =rg=      | Unlinked mention search            | Required by unlinked mentions, unused elsewhere            | =brew install ripgrep= / =apt install ripgrep= / =pacman -S ripgrep= |
 
-Without =fswatch=, Vulpea falls back to polling: every few seconds it lists your directories and checks what changed. =fd= makes each listing faster than =find= (208ms vs 329ms for 14k notes, measured in [[file:bench/README.md][bench/README.md]]). With =fswatch=, changes are reported as they happen and nothing is polled. Without =rg=, everything else keeps working and the unlinked mention search reports that ripgrep is missing.
+Without =fswatch=, Vulpea falls back to polling: every few seconds it lists your directories and checks what changed. =fd= makes each listing faster than =find= (29ms vs 72ms for 14k notes, measured in [[file:bench/README.md][bench/README.md]]). With =fswatch=, changes are reported as they happen and nothing is polled. Without =rg=, everything else keeps working and the unlinked mention search reports that ripgrep is missing.
 
 ** Documentation
 
