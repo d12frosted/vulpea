@@ -2063,6 +2063,15 @@ Verse with [[id:verse-target][verse link]]
 
 : fixed-width [[id:fixed-target][fixed link NOT indexed]]
 
+#+BEGIN: some-dblock
+- [[id:dblock-target][dblock link NOT indexed]]
+#+END:
+
+#+RESULTS:
+:RESULTS:
+[[id:results-target][results link NOT indexed]]
+:END:
+
 * TODO [#A] Heading with [[id:h-title-target][h title link]] :htag:
 SCHEDULED: <2026-08-01 Sat> DEADLINE: <2026-09-01 Tue>
 :PROPERTIES:
@@ -2095,7 +2104,8 @@ Task body.
 Uses the object-granularity pipeline as reference: links in
 paragraphs, tables, quotes, verses, and meta values are indexed;
 links in src/example blocks, comments, fixed-width areas, property
-drawers, and non-title keywords are not."
+drawers, non-title keywords, dynamic blocks, and babel results are
+not."
   (let ((path (vulpea-test--create-temp-org-file
                vulpea-db-extract-test--granularity-corpus)))
     (unwind-protect
@@ -2112,6 +2122,7 @@ drawers, and non-title keywords are not."
             (should (member dest dests)))
           (dolist (dest '("src-target" "example-target" "comment-target"
                           "fixed-target" "kw-target" "//drawer.example.com"
+                          "dblock-target" "results-target"
                           "//inner.example.com"
                           "in-code" "in-verbatim" "in-macro"))
             (should-not (member dest dests)))
@@ -4190,6 +4201,110 @@ the previous state."
                                   (vulpea-db-get-by-id "updated-hook-commit")))))))
               (vulpea-db-update-file path))
             (should (equal seen-title "New")))
+        (delete-file path)))))
+
+;;; Generated Content Tests
+
+(defconst vulpea-db-extract-test--generated-body
+  "#+BEGIN: vulpea-collection :filter \"anything\"
+- dblock key :: [[id:dblock-target][Dblock]]
+#+END:
+
+#+RESULTS: named-results
+:RESULTS:
+- drawer key :: [[id:results-drawer-target][Drawer]]
+:END:
+
+#+RESULTS:
+- list key :: [[id:results-list-target][List]]
+
+#+RESULTS:
+| [[id:results-table-target][Table]] |
+
+#+RESULTS:
+Paragraph [[id:results-para-target][Para]].
+
+- real :: value
+
+Authored [[id:authored-target][link]].
+"
+  "Note body mixing generated containers with authored content.
+Every generated container precedes the real description list, so a
+meta extractor that looks at generated content picks the wrong one.")
+
+(defconst vulpea-db-extract-test--generated-targets
+  '("dblock-target" "results-drawer-target" "results-list-target"
+    "results-table-target" "results-para-target")
+  "Link destinations that live only inside generated content.")
+
+(defun vulpea-db-extract-test--generated-nodes (granularity)
+  "Parse a file with generated content at GRANULARITY.
+Return a list of the file node and the heading node, both carrying
+`vulpea-db-extract-test--generated-body'."
+  (let ((path (vulpea-test--create-temp-org-file
+               (concat ":PROPERTIES:\n:ID: generated-file\n:END:\n"
+                       "#+TITLE: Generated\n\n"
+                       vulpea-db-extract-test--generated-body
+                       "\n* Heading\n"
+                       ":PROPERTIES:\n:ID: generated-heading\n:END:\n\n"
+                       vulpea-db-extract-test--generated-body))))
+    (unwind-protect
+        (let* ((vulpea-db-index-heading-level t)
+               (vulpea-db-parse-granularity granularity)
+               (ctx (vulpea-db--parse-file path)))
+          (cons (vulpea-parse-ctx-file-node ctx)
+                (vulpea-parse-ctx-heading-nodes ctx)))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-generated-content-links ()
+  "Links inside dynamic blocks and babel results are not indexed.
+Both are regenerated views rather than statements the note makes.
+Holds for file and heading notes at both parse granularities."
+  (dolist (granularity '(object element))
+    (let ((nodes (vulpea-db-extract-test--generated-nodes granularity)))
+      (should (= (length nodes) 2))
+      (dolist (node nodes)
+        (let ((dests (mapcar (lambda (l) (plist-get l :dest))
+                             (plist-get node :links))))
+          (should (equal dests '("authored-target")))
+          (dolist (dest vulpea-db-extract-test--generated-targets)
+            (should-not (member dest dests))))))))
+
+(ert-deftest vulpea-db-extract-generated-content-links-full-walk ()
+  "The unrestricted link walk skips generated content too."
+  (with-temp-buffer
+    (org-mode)
+    (insert vulpea-db-extract-test--generated-body)
+    (should (equal (mapcar (lambda (l) (plist-get l :dest))
+                           (vulpea-db--extract-links
+                            (org-element-parse-buffer)))
+                   '("authored-target")))))
+
+(ert-deftest vulpea-db-extract-generated-content-meta ()
+  "A description list inside generated content is never the meta list.
+Metadata comes from the first authored description list, even when
+a dynamic block or babel results print one above it."
+  (dolist (granularity '(object element))
+    (dolist (node (vulpea-db-extract-test--generated-nodes granularity))
+      (should (equal (plist-get node :meta) '(("real" "value")))))))
+
+(ert-deftest vulpea-db-extract-generated-content-no-backlinks ()
+  "A note does not become a backlink of what its generated content lists."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((path (vulpea-test--create-temp-org-file
+                 (concat ":PROPERTIES:\n:ID: generated-source\n:END:\n"
+                         "#+TITLE: Source\n\n"
+                         vulpea-db-extract-test--generated-body))))
+      (unwind-protect
+          (progn
+            (vulpea-db-update-file path)
+            (dolist (dest vulpea-db-extract-test--generated-targets)
+              (should-not (vulpea-db-query-by-links-some (list dest))))
+            (should (equal (mapcar #'vulpea-note-id
+                                   (vulpea-db-query-by-links-some
+                                    '("authored-target")))
+                           '("generated-source"))))
         (delete-file path)))))
 
 (provide 'vulpea-db-extract-test)

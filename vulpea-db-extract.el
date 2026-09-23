@@ -1168,6 +1168,24 @@ may carry a reason instead of a plain t."
   (org-not-nil (vulpea-db--property-value vulpea-db-exclude-property
                                           properties)))
 
+(defun vulpea-db--generated-element-p (element)
+  "Return non-nil when ELEMENT is generated content.
+Dynamic blocks are rewritten by `org-update-dblock' and elements
+carrying a #+RESULTS keyword are babel output.  Both are regenerated
+views rather than statements the note makes, so links and metadata
+inside them are not extracted."
+  (or (eq (org-element-type element) 'dynamic-block)
+      (org-element-property :results element)))
+
+(defun vulpea-db--inside-generated-p (node)
+  "Return non-nil when NODE is generated content or nested in one.
+See `vulpea-db--generated-element-p'."
+  (let ((found nil))
+    (while (and node (not found))
+      (setq found (vulpea-db--generated-element-p node)
+            node (org-element-property :parent node)))
+    found))
+
 (defun vulpea-db--extract-links (ast-or-node &optional no-recursion)
   "Extract all links from AST-OR-NODE.
 
@@ -1179,10 +1197,13 @@ If NO-RECURSION is non-nil, stops recursion at note boundaries
 \(headlines with an ID property).  Links inside non-note subtrees
 are collected as part of the current node.  This prevents links
 from child notes leaking to the parent while still capturing
-links from plain (non-note) subtrees."
+links from plain (non-note) subtrees.
+
+Links inside generated content (dynamic blocks and babel results,
+see `vulpea-db--generated-element-p') are never extracted."
   (if no-recursion
       (vulpea-db--extract-links-stopping-at-notes ast-or-node)
-    ;; Normal case: search everything without restrictions
+    ;; Normal case: search everything except generated content
     (org-element-map ast-or-node 'link
       (lambda (link)
         (let ((type (org-element-property :type link))
@@ -1193,7 +1214,8 @@ links from plain (non-note) subtrees."
                        (org-element-interpret-data contents)))))
           (when (and type path
                      (or vulpea-db-index-plain-links
-                         (eq (org-element-property :format link) 'bracket)))
+                         (eq (org-element-property :format link) 'bracket))
+                     (not (vulpea-db--inside-generated-p link)))
             (list :dest path :type type :pos pos :description desc)))))))
 
 (defun vulpea-db--extract-links-stopping-at-notes (node)
@@ -1285,7 +1307,8 @@ calls; a full object parse never surfaces links inside either."
 
 CALLBACK is called with a plist (:dest :type :pos :description) for
 each link.  Descends into child headlines only if they lack an ID
-property.
+property, and never into generated content (see
+`vulpea-db--generated-element-p').
 
 Works on both object- and element-granularity ASTs: parsed link
 objects are collected directly, while textual elements that carry no
@@ -1295,6 +1318,9 @@ the buffer NODE was parsed from."
   (dolist (child (org-element-contents node))
     (let ((child-type (org-element-type child)))
       (cond
+       ;; Dynamic block or babel results: skip, it is generated
+       ((vulpea-db--generated-element-p child)
+        nil)
        ;; Link element: collect it
        ((eq child-type 'link)
         (let ((type (org-element-property :type child))
@@ -1364,6 +1390,9 @@ Metadata is defined by the first description list:
   - key :: value
   - key :: value2
 
+Description lists inside generated content (dynamic blocks and
+babel results, see `vulpea-db--generated-element-p') are skipped.
+
 Returns alist of (key . values) where values is list of strings.
 Both keys and values are in document order, a repeated key keeping
 the position of its first occurrence.  Link values are stored as
@@ -1377,8 +1406,9 @@ parsed from."
   (let* ((pls (org-element-map element 'plain-list #'identity nil nil 'headline))
          (pl (seq-find
               (lambda (pl)
-                (equal 'descriptive
-                       (org-element-property :type pl)))
+                (and (equal 'descriptive
+                            (org-element-property :type pl))
+                     (not (vulpea-db--inside-generated-p pl))))
               pls))
          (meta-alist nil))
     (when pl
