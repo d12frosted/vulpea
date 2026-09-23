@@ -1,7 +1,9 @@
 #+TITLE: Vulpea Configuration
 #+AUTHOR: Boris Buliga
 
-This guide covers all configuration options, organized by category.
+This guide covers the options that shape indexing, sync and note
+creation. Selection options are documented in the [[file:user-guide.org][User Guide]], mentions
+and schema options in the [[file:api-reference.org][API Reference]].
 
 Every option below is a =defcustom=, so anything you can =setq= you can
 also browse and set through =M-x customize-group RET vulpea RET= (with
@@ -12,7 +14,8 @@ Emacs configurations are written.
 The abnormal hooks (=vulpea-insert-handle-functions=,
 =vulpea-db-note-index-filter-functions=, =vulpea-db-updated-functions=,
 =vulpea-db-worker-done-functions=)
-are deliberately not customizable: they are extension points, meant to
+are deliberately not customizable (=vulpea-buffer-meta-change-functions=
+is the one exception): they are extension points, meant to
 be attached to with =add-hook=. Setting one wholesale with =setq= (or
 =use-package='s =:custom=) would replace whatever else is attached - on
 =vulpea-db-note-index-filter-functions= that would detach schema
@@ -233,7 +236,9 @@ How Vulpea reads org files during sync:
 | =temp-buffer=        | ~460 files/s  | Runs org-mode hooks and dir-locals per file |
 | =find-file=          | ~34 files/s   | Full compatibility (all file-visiting hooks) |
 
-*Recommendation:* Use =single-temp-buffer= unless you need per-file hooks.
+=single-temp-buffer= is about twice as fast as the default, but it ignores
+per-file =#+TODO= / =#+PROPERTY= keywords, =org-mode-hook= and dir-locals.
+Use it only when your Org setup is entirely global.
 
 Changing the method takes effect through a re-index: it is part of
 the settings fingerprint, because extraction output depends on it
@@ -468,11 +473,11 @@ This is the signal to prefer over =after-save-hook= (which fires before the data
 
 Bulk operations (a directory scan, a full rebuild, a directory deleted with everything under it) run the hook once per file. A handler that triggers expensive work should debounce: set a pending flag and flush it from an idle timer or when the sync queue drains, instead of refreshing per file.
 
-Control how updates are batched:
+Control how updates are batched (the values shown are the defaults):
 
 #+begin_src emacs-lisp
 ;; Wait this long after last change before processing (seconds)
-(setq vulpea-db-sync-batch-delay 0.5)
+(setq vulpea-db-sync-batch-delay 0.01)
 
 ;; Process at most this many files per batch
 (setq vulpea-db-sync-batch-size 100)
@@ -487,7 +492,7 @@ Larger batch sizes = fewer transactions = faster overall, but longer individual 
 
 #+begin_src emacs-lisp
 ;; Report progress every N files during large syncs
-(setq vulpea-db-sync-progress-interval 500)
+(setq vulpea-db-sync-progress-interval 100)
 
 ;; Disable progress reporting
 (setq vulpea-db-sync-progress-interval nil)
