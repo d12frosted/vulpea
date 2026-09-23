@@ -69,13 +69,10 @@ Vulpea originally started as a layer over org-roam, but v2 is a complete rewrite
 ;; 1. Configure (defaults to org-directory, so often not needed)
 ;; (setq vulpea-db-sync-directories '("~/org/"))
 
-;; 2. Build database (first time only)
-(vulpea-db-sync-full-scan)
-
-;; 3. Enable auto-sync
+;; 2. Enable auto-sync (scans your notes in the background on start)
 (vulpea-db-autosync-mode +1)
 
-;; 4. Start using
+;; 3. Start using
 ;; M-x vulpea-find    - find and open notes
 ;; M-x vulpea-insert  - insert link to a note
 #+end_src

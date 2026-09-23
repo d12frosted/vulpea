@@ -57,7 +57,7 @@ Then run =doom sync= and restart Emacs. To update Vulpea later, use =doom sync -
 (executable-find "fd")
 #+end_src
 
-If you use Doom's =:lang org +roam2= module: Vulpea 2.x is fully independent of org-roam - they can run side by side, each with its own database. Vulpea reads =ROAM_ALIASES= by default, so aliases keep working (see [[file:migration.org][Migration]]).
+If you use Doom's =:lang org +roam2= module: Vulpea 2.x is fully independent of org-roam - they can run side by side, each with its own database. Vulpea reads aliases from =ALIASES=, not =ROAM_ALIASES=; set =vulpea-buffer-alias-property= to ="ROAM_ALIASES"= to keep the org-roam ones.
 
 ** From Source
 
@@ -108,22 +108,13 @@ Vulpea defaults to using =org-directory=, so if that's already set correctly, yo
 
 *Note:* Set =org-directory= (or =vulpea-db-sync-directories=) before loading Vulpea so the defaults are computed correctly.
 
-** Step 2: Build the Database
-
-The first time you use Vulpea, it needs to scan all your notes.
-Enabling autosync (next step) does this automatically: on activation
-it scans your directories in the background and picks up anything
-the database does not know about yet.
-
-You can also trigger the scan manually at any point:
+** Step 2: Enable Auto-Sync
 
 #+begin_src emacs-lisp
-(vulpea-db-sync-full-scan)
+(vulpea-db-autosync-mode +1)
 #+end_src
 
-Or interactively: =M-x vulpea-db-sync-full-scan=
-
-This may take a few minutes for large collections. You'll see progress messages like:
+On activation the mode scans your directories in the background, so the first run indexes everything the database does not know about yet. After that, file watchers keep the database up to date as you edit notes. For a large collection the first scan takes a while; you'll see progress messages like:
 
 #+begin_example
 Vulpea: Syncing 1234 files...
@@ -131,19 +122,11 @@ Vulpea: Progress: 500/1234 files (450 updated, 50 unchanged)
 Vulpea: Sync complete - 1234 files (1200 updated, 34 unchanged, 2.5s)
 #+end_example
 
-** Step 3: Enable Auto-Sync
-
-Once the initial scan completes, enable automatic syncing:
-
-#+begin_src emacs-lisp
-(vulpea-db-autosync-mode +1)
-#+end_src
-
-This starts file watchers that keep the database up-to-date as you edit notes. Changes are processed in the background without interrupting your work.
+=M-x vulpea-db-sync-full-scan= runs the same scan by hand, which is what you want if you don't enable the mode.
 
 The watchers read =vulpea-db-sync-directories= when the mode starts. To change the list later, use =M-x vulpea-db-sync-add-directory= and =M-x vulpea-db-sync-remove-directory=, which update the running watchers; a plain =setq= does not reach them until you toggle the mode off and on (=M-x vulpea-doctor= flags the mismatch).
 
-** Step 4: Verify It Works
+** Step 3: Verify It Works
 
 Try finding a note:
 
