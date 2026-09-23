@@ -235,13 +235,17 @@ How Vulpea reads org files during sync:
 (setq vulpea-db-parse-method 'find-file)           ; Slowest, most compatible
 #+end_src
 
-| Method               | Speed         | Compatibility                               |
-|----------------------+---------------+---------------------------------------------|
-| =single-temp-buffer= | ~1000 files/s | Skips org-mode hooks and locals, fastest    |
-| =temp-buffer=        | ~460 files/s  | Runs org-mode hooks and dir-locals per file |
-| =find-file=          | ~34 files/s   | Full compatibility (all file-visiting hooks) |
+| Method               | Speed        | Compatibility                                |
+|----------------------+--------------+----------------------------------------------|
+| =single-temp-buffer= | ~730 files/s | Skips org-mode hooks and locals, fastest     |
+| =temp-buffer=        | ~440 files/s | Runs org-mode hooks and dir-locals per file  |
+| =find-file=          | ~300 files/s | Full compatibility (all file-visiting hooks) |
 
-=single-temp-buffer= is about twice as fast as the default, but it ignores
+Files per second for a full sync of generated notes with stock
+org-mode (100k notes, =find-file= 10k); your hooks add their own cost
+per file.
+
+=single-temp-buffer= is about 1.7 times as fast as the default, but it ignores
 per-file =#+TODO= / =#+PROPERTY= keywords, =org-mode-hook= and dir-locals.
 Use it only when your Org setup is entirely global.
 

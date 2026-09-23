@@ -26,6 +26,11 @@
 (require 'vulpea-note)
 (require 'vulpea-test-helpers)
 
+(defvar org-persist-directory)
+(defvar org-persist--index)
+(defvar org-persist--index-hash)
+(defvar org-element-cache-persistent)
+
 ;;; Parse Context Tests
 
 (ert-deftest vulpea-db-extract-parse-context ()
@@ -212,6 +217,46 @@ mark regions as read-only during org-mode hooks."
                            "Second"))))
       (delete-file path1)
       (delete-file path2))))
+
+;;; org-persist Tests
+
+(ert-deftest vulpea-db-extract-parse-skips-org-persist ()
+  "Parsing never touches org-persist, whatever the parse method.
+The reused parse buffer carries each file's `buffer-file-name', so
+without a guard org registers every parsed file with org-persist:
+its index grows by one entry per file, which makes each cache reset
+slower (a full sync turns quadratic) and makes org write a cache
+entry for every note on exit."
+  (skip-unless (require 'org-persist nil t))
+  (let* ((paths (cl-loop for i from 1 to 3
+                         collect (vulpea-test--create-temp-org-file
+                                  (format ":PROPERTIES:\n:ID: persist-test-%d\n:END:\n#+TITLE: Persist %d\n* Heading\n" i i))))
+         (calls 0)
+         (count (lambda (&rest _) (setq calls (1+ calls))))
+         ;; Throwaway storage and index, so a failing run neither
+         ;; reads the real cache nor leaves entries for org to write
+         ;; out on exit
+         (org-persist-directory (make-temp-file "vulpea-persist-" t))
+         (org-persist--index nil)
+         (org-persist--index-hash nil)
+         (org-element-cache-persistent t))
+    (advice-add 'org-persist-register :before count)
+    (advice-add 'org-persist-load :before count)
+    (unwind-protect
+        (dolist (method '(single-temp-buffer temp-buffer find-file))
+          (let ((vulpea-db-parse-method method))
+            (dolist (path paths)
+              (should (vulpea-parse-ctx-p (vulpea-db--parse-file path))))
+            (should (equal (list method 0) (list method calls)))
+            (should-not
+             (cl-find-if (lambda (collection)
+                           (member (plist-get (plist-get collection :associated) :file)
+                                   paths))
+                         org-persist--index))))
+      (advice-remove 'org-persist-register count)
+      (advice-remove 'org-persist-load count)
+      (mapc #'delete-file paths)
+      (delete-directory org-persist-directory t))))
 
 ;;; Drawer Case Sensitivity Tests
 ;; https://github.com/d12frosted/vulpea/issues/277
