@@ -43,8 +43,8 @@ Access context data using:
 *The AST is opt-in.* An extractor only receives the AST when its
 definition declares =:requires-ast t= - every other extractor gets a
 context whose =:ast= slot is nil, deterministically. This is because
-a full AST parse is 2-3x slower than what vulpea needs for its own
-extraction, and the AST cannot cross the async worker's process
+the full parse the AST comes from is about 2.2x slower than the one
+vulpea needs for its own extraction (see =bench/README.md=), and the AST cannot cross the async worker's process
 boundary; the declaration is how you consciously pay that cost. See
 [[*Extractors and Async Extraction]] for the full picture.
 

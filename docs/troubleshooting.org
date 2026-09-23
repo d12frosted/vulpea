@@ -148,8 +148,8 @@ scan processes every file before the mode returns.
    (setq vulpea-db-sync-scan-on-enable 'async)
    #+end_src
 
-   Enabling the mode then returns in a few milliseconds (~8ms
-   measured on a 13.8k-file collection). File listing runs as a
+   Enabling the mode then returns in a few milliseconds (16ms
+   for 14k notes, see =bench/README.md=). File listing runs as a
    subprocess (=fd= or =find=), and changed files are processed in
    batches from an idle timer.
 

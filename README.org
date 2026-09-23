@@ -60,7 +60,7 @@ Optional, but recommended once the basics work:
 
 #+begin_src emacs-lisp
 ;; Parse and write in a background process: saving a note - even a
-;; 100MB one - blocks Emacs for about a millisecond.
+;; 100MB one - blocks Emacs for about a millisecond (bench/README.md).
 (setq vulpea-db-async-extraction 'full)
 
 ;; Skip org-mode-hook during indexing (fine unless you rely on
@@ -123,13 +123,13 @@ git clone https://github.com/d12frosted/vulpea
 
 For best performance, especially with large collections, install these external tools:
 
-| Tool      | Purpose                            | Impact                                                  | Install                                                              |
-|-----------+------------------------------------+---------------------------------------------------------+----------------------------------------------------------------------|
-| =fd=      | Fast directory scanning            | 15× faster than =find=, critical for polling mode       | =brew install fd= / =apt install fd-find= / =pacman -S fd=           |
-| =fswatch= | Reliable external change detection | Instant detection of git/Dropbox/external changes       | =brew install fswatch= / =apt install fswatch= / =pacman -S fswatch= |
-| =rg=      | Unlinked mention search            | Required by unlinked mentions, unused elsewhere         | =brew install ripgrep= / =apt install ripgrep= / =pacman -S ripgrep= |
+| Tool      | Purpose                            | Impact                                                     | Install                                                              |
+|-----------+------------------------------------+------------------------------------------------------------+----------------------------------------------------------------------|
+| =fd=      | Fast directory scanning            | Lists files faster than =find= at startup and when polling | =brew install fd= / =apt install fd-find= / =pacman -S fd=           |
+| =fswatch= | Reliable external change detection | Reports git/Dropbox/external changes as they happen        | =brew install fswatch= / =apt install fswatch= / =pacman -S fswatch= |
+| =rg=      | Unlinked mention search            | Required by unlinked mentions, unused elsewhere            | =brew install ripgrep= / =apt install ripgrep= / =pacman -S ripgrep= |
 
-Without =fswatch=, Vulpea falls back to polling (periodic directory scanning). Without =fd=, polling uses =find= which is significantly slower. With both tools installed, external changes are detected instantly with near-zero overhead. Without =rg=, everything else keeps working and the unlinked mention search reports that ripgrep is missing.
+Without =fswatch=, Vulpea falls back to polling: every few seconds it lists your directories and checks what changed. =fd= makes each listing faster than =find= (208ms vs 329ms for 14k notes, measured in [[file:bench/README.md][bench/README.md]]). With =fswatch=, changes are reported as they happen and nothing is polled. Without =rg=, everything else keeps working and the unlinked mention search reports that ripgrep is missing.
 
 ** Documentation
 

@@ -13,7 +13,6 @@ Vulpea v2 is a complete rewrite. This guide helps you migrate from v1.
 | Sync         | Save hooks (blocking)       | File watchers + queue     |
 | Dependencies | Requires org-roam           | Standalone                |
 | API          | Built on org-roam functions | Native functions          |
-| Performance  | Limited by org-roam         | Optimized for 100k+ notes |
 
 ** What's the Same
 

@@ -84,7 +84,7 @@ Both use Org's native =org-element= parser. This means:
 - *Complete* - Handles all Org syntax correctly
 - *Slower* - Full parse is more expensive
 
-vulpea softens the cost in two ways: by default it parses at =element= granularity, skipping inline objects that extraction never reads (~2.6x faster than a full parse, with links located by org's own link parser so link semantics are unchanged), and it can run the whole parse in a background Emacs process (see Sync Architecture below), so the remaining cost doesn't block the UI.
+vulpea softens the cost in two ways: by default it parses at =element= granularity, skipping inline objects that extraction never reads (the parse itself runs about 2.2x faster than a full one, with links located by org's own link parser so link semantics are unchanged), and it can run the whole parse in a background Emacs process (see Sync Architecture below), so the remaining cost doesn't block the UI.
 
 *** org-node: Custom regex parser
 
@@ -109,7 +109,7 @@ The regex approach works well for basic ID-based linking. For structured data ex
 
 - In-memory hash tables by default, rebuilt each session
 - Fast lookups by ID
-- Full rebuild is fast (~2 seconds for 3000 nodes)
+- Full rebuild is fast: [[https://github.com/meedstrom/org-node#benchmarks-on-my-machine][org-node's README]] measures 2 seconds for its author's 3000 nodes
 - Via =org-mem=, can also mirror into an org-roam-compatible SQLite database (=org-mem-roamy-db-mode=), even drop-in backing org-roam's own queries - though that shared DB can hit "readonly database" errors across multiple Emacs instances
 
 *** vulpea: SQLite with abstraction
@@ -331,14 +331,14 @@ This makes gradual migration or evaluation easy.
 
 I have not benchmarked org-roam or org-node myself, so this section only has numbers for vulpea (measured, see =bench/=). Qualitatively: org-node's speed comes from the regex parser and in-memory storage, org-roam pays for a full org-element parse on every save, and vulpea's initial index runs in the background, so its duration does not block your workflow.
 
-With async extraction enabled, vulpea gets the property that used to be unique to org-node - parsing happens outside the main Emacs process - while keeping the native parser. The numbers for a single large save (the freeze you actually feel with autosync on):
+With async extraction enabled, vulpea gets the property that used to be unique to org-node - parsing happens outside the main Emacs process - while keeping the native parser. The numbers for a single large save (the freeze you actually feel with autosync on), from [[file:../bench/README.md][bench/README.md]]:
 
 | Save-path freeze  | sync path | worker (=t=) | worker (=full=) |
 |-------------------+-----------+--------------+-----------------|
-| 1MB file          | ~360ms    | ~50ms        | ~1ms            |
-| 10MB file         | ~3.5s     | ~0.5s        | ~1ms            |
+| 1MB file          | 421ms     | 64ms         | 14ms            |
+| 10MB file         | 3.73s     | 0.89s        | 1.7ms           |
 
-In =full= mode the worker writes the database itself, so the freeze is flat (~1ms measured from 1MB through 100MB). The worker also wins bulk syncs - 5000 small files complete faster through it than synchronously, with half the main-thread CPU - because parsing in the worker overlaps writes in the main process.
+In =full= mode the worker writes the database itself, so the freeze stays flat (1.3ms at 100MB); the 1MB figures are mostly the first request of a session spawning the worker.
 
 vulpea is designed with large collections in mind (100k+ files as the target):
 
