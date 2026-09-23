@@ -254,7 +254,7 @@ vulpea-db-autosync-mode +1
 #+end_example
 
 *Key feature*: With ='async= and =fswatch=, enabling the mode returns
-in 16ms for 14k notes (=bench/README.md=).  File listing runs as an
+in 10ms for 14k notes (=bench/README.md=).  File listing runs as an
 =fd= (or =find=) subprocess.  Cleanup uses set comparison against the
 subprocess output instead of per-file =file-exists-p= calls.  When
 =fswatch= is active, filenotify watchers are skipped entirely since
@@ -491,7 +491,7 @@ extraction moves it into a persistent =emacs --batch= subprocess.
 |------------------------------+----------+----------+------------------------------|
 | =nil= (default)              | main     | main     | everything                   |
 | =t=                          | worker   | main     | db write of results          |
-| ='full=                      | worker   | worker   | org-id registration (~1.5ms) |
+| ='full=                      | worker   | worker   | org-id registration (~1ms)   |
 
 ** How a file flows through the worker
 

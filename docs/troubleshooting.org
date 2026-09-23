@@ -148,7 +148,7 @@ scan processes every file before the mode returns.
    (setq vulpea-db-sync-scan-on-enable 'async)
    #+end_src
 
-   Enabling the mode then returns in a few milliseconds (16ms
+   Enabling the mode then returns in a few milliseconds (10ms
    for 14k notes, see =bench/README.md=). File listing runs as a
    subprocess (=fd= or =find=), and changed files are processed in
    batches from an idle timer.
@@ -203,7 +203,7 @@ crawl.
 *** Cause
 
 With stock org-mode a full scan holds its rate: on the bench harness
-the default =temp-buffer= method takes about 22s for every 10k files,
+the default =temp-buffer= method takes about 20s for every 10k files,
 from the first 10k to the last of 100k (see =bench/README.md=). So a
 scan that slows down points at something that runs for every file and
 gets slower the more files it has seen, usually a function on
@@ -213,7 +213,7 @@ the hook with it.
 Vulpea versions up to 2.7 had such a slowdown of their own: org
 registered every parsed file with its persistent element cache
 (=org-persist=), and each file took longer than the one before (100k
-files took 18 minutes instead of 4). On those versions, =(setq
+files took 18 minutes instead of 3.3). On those versions, =(setq
 org-element-cache-persistent nil)= avoids it.
 
 *** Solution
