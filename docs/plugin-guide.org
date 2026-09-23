@@ -259,8 +259,11 @@ A few rules:
 
 Core extraction (the =notes= row and the normalized tables) is not a
 registered extractor: it always runs first and produces the
-=note-data= your extractor receives. Registered extractors then run in
-priority order, lower numbers first. The default is 100.
+=note-data= your extractor receives. The core rows of every note in the
+file are written before any extractor runs, so a plugin table can hold
+a foreign key to any note of the file being indexed. Registered
+extractors then run note by note, in priority order, lower numbers
+first. The default is 100.
 
 The only reason to pick a number is ordering: when extractor B reads a
 transient key that extractor A put into =note-data= (see

@@ -617,109 +617,252 @@ Matches the storage format of `emacsql-escape-scalar' exactly: nil
 maps to NULL, numbers are stored as SQL numbers, and any other value
 is stored as its readable-print form so emacsql reads it back
 unchanged.  Keeping the format identical makes rows written through
-`sqlite-execute' byte-compatible with rows written through emacsql."
+`sqlite-execute' byte-compatible with rows written through emacsql.
+
+Most strings print as themselves between double quotes; those skip
+the printer, which is the bulk of the encoding cost when indexing
+\(see `vulpea-db--verbatim-string-p')."
   (cond ((null value) nil)
         ((numberp value) value)
+        ((and (stringp value) (vulpea-db--verbatim-string-p value))
+         (concat "\"" value "\""))
         (t (let ((print-escape-newlines t)
                  (print-escape-control-characters t))
              (prin1-to-string value)))))
 
-(defun vulpea-db--insert-rows (handle sql rows)
-  "Execute insert SQL on HANDLE once per row in ROWS.
+(defconst vulpea-db--print-escaped-re
+  (concat "[\"\\\0-\37\177" (string #x3fff80) "-" (string #x3fffff) "]")
+  "Characters the printer escapes in a string.
+Double quote and backslash, control characters (escaped under
+`print-escape-control-characters'), and raw bytes, which is also
+what the bytes of a unibyte string above 127 match.")
 
-Each row is a list of raw Lisp values, encoded for binding via
-`vulpea-db--bind-scalar'.  Native parameter binding bypasses
-emacsql's statement compilation, which dominates insert cost when
-indexing files with many notes (issue #359)."
-  (dolist (row rows)
-    (sqlite-execute handle sql (mapcar #'vulpea-db--bind-scalar row))))
+(defun vulpea-db--verbatim-string-p (string)
+  "Return non-nil when STRING prints as itself between quotes.
+That is, `prin1-to-string' with the settings of
+`vulpea-db--bind-scalar' returns STRING wrapped in double quotes: it
+has no text properties, no character the printer escapes, and no
+non-ASCII character the current printer settings would escape."
+  (and (not (string-match-p vulpea-db--print-escaped-re string))
+       (or (not print-escape-multibyte)
+           (not (string-match-p "[^\0-\177]" string)))
+       (not (text-properties-at 0 string))
+       (not (next-property-change 0 string))))
 
-(cl-defun vulpea-db--insert-note (&key id path level pos title
-                                       properties tags aliases meta links
-                                       todo priority scheduled deadline
-                                       closed category outline-path attach-dir
-                                       file-title created-at modified-at
-                                       title-source category-source)
-  "Insert note into database.
+(defvar vulpea-db--max-bind-params 999
+  "Most parameters `vulpea-db--insert-rows' binds in one statement.
+999 is SQLITE_MAX_VARIABLE_NUMBER of SQLite before 3.32.  Newer
+builds allow 32766, but Emacs links whatever SQLite the system
+provides, so the batch size stays within the oldest limit.")
 
-Updates both materialized notes table and normalized tables.
+(defun vulpea-db--insert-rows (handle head width rows)
+  "Insert ROWS on HANDLE, many rows per statement.
 
-Arguments:
-  ID - unique identifier (UUID)
-  PATH - file path
-  LEVEL - heading level (0 = file-level)
-  POS - position in file
-  TITLE - note title
-  PROPERTIES - alist of properties
-  TAGS - list of tags
-  ALIASES - list of aliases
-  META - alist of (key . values) where values is list of plists with
-    :type and :value
-  LINKS - list of plists with :dest, :type, :pos, and :description
-  TODO - TODO state
-  PRIORITY - priority level
-  SCHEDULED - scheduled timestamp
-  DEADLINE - deadline timestamp
-  CLOSED - closed timestamp
-  CATEGORY - resolved org category
-  OUTLINE-PATH - path to heading
-  ATTACH-DIR - attachment directory
-  FILE-TITLE - title of the file containing this note
-  CREATED-AT - creation timestamp
-  MODIFIED-AT - modification timestamp
-  TITLE-SOURCE - where the title comes from: symbol `keyword',
+HEAD is the statement up to its VALUES clause, for example
+\"INSERT OR IGNORE INTO tags (note_id, tag)\", and WIDTH the number
+of columns it names.  Each row is a list of WIDTH raw Lisp values,
+encoded for binding via `vulpea-db--bind-scalar'.  Rows go out in
+order, as many per statement as `vulpea-db--max-bind-params'
+allows, so rowids come out exactly as with one statement per row.
+OR IGNORE keeps working per row: a violating row is skipped, its
+siblings in the same statement are inserted.
+
+Native parameter binding bypasses emacsql's statement compilation
+\(issue #359), and a multi-row statement pays SQLite's prepare and
+step once for many rows; both dominate insert cost when indexing
+files with many notes."
+  (when rows
+    (let* ((per-statement (max 1 (/ vulpea-db--max-bind-params width)))
+           (tuple (concat "(" (mapconcat #'identity (make-list width "?") ",") ")"))
+           (full-sql nil))
+      (while rows
+        (let ((count 0)
+              (params nil))
+          (while (and rows (< count per-statement))
+            (dolist (value (car rows))
+              (push (vulpea-db--bind-scalar value) params))
+            (setq rows (cdr rows)
+                  count (1+ count)))
+          (sqlite-execute
+           handle
+           (if (and full-sql (= count per-statement))
+               full-sql
+             (let ((sql (concat head " VALUES "
+                                (mapconcat #'identity
+                                           (make-list count tuple) ","))))
+               (when (= count per-statement)
+                 (setq full-sql sql))
+               sql))
+           (nreverse params)))))))
+
+(defun vulpea-db--insert-note (&rest note)
+  "Insert NOTE into database.
+
+Updates both materialized notes table and normalized tables.  NOTE
+is a plist of the following keys; see `vulpea-db--insert-notes' for
+inserting many notes at once.
+
+  :id - unique identifier (UUID)
+  :path - file path
+  :level - heading level (0 = file-level)
+  :pos - position in file
+  :title - note title
+  :properties - alist of properties
+  :tags - list of tags
+  :aliases - list of aliases
+  :meta - alist of (key . values) where values is a list of strings
+  :links - list of plists with :dest, :type, :pos, and :description
+  :todo - TODO state
+  :priority - priority level
+  :scheduled - scheduled timestamp
+  :deadline - deadline timestamp
+  :closed - closed timestamp
+  :category - resolved org category
+  :outline-path - path to heading
+  :attach-dir - attachment directory
+  :file-title - title of the file containing this note
+  :created-at - creation timestamp
+  :modified-at - modification timestamp
+  :title-source - where the title comes from: symbol `keyword',
     `heading' or `filename'; nil when unknown
-  CATEGORY-SOURCE - where the category comes from: symbol
+  :category-source - where the category comes from: symbol
     `property', `keyword', `variable' or `filename'; nil when unknown"
-  ;; All inserts use OR IGNORE: emacsql-sqlite-builtin silently
-  ;; dropped constraint-violating statements (sqlite-select swallows
-  ;; step errors), so messy data - duplicate IDs, duplicate property
-  ;; keys - never failed indexing.  OR IGNORE preserves that tolerance
-  ;; but at row granularity: a violating row is skipped instead of
-  ;; taking its sibling rows down with the whole statement.
-  (setq path (vulpea-db-normalize-path path))
-  (let* ((db (vulpea-db))
-         (handle (oref db handle)))
-    (emacsql-with-transaction db
-      ;; A row keeping the id from a path whose file no longer exists
-      ;; is stale (the file was moved or deleted and its removal was
-      ;; missed).  Evict it so the insert below wins; when the other
-      ;; file still exists the id is genuinely duplicated and the
-      ;; first-indexed row keeps it.
-      (let ((existing-path
-             (caar (emacsql db [:select path :from notes
-                                :where (= id $s1)]
-                            id))))
-        (when (and existing-path
-                   (not (equal existing-path path))
-                   (not (file-exists-p existing-path)))
-          (vulpea-db--delete-note id)))
+  (vulpea-db--insert-notes (list note)))
 
-      ;; 1. Insert into materialized notes table
-      (vulpea-db--insert-rows
-       handle
-       "INSERT OR IGNORE INTO notes (id, path, level, pos, title, properties, tags,
-                           aliases, meta, links, todo, priority, scheduled,
-                           deadline, closed, category, outline_path, attach_dir,
-                           file_title, created_at, modified_at, title_source,
-                           category_source)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
-       (list
-        (list id path level pos title
-              (vulpea-db--encode-note-column :properties properties)
-              (vulpea-db--encode-note-column :tags tags)
-              (vulpea-db--encode-note-column :aliases aliases)
-              (vulpea-db--encode-note-column :meta meta)
-              (vulpea-db--encode-note-column :links links)
-              todo priority scheduled deadline closed category
-              outline-path attach-dir file-title
-              created-at modified-at title-source category-source)))
+(defun vulpea-db--insert-notes (notes)
+  "Insert NOTES into database in one transaction.
 
-      ;; 2-5. Insert into normalized tables
-      (vulpea-db--insert-tag-rows handle id tags)
-      (vulpea-db--insert-link-rows handle id links)
-      (vulpea-db--insert-meta-rows handle id meta)
-      (vulpea-db--insert-property-rows handle id properties))))
+NOTES is a list of plists with the keys `vulpea-db--insert-note'
+takes.  Stores exactly what inserting them one by one in order
+stores, with the same rowid order in every table, but with a
+handful of multi-row statements per table instead of one statement
+per row (see `vulpea-db--insert-rows').
+
+All inserts use OR IGNORE: `emacsql-sqlite-builtin' silently dropped
+constraint-violating statements (`sqlite-select' swallows step
+errors), so messy data - duplicate IDs, duplicate property keys -
+never failed indexing.  OR IGNORE preserves that tolerance at row
+granularity: a violating row is skipped, the first note inserted
+with an id keeps it.
+
+A row that already holds the id of one of NOTES under another path,
+whose file no longer exists, is stale (the file was moved or deleted
+and its removal was missed); it is evicted so the insert wins.  When
+that other file still exists the id is genuinely duplicated and the
+stored row keeps it.  Only rows stored before the call are
+considered, so NOTES must not claim one id from two paths.
+
+Returns the ids of NOTES left with other files: the ids the batch
+lost to duplicates, which a re-indexed file records as pending
+claims."
+  (when notes
+    (let* ((db (vulpea-db))
+           (handle (oref db handle))
+           (raw-path nil)
+           (norm-path nil)
+           (lost nil)
+           (notes
+            (mapcar (lambda (note)
+                      (let ((path (plist-get note :path)))
+                        ;; Batches come from one file: normalize once
+                        (unless (and raw-path (equal path raw-path))
+                          (setq raw-path path
+                                norm-path (vulpea-db-normalize-path path)))
+                        (plist-put (copy-sequence note) :path norm-path)))
+                    notes)))
+      (emacsql-with-transaction db
+        (setq lost (vulpea-db--evict-stale-ids notes))
+
+        ;; 1. Materialized notes table
+        (vulpea-db--insert-rows
+         handle
+         "INSERT OR IGNORE INTO notes (id, path, level, pos, title, properties,
+                            tags, aliases, meta, links, todo, priority,
+                            scheduled, deadline, closed, category,
+                            outline_path, attach_dir, file_title,
+                            created_at, modified_at, title_source,
+                            category_source)"
+         23
+         (mapcar #'vulpea-db--note-row notes))
+
+        ;; 2-5. Normalized tables
+        (vulpea-db--insert-tag-rows
+         handle
+         (cl-loop for note in notes
+                  append (vulpea-db--tag-rows
+                          (plist-get note :id) (plist-get note :tags))))
+        (vulpea-db--insert-link-rows
+         handle
+         (cl-loop for note in notes
+                  append (vulpea-db--link-rows
+                          (plist-get note :id) (plist-get note :links))))
+        (vulpea-db--insert-meta-rows
+         handle
+         (cl-loop for note in notes
+                  append (vulpea-db--meta-rows
+                          (plist-get note :id) (plist-get note :meta))))
+        (vulpea-db--insert-property-rows
+         handle
+         (cl-loop for note in notes
+                  append (vulpea-db--property-rows
+                          (plist-get note :id)
+                          (plist-get note :properties)))))
+      lost)))
+
+(defun vulpea-db--evict-stale-ids (notes)
+  "Delete stored rows holding ids of NOTES whose file is gone.
+
+A row holding the id of a note under another path is stale when no
+file exists at that path anymore; it is deleted so the note can take
+the id.  When the file does exist the row keeps the id.  Returns the
+ids kept that way: the ids NOTES lose to other files.  See
+`vulpea-db--insert-notes'."
+  (let ((paths (make-hash-table :test #'equal :size (length notes)))
+        (ids nil)
+        (lost nil))
+    (dolist (note notes)
+      (when-let* ((id (plist-get note :id)))
+        (unless (gethash id paths)
+          (push id ids))
+        (puthash id (plist-get note :path) paths)))
+    (when ids
+      (pcase-dolist (`(,id ,existing-path)
+                     (emacsql (vulpea-db)
+                              [:select [id path] :from notes
+                               :where (in id $v1)]
+                              (vconcat ids)))
+        (unless (equal existing-path (gethash id paths))
+          (if (file-exists-p existing-path)
+              (push id lost)
+            (vulpea-db--delete-note id)))))
+    lost))
+
+(defun vulpea-db--note-row (note)
+  "Return the notes table row for NOTE, a plist.
+Columns are in the order of the insert in `vulpea-db--insert-notes'."
+  (list (plist-get note :id)
+        (plist-get note :path)
+        (plist-get note :level)
+        (plist-get note :pos)
+        (plist-get note :title)
+        (vulpea-db--encode-note-column :properties (plist-get note :properties))
+        (vulpea-db--encode-note-column :tags (plist-get note :tags))
+        (vulpea-db--encode-note-column :aliases (plist-get note :aliases))
+        (vulpea-db--encode-note-column :meta (plist-get note :meta))
+        (vulpea-db--encode-note-column :links (plist-get note :links))
+        (plist-get note :todo)
+        (plist-get note :priority)
+        (plist-get note :scheduled)
+        (plist-get note :deadline)
+        (plist-get note :closed)
+        (plist-get note :category)
+        (plist-get note :outline-path)
+        (plist-get note :attach-dir)
+        (plist-get note :file-title)
+        (plist-get note :created-at)
+        (plist-get note :modified-at)
+        (plist-get note :title-source)
+        (plist-get note :category-source)))
 
 (defun vulpea-db--encode-note-column (field value)
   "Encode VALUE of FIELD for its materialized notes column.
@@ -733,49 +876,51 @@ encoded to their JSON string; any other field is stored as is."
     (:links (if value (json-encode (vulpea-db--links-to-json value)) "null"))
     (_ value)))
 
-(defun vulpea-db--insert-tag-rows (handle id tags)
-  "Insert TAGS of note ID into the normalized tags table via HANDLE."
-  (when tags
-    (let ((unique-tags (delete-dups (copy-sequence tags))))
-      (vulpea-db--insert-rows
-       handle
-       "INSERT OR IGNORE INTO tags (note_id, tag) VALUES (?,?)"
-       (mapcar (lambda (tag) (list id tag)) unique-tags)))))
+(defun vulpea-db--tag-rows (id tags)
+  "Return tags table rows for TAGS of note ID, duplicates dropped."
+  (mapcar (lambda (tag) (list id tag))
+          (delete-dups (copy-sequence tags))))
 
-(defun vulpea-db--insert-link-rows (handle id links)
-  "Insert LINKS of note ID into the normalized links table via HANDLE."
-  (when links
-    (vulpea-db--insert-rows
-     handle
-     "INSERT OR IGNORE INTO links (source, dest, type, pos, description)
-      VALUES (?,?,?,?,?)"
-     (mapcar (lambda (link)
-               (list id
-                     (plist-get link :dest)
-                     (plist-get link :type)
-                     (plist-get link :pos)
-                     (plist-get link :description)))
-             links))))
+(defun vulpea-db--link-rows (id links)
+  "Return links table rows for LINKS of note ID."
+  (mapcar (lambda (link)
+            (list id
+                  (plist-get link :dest)
+                  (plist-get link :type)
+                  (plist-get link :pos)
+                  (plist-get link :description)))
+          links))
 
-(defun vulpea-db--insert-meta-rows (handle id meta)
-  "Insert META of note ID into the normalized meta table via HANDLE."
-  (when meta
-    (vulpea-db--insert-rows
-     handle
-     "INSERT OR IGNORE INTO meta (note_id, key, value) VALUES (?,?,?)"
-     (cl-loop for (key . values) in meta
-              append (mapcar (lambda (v)
-                               (list id key v))
-                             values)))))
+(defun vulpea-db--meta-rows (id meta)
+  "Return meta table rows for META of note ID."
+  (cl-loop for (key . values) in meta
+           append (mapcar (lambda (v) (list id key v)) values)))
 
-(defun vulpea-db--insert-property-rows (handle id properties)
-  "Insert PROPERTIES of note ID into the normalized table via HANDLE."
-  (when properties
-    (vulpea-db--insert-rows
-     handle
-     "INSERT OR IGNORE INTO properties (note_id, key, value) VALUES (?,?,?)"
-     (cl-loop for (key . value) in properties
-              collect (list id key value)))))
+(defun vulpea-db--property-rows (id properties)
+  "Return properties table rows for PROPERTIES of note ID."
+  (cl-loop for (key . value) in properties
+           collect (list id key value)))
+
+(defun vulpea-db--insert-tag-rows (handle rows)
+  "Insert tags table ROWS via HANDLE."
+  (vulpea-db--insert-rows
+   handle "INSERT OR IGNORE INTO tags (note_id, tag)" 2 rows))
+
+(defun vulpea-db--insert-link-rows (handle rows)
+  "Insert links table ROWS via HANDLE."
+  (vulpea-db--insert-rows
+   handle "INSERT OR IGNORE INTO links (source, dest, type, pos, description)"
+   5 rows))
+
+(defun vulpea-db--insert-meta-rows (handle rows)
+  "Insert meta table ROWS via HANDLE."
+  (vulpea-db--insert-rows
+   handle "INSERT OR IGNORE INTO meta (note_id, key, value)" 3 rows))
+
+(defun vulpea-db--insert-property-rows (handle rows)
+  "Insert properties table ROWS via HANDLE."
+  (vulpea-db--insert-rows
+   handle "INSERT OR IGNORE INTO properties (note_id, key, value)" 3 rows))
 
 (defconst vulpea-db--note-field-columns
   '((:title . "title")
@@ -831,19 +976,23 @@ note-data is written as an update afterwards."
               (:tags
                (sqlite-execute handle "DELETE FROM tags WHERE note_id = ?"
                                (list (vulpea-db--bind-scalar id)))
-               (vulpea-db--insert-tag-rows handle id value))
+               (vulpea-db--insert-tag-rows
+                handle (vulpea-db--tag-rows id value)))
               (:links
                (sqlite-execute handle "DELETE FROM links WHERE source = ?"
                                (list (vulpea-db--bind-scalar id)))
-               (vulpea-db--insert-link-rows handle id value))
+               (vulpea-db--insert-link-rows
+                handle (vulpea-db--link-rows id value)))
               (:meta
                (sqlite-execute handle "DELETE FROM meta WHERE note_id = ?"
                                (list (vulpea-db--bind-scalar id)))
-               (vulpea-db--insert-meta-rows handle id value))
+               (vulpea-db--insert-meta-rows
+                handle (vulpea-db--meta-rows id value)))
               (:properties
                (sqlite-execute handle "DELETE FROM properties WHERE note_id = ?"
                                (list (vulpea-db--bind-scalar id)))
-               (vulpea-db--insert-property-rows handle id value)))))))))
+               (vulpea-db--insert-property-rows
+                handle (vulpea-db--property-rows id value))))))))))
 
 (defun vulpea-db--delete-file-notes (path)
   "Delete all notes from PATH.

@@ -1617,7 +1617,7 @@ Returns `vulpea-extractor' struct or nil if not found."
 Extractors are run in priority order (lower priority first).
 Returns updated note-data after all extractors have run; the caller
 persists changes to core fields (see
-`vulpea-db--insert-note-from-plist').  An extractor that returns nil
+`vulpea-db--run-note-extractors').  An extractor that returns nil
 is treated as returning note-data as it now stands - in-place
 mutations included.  The historical contract discarded return
 values entirely, so plugins ending in a `when'-guarded insert must
@@ -1946,6 +1946,7 @@ Returns number of notes written (file-level + headings)."
          (count 0)
          (ids nil)  ; Track IDs to register with org-id
          (previous-ids nil)
+         (lost-ids nil)
          (t0 (current-time))
          (db-time 0))
 
@@ -1972,44 +1973,30 @@ Returns number of notes written (file-level + headings)."
       ;; Delete existing notes from this file
       (vulpea-db--delete-file-notes path)
 
-      ;; Insert file-level note
-      (let ((file-data (vulpea-parse-ctx-file-node ctx)))
-        (when-let* ((id (plist-get file-data :id)))
-          (when (vulpea-db--note-allowed-p file-data path 0)
-            (vulpea-db--insert-note-from-plist ctx path 0 0 file-data)
-            (push id ids)
-            (setq count (1+ count)))))
-
-      ;; Insert heading-level notes
-      (dolist (heading-data (vulpea-parse-ctx-heading-nodes ctx))
-        (when (vulpea-db--note-allowed-p
-               heading-data path (plist-get heading-data :level))
-          (vulpea-db--insert-note-from-plist
-           ctx
-           path
-           (plist-get heading-data :level)
-           (plist-get heading-data :pos)
-           heading-data)
-          (when-let* ((id (plist-get heading-data :id)))
-            (push id ids))
-          (setq count (1+ count))))
+      ;; Collect the notes to write: file-level note first, then
+      ;; headings in document order
+      (let ((file-data (vulpea-parse-ctx-file-node ctx))
+            (notes nil))
+        (when (and (plist-get file-data :id)
+                   (vulpea-db--note-allowed-p file-data path 0))
+          (push file-data notes))
+        (dolist (heading-data (vulpea-parse-ctx-heading-nodes ctx))
+          (when (vulpea-db--note-allowed-p
+                 heading-data path (plist-get heading-data :level))
+            (push heading-data notes)))
+        (setq notes (nreverse notes))
+        (dolist (data notes)
+          (when-let* ((id (plist-get data :id)))
+            (push id ids)))
+        (setq count (length notes))
+        (setq lost-ids (vulpea-db--insert-notes-from-plists ctx path notes)))
 
       ;; Record pending claims: an id parsed here but owned by another
       ;; file was silently dropped by the OR IGNORE insert; the claim
       ;; is what keeps it recoverable once the owner releases the id
       ;; (vulpea#469).  Recording replaces this path's previous claims,
       ;; so they always reflect the latest parse.
-      (vulpea-db--record-pending-claims
-       path
-       (when ids
-         (let (losing)
-           (pcase-dolist (`(,id ,owner)
-                          (emacsql db [:select [id path] :from notes
-                                       :where (in id $v1)]
-                                   (vconcat ids)))
-             (unless (equal owner norm-path)
-               (push id losing)))
-           losing)))
+      (vulpea-db--record-pending-claims path lost-ids)
 
       ;; Update file hash
       (vulpea-db--update-file-hash path
@@ -2057,73 +2044,89 @@ normalized table, its rows) after all extractors have run.  Identity
 fields (:id, :path, :level, :pos) are excluded - plugin tables hold
 foreign keys against them.")
 
-(defun vulpea-db--insert-note-from-plist (ctx path level pos data)
-  "Insert note from DATA plist at PATH with LEVEL and POS.
+(defun vulpea-db--insert-notes-from-plists (ctx path notes)
+  "Insert NOTES, a list of note-data plists, of the file at PATH.
 
-CTX is the parse context containing AST and other metadata.
-Runs registered extractors after insertion - the note goes in first
-so extractor tables can hold foreign keys against it - then persists
-any changes they made to core note-data fields
-\(`vulpea-db--extractor-persisted-fields'): the materialized notes
-row is updated and the normalized tables (tags, links, meta,
-properties) re-synced, so plugin contributions to core fields behave
-exactly like extracted ones.  Costs nothing when no extractors are
-registered."
+CTX is the parse context containing AST and other metadata.  Each
+plist carries its identity (:level and :pos).
+
+All notes go in first, in one batch (`vulpea-db--insert-notes'), so
+extractor tables can hold foreign keys against any of them.  Then
+registered extractors run on each note in order, and any changes
+they made to core note-data fields
+\(`vulpea-db--extractor-persisted-fields') are persisted: the
+materialized notes row is updated and the normalized tables (tags,
+links, meta, properties) re-synced, so plugin contributions to core
+fields behave exactly like extracted ones.  Costs nothing when no
+extractors are registered.
+
+Returns the ids of NOTES left with other files, see
+`vulpea-db--insert-notes'."
   (let* ((modified-at (format-time-string "%Y-%m-%d %H:%M:%S"
                                           (vulpea-parse-ctx-mtime ctx)))
-         (properties (plist-get data :properties))
-         (created-at (vulpea-db--extract-created-date properties)))
-    ;; First insert the note so foreign keys can reference it
-    (vulpea-db--insert-note
-     :id (plist-get data :id)
-     :path path
-     :level level
-     :pos pos
-     :title (plist-get data :title)
-     :properties properties
-     :tags (plist-get data :tags)
-     :aliases (plist-get data :aliases)
-     :meta (plist-get data :meta)
-     :links (plist-get data :links)
-     :todo (plist-get data :todo)
-     :priority (plist-get data :priority)
-     :scheduled (plist-get data :scheduled)
-     :deadline (plist-get data :deadline)
-     :closed (plist-get data :closed)
-     :category (plist-get data :category)
-     :outline-path (plist-get data :outline-path)
-     :attach-dir (plist-get data :attach-dir)
-     :file-title (plist-get data :file-title)
-     :created-at created-at
-     :modified-at modified-at
-     :title-source (plist-get data :title-source)
-     :category-source (plist-get data :category-source))
-
-    ;; Then run extractors that may insert into foreign-keyed tables
+         (lost
+	  (vulpea-db--insert-notes
+	   (mapcar
+	    (lambda (data)
+              (let ((properties (plist-get data :properties)))
+		(list :id (plist-get data :id)
+                      :path path
+                      :level (plist-get data :level)
+                      :pos (plist-get data :pos)
+                      :title (plist-get data :title)
+                      :properties properties
+                      :tags (plist-get data :tags)
+                      :aliases (plist-get data :aliases)
+                      :meta (plist-get data :meta)
+                      :links (plist-get data :links)
+                      :todo (plist-get data :todo)
+                      :priority (plist-get data :priority)
+                      :scheduled (plist-get data :scheduled)
+                      :deadline (plist-get data :deadline)
+                      :closed (plist-get data :closed)
+                      :category (plist-get data :category)
+                      :outline-path (plist-get data :outline-path)
+                      :attach-dir (plist-get data :attach-dir)
+                      :file-title (plist-get data :file-title)
+                      :created-at (vulpea-db--extract-created-date properties)
+                      :modified-at modified-at
+                      :title-source (plist-get data :title-source)
+                      :category-source (plist-get data :category-source))))
+	    notes))))
     (when vulpea-db--extractors
-      ;; Snapshot core fields first: extractors mutate DATA in place
-      ;; via plist-put, so the diff must compare against copies.  The
-      ;; id is snapshotted too - the writeback must target the note
-      ;; as inserted even if an extractor rewrites :id in place
-      (let* ((id (plist-get data :id))
-             (before (mapcar (lambda (field)
-                               (copy-tree (plist-get data field)))
-                             vulpea-db--extractor-persisted-fields))
-             (updated (vulpea-db--run-extractors ctx data))
-             (changes nil))
-        (cl-loop for field in vulpea-db--extractor-persisted-fields
-                 for old in before
-                 for new = (plist-get updated field)
-                 unless (equal old new)
-                 do (push (cons field new) changes))
-        ;; created-at derives from :properties; keep it in step
-        (when (assq :properties changes)
-          (let ((new-created-at (vulpea-db--extract-created-date
-                                 (plist-get updated :properties))))
-            (unless (equal new-created-at created-at)
-              (push (cons :created-at new-created-at) changes))))
-        (when changes
-          (vulpea-db--update-note-fields id changes))))))
+      (dolist (data notes)
+        (vulpea-db--run-note-extractors ctx data)))
+    lost))
+
+(defun vulpea-db--run-note-extractors (ctx data)
+  "Run registered extractors on note DATA with CTX, persist their edits.
+DATA is the note-data plist of a note already in the database; see
+`vulpea-db--insert-notes-from-plists'."
+  ;; Snapshot core fields first: extractors mutate DATA in place via
+  ;; plist-put, so the diff must compare against copies.  The id is
+  ;; snapshotted too - the writeback must target the note as inserted
+  ;; even if an extractor rewrites :id in place
+  (let* ((id (plist-get data :id))
+         (created-at (vulpea-db--extract-created-date
+                      (plist-get data :properties)))
+         (before (mapcar (lambda (field)
+                           (copy-tree (plist-get data field)))
+                         vulpea-db--extractor-persisted-fields))
+         (updated (vulpea-db--run-extractors ctx data))
+         (changes nil))
+    (cl-loop for field in vulpea-db--extractor-persisted-fields
+             for old in before
+             for new = (plist-get updated field)
+             unless (equal old new)
+             do (push (cons field new) changes))
+    ;; created-at derives from :properties; keep it in step
+    (when (assq :properties changes)
+      (let ((new-created-at (vulpea-db--extract-created-date
+                             (plist-get updated :properties))))
+        (unless (equal new-created-at created-at)
+          (push (cons :created-at new-created-at) changes))))
+    (when changes
+      (vulpea-db--update-note-fields id changes))))
 
 ;;; Provide
 
