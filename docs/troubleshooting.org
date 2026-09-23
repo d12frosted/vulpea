@@ -265,10 +265,12 @@ With =vulpea-db-sync-external-method= set to ='auto= (the default), a missing =f
 
 *** Verify fswatch is running
 
-Check =*Messages*= buffer for:
+The "external monitoring" line of =M-x vulpea-doctor= shows whether
+fswatch is running. With =vulpea-db-sync-verbose= on (the default),
+=*Messages*= also shows:
 
 #+begin_example
-Vulpea: Started fswatch monitoring for ...
+Vulpea: Started fswatch monitoring
 #+end_example
 
 *** Fallback to polling
@@ -467,15 +469,11 @@ Placeholders like =${title}= appear literally in created notes.
 
 *** Causes
 
-1. *Wrong function:* Template expansion only works with =vulpea-create=, not =org-capture= directly.
+1. *Unknown placeholder:* only =${title}=, =${slug}=, =${timestamp}= and =${id}= are built in. Any other =${key}= is replaced only when the =:context= plist passed to =vulpea-create= has a matching =:key=; otherwise it is left as is.
 
-2. *Syntax error:* Check for balanced parentheses in =%(elisp)= expressions.
+2. *Directive inside a value:* =%(...)= and =%<...>= are expanded in the template itself, before values are substituted, so the same text inside a title or a =:context= value stays literal. This is deliberate: a note title is data and never runs as code.
 
-*** Correct Syntax
-
-- Variables: =${title}=, =${slug}=, =${timestamp}=, =${id}=
-- Elisp: =%(user-full-name)=, =%(format-time-string "%Y")=
-- Timestamps: =%<[%Y-%m-%d]>=
+A =%(...)= expression that signals an error expands to =ERROR: ...= rather than staying literal. See [[file:configuration.org::*Template Expansion Syntax][Template Expansion Syntax]].
 
 * Compatibility Issues
 
@@ -501,9 +499,10 @@ See the [[file:getting-started.org][Getting Started guide]] for the recommended 
 
 With the default =temp-buffer= method, Vulpea loads each note into a
 reused buffer and re-runs =org-mode= there. =buffer-file-name= is set,
-but it is not a real visit: =find-file-hook= does not run and
-=.dir-locals.el= is not applied. A package whose =org-mode-hook=
-function depends on either can misbehave in that buffer. Two ways
+but it is not a real visit: =find-file-hook= does not run.
+(Dir-locals and file-local variables do apply, since the =org-mode=
+rerun hacks them.) A package whose =org-mode-hook= function depends on
+a real visit can misbehave in that buffer. Two ways
 out: guard that function with =vulpea-db--active-parse-method= (see
 [[*A Long Scan Slows Down as It Goes][above]]), or parse with real file visits:
 
@@ -535,11 +534,19 @@ table stays empty, check its declaration first.
 
 ** Full mode configured, but writes happen on the main thread
 
-='full= degrades to =t= in three cases, all reported by the doctor:
-WAL journaling failed (network/FUSE filesystems), note index filters
-are active (schema validation with a non-silent action), or the
-worker's vulpea version differs from the session's (upgrade Emacs's
-load path and restart).
+='full= degrades to =t= when:
+
+- WAL journaling failed (network/FUSE filesystems);
+- note index filters are active (schema validation with a non-silent
+  action, or a custom filter);
+- a registered extractor is not declared =:worker-safe=, or the worker
+  cannot load one that is;
+- the worker's vulpea differs from the session's (a stale load path or
+  byte-code; restart after upgrading).
+
+=M-x vulpea-doctor= reports the first two. =M-x
+vulpea-db-worker-diagnose= shows whether full-write is in effect, and
+its worker stderr tail names a version mismatch.
 
 ** Worker marked broken
 
