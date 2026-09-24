@@ -1035,6 +1035,63 @@ argument the same way instead of demanding the literal SQL name."
     ;; Flag should not be set
     (should-not vulpea-db--schema-rebuilt)))
 
+(defun vulpea-db-test--query-plan (sql &rest args)
+  "Return the EXPLAIN QUERY PLAN details of SQL with ARGS as one string."
+  (mapconcat (lambda (row) (nth 3 row))
+             (sqlite-select (oref (vulpea-db) handle)
+                            (concat "EXPLAIN QUERY PLAN " sql)
+                            args)
+             "\n"))
+
+(ert-deftest vulpea-db-links-dest-type-index ()
+  "Links are indexed by (dest, type), replacing the dest-only index."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (should (vulpea-db--index-exists-p 'idx-links-dest-type))
+    (should-not (vulpea-db--index-exists-p 'idx-links-dest))))
+
+(ert-deftest vulpea-db-links-dest-type-index-covers-typed-counts ()
+  "Counting backlinks of one type never reads the links table.
+Without type in the index, SQLite walks the dest index and fetches
+every row from the table just to check its type."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((plan (vulpea-db-test--query-plan
+                 "SELECT dest, count(*) FROM links WHERE type = ? GROUP BY dest"
+                 "\"id\"")))
+      (should (string-match-p "COVERING INDEX idx_links_dest_type" plan))
+      (should-not (string-match-p "TEMP B-TREE" plan)))
+    (should (string-search
+             "idx_links_dest_type (dest=?)"
+             (vulpea-db-test--query-plan
+              "SELECT * FROM links WHERE dest = ?" "\"x\"")))))
+
+(ert-deftest vulpea-db-links-dest-index-migrated-in-place ()
+  "An existing database swaps the dest index without a rebuild."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-db--insert-note
+     :id "test-id"
+     :path "/tmp/test.org"
+     :level 0
+     :pos 0
+     :title "Test Note"
+     :properties nil
+     :modified-at "2025-11-16 10:00:00")
+    ;; Recreate the layout of a database from before the swap.
+    (emacsql (vulpea-db) [:drop-index idx-links-dest-type])
+    (emacsql (vulpea-db) [:create-index idx-links-dest :on links [dest]])
+    (vulpea-db-close)
+    (setq vulpea-db--schema-rebuilt nil)
+
+    (vulpea-db)
+    (should (vulpea-db--index-exists-p 'idx-links-dest-type))
+    (should-not (vulpea-db--index-exists-p 'idx-links-dest))
+    (should (emacsql (vulpea-db)
+                     [:select * :from notes :where (= id $s1)]
+                     "test-id"))
+    (should-not vulpea-db--schema-rebuilt)))
+
 ;;; Tag Inheritance Tests
 
 (ert-deftest vulpea-db-heading-inherits-filetags ()

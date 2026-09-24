@@ -342,7 +342,9 @@ Uses hybrid approach:
 (defconst vulpea-db--indices
   '((idx-tags-tag tags [tag])
     (idx-tags-note tags [note-id])
-    (idx-links-dest links [dest])
+    ;; Type rides along so backlink counts filtered by link type are
+    ;; answered from the index alone; dest lookups still use its prefix.
+    (idx-links-dest-type links [dest type])
     (idx-links-source links [source])
     (idx-meta-key meta [key])
     (idx-meta-note meta [note-id])
@@ -354,6 +356,13 @@ Uses hybrid approach:
     (idx-notes-created notes [created-at])
     (idx-notes-category notes [category]))
   "Database indices for performance.")
+
+(defconst vulpea-db--obsolete-indices
+  '(idx-links-dest)
+  "Indices that existing databases may still carry and are dropped on init.
+Adding or replacing an index needs no `vulpea-db-version' bump: new
+ones are created on the next init, and superseded ones are listed
+here so they stop costing space and insert time.")
 
 ;;; Variables
 
@@ -535,11 +544,13 @@ once, while a brand-new database (empty `files' table) is left alone."
              (cdr table-spec))))
 
 (defun vulpea-db--create-indices (db)
-  "Create all indices in DB if they don't exist."
+  "Create all indices in DB if they don't exist, dropping obsolete ones."
   (dolist (index-spec vulpea-db--indices)
     (pcase-let ((`(,name ,table ,columns) index-spec))
       (emacsql db [:create-index :if-not-exists $i1 :on $i2 $S3]
-               name table columns))))
+               name table columns)))
+  (dolist (name vulpea-db--obsolete-indices)
+    (emacsql db [:drop-index :if-exists $i1] name)))
 
 (defun vulpea-db--register-schema (db name version)
   "Register schema NAME with VERSION in DB."
