@@ -220,12 +220,15 @@ In a large collection the cost is parsing: how much of org-mode runs
 for each file, and whether it runs on the main thread.
 =vulpea-db-parse-method= decides the first, =vulpea-db-async-extraction=
 the second, and the second is the one that stops saves and scans from
-freezing Emacs. After changing either, run =M-x vulpea-doctor=: it
-flags setups that quietly fall back to a slower path.
+freezing Emacs. It is on by default, so most files are parsed in a
+background worker and the parse method only applies to the rest.
+After changing either, run =M-x vulpea-doctor=: it flags setups that
+quietly fall back to a slower path.
 
 ** Parse Method
 
-How Vulpea reads org files during sync:
+How Vulpea reads org files it parses in your session (files the
+[[*Async Extraction][async worker]] handles are parsed there, without =org-mode-hook=):
 
 #+begin_src emacs-lisp
 (setq vulpea-db-parse-method 'single-temp-buffer)  ; Fastest
@@ -250,9 +253,10 @@ per-file =#+TODO= / =#+PROPERTY= keywords, =org-mode-hook= and dir-locals.
 Use it only when your Org setup is entirely global.
 
 With =temp-buffer=, every function on =org-mode-hook= runs once per
-indexed file. A function that is only useful in buffers you visit can
-skip indexing by checking =vulpea-db--active-parse-method=, which is
-non-nil while vulpea parses:
+file indexed in your session (the async worker never runs it). A
+function that is only useful in buffers you visit can skip indexing
+by checking =vulpea-db--active-parse-method=, which is non-nil while
+vulpea parses:
 
 #+begin_src emacs-lisp
 (add-hook 'org-mode-hook
@@ -324,17 +328,45 @@ argument to re-index existing files.
 Whether changed files are parsed in a background Emacs process:
 
 #+begin_src emacs-lisp
-(setq vulpea-db-async-extraction t)     ; Extract in worker, write in main
+(setq vulpea-db-async-extraction t)     ; Default: extract in worker, write in main
 ;; or
 (setq vulpea-db-async-extraction 'full) ; Extract AND write in worker
+;; or
+(setq vulpea-db-async-extraction nil)   ; Parse on the main thread
 #+end_src
 
-With autosync enabled, saving a file normally parses it on the main
-thread - the UI freezes for as long as the file takes to index.
-With async extraction (=t=), reading, hashing, parsing, and
-extraction run in a persistent =emacs --batch= worker; the main
-thread only blocks for the database write of the results (a 1MB
-file: 43ms instead of 252ms; a 10MB file: 0.45s instead of 2.28s).
+With autosync enabled and async extraction off, saving a file parses
+it on the main thread - the UI freezes for as long as the file takes
+to index. With async extraction (=t=, the default), reading, hashing,
+parsing, and extraction run in a persistent =emacs --batch= worker;
+the main thread only blocks for the database write of the results (a
+1MB file: 43ms instead of 252ms; a 10MB file: 0.45s instead of
+2.28s). The initial scan's parsing moves off the main thread too.
+
+The trade-offs of the default:
+
+- *The worker does not run your mode hooks* (=org-mode-hook= and the
+  =text-mode-hook= / =outline-mode-hook= org runs first). Most hook
+  functions only affect display and do not matter. One that sets
+  something extraction reads, such as =org-category= or
+  =org-use-tag-inheritance=, makes files the worker handles index
+  differently from files indexed in your session. =M-x vulpea-doctor=
+  finds such functions by running each one in a scratch buffer, and
+  names them with the setting they change. Move the setting into your
+  global config or the files themselves (=#+CATEGORY:=, =#+TODO:=),
+  which the worker reads, or set =vulpea-db-async-extraction= to nil.
+  Hooks are only the most likely cause, so the doctor also parses a
+  sample of your indexed files both in your session and in a fresh
+  worker, and names the files and fields that come out differently,
+  whatever the reason.
+- *The database is updated a moment after a save.* Code that queries
+  right after saving should react on =vulpea-db-updated-functions=
+  instead (or see the threshold below). Programmatic APIs
+  (=vulpea-create=, move/split/merge, =vulpea-utils-with-note-sync=)
+  index synchronously and are not affected.
+- *One more Emacs process* (about 70MB), started lazily on the first
+  changed file. If it cannot start or keeps crashing, vulpea falls
+  back to the synchronous path with a warning.
 
 With ='full=, the worker also writes the results through its own
 database connection, and the main thread only registers note IDs
@@ -397,11 +429,13 @@ moment the queue runs, so set e.g. =102400= if code queries small
 notes right after saving them.
 
 The worker mirrors vulpea and org settings from an allowlist
-(link types, tag inheritance, org-attach configuration, all
-=vulpea-db-*= extraction options) and, like
-=vulpea-db-parse-method= =single-temp-buffer=, does not run
-=org-mode-hook=. Files it cannot handle faithfully are processed
-synchronously as before: anything with extractor plugins registered,
+(link types and abbreviations, tag and property inheritance,
+org-attach configuration, local variables you approved, all
+=vulpea-db-*= extraction options) and does not run your mode hooks.
+It re-runs =org-mode= per file like the session does, so in-file
+keywords (=#+TODO:=, =#+CATEGORY:=) and dir-locals apply there too.
+Files it cannot handle faithfully are processed synchronously as
+before: extractor plugins declaring =:requires-ast t=,
 function-valued =vulpea-db-index-heading-level=, and non-=.org=
 files (decryption may require interaction).
 

@@ -28,7 +28,7 @@ Vulpea turns a folder of org files into a note collection you can query. Any org
 - *Refactoring that keeps links intact* - rename, move, split a heading out into its own file, or merge two notes. Links and their descriptions are updated to match.
 - *Metadata and schemas* - typed fields (numbers, dates, links to notes) in plain description lists. A schema declares what a kind of note should carry, flags violations and prompts you to fill in the missing fields.
 - *Queries from Elisp* - by tags, links, metadata, properties or any predicate.
-- *Stays out of your way* - file watchers feed a background queue, and an opt-in worker process takes parsing off the main thread.
+- *Stays out of your way* - file watchers feed a background queue, and a background worker process takes parsing off the main thread.
 - *Extensible* - extractor plugins index your own data into your own tables.
 - *Checks its own setup* - =M-x vulpea-doctor= verifies directories, database, watchers and external tools.
 
@@ -59,7 +59,8 @@ v1 was a layer over org-roam; v2 is a rewrite with its own database and indexing
 Optional, but recommended once the basics work:
 
 #+begin_src emacs-lisp
-;; Parse and write in a background process: saving a note - even a
+;; Parsing already runs in a background process by default; 'full
+;; moves the database write there too, so saving a note - even a
 ;; 100MB one - blocks Emacs for about a millisecond (bench/README.md).
 (setq vulpea-db-async-extraction 'full)
 

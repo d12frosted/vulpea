@@ -593,7 +593,9 @@ With =vulpea-db-autosync-mode= enabled, Vulpea automatically:
 
 - Detects when you save org files
 - Detects external changes (git pull, sync tools) if =fswatch= is installed
-- Updates the database in the background
+- Updates the database in the background: changed files are parsed in
+  a separate Emacs process, and the database catches up a moment after
+  a save (see [[file:configuration.org::*Async Extraction][Async Extraction]])
 
 ** Manual Sync
 
