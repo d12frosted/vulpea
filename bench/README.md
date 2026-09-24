@@ -145,6 +145,24 @@ building note structs, the rest garbage collection. The backlink query
 mostly gained from no longer asking SQLite for distinct whole note
 rows.
 
+With the candidate cache (`vulpea-select-cache`), same database and
+machine, median of 7 runs:
+
+| `vulpea-find` until its prompt          | time  |
+|-----------------------------------------|-------|
+| no candidate cache                      | 2.18s |
+| first open, building the cache          | 2.46s |
+| later opens                             | 33us  |
+| later open right after one file changed | 31ms  |
+
+The cache holds 165,090 candidates (notes plus aliases) in 108MB. A
+later open hands the cached list to completion, so the prompt appears
+at once; listing all 165k candidates for it (`all-completions` with
+empty input) adds about 5ms. After a change, most of the 31ms is
+assembling the candidate list again. Prewarming in idle time reads 500
+notes per step, about 10ms each, with garbage collection pauses of up
+to 190ms between steps. Measured on 2026-09-24, same machine as above.
+
 ## Components
 
 ### Note Generator (`vulpea-bench-generate.el`)
@@ -215,10 +233,13 @@ Core benchmarking utilities:
 ;; (not under a hidden directory: vulpea skips those)
 (vulpea-bench-file-listing "/path/to/notes")
 ;; => (:count N :fd S :find S :directory-files-recursively S)
-;; Time vulpea-db-query, vulpea-find until its prompt, and the
-;; backlink queries for the most linked note
+;; Time vulpea-db-query, vulpea-find until its prompt (without the
+;; candidate cache, first open, later opens, after a change), and
+;; the backlink queries for the most linked note
 (vulpea-bench-read-path "/path/to/db.db")
-;; => (:count N :backlinks N :query S :find S :by-links S :links-to S)
+;; => (:count N :backlinks N :query S :find-uncached S :find-first S
+;;     :find S :find-changed S :candidates N :cache-mb MB
+;;     :by-links S :links-to S)
 ```
 
 ### Benchmark Runner (`run-benchmarks.sh`)
