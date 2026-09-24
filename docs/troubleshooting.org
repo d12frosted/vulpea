@@ -208,7 +208,9 @@ from the first 10k to the last of 100k (see =bench/README.md=). So a
 scan that slows down points at something that runs for every file and
 gets slower the more files it has seen, usually a function on
 =org-mode-hook=: =temp-buffer= re-runs =org-mode= for every file, and
-the hook with it.
+the hook with it. With async extraction (the default) the worker
+parses files without the hook, so this shows up with it turned off or
+for files the worker does not take.
 
 Vulpea versions up to 2.7 had such a slowdown of their own: org
 registered every parsed file with its persistent element cache
@@ -570,11 +572,46 @@ t)= and read =*vulpea-worker-log*=.
 
 Worker-extracted files become queryable when the background sync
 completes (watch for the "background sync complete" message), a
-moment after the save. Programmatic APIs (=vulpea-create=,
-=vulpea-meta-set=) are unaffected - they are synchronous and
-read-your-writes. If code queries small files right after saving
-them, set =vulpea-db-async-extraction-threshold= to keep small files
+moment after the save. Code that reacts to saves should listen on
+=vulpea-db-updated-functions=, which runs once a file's notes are in
+the database. Programmatic APIs (=vulpea-create=, move/split/merge,
+=vulpea-utils-with-note-sync=) are unaffected - they are synchronous
+and read-your-writes. =vulpea-meta-set= only edits the buffer: the
+database follows when the file is saved, like any other edit, so wrap
+it in =vulpea-utils-with-note-sync= to index right away. If code
+queries small files right after saving them, set
+=vulpea-db-async-extraction-threshold= to keep small files
 synchronous.
+
+** Notes indexed differently than before 2.8
+
+Since 2.8 async extraction is on by default. The worker is a clean
+=emacs --batch= process that does not run your mode hooks. If a hook
+function sets something extraction reads (a category, tag or property
+inheritance), files the worker handles are indexed with the global
+value, and files indexed in your session with the hook's. A note can
+then change between saves.
+
+=M-x vulpea-doctor= checks this two ways. It reports hook functions
+with the setting each one changes, and it parses a sample of your
+indexed files both in your session and in a fresh worker, reporting
+the files and fields that differ (the "session vs worker" line shows
+how many it checked). The second check catches causes no list
+predicts, such as a package the worker does not load; if it reports
+files and no hook is named, please open an issue with the doctor
+output. For each reported hook function:
+
+- set the value globally, or in the files themselves (=#+TODO:=,
+  =#+CATEGORY:=), which the worker reads;
+- or, if indexing should ignore it, skip it while vulpea parses with
+  =vulpea-db--active-parse-method= (see [[*A Long Scan Slows Down as It Goes][above]]);
+- or go back to parsing in your session:
+
+  #+begin_src emacs-lisp
+  (setq vulpea-db-async-extraction nil)
+  #+end_src
+
+Then re-index with =C-u M-x vulpea-db-sync-full-scan=.
 
 ** WAL sidecar files appeared next to my database
 

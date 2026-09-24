@@ -18,7 +18,7 @@ All four index Org files and use =org-id= to identify notes: a file or a heading
 | Built for   | Roam Research in Emacs | Fast org-id notes, org-roam data | Write first, organize later         | Notes as queryable data, with an API   |
 | Storage     | SQLite                 | In-memory, rebuilt each session  | In-memory, saved to one Elisp file  | SQLite                                 |
 | Parser      | org-element            | Custom regexp parser (org-mem)   | org-element                         | org-element                            |
-| Updates on  | Save hook              | Save hook, periodic full reset   | Save queue, periodic scan (15 min)  | File watchers, optional worker process |
+| Updates on  | Save hook              | Save hook, periodic full reset   | Save queue, periodic scan (15 min)  | File watchers, background worker       |
 | Other Emacs | Shared DB              | Each session builds its own      | Reloads a newer DB file when idle   | Shared DB, each session watches files  |
 
 * Design Philosophy
@@ -121,7 +121,7 @@ Saving a file queues it, a periodic scan (every 15 minutes by default) queues fi
 
 *** vulpea
 
-File watchers queue every change, including ones made outside Emacs: fswatch reports them as they happen, and without it vulpea polls every few seconds. By default the queued files are parsed on the main thread, so a large file still freezes Emacs while it is indexed. With =vulpea-db-async-extraction= the parsing moves to a background =emacs --batch= worker, and in =full= mode the database write moves there too; see [[file:sync-architecture.org][Sync Architecture]].
+File watchers queue every change, including ones made outside Emacs: fswatch reports them as they happen, and without it vulpea polls every few seconds. The queued files are parsed in a background =emacs --batch= worker, so saving a large file blocks Emacs only for the database write, and in =full= mode that write moves to the worker too. With =vulpea-db-async-extraction= set to nil, parsing runs on the main thread and a large file freezes Emacs while it is indexed; see [[file:sync-architecture.org][Sync Architecture]].
 
 * Feature Comparison
 
@@ -270,7 +270,7 @@ All four keep their own index and read the same kind of files, so they can index
 
 I have not benchmarked org-roam, org-node or Supertag myself, so the numbers here are vulpea's own, from [[file:../bench/README.md][bench/README.md]]; org-node's figures above are from its README.
 
-A full sync of 100k generated notes takes 2.0 minutes with =single-temp-buffer= parsing and 3.3 with the default =temp-buffer=, at a steady rate from the first file to the last. With autosync on, it runs in the background.
+A full sync of 100k generated notes takes 2.0 minutes with =single-temp-buffer= parsing and 3.3 with =temp-buffer=, both parsing in the Emacs session, at a steady rate from the first file to the last. With autosync on, it runs in the background.
 
 The freeze you actually feel is the save of a large file:
 
