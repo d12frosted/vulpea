@@ -610,13 +610,12 @@ Returns list of `vulpea-note' structs."
     (mapcar #'vulpea-db--row-to-note rows)))
 
 (defun vulpea-db-query-by-meta (key value)
-  "Get notes that have metadata KEY with VALUE.
+  "Get notes where metadata KEY equals VALUE.
 
 Uses normalized meta table for efficient filtering.
 
 KEY is a metadata key string.
-VALUE is the metadata value to match, or a list of values any of which
-matches - one query, however many values.
+VALUE is the metadata value to match.
 
 Returns list of `vulpea-note' structs."
   (let ((rows (emacsql (vulpea-db)
@@ -625,9 +624,30 @@ Returns list of `vulpea-note' structs."
                         :inner :join meta
                         :on (= notes:id meta:note-id)
                         :where (and (= meta:key $s1)
-                                    (in meta:value $v2))]
-                       key (vconcat (ensure-list value)))))
+                                    (= meta:value $s2))]
+                       key value)))
     (mapcar #'vulpea-db--row-to-note rows)))
+
+(defun vulpea-db-query-by-meta-some (key values)
+  "Get notes where metadata KEY carries ANY of VALUES.
+
+Uses normalized meta table for efficient filtering.
+
+KEY is a metadata key string.
+VALUES is a list of metadata values.
+
+Returns list of `vulpea-note' structs."
+  (if (null values)
+      nil
+    (let ((rows (emacsql (vulpea-db)
+                         [:select :distinct [notes:*]
+                          :from notes
+                          :inner :join meta
+                          :on (= notes:id meta:note-id)
+                          :where (and (= meta:key $s1)
+                                      (in meta:value $v2))]
+                         key (vconcat values))))
+      (mapcar #'vulpea-db--row-to-note rows))))
 
 ;;; Tag Queries
 
