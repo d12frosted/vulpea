@@ -743,61 +743,81 @@ through filename syscalls."
         (setq start (1+ eol))))
     (nreverse files)))
 
+(defun vulpea-db-sync--decode-scan-output (chunks coding)
+  "Join raw scan output CHUNKS and decode the result with CODING.
+CHUNKS are unibyte strings in the order they were read.  Decoding
+the joined bytes also covers a character split across two chunks."
+  (decode-coding-string (apply #'concat chunks) coding))
+
+(defun vulpea-db-sync--scan-command (dir)
+  "Return the fd (or find) command listing tracked files under DIR."
+  (let ((expanded-dir (expand-file-name dir))
+        (extensions (vulpea-db--all-extensions)))
+    (if (executable-find "fd")
+        (append (list "fd" "--type" "f")
+                (mapcan (lambda (ext)
+                          (list "--extension" (substring ext 1)))
+                        extensions)
+                (list "--hidden" "--no-ignore"
+                      "--exclude" ".*"
+                      "." expanded-dir))
+      (let* ((name-args
+              (mapcar (lambda (ext)
+                        (list "-name" (concat "*" ext)))
+                      extensions))
+             (name-clause
+              (cl-loop for args in name-args
+                       for first = t then nil
+                       append (if first args (cons "-o" args)))))
+        ;; The trailing slash makes find descend into a configured
+        ;; directory that is itself a symlink (find without -H/-L
+        ;; examines the link and stops; fd follows the search root on
+        ;; its own)
+        (append (list "find" (file-name-as-directory expanded-dir)
+                      "-type" "f")
+                (if (> (length name-args) 1)
+                    (append '("(") name-clause '(")"))
+                  name-clause)
+                (list "-not" "-path" "*/.*"))))))
+
 (defun vulpea-db-sync--scan-files-async (dirs callback)
   "List org files in DIRS asynchronously, call CALLBACK with file list.
 
 Uses fd (or find as fallback) subprocess to avoid blocking Emacs.
 CALLBACK receives a list of absolute file paths."
   (let* ((chunks nil)
-         (dir (car dirs))
-         (expanded-dir (expand-file-name dir))
-         (extensions (vulpea-db--all-extensions))
-         (cmd (if (executable-find "fd")
-                  (append (list "fd" "--type" "f")
-                          (mapcan (lambda (ext)
-                                    (list "--extension" (substring ext 1)))
-                                  extensions)
-                          (list "--hidden" "--no-ignore"
-                                "--exclude" ".*"
-                                "." expanded-dir))
-                (let* ((name-args
-                        (mapcar (lambda (ext)
-                                  (list "-name" (concat "*" ext)))
-                                extensions))
-                       (name-clause
-                        (cl-loop for args in name-args
-                                 for first = t then nil
-                                 append (if first args (cons "-o" args)))))
-                  ;; The trailing slash makes find descend into a
-                  ;; configured directory that is itself a symlink
-                  ;; (find without -H/-L examines the link and stops;
-                  ;; fd follows the search root on its own)
-                  (append (list "find" (file-name-as-directory expanded-dir)
-                                "-type" "f")
-                          (if (> (length name-args) 1)
-                              (append '("(") name-clause '(")"))
-                            name-clause)
-                          (list "-not" "-path" "*/.*"))))))
-    (make-process
-     :name "vulpea-scan"
-     :command cmd
-     :connection-type 'pipe
-     :noquery t
-     ;; Chunks are joined once at the end: appending each chunk to
-     ;; the output read so far copies it again on every read
-     :filter (lambda (_proc output)
-               (push output chunks))
-     :sentinel (lambda (_proc event)
-                 (when (string-prefix-p "finished" event)
-                   (let ((files (vulpea-db-sync--parse-scan-output
-                                 (apply #'concat (nreverse chunks)))))
-                     (if (cdr dirs)
-                         ;; More directories to scan
-                         (vulpea-db-sync--scan-files-async
-                          (cdr dirs)
-                          (lambda (more-files)
-                            (funcall callback (append files more-files))))
-                       (funcall callback files))))))))
+         (coding nil)
+         (proc
+          (make-process
+           :name "vulpea-scan"
+           :command (vulpea-db-sync--scan-command (car dirs))
+           :connection-type 'pipe
+           :noquery t
+           ;; Chunks are joined once at the end: appending each chunk
+           ;; to the output read so far copies it again on every read
+           :filter (lambda (_proc output)
+                     (push output chunks))
+           :sentinel
+           (lambda (_proc event)
+             (when (string-prefix-p "finished" event)
+               (let ((files (vulpea-db-sync--parse-scan-output
+                             (vulpea-db-sync--decode-scan-output
+                              (nreverse chunks) coding))))
+                 (if (cdr dirs)
+                     ;; More directories to scan
+                     (vulpea-db-sync--scan-files-async
+                      (cdr dirs)
+                      (lambda (more-files)
+                        (funcall callback (append files more-files))))
+                   (funcall callback files))))))))
+    ;; Read raw bytes and decode them once in the sentinel instead of
+    ;; chunk by chunk, with the coding system Emacs chose for the
+    ;; process.  No output is read before this runs: Emacs only reads
+    ;; process output while waiting.
+    (setq coding (car (process-coding-system proc)))
+    (set-process-coding-system proc 'binary
+                               (cdr (process-coding-system proc)))
+    proc))
 
 (defun vulpea-db-sync--drop-from-queue (path)
   "Remove PATH from the pending queue."

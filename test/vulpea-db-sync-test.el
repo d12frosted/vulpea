@@ -1250,6 +1250,52 @@ see an empty directory."
                     (concat "/n/" (string ?я ?и #x0306 ?ц ?е) ".org\n"))
                    (list (concat "/n/" (string ?я ?й ?ц ?е) ".org"))))))
 
+(ert-deftest vulpea-db-sync-decode-scan-output-split-character ()
+  "A character split across two chunks decodes whole."
+  (let* ((bytes (encode-coding-string
+                 (concat "/n/" (string ?я ?й) ".org\n") 'utf-8))
+         ;; "/n/" is 3 bytes, я is 2: cut inside я
+         (chunks (list (substring bytes 0 4) (substring bytes 4))))
+    (should (equal (vulpea-db-sync--decode-scan-output chunks 'utf-8)
+                   (concat "/n/" (string ?я ?й) ".org\n")))))
+
+(ert-deftest vulpea-db-sync-scan-files-async-decodes-like-process ()
+  "Scan output is decoded with the coding system the process gets.
+
+The scan reads raw bytes and decodes them once, so it must end up
+with exactly what a process reading decoded output would deliver,
+including when the caller binds `coding-system-for-read'."
+  (let* ((base (make-temp-file "vulpea-scan-coding-" t))
+         (vulpea-db-path-normalization 'nfc))
+    (unwind-protect
+        (progn
+          (dolist (name (list "plain.org"
+                              (concat "caf" (string #xe9) ".org")
+                              (concat (string ?я ?й ?ц ?е) ".org")))
+            (write-region "" nil (expand-file-name name base) nil 'silent))
+          (dolist (coding '(nil latin-1))
+            (let* ((coding-system-for-read coding)
+                   (expected
+                    (let ((cmd (vulpea-db-sync--scan-command base))
+                          (chunks nil)
+                          (done nil))
+                      (make-process
+                       :name "vulpea-scan-oracle"
+                       :command cmd
+                       :connection-type 'pipe
+                       :noquery t
+                       :filter (lambda (_proc output) (push output chunks))
+                       :sentinel (lambda (_proc _event) (setq done t)))
+                      (while (not done) (accept-process-output nil 0.05))
+                      (vulpea-db-sync--parse-scan-output
+                       (apply #'concat (nreverse chunks)))))
+                   (files (vulpea-db-sync-test--scan-async (list base))))
+              (should (= 3 (length files)))
+              (should (equal (sort (copy-sequence files) #'string<)
+                             (sort (copy-sequence expected) #'string<))))))
+      (when (file-directory-p base)
+        (delete-directory base t)))))
+
 ;; Output well past one pipe read (`read-process-output-max'), so the
 ;; process filter runs many times and paths straddle chunk boundaries.
 (defun vulpea-db-sync-test--scan-many-files (use-fd)
