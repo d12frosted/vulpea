@@ -70,7 +70,10 @@
     (let* ((path (vulpea-test--create-temp-org-file
                   ":PROPERTIES:\n:ID: test-id\n:END:\n#+TITLE: Test\n"))
            (vulpea-db-sync--queue (list (cons path (float-time))))
-           (vulpea-db-sync--processing nil))
+           (vulpea-db-sync--processing nil)
+           ;; The synchronous path; the worker path is covered in
+           ;; vulpea-db-worker-test.el.
+           (vulpea-db-async-extraction nil))
       (unwind-protect
           (progn
             (vulpea-db-sync--process-queue)
@@ -194,6 +197,7 @@ No call is made for the directory itself."
     (let ((vulpea-db-sync-batch-size 2)
           (vulpea-db-sync--queue nil)
           (vulpea-db-sync--processing nil)
+          (vulpea-db-async-extraction nil)
           (files nil))
       (unwind-protect
           (progn
@@ -513,6 +517,7 @@ skipped files can put its id back."
       (let* ((dir (make-temp-file "vulpea-scan-test-" t))
              (path (expand-file-name "note.org" dir))
              (vulpea-db-sync-scan-on-enable scan-mode)
+             (vulpea-db-async-extraction nil)
              (vulpea-db-sync-external-method nil)
              (vulpea-db-sync-directories (list dir))
              (vulpea-db-sync--idle-timer nil)

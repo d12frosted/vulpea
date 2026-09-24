@@ -59,7 +59,7 @@
 ;; customs, org link types, tag inheritance, org-attach
 ;; configuration).  Like `vulpea-db-parse-method' `single-temp-buffer',
 ;; it does not run the user's `org-mode-hook'.  Requests the worker
-;; cannot handle faithfully - extractor plugins registered,
+;; cannot handle faithfully - AST-reading extractor plugins,
 ;; function-valued `vulpea-db-index-heading-level', non-.org files
 ;; that need decryption - are rejected by
 ;; `vulpea-db-worker-can-handle-p' and the caller falls back to the
@@ -75,14 +75,20 @@
 
 ;;; Customization
 
-(defcustom vulpea-db-async-extraction nil
+(defcustom vulpea-db-async-extraction t
   "Whether the sync queue extracts files in a background process.
 
-When t, `vulpea-db-sync' sends changed files to a persistent
-`emacs --batch' worker instead of parsing them on the main thread.
-The UI then only blocks for the database write of the results, not
-for reading, hashing, parsing, or extraction - the bulk of indexing
-time.
+When t (the default), `vulpea-db-sync' sends changed files to a
+persistent `emacs --batch' worker instead of parsing them on the
+main thread.  The UI then only blocks for the database write of the
+results, not for reading, hashing, parsing, or extraction - the bulk
+of indexing time.  The database is updated a moment after a save;
+code that reacts to indexed changes should listen on
+`vulpea-db-updated-functions'.  Programmatic APIs such as
+`vulpea-create' stay synchronous.
+
+When nil, files are parsed on the main thread, and saving a large
+file freezes Emacs for as long as indexing takes.
 
 When `full', the worker also writes the results to the database
 through its own connection, so the main thread only registers the
@@ -96,10 +102,12 @@ in the main process.
 
 The worker mirrors vulpea and org settings from an allowlist and,
 like `vulpea-db-parse-method' \\='single-temp-buffer, does not run
-`org-mode-hook'.  Files the worker cannot handle faithfully
-\(extractor plugins registered, function-valued
-`vulpea-db-index-heading-level', non-.org files) are processed
-synchronously as before."
+`org-mode-hook'.  `vulpea-doctor' reports hook functions that change
+settings extraction reads; if indexing depends on them, set this to
+nil.  Files the worker cannot handle
+faithfully (extractor plugins declaring :requires-ast t,
+function-valued `vulpea-db-index-heading-level', non-.org files)
+are processed synchronously as before."
   :type '(choice (const :tag "Off (parse on the main thread)" nil)
           (const :tag "Extract in worker, write in main" t)
           (const :tag "Extract and write in worker (WAL)" full))
@@ -1291,6 +1299,103 @@ writes protocol lines to stdout.  Exits when stdin closes."
         (`(parse-and-write ,path ,db ,force)
          (vulpea-db-worker--handle-parse-and-write path db force))
         (_ nil)))))
+
+;;; Session vs worker comparison
+
+(defun vulpea-db-worker--plist-diff (a b)
+  "Return the keys whose values differ between plists A and B."
+  (let (keys)
+    (dolist (plist (list a b))
+      (cl-loop for key in plist by #'cddr
+               do (unless (or (memq key keys)
+                              (equal (plist-get a key) (plist-get b key)))
+                    (push key keys))))
+    (nreverse keys)))
+
+(defun vulpea-db-worker--nodes-diff (ours theirs)
+  "Return the fields that differ between two extraction results.
+OURS and THEIRS are (FILE-NODE . HEADING-NODES).  Headings are
+compared in order; a different number of them adds `:headings'."
+  (let ((fields (vulpea-db-worker--plist-diff (car ours) (car theirs))))
+    (unless (= (length (cdr ours)) (length (cdr theirs)))
+      (push :headings fields))
+    (cl-mapc (lambda (a b)
+               (dolist (key (vulpea-db-worker--plist-diff a b))
+                 (unless (memq key fields)
+                   (setq fields (append fields (list key))))))
+             (cdr ours) (cdr theirs))
+    fields))
+
+(defun vulpea-db-worker--parse-in-fresh-worker (paths)
+  "Parse PATHS in a new, short-lived worker and collect the results.
+
+The worker gets the same settings message as the live one, runs
+synchronously, and exits when its input ends; the live worker and
+the database are not touched.  Returns a hash table mapping each
+path to (FILE-NODE . HEADING-NODES), or to an error message."
+  (let ((command (vulpea-db-worker--command))
+        (input (make-temp-file "vulpea-compare-" nil ".eld"))
+        (results (make-hash-table :test #'equal)))
+    (unwind-protect
+        (progn
+          (with-temp-file input
+            (insert (vulpea-db-worker--print (vulpea-db-worker--settings-form))
+                    "\n")
+            (dolist (path paths)
+              (insert (vulpea-db-worker--print `(parse ,path)) "\n")))
+          (with-temp-buffer
+            (apply #'call-process (car command) input (list t nil) nil
+                   (cdr command))
+            (goto-char (point-min))
+            (let (file-node headings)
+              (while (not (eobp))
+                (pcase (ignore-errors
+                         (car (read-from-string
+                               (buffer-substring (line-beginning-position)
+                                                 (line-end-position)))))
+                  (`(begin ,_) (setq file-node nil headings nil))
+                  (`(file-node ,node) (setq file-node node))
+                  (`(heading-node ,node) (push node headings))
+                  (`(done ,path . ,_)
+                   (puthash path (cons file-node (reverse headings)) results))
+                  (`(error ,path ,message) (puthash path message results)))
+                (forward-line 1)))))
+      (delete-file input))
+    results))
+
+(defun vulpea-db-worker-compare-files (paths)
+  "Parse PATHS in this session and in a fresh worker; return differences.
+
+Detects files the worker indexes differently from the session - a
+mode hook it does not run, a setting it does not mirror, a feature
+it does not load - whatever the cause.  The session side parses
+through `vulpea-db--parse-file', as synchronous indexing does.
+Nothing is written to the database.
+
+Returns a list of (PATH . FIELDS) for the files that differ, where
+FIELDS lists the extracted fields that do (`:headings' when the
+number of heading notes differs), or (PATH . MESSAGE) when a side
+could not parse PATH.  Returns nil when every file matches."
+  (let ((worker (vulpea-db-worker--parse-in-fresh-worker paths))
+        result)
+    (dolist (path paths)
+      (let ((theirs (gethash path worker 'missing)))
+        (cond
+         ((eq theirs 'missing)
+          (push (cons path "no result from the worker") result))
+         ((stringp theirs)
+          (push (cons path theirs) result))
+         (t
+          (let ((ours (condition-case err
+                          (let ((ctx (vulpea-db--parse-file path)))
+                            (cons (vulpea-parse-ctx-file-node ctx)
+                                  (vulpea-parse-ctx-heading-nodes ctx)))
+                        (error (error-message-string err)))))
+            (if (stringp ours)
+                (push (cons path ours) result)
+              (when-let* ((fields (vulpea-db-worker--nodes-diff ours theirs)))
+                (push (cons path fields) result))))))))
+    (nreverse result)))
 
 ;;; Diagnostics
 
