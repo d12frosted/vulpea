@@ -308,7 +308,7 @@ Returns list of `vulpea-note' structs."
                           " (SELECT source FROM links"
                           " WHERE dest IN " (vulpea-db--sql-list dest-ids)
                           (when link-type " AND type = ?")
-                          " GROUP BY source HAVING count(dest) = ?)")
+                          " GROUP BY source HAVING count(DISTINCT dest) = ?)")
                   (if link-type
                       (list link-type id-count)
                     (list id-count)))))
