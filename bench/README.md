@@ -122,6 +122,29 @@ sentinel on the main thread. `sync-timing-test-run` with
 10ms, the scan finishes 0.4s later, and checking all 14k unchanged
 files takes another 0.85s, spread over idle batches.
 
+### Reading notes
+
+`vulpea-bench-read-path` against a synced database of 100,000
+generated files: 144,989 notes counting heading notes, 388,974 `id:`
+links, and one hub note linked from 34,961 notes. Median of 7 runs,
+best of 4 sessions (the machine was busy, so single sessions varied by
+up to 40%):
+
+| read                                          | emacsql | `sqlite-select` |
+|-----------------------------------------------|---------|-----------------|
+| `vulpea-db-query` (every note)                | 2.17s   | 1.69s           |
+| `vulpea-find` until its prompt                | 2.77s   | 2.35s           |
+| `vulpea-db-query-by-links-some` for the hub   | 1.45s   | 0.60s           |
+| `vulpea-db-query-links-to` for the hub        | 96ms    | 91ms            |
+
+Measured on 2026-09-24, same machine as above. The emacsql column is
+vulpea at 091828d, the last commit before its hot readers moved to
+`sqlite-select`. Loading every note is now about a third SQLite
+returning the rows, 40% reading the printed values in them and 15%
+building note structs, the rest garbage collection. The backlink query
+mostly gained from no longer asking SQLite for distinct whole note
+rows.
+
 ## Components
 
 ### Note Generator (`vulpea-bench-generate.el`)
@@ -192,6 +215,10 @@ Core benchmarking utilities:
 ;; (not under a hidden directory: vulpea skips those)
 (vulpea-bench-file-listing "/path/to/notes")
 ;; => (:count N :fd S :find S :directory-files-recursively S)
+;; Time vulpea-db-query, vulpea-find until its prompt, and the
+;; backlink queries for the most linked note
+(vulpea-bench-read-path "/path/to/db.db")
+;; => (:count N :backlinks N :query S :find S :by-links S :links-to S)
 ```
 
 ### Benchmark Runner (`run-benchmarks.sh`)
