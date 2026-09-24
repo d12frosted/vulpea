@@ -610,7 +610,7 @@ Returns list of `vulpea-note' structs."
     (mapcar #'vulpea-db--row-to-note rows)))
 
 (defun vulpea-db-query-by-meta (key value)
-  "Get notes where metadata KEY equals VALUE.
+  "Get notes that have metadata KEY with VALUE.
 
 Uses normalized meta table for efficient filtering.
 
