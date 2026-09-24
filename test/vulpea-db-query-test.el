@@ -381,6 +381,25 @@ https://github.com/d12frosted/vulpea/issues/501"
       (should (= (length notes) 1))
       (should (equal (vulpea-note-id (car notes)) "note1")))))
 
+(ert-deftest vulpea-db-query-by-links-every-repeated-link ()
+  "Linking one destination several times does not count as linking all."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "note1" "Note 1"
+                                   :links '((:dest "target1" :type "id" :pos 100)
+                                           (:dest "target1" :type "id" :pos 200)))
+    (vulpea-test--insert-test-note "note2" "Note 2"
+                                   :links '((:dest "target1" :type "id" :pos 100)
+                                           (:dest "target2" :type "id" :pos 200)))
+
+    (should (equal (mapcar #'vulpea-note-id
+                           (vulpea-db-query-by-links-every '("target1" "target2")))
+                   '("note2")))
+    (should (equal (mapcar #'vulpea-note-id
+                           (vulpea-db-query-by-links-every
+                            '("target1" "target2") "id"))
+                   '("note2")))))
+
 ;;; Backlink Count Tests
 
 (ert-deftest vulpea-db-query-backlink-counts-basic ()
