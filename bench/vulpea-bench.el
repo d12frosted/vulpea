@@ -402,13 +402,20 @@ Returns a plist of median seconds per method and the file count."
 
 Measures, as the median of RUNS runs (default 5) after one warmup:
 - query: `vulpea-db-query', every note as a struct
-- find: `vulpea-find' until it would prompt, candidates built
+- find-uncached: `vulpea-find' until it would prompt, with
+  `vulpea-select-cache' off, so every note is read and described
+- find-first: the same with the candidate cache on but dropped
+  before each run, which is the first open of a session
+- find: the same with the cache warm, every later open
+- find-changed: a warm open right after one file was announced
+  as changed, which refreshes that file's candidates
 - backlinks: `vulpea-db-query-by-links-some' for the most linked note
 - links-to: `vulpea-db-query-links-to' for the same note
 
 Each run starts after a garbage collection, and collections during
 the run are part of the time.  Returns a plist of median seconds per
-read, the note count and the backlink count."
+read, the note count, the backlink count, the number of cached
+candidates and the heap growth of the cache in MB."
   (let* ((runs (or runs 5))
          (vulpea-db-location db-file)
          (vulpea-db--connection nil)
@@ -436,13 +443,36 @@ read, the note count and the backlink count."
                (count (length (vulpea-db-query)))
                (backlinks (length (vulpea-db-query-by-links-some (list hub))))
                (query (funcall measure #'vulpea-db-query))
-               (find (funcall
-                      measure
-                      (lambda ()
-                        (cl-letf (((symbol-function 'completing-read)
-                                   (lambda (&rest _) (throw 'prompt nil))))
-                          (catch 'prompt
-                            (call-interactively #'vulpea-find))))))
+               (open-find (lambda ()
+                            (cl-letf (((symbol-function 'completing-read)
+                                       (lambda (&rest _) (throw 'prompt nil))))
+                              (catch 'prompt
+                                (call-interactively #'vulpea-find)))))
+               (find-uncached (let ((vulpea-select-cache nil))
+                                (funcall measure open-find)))
+               (find-first (funcall measure
+                                    (lambda ()
+                                      (vulpea-select-cache-drop)
+                                      (funcall open-find))))
+               (heap (lambda ()
+                       (/ (cl-loop for (_ size used . _) in (garbage-collect)
+                                   sum (* (or size 0) (or used 0)))
+                          1048576.0)))
+               (cache-mb (progn
+                           (vulpea-select-cache-drop)
+                           (let ((before (funcall heap)))
+                             (funcall open-find)
+                             (- (funcall heap) before))))
+               (candidates (length (vulpea-select--cache-candidates)))
+               (find (funcall measure open-find))
+               (changed-file (vulpea-note-path
+                              (car (vulpea-db-query-by-ids (list hub)))))
+               (find-changed (funcall
+                              measure
+                              (lambda ()
+                                (run-hook-with-args
+                                 'vulpea-db-updated-functions changed-file 1)
+                                (funcall open-find))))
                (by-links (funcall measure
                                   (lambda ()
                                     (vulpea-db-query-by-links-some (list hub)))))
@@ -451,13 +481,24 @@ read, the note count and the backlink count."
           (message "\n=== Read path: %d notes, median of %d runs ===" count runs)
           (message "vulpea-db-query:                       %s"
                    (vulpea-bench--format-time query))
-          (message "vulpea-find (until the prompt):        %s"
+          (message "vulpea-find, no candidate cache:       %s"
+                   (vulpea-bench--format-time find-uncached))
+          (message "vulpea-find, first open (cache build): %s"
+                   (vulpea-bench--format-time find-first))
+          (message "vulpea-find, later opens:              %s"
                    (vulpea-bench--format-time find))
+          (message "vulpea-find, after one file changed:   %s"
+                   (vulpea-bench--format-time find-changed))
+          (message "candidate cache: %d candidates, %.0f MB"
+                   candidates cache-mb)
           (message "vulpea-db-query-by-links-some (%d):  %s"
                    backlinks (vulpea-bench--format-time by-links))
           (message "vulpea-db-query-links-to:              %s"
                    (vulpea-bench--format-time links-to))
-          (list :count count :backlinks backlinks :query query :find find
+          (list :count count :backlinks backlinks :query query
+                :find-uncached find-uncached :find-first find-first
+                :find find :find-changed find-changed
+                :candidates candidates :cache-mb cache-mb
                 :by-links by-links :links-to links-to))
       (when vulpea-db--connection
         (vulpea-db-close)))))
