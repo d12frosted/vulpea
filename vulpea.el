@@ -333,9 +333,245 @@ watch them either, and they are reported separately."
       (when (or missing stale)
         (list "filenotify" missing stale))))))
 
+(defconst vulpea-doctor--mode-hooks
+  '(text-mode-hook outline-mode-hook org-mode-hook)
+  "Mode hooks `org-mode' runs, none of which the worker runs.
+The worker is an `emacs --batch -Q' process, so the user's functions
+on these hooks never run there.")
+
+(defconst vulpea-doctor--derived-settings
+  '((org-todo-keywords . (org-todo-keywords-1 org-done-keywords)))
+  "Settings org only reads when `org-mode' starts, with what it derives.
+`org-set-regexps-and-options' builds the TODO regexps from the
+default value of `org-todo-keywords', so a buffer-local value set
+by a mode hook changes no parse.  The probe compares the derived
+variables instead, and reports a difference under the setting.")
+
+(defun vulpea-doctor--probe-settings (setup)
+  "Return the mirrored settings a parse buffer ends up with after SETUP.
+
+SETUP is called in a temporary buffer prepared the way indexing in
+the session prepares one: variable `buffer-file-name' set to a path
+under the first sync directory and `vulpea-db--active-parse-method'
+bound.
+Returns an alist of (VARIABLE . VALUE) over
+`vulpea-db-worker--settings-vars'; for the settings in
+`vulpea-doctor--derived-settings', VALUE is what org derived from
+them.  Nothing is written to disk."
+  (let* ((dir (file-name-as-directory
+               (expand-file-name
+                (or (seq-find #'file-directory-p vulpea-db-sync-directories)
+                    temporary-file-directory))))
+         (vulpea-db--active-parse-method vulpea-db-parse-method))
+    (with-temp-buffer
+      (unwind-protect
+          (progn
+            (setq buffer-file-name (expand-file-name "vulpea-doctor-probe.org"
+                                                     dir)
+                  default-directory dir)
+            (funcall setup)
+            (mapcar (lambda (var)
+                      (cons var
+                            (if-let* ((derived (alist-get
+                                                var
+                                                vulpea-doctor--derived-settings)))
+                                (mapcar (lambda (d)
+                                          (and (boundp d) (symbol-value d)))
+                                        derived)
+                              (and (boundp var) (symbol-value var)))))
+                    vulpea-db-worker--settings-vars))
+        (set-buffer-modified-p nil)
+        (setq buffer-file-name nil)))))
+
+(defun vulpea-doctor--org-mode-with-hooks (hooks)
+  "Enter `org-mode' with only HOOKS on its mode hooks.
+
+HOOKS is an alist of (HOOK-VARIABLE . FUNCTIONS); mode hooks it does
+not mention are empty, as they are in the worker.  Everything else
+runs as usual, in order: the mode hooks, then local variables
+\(dir-locals and their hooks), then `after-change-major-mode-hook'."
+  (let ((text-mode-hook (alist-get 'text-mode-hook hooks))
+        (outline-mode-hook (alist-get 'outline-mode-hook hooks))
+        (org-mode-hook (alist-get 'org-mode-hook hooks)))
+    (org-mode)))
+
+(defun vulpea-doctor--hook-functions (hook)
+  "Return the functions on the global value of HOOK, as a list.
+A hook value may also be a single function."
+  (let ((value (default-value hook)))
+    (if (or (functionp value)
+            (eq (car-safe value) 'lambda)
+            (and value (symbolp value)))
+        (list value)
+      (remq t value))))
+
+(defun vulpea-doctor--hook-set-settings ()
+  "Return the extraction settings the user's mode hooks change.
+
+Only settings the worker mirrors are compared, since those are the
+ones extraction reads.  Each function on `vulpea-doctor--mode-hooks'
+is run on its own - as the only function on its hook, so deferred
+work (local variable hooks) runs in its usual order - and the
+result compared with a buffer that ran none of them.  Global values
+of the mirrored settings are restored after every run, and a
+function that signals is skipped.  Returns an alist of (VARIABLE .
+FUNCTIONS), nil when nothing differs.
+
+Returns nil without probing when the difference cannot matter: async
+extraction is off, the worker takes no .org file, or
+`vulpea-db-parse-method' is `single-temp-buffer', which skips the
+hooks in the session too."
+  (when (and vulpea-db-async-extraction
+             (not (eq vulpea-db-parse-method 'single-temp-buffer))
+             (vulpea-db-worker-can-handle-p "probe.org"))
+    (let ((baseline (vulpea-doctor--probe-settings
+                     (lambda () (vulpea-doctor--org-mode-with-hooks nil))))
+          (found nil))
+      (dolist (hook vulpea-doctor--mode-hooks)
+        (dolist (fn (vulpea-doctor--hook-functions hook))
+          (let* ((globals (mapcar (lambda (var)
+                                    (cons var (and (default-boundp var)
+                                                   (default-value var))))
+                                  vulpea-db-worker--settings-vars))
+                 (probe
+                  (unwind-protect
+                      (ignore-errors
+                        (vulpea-doctor--probe-settings
+                         (lambda ()
+                           (vulpea-doctor--org-mode-with-hooks
+                            (list (list hook fn))))))
+                    (dolist (entry globals)
+                      (when (default-boundp (car entry))
+                        (unless (equal (default-value (car entry)) (cdr entry))
+                          (set-default (car entry) (cdr entry))))))))
+            (dolist (entry probe)
+              (unless (equal (cdr entry)
+                             (alist-get (car entry) baseline))
+                (let ((cell (assq (car entry) found)))
+                  (if cell
+                      (setcdr cell (append (cdr cell) (list fn)))
+                    (push (list (car entry) fn) found))))))))
+      (nreverse found))))
+
+(defun vulpea-doctor--describe-hook-functions (fns)
+  "Return a readable list of hook functions FNS."
+  (let* ((named (seq-filter #'symbolp fns))
+         (anonymous (- (length fns) (length named))))
+    (string-join
+     (append (mapcar (lambda (fn) (format "`%s'" fn)) named)
+             (cond ((= anonymous 1) (list "an anonymous function"))
+                   ((> anonymous 1)
+                    (list (format "%d anonymous functions" anonymous)))))
+     ", ")))
+
+(defconst vulpea-doctor--consistency-sample-size 20
+  "How many indexed files the doctor parses in session and worker.
+Half are the most recently modified, half are picked at random.")
+
+(defconst vulpea-doctor--consistency-max-size (* 512 1024)
+  "Largest file, in bytes, the consistency sample takes.
+Each sampled file is parsed twice, so large ones would slow the
+doctor down without making drift more likely to show.")
+
+(defvar vulpea-doctor--consistency-result 'unset
+  "Session vs worker comparison computed for the current report.
+`vulpea-doctor--report' binds it so the comparison, which spawns a
+worker, runs once per report.")
+
+(defun vulpea-doctor--consistency-sample ()
+  "Return indexed .org files to compare between session and worker."
+  (let* ((rows (seq-filter
+                (lambda (row)
+                  (pcase-let ((`(,path ,_mtime ,size) row))
+                    (and (stringp path)
+                         (string-suffix-p ".org" path)
+                         (numberp size)
+                         (<= size vulpea-doctor--consistency-max-size)
+                         (file-readable-p path)
+                         (vulpea-db-worker-can-handle-p path))))
+                (ignore-errors
+                  (emacsql (vulpea-db)
+                           [:select [path mtime size] :from files]))))
+         (sorted (sort rows (lambda (a b)
+                              (> (if (numberp (nth 1 a)) (nth 1 a) 0)
+                                 (if (numberp (nth 1 b)) (nth 1 b) 0)))))
+         (half (/ vulpea-doctor--consistency-sample-size 2))
+         (recent (seq-take sorted half))
+         (random (seq-take (mapcar #'cdr
+                                   (sort (mapcar (lambda (row)
+                                                   (cons (random) row))
+                                                 (seq-drop sorted half))
+                                         (lambda (a b) (< (car a) (car b)))))
+                           (- vulpea-doctor--consistency-sample-size
+                              (length recent)))))
+    (mapcar #'car (append recent random))))
+
+(defun vulpea-doctor--compute-consistency ()
+  "Compare a sample of indexed files between session and worker.
+
+Returns a plist: :status is `skipped' (async extraction off, the
+worker takes no .org file, or no database), `empty' (nothing to
+sample), `checked' (with :sampled and :diffs, see
+`vulpea-db-worker-compare-files') or `failed' (with :error)."
+  (cond
+   ((not (and vulpea-db-async-extraction
+              (file-exists-p vulpea-db-location)
+              (vulpea-db-worker-can-handle-p "probe.org")))
+    (list :status 'skipped))
+   (t
+    (let ((sample (vulpea-doctor--consistency-sample)))
+      (if (null sample)
+          (list :status 'empty)
+        (condition-case err
+            (list :status 'checked
+                  :sampled (length sample)
+                  :diffs (vulpea-db-worker-compare-files sample))
+          (error (list :status 'failed
+                       :error (error-message-string err)))))))))
+
+(defun vulpea-doctor--consistency ()
+  "Return the session vs worker comparison for this report."
+  (if (eq vulpea-doctor--consistency-result 'unset)
+      (setq vulpea-doctor--consistency-result
+            (vulpea-doctor--compute-consistency))
+    vulpea-doctor--consistency-result))
+
+(defun vulpea-doctor--consistency-summary ()
+  "Return a one-line summary of the session vs worker comparison."
+  (let ((result (vulpea-doctor--consistency)))
+    (pcase (plist-get result :status)
+      ('skipped "n/a")
+      ('empty "nothing to sample")
+      ('failed (format "FAILED: %s" (plist-get result :error)))
+      ('checked
+       (let ((diffs (plist-get result :diffs))
+             (sampled (plist-get result :sampled)))
+         (if diffs
+             (format "%d of %d sampled DIFFER" (length diffs) sampled)
+           (format "%d sampled, all match" sampled)))))))
+
+(defun vulpea-doctor--describe-consistency-diffs (diffs)
+  "Return a readable list of DIFFS, at most five files."
+  (concat
+   (mapconcat
+    (lambda (entry)
+      (format "%s (%s)"
+              (abbreviate-file-name (car entry))
+              (if (stringp (cdr entry))
+                  (concat "could not compare: " (cdr entry))
+                (mapconcat #'symbol-name (cdr entry) ", "))))
+    (seq-take diffs 5)
+    "; ")
+   (if (> (length diffs) 5)
+       (format "; and %d more" (- (length diffs) 5))
+     "")))
+
 (defun vulpea-doctor--issues ()
   "Return a list of detected setup issues as human-readable strings."
-  (let ((issues nil)
+  ;; Rebind the comparison cache: a report shares its result with
+  ;; this call, but nothing may survive past it
+  (let ((vulpea-doctor--consistency-result vulpea-doctor--consistency-result)
+        (issues nil)
         (fswatch (executable-find "fswatch"))
         (fd (executable-find "fd"))
         (notes (vulpea-doctor--note-count)))
@@ -501,11 +737,63 @@ watch them either, and they are reported separately."
                       " to extract-only so the filters keep running in"
                       " your session.")
               issues)))
+    ;; The worker does not run the user's mode hooks
+    (when-let* ((changed (vulpea-doctor--hook-set-settings)))
+      (push (format
+             (concat "`vulpea-db-async-extraction' is enabled, but your"
+                     " mode hooks change settings extraction reads: %s."
+                     " The worker does not run your hooks, so files it"
+                     " indexes get the global value while files indexed"
+                     " in your session get the hook's, and a note can"
+                     " change between saves. Set these globally, or in"
+                     " the files themselves (#+TODO:, #+CATEGORY:), which"
+                     " the worker reads; skip them while vulpea parses"
+                     " with `vulpea-db--active-parse-method' if indexing"
+                     " should ignore them; or turn the worker off with"
+                     " (setq vulpea-db-async-extraction nil).")
+             (mapconcat
+              (lambda (entry)
+                (format "`%s' (set by %s)"
+                        (car entry)
+                        (vulpea-doctor--describe-hook-functions
+                         (cdr entry))))
+              changed
+              "; "))
+            issues))
+    ;; Outcome check: whatever the cause, does the worker agree?
+    (let ((result (vulpea-doctor--consistency)))
+      (pcase (plist-get result :status)
+        ('checked
+         (when-let* ((diffs (plist-get result :diffs)))
+           (push (format
+                  (concat "`vulpea-db-async-extraction' is enabled, but the"
+                          " worker indexes %d of %d sampled files differently"
+                          " from your session: %s. Something in your session"
+                          " changes extraction without reaching the worker -"
+                          " a mode hook (see above if one is listed), a"
+                          " setting vulpea does not mirror, or a package the"
+                          " worker does not load. Until it is found,"
+                          " (setq vulpea-db-async-extraction nil) keeps"
+                          " indexing in your session; please report it with"
+                          " this doctor output.")
+                  (length diffs)
+                  (plist-get result :sampled)
+                  (vulpea-doctor--describe-consistency-diffs diffs))
+                 issues)))
+        ('failed
+         (push (format
+                (concat "Could not start a worker to compare indexing with"
+                        " your session (%s). Run"
+                        " M-x vulpea-db-worker-diagnose for details.")
+                (plist-get result :error))
+               issues))))
     (nreverse issues)))
 
 (defun vulpea-doctor--report ()
   "Build the doctor report as a string."
-  (let* ((issues (vulpea-doctor--issues))
+  (let* ((vulpea-doctor--consistency-result
+          (vulpea-doctor--compute-consistency))
+         (issues (vulpea-doctor--issues))
          (notes (vulpea-doctor--note-count))
          (stats (vulpea-doctor--cached-file-stats))
          (line (lambda (label value) (format "  %-32s %s" label value))))
@@ -570,6 +858,8 @@ watch them either, and they are reported separately."
                                 (mapconcat #'symbol-name reasons ", "))
                       "yes")
                   "n/a"))
+       (funcall line "session vs worker"
+                (vulpea-doctor--consistency-summary))
        ""
        "External Tools"
        (funcall line "fd" (or (executable-find "fd") "not found"))
@@ -589,9 +879,18 @@ watch them either, and they are reported separately."
 
 The report covers versions, configuration, database state, sync
 state, external tool availability, and a list of detected issues.
-It is read-only: nothing is created or modified, even when the
-database does not exist yet. Please include the report in bug
-reports.
+The doctor writes nothing: no file or database is created or
+modified, even when the database does not exist yet.  It does run
+code of yours: to find mode hooks the async worker would miss, it
+calls each function on `org-mode-hook' (and on the `text-mode-hook'
+and `outline-mode-hook' that `org-mode' runs first) in a temporary
+buffer, the way indexing in your session does, and restores the
+global values of the settings extraction reads afterwards.  With
+async extraction on, it also parses a sample of up to
+`vulpea-doctor--consistency-sample-size' indexed files both in your
+session and in a short-lived worker process, to catch files the
+worker would index differently; this takes a second or two.  Please
+include the report in bug reports.
 
 When SHOW is non-nil (always when called interactively), also
 display the report in the *vulpea-doctor* buffer."

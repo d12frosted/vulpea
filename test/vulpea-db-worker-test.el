@@ -77,6 +77,11 @@ Ensures the worker and the file are cleaned up."
        (when (file-exists-p path)
          (delete-file path)))))
 
+(ert-deftest vulpea-db-worker-async-extraction-default ()
+  "Async extraction ships enabled in extract-only mode; `full' is opt-in."
+  (should (eq t (eval (car (get 'vulpea-db-async-extraction 'standard-value))
+                      t))))
+
 (ert-deftest vulpea-db-worker-command-prefers-newer ()
   "The worker command forces `load-prefer-newer'.
 
@@ -117,6 +122,43 @@ This is the correctness contract of async extraction."
       (dolist (table '(:notes :tags :links :meta :properties))
         (should (equal (plist-get sync-dump table)
                        (plist-get async-dump table)))))))
+
+(ert-deftest vulpea-db-worker-honors-file-keywords-and-dir-locals ()
+  "In-file keywords and dir-locals reach the worker as they reach the session.
+The worker skips the user's mode hooks but re-runs `org-mode' per
+file under the default parse method, which reads #+TODO and applies
+dir-locals; the doctor points people with hook-set settings there."
+  (let* ((dir (make-temp-file "vulpea-worker-dirlocals-" t))
+         (path (expand-file-name "note.org" dir))
+         (vulpea-db-parse-method 'temp-buffer)
+         (enable-local-variables :all)
+         sync-dump async-dump)
+    (unwind-protect
+        (progn
+          (with-temp-file (expand-file-name ".dir-locals.el" dir)
+            (prin1 '((org-mode . ((org-category . "dirlocal"))))
+                   (current-buffer)))
+          (with-temp-file path
+            (insert ":PROPERTIES:\n:ID: dirlocal-file\n:END:\n#+title: F\n"
+                    "#+TODO: TODO WAITING | DONE\n\n"
+                    "* WAITING Call Bob\n:PROPERTIES:\n:ID: dirlocal-h\n:END:\n"))
+          (vulpea-test--with-temp-db
+            (vulpea-db)
+            (vulpea-db-update-file path)
+            (setq sync-dump (vulpea-db-worker-test--db-dump)))
+          (vulpea-test--with-temp-db
+            (vulpea-db)
+            (vulpea-db-worker-request path)
+            (vulpea-db-worker-test--wait)
+            (setq async-dump (vulpea-db-worker-test--db-dump)))
+          (let ((heading (assoc "dirlocal-h" (plist-get sync-dump :notes))))
+            (should (equal (nth 3 heading) "Call Bob"))
+            (should (equal (nth 9 heading) "WAITING"))
+            (should (equal (nth 14 heading) "dirlocal")))
+          (should (equal (plist-get sync-dump :notes)
+                         (plist-get async-dump :notes))))
+      (vulpea-db-worker-stop)
+      (delete-directory dir t))))
 
 (ert-deftest vulpea-db-worker-async-database-equals-sync-headings-off ()
   "The worker agrees with sync indexing when heading notes are off.
@@ -1350,6 +1392,38 @@ https://github.com/d12frosted/vulpea/issues/457"
       (dolist (table '(:notes :tags :links :meta :properties))
         (should (equal (plist-get sync-dump table)
                        (plist-get async-dump table)))))))
+
+;;; Session vs worker comparison
+
+(ert-deftest vulpea-db-worker-compare-files-agrees-by-default ()
+  "With nothing configured differently, worker and session agree."
+  (vulpea-db-worker-test--with-file
+      vulpea-db-extract-test--granularity-corpus
+    (let ((vulpea-db-parse-method 'temp-buffer)
+          (org-mode-hook nil))
+      (should (equal (vulpea-db-worker-compare-files (list path))
+                     nil)))))
+
+(ert-deftest vulpea-db-worker-compare-files-names-differing-fields ()
+  "A session-only setting shows up as the fields it changes.
+Here a mode hook the worker never runs sets the category, so every
+note's category (and where it came from) differs."
+  (vulpea-db-worker-test--with-file
+      ":PROPERTIES:\n:ID: cmp-file\n:END:\n#+title: F\n\n* H\n:PROPERTIES:\n:ID: cmp-h\n:END:\n"
+    (let ((vulpea-db-parse-method 'temp-buffer)
+          (org-mode-hook
+           (list (lambda () (setq-local org-category "from-hook")))))
+      (let ((result (vulpea-db-worker-compare-files (list path))))
+        (should (equal (mapcar #'car result) (list path)))
+        (should (memq :category (cdar result)))))))
+
+(ert-deftest vulpea-db-worker-compare-files-reports-errors ()
+  "A file that cannot be compared is reported, not fatal."
+  (let ((missing (expand-file-name "vulpea-no-such-file.org"
+                                   temporary-file-directory)))
+    (let ((result (vulpea-db-worker-compare-files (list missing))))
+      (should (equal (mapcar #'car result) (list missing)))
+      (should (stringp (cdar result))))))
 
 (provide 'vulpea-db-worker-test)
 ;;; vulpea-db-worker-test.el ends here
