@@ -109,9 +109,9 @@ until vulpea has the file list; median of 10 runs (5 at 1M):
 
 | notes | `fd` (vulpea's scan) | `find` (fd absent) | `directory-files-recursively` |
 |-------|----------------------|--------------------|-------------------------------|
-| 14k   | 29ms                 | 72ms               | 34ms, blocking                |
-| 100k  | 197ms                | 547ms              | 253ms, blocking               |
-| 1M    | 1.60s                | 13.2s              | 3.08s, blocking               |
+| 14k   | 24ms                 | 72ms               | 34ms, blocking                |
+| 100k  | 152ms                | 547ms              | 253ms, blocking               |
+| 1M    | 1.25s                | 13.2s              | 3.08s, blocking               |
 
 The listing commands alone (output to `/dev/null`, `/usr/bin/find`)
 take 19ms, 76ms and 0.57s with `fd`, and 80ms, 458ms and 13.3s with

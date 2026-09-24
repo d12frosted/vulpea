@@ -575,9 +575,9 @@ When =fswatch= is not available, Vulpea falls back to polling — periodically s
 #+end_src
 
 If you use polling, install =fd=: each poll lists every file, and =fd=
-lists faster than =find=. On a tree of 14k notes a listing takes 29ms
+lists faster than =find=. On a tree of 14k notes a listing takes 24ms
 with =fd= and 72ms with =find=, measured until vulpea has the list; on
-100k notes, 197ms and 547ms.
+100k notes, 152ms and 547ms.
 
 ** Windows fswatch Path Style
 
