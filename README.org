@@ -36,7 +36,7 @@ Vulpea turns a folder of org files into a note collection you can query. Any org
 
 Vulpea is a tool and a library at once. The commands above are built on the same public API you get: functions and the =vulpea-note= struct, never SQL tables, so the database can change without breaking your code. v2 replaced the whole backend that way. Core leaves out UI: sidebars, dashboards and journals live in companion packages (see [[*Ecosystem][Ecosystem]]). Vulpea and org-roam keep separate databases and can run side by side.
 
-v1 was a layer over org-roam; v2 is a rewrite with its own database and indexing. [[https://d12frosted.io/posts/2025-11-28-vulpea-v2-breaking-up-with-org-roam][Vulpea v2: a story of breaking up with org-roam]] tells why, and the [[file:docs/migration.org][Migration Guide]] covers upgrading. For how vulpea compares to org-roam and org-node, see [[file:docs/comparison.org][Comparison with Other Libraries]].
+v1 was a layer over org-roam; v2 is a rewrite with its own database and indexing. [[https://d12frosted.io/posts/2025-11-28-vulpea-v2-breaking-up-with-org-roam][Vulpea v2: a story of breaking up with org-roam]] tells why, and the [[file:docs/migration.org][Migration Guide]] covers upgrading. For how vulpea compares to org-roam, org-node and Supertag, see [[file:docs/comparison.org][Comparison with Other Libraries]].
 
 ** Quick Start
 
@@ -142,7 +142,7 @@ Without =fswatch=, Vulpea falls back to polling: every few seconds it lists your
 | [[https://github.com/d12frosted/vulpea-journal][Journal Module]] | Daily notes with widgets and calendar integration (separate package) |
 | [[file:docs/plugin-guide.org][Plugin Guide]] | Writing custom extractors for domain-specific data |
 | [[file:docs/troubleshooting.org][Troubleshooting]] | Common issues and solutions |
-| [[file:docs/comparison.org][Comparison]] | How vulpea compares to org-roam and org-node |
+| [[file:docs/comparison.org][Comparison]] | How vulpea compares to org-roam, org-node and Supertag |
 
 ** Ecosystem
 
