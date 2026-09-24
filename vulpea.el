@@ -1017,6 +1017,22 @@ Optional: HEAD, META (alist), TAGS (list), PROPERTIES (alist)."
    "\n"))
 
 
+(defun vulpea--select-cached-p (filter-fn candidates-fn default-filter
+                                          default-source expand-aliases)
+  "Return non-nil when a selection may be served from the candidate cache.
+
+FILTER-FN and CANDIDATES-FN are the arguments of `vulpea-find' or
+`vulpea-insert', DEFAULT-FILTER and DEFAULT-SOURCE the matching
+default variables and EXPAND-ALIASES the alias expansion flag.  The
+cache holds the default selection only: every note, aliases
+expanded, no filter.  See `vulpea-select-cache'."
+  (and expand-aliases
+       (null filter-fn)
+       (null candidates-fn)
+       (null default-filter)
+       (eq default-source #'vulpea-db-query)
+       (vulpea-select-cache-usable-p)))
+
 (defun vulpea-find-create-note (title &optional _props)
   "Create a new note with TITLE selected in `vulpea-find'.
 
@@ -1075,18 +1091,25 @@ for the original title and once for each alias."
                (make-marker) (region-beginning))
               (set-marker
                (make-marker) (region-end))))))
-         (note (vulpea-select-from
-                "Note"
-                (funcall
-                 (or
-                  candidates-fn
-                  vulpea-find-default-candidates-source)
-                 (or
-                  filter-fn
-                  vulpea-find-default-filter))
-                :require-match require-match
-                :initial-prompt region-text
-                :expand-aliases expand-aliases)))
+         (note (if (vulpea--select-cached-p
+                    filter-fn candidates-fn vulpea-find-default-filter
+                    vulpea-find-default-candidates-source expand-aliases)
+                   (vulpea-select-from-cache
+                    "Note"
+                    :require-match require-match
+                    :initial-prompt region-text)
+                 (vulpea-select-from
+                  "Note"
+                  (funcall
+                   (or
+                    candidates-fn
+                    vulpea-find-default-candidates-source)
+                   (or
+                    filter-fn
+                    vulpea-find-default-filter))
+                  :require-match require-match
+                  :initial-prompt region-text
+                  :expand-aliases expand-aliases))))
     (if (vulpea-note-id note)
         ;; Existing note - visit it
         (vulpea-visit note other-window)
@@ -1360,12 +1383,19 @@ for the original title and once for each alias."
                      (org-link-display-format
                       (buffer-substring-no-properties
                        beg end)))))
-               (notes (funcall (or candidates-fn
-                                   vulpea-insert-default-candidates-source)
-                               (or filter-fn vulpea-insert-default-filter)))
-               (note (vulpea-select-from "Note" notes
-                                         :initial-prompt region-text
-                                         :expand-aliases expand-aliases)))
+               (note
+                (if (vulpea--select-cached-p
+                     filter-fn candidates-fn vulpea-insert-default-filter
+                     vulpea-insert-default-candidates-source expand-aliases)
+                    (vulpea-select-from-cache "Note"
+                                              :initial-prompt region-text)
+                  (vulpea-select-from
+                   "Note"
+                   (funcall (or candidates-fn
+                                vulpea-insert-default-candidates-source)
+                            (or filter-fn vulpea-insert-default-filter))
+                   :initial-prompt region-text
+                   :expand-aliases expand-aliases))))
           (if (vulpea-note-id note)
               ;; Existing note - insert link immediately
               (vulpea--insert-note-link note region-text beg end)

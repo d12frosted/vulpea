@@ -51,6 +51,7 @@
 (require 'json)
 (require 'ucs-normalize)
 
+(declare-function vulpea-select-cache-drop "vulpea-select" ())
 (declare-function vulpea-db--unregister-id-locations "vulpea-db-extract"
                   (ids path))
 (declare-function vulpea-db--resolve-released-ids "vulpea-db-extract"
@@ -397,11 +398,15 @@ Checked by `vulpea-db-sync--start' to trigger automatic re-index.")
   vulpea-db--connection)
 
 (defun vulpea-db-close ()
-  "Close database connection."
+  "Close database connection.
+Also drops the note selection candidate cache (see
+`vulpea-select-cache'), which describes this connection's data."
   (when (and vulpea-db--connection
              (emacsql-live-p vulpea-db--connection))
     (emacsql-close vulpea-db--connection)
-    (setq vulpea-db--connection nil)))
+    (setq vulpea-db--connection nil))
+  (when (fboundp 'vulpea-select-cache-drop)
+    (vulpea-select-cache-drop)))
 
 (defun vulpea-db-clear ()
   "Clear all data from database.
@@ -424,7 +429,9 @@ Use with caution!"
         ;; would make the post-clear rescan treat every dir-locals
         ;; file as newly created and fire spurious re-index reactions
         (emacsql db [:delete :from schema-registry
-                     :where (= name "dir-locals-tracking")])))))
+                     :where (= name "dir-locals-tracking")]))
+      (when (fboundp 'vulpea-select-cache-drop)
+        (vulpea-select-cache-drop)))))
 
 ;;; Initialization
 
