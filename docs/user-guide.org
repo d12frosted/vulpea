@@ -66,6 +66,20 @@ combination of both:
 This function applies to every =vulpea-insert=. Return an empty string
 from it to insert a bare id link.
 
+** Candidate Cache
+
+On a large collection, most of the time =vulpea-find= and =vulpea-insert= take to open goes into reading every note from the database and building its candidate string. So Vulpea keeps the finished candidates in memory: the first open builds them, every later open hands them straight to completion, and only the note you pick is read in full. On 100k files (165k candidates with aliases) that takes opening from about 2.2s to well under 10ms, for about 110MB of memory.
+
+The cache follows the database file by file: when a file is indexed, re-indexed or removed, the candidates of its notes are rebuilt on the next open. A large batch of changes (a full re-index) drops the cache and it is built again from scratch. With =vulpea-db-autosync-mode= on, the cache is also built in idle time, a small chunk at a time, so the first open is fast too (=vulpea-select-cache-prewarm=).
+
+Only the default selection is cached: all notes, aliases expanded, no filter. A =:filter-fn= or =:candidates-fn= argument, =vulpea-find-default-filter= or =vulpea-insert-default-filter=, a custom candidates source, =:expand-aliases nil= or =vulpea-select-dyncontext-fn= all take the uncached path, the same as before.
+
+The one contract to know: describe and annotate functions must depend only on the note. A candidate is rebuilt when its note's file changes and when =vulpea-select-describe-fn=, =vulpea-select-annotate-fn=, =vulpea-select-annotate-matchable= or =vulpea-select-match-ids= change, never otherwise. Anything else shown in a candidate - a backlink count, a relative date, another note's title - stays as it was when the candidate was built. Use =vulpea-select-dyncontext-fn= for that kind of data (it skips the cache), run =M-x vulpea-select-cache-drop= after redefining a describe function in place, or turn the cache off:
+
+#+begin_src emacs-lisp
+(setq vulpea-select-cache nil)
+#+end_src
+
 ** vulpea-find-backlink
 
 Find notes that link to the current note:
@@ -99,9 +113,9 @@ Because the whole =vulpea-note= is available, you can assemble any layout you li
 
 Whatever =vulpea-select-describe-fn= builds, the note id is appended to each candidate as an invisible, matchable suffix so ids can be typed to narrow completion (see [[*Selecting by Id][Selecting by Id]]). It is added around your describe function, so it neither shows up in your layout nor needs handling there; =vulpea-select-match-ids= turns it off.
 
-Keep these functions cheap. They run once for every candidate when the finder opens, so heavy work - especially an extra database query per candidate - can make selection slow on large collections. If you need data that is expensive to compute, such as a backlink count, set =vulpea-select-dyncontext-fn=: it runs once per selection, returns a shared value (for example a counts table), and Vulpea hands that value to your describe/annotate functions as a second argument. See [[file:api-reference.org::*Shared context for the whole selection][Shared context for the whole selection]] in the API reference for the full pattern.
+Keep these functions cheap. They run once for every candidate when the finder builds its candidates (on every open, unless the candidate cache below serves it), so heavy work - especially an extra database query per candidate - can make selection slow on large collections. If you need data that is expensive to compute, such as a backlink count, set =vulpea-select-dyncontext-fn=: it runs once per selection, returns a shared value (for example a counts table), and Vulpea hands that value to your describe/annotate functions as a second argument. See [[file:api-reference.org::*Shared context for the whole selection][Shared context for the whole selection]] in the API reference for the full pattern.
 
-Selection also reports a =vulpea-note= completion category, so completion UIs and their extensions (marginalia, embark, consult) can recognize note candidates and annotate or act on them, and each candidate carries its whole note, readable with =vulpea-select-candidate-note=, so code that only sees candidate strings (a sort function, an embark action) can still reach every note field. See [[file:api-reference.org::*Completion Category][Completion Category]].
+Selection also reports a =vulpea-note= completion category, so completion UIs and their extensions (marginalia, embark, consult) can recognize note candidates and annotate or act on them, and each candidate leads back to its note through =vulpea-select-candidate-note=, so code that only sees candidate strings (a sort function, an embark action) can still reach every note field. See [[file:api-reference.org::*Completion Category][Completion Category]].
 
 * Creating Links
 

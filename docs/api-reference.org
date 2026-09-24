@@ -1320,7 +1320,7 @@ For example, a fixed-width row with directory, hierarchy, tags and a backlink co
       vulpea-select-annotate-fn nil)
 #+end_src
 
-This is a plain =setq= - no command wrapper, no manual hook binding - and it applies to every selection command (=vulpea-find=, =vulpea-insert=, custom =vulpea-select= calls). Because =vulpea-select-dyncontext-fn= runs once per selection, the counts are always fresh, and because the table is shared the per-candidate =describe-fn= never touches the database.
+This is a plain =setq= - no command wrapper, no manual hook binding - and it applies to every selection command (=vulpea-find=, =vulpea-insert=, custom =vulpea-select= calls). Because =vulpea-select-dyncontext-fn= runs once per selection, the counts are always fresh, and because the table is shared the per-candidate =describe-fn= never touches the database. The context is computed across all notes on every open, so while it is set =vulpea-find= and =vulpea-insert= skip the candidate cache (see [[file:user-guide.org::*Candidate Cache][Candidate Cache]]).
 
 Do *not* query the database inside =describe-fn= itself: it runs once for every candidate, so a query there means a query per candidate. The whole point of =vulpea-select-dyncontext-fn= is to move that work out to a single call.
 
@@ -1340,7 +1340,7 @@ The category is additive - plain =completing-read= and frameworks that ignore it
 
 ** Candidate Text Properties
 
-Each candidate string is self-describing: besides the note id (the =vulpea-note-id= property read by embark-vulpea), it carries the whole =vulpea-note= and the value produced by =vulpea-select-dyncontext-fn=. Two accessors read them back:
+Each candidate string is self-describing: besides the note id (the =vulpea-note-id= property read by embark-vulpea), it carries the whole =vulpea-note= and the value produced by =vulpea-select-dyncontext-fn=. Candidates of =vulpea-find= and =vulpea-insert= served from the candidate cache (see [[file:user-guide.org::*Candidate Cache][Candidate Cache]]) are the exception: keeping every note in memory is what the cache avoids, so they carry the id only, and =vulpea-select-candidate-note= reads the note from the database when asked. Two accessors read them back:
 
 #+begin_src emacs-lisp
 (vulpea-select-candidate-note candidate)    ;; => the vulpea-note, or nil
@@ -1350,6 +1350,8 @@ Each candidate string is self-describing: besides the note id (the =vulpea-note-
 Both return nil when the string is not a candidate - for example the free-form input a user types to name a new note - so code consuming mixed strings needs no special casing. Use the accessors rather than =get-text-property=: the property names are an implementation detail, the accessors are the supported surface.
 
 This matters wherever your code receives only strings: a =display-sort-function= (below), an embark action, an annotator registered for the category.
+
+On cached candidates, the first few lookups in a selection read one note each; past that, all notes are read at once and reused until the prompt closes. So a sort function that asks for the note of every candidate costs one full read of the notes table per =vulpea-find=, most of what the cache saves. If that is your setup and the delay bothers you, sort on something the candidate string already shows, or turn the cache off.
 
 ** Sorting Candidates
 
