@@ -51,7 +51,7 @@ A heading with an =ID= is a note, which is what lets one file hold a whole colle
 
 SQLite gives persistence, transactions, foreign-key cascades and indices, and Emacs ships it. Hash tables in Elisp have none of that without rebuilding it by hand, an external database server is too much to ask of an Emacs package, and a custom file format would mean writing a database.
 
-*Today:* EmacsQL on Emacs's built-in SQLite. The hot insert path binds parameters natively (with the same encoding EmacsQL uses), since profiling showed statement compilation dominating bulk writes.
+*Today:* EmacsQL on Emacs's built-in SQLite. The hot insert path binds parameters natively (with the same encoding EmacsQL uses), since profiling showed statement compilation dominating bulk writes. The hot read path (loading all notes, tag and link queries) runs SQL through =sqlite-select= and decodes cells the way EmacsQL does, since EmacsQL's per-cell decoding cost as much as SQLite itself when loading every note. Everything else, including plugin queries, goes through EmacsQL.
 
 ** 7. org-element for parsing
 

@@ -34,7 +34,9 @@
 ;;; Code:
 
 (require 'benchmark)
+(require 'cl-lib)
 (require 'emacsql)
+(require 'vulpea)
 (require 'vulpea-db)
 (require 'vulpea-db-sync)
 
@@ -394,6 +396,71 @@ Returns a plist of median seconds per method and the file count."
     (message "find:                        %s" (vulpea-bench--format-time find))
     (message "directory-files-recursively: %s" (vulpea-bench--format-time dfr))
     (list :count count :fd fd :find find :directory-files-recursively dfr)))
+
+(defun vulpea-bench-read-path (db-file &optional runs)
+  "Time what a user waits for when reading the synced DB-FILE.
+
+Measures, as the median of RUNS runs (default 5) after one warmup:
+- query: `vulpea-db-query', every note as a struct
+- find: `vulpea-find' until it would prompt, candidates built
+- backlinks: `vulpea-db-query-by-links-some' for the most linked note
+- links-to: `vulpea-db-query-links-to' for the same note
+
+Each run starts after a garbage collection, and collections during
+the run are part of the time.  Returns a plist of median seconds per
+read, the note count and the backlink count."
+  (let* ((runs (or runs 5))
+         (vulpea-db-location db-file)
+         (vulpea-db--connection nil)
+         (median (lambda (xs)
+                   (nth (/ (length xs) 2) (sort xs #'<))))
+         (measure (lambda (fn)
+                    (funcall fn)
+                    (let (times)
+                      (dotimes (_ runs)
+                        (garbage-collect)
+                        (let ((start (current-time)))
+                          (funcall fn)
+                          (push (float-time (time-subtract (current-time)
+                                                           start))
+                                times)))
+                      (funcall median times)))))
+    (unless (file-exists-p db-file)
+      (user-error "Database not found: %s" db-file))
+    (unwind-protect
+        (let* ((hub (read (caar (sqlite-select
+                                      (oref (vulpea-db) handle)
+                                      "SELECT dest FROM links WHERE type = '\"id\"'
+                                       GROUP BY dest ORDER BY count(*) DESC
+                                       LIMIT 1"))))
+               (count (length (vulpea-db-query)))
+               (backlinks (length (vulpea-db-query-by-links-some (list hub))))
+               (query (funcall measure #'vulpea-db-query))
+               (find (funcall
+                      measure
+                      (lambda ()
+                        (cl-letf (((symbol-function 'completing-read)
+                                   (lambda (&rest _) (throw 'prompt nil))))
+                          (catch 'prompt
+                            (call-interactively #'vulpea-find))))))
+               (by-links (funcall measure
+                                  (lambda ()
+                                    (vulpea-db-query-by-links-some (list hub)))))
+               (links-to (funcall measure
+                                  (lambda () (vulpea-db-query-links-to hub)))))
+          (message "\n=== Read path: %d notes, median of %d runs ===" count runs)
+          (message "vulpea-db-query:                       %s"
+                   (vulpea-bench--format-time query))
+          (message "vulpea-find (until the prompt):        %s"
+                   (vulpea-bench--format-time find))
+          (message "vulpea-db-query-by-links-some (%d):  %s"
+                   backlinks (vulpea-bench--format-time by-links))
+          (message "vulpea-db-query-links-to:              %s"
+                   (vulpea-bench--format-time links-to))
+          (list :count count :backlinks backlinks :query query :find find
+                :by-links by-links :links-to links-to))
+      (when vulpea-db--connection
+        (vulpea-db-close)))))
 
 (defun vulpea-bench-report (name results)
   "Print formatted benchmark report for NAME with RESULTS.
