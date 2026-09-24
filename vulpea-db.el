@@ -725,6 +725,115 @@ files with many notes."
                sql))
            (nreverse params)))))))
 
+;;; Native Reads
+
+(defun vulpea-db--read-cell (text)
+  "Return the values in cell TEXT, a non-empty string, read like emacsql.
+Every expression in the cell is read, so TEXT may hold zero or
+several values; text that does not read signals as it does there."
+  (let ((beg 0)
+        (end (length text))
+        (values nil))
+    (while (< beg end)
+      (let ((read (read-from-string text beg)))
+        (push (car read) values)
+        (setq beg (cdr read))))
+    (nreverse values)))
+
+(defun vulpea-db--decode-row (row)
+  "Decode ROW returned by `sqlite-select' the way emacsql does.
+
+Cells hold what `vulpea-db--bind-scalar' stored: NULL, numbers, and
+readable-print text.  Numbers and nil pass through, the empty string
+stays empty, and any other text is read.  A cell reading to zero or
+several values is spliced into the row as emacsql does, and text
+that does not read signals.
+
+ROW is modified in place.  Returns the decoded row, which is a
+different cons only when the first cell reads to no value."
+  (let ((prev nil)
+        (tail row))
+    (while tail
+      (let ((cell (car tail)))
+        (when (and (stringp cell) (> (length cell) 0))
+          (let ((read (read-from-string cell)))
+            (if (= (cdr read) (length cell))
+                (setcar tail (car read))
+              ;; Rare: nothing or more than one value in the cell
+              (let ((values (vulpea-db--read-cell cell)))
+                (cond
+                 ((null values)
+                  (if prev
+                      (setcdr prev (cdr tail))
+                    (setq row (cdr row)))
+                  (setq tail prev))
+                 (t
+                  (setcar tail (car values))
+                  (when-let* ((rest (cdr values)))
+                    (let ((rest-last (last rest)))
+                      (setcdr rest-last (cdr tail))
+                      (setcdr tail rest)
+                      (setq tail rest-last))))))))))
+      (if tail
+          (setq prev tail
+                tail (cdr tail))
+        ;; The first cell read to nothing and was dropped
+        (setq tail row)))
+    row))
+
+(defun vulpea-db--select (sql &optional params unique-first)
+  "Run SELECT statement SQL and return its rows, decoded like emacsql.
+
+PARAMS are the values of the `?' placeholders in SQL, bound natively
+and encoded like stored values (see `vulpea-db--bind-scalar').  Rows
+come back as lists holding exactly what `emacsql' returns for the same
+statement (see `vulpea-db--decode-row').
+
+When UNIQUE-FIRST is non-nil, a row whose first column repeats that of
+an earlier row is dropped before decoding.  For rows keyed by their
+first column, such as notes selected through a join, that is SELECT
+DISTINCT with the same rows in the same order, without SQLite sorting
+whole rows to find duplicates.
+
+emacsql formats its statement on every call and decodes each cell
+through closures and a fresh list per value; when loading all notes
+that costs about as much as SQLite does.  Hot readers use this
+instead.  Value lists for IN go into SQL through
+`vulpea-db--sql-list'."
+  (let ((rows (sqlite-select (oref (vulpea-db) handle) sql
+                             (mapcar #'vulpea-db--bind-scalar params))))
+    (when (and unique-first rows)
+      (let ((seen (make-hash-table :test #'equal)))
+        (setq rows (seq-filter (lambda (row)
+                                 (unless (gethash (car row) seen)
+                                   (puthash (car row) t seen)))
+                               rows))))
+    (let ((tail rows))
+      (while tail
+        (setcar tail (vulpea-db--decode-row (car tail)))
+        (setq tail (cdr tail))))
+    rows))
+
+(defun vulpea-db--sql-list (values)
+  "Return VALUES as a parenthesized SQL list of literals, for IN.
+
+Each value is encoded like a bound parameter and quoted as a SQL
+string literal, exactly as emacsql inlines a vector parameter.
+Inlining keeps any number of values within one statement; binding
+them would hit SQLite's parameter limit on long id lists (see
+`vulpea-db--max-bind-params')."
+  (concat "("
+          (mapconcat
+           (lambda (value)
+             (cond ((null value) "NULL")
+                   ((numberp value) (number-to-string value))
+                   (t (concat "'"
+                              (string-replace
+                               "'" "''" (vulpea-db--bind-scalar value))
+                              "'"))))
+           values ", ")
+          ")"))
+
 (defun vulpea-db--insert-note (&rest note)
   "Insert NOTE into database.
 
