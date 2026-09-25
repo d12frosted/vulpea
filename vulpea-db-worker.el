@@ -213,6 +213,7 @@ This is an extension point, not a setting: attach to it with
     vulpea-db-exclude-property
     vulpea-db-exclude-children-property
     vulpea-buffer-alias-property
+    vulpea-db-path-normalization
     org-archive-tag
     org-use-tag-inheritance
     org-tags-exclude-from-inheritance
@@ -220,16 +221,70 @@ This is an extension point, not a setting: attach to it with
     org-category
     enable-local-variables
     enable-dir-local-variables
+    safe-local-variable-values
+    ignored-local-variables
     org-attach-id-dir
     org-attach-id-to-path-function-list
+    org-attach-use-inheritance
+    org-link-abbrev-alist
     org-todo-keywords
     org-plain-list-ordered-item-terminator
     org-list-allow-alphabetical)
   "Variables mirrored into the extraction worker.
 
-Grow this list when extraction starts depending on new
-configuration; the async-vs-sync equivalence test is the safety
-net.")
+The worker is a clean `emacs --batch' process, so any setting
+extraction reads must be listed here, or the worker extracts with
+its default.  For vulpea-db- and vulpea-buffer- options, and for
+options the worker's code names, the settings classification test
+fails until each is listed here or in
+`vulpea-db-worker--settings-not-mirrored'.  Org and Emacs settings
+read inside their own functions (for example `org-todo-keywords'
+through `org-element-parse-buffer', or `org-link-abbrev-alist') are
+invisible to that test: they are listed by hand, and the tests pin
+them so none is dropped by accident.")
+
+(defconst vulpea-db-worker--settings-not-mirrored
+  '((case-fold-search
+     . "bound by extraction code around each use")
+    (directory-abbrev-alist
+     . "only spells paths for org-id, registered in the main process")
+    (org-id-track-globally
+     . "org-id registration runs in the main process")
+    (org-link-parameters
+     . "link types travel separately in the settings message")
+    (vulpea-db-extra-extensions
+     . "the worker only takes .org files")
+    (vulpea-db-location
+     . "sent with each full-write request")
+    (vulpea-db-schema-validation-action
+     . "index filters run in the main process; full degrades to t")
+    (vulpea-buffer-meta-change-functions
+     . "editing hook, not read by extraction")
+    (vulpea-db-async-extraction . "worker control, main process")
+    (vulpea-db-async-extraction-threshold . "worker control, main process")
+    (vulpea-db-worker-debug . "worker control, main process")
+    (vulpea-db-worker-hang-timeout . "worker control, main process")
+    (vulpea-db-worker-max-in-flight . "worker control, main process")
+    (vulpea-db-autosync-mode . "sync scheduling, main process")
+    (vulpea-db-autosync-mode-hook . "sync scheduling, main process")
+    (vulpea-db-sync-batch-delay . "sync scheduling, main process")
+    (vulpea-db-sync-batch-size . "sync scheduling, main process")
+    (vulpea-db-sync-debug . "sync scheduling, main process")
+    (vulpea-db-sync-directories . "sync scheduling, main process")
+    (vulpea-db-sync-external-method . "sync scheduling, main process")
+    (vulpea-db-sync-fswatch-path-style . "sync scheduling, main process")
+    (vulpea-db-sync-idle-delay . "sync scheduling, main process")
+    (vulpea-db-sync-poll-interval . "sync scheduling, main process")
+    (vulpea-db-sync-progress-interval . "sync scheduling, main process")
+    (vulpea-db-sync-reindex-on-dir-locals-change
+     . "sync scheduling, main process")
+    (vulpea-db-sync-scan-on-enable . "sync scheduling, main process")
+    (vulpea-db-sync-verbose . "sync scheduling, main process"))
+  "Options deliberately left out of `vulpea-db-worker--settings-vars'.
+
+An alist of (SYMBOL . REASON).  Each entry is a vulpea option or an
+option named in the worker's code that does not change what the
+worker extracts or writes.")
 
 (defun vulpea-db-worker--settings-form ()
   "Build the settings message for the worker.
