@@ -522,7 +522,8 @@ kept current file by file through `vulpea-db-updated-functions'.
 
 Only the default selection is served from the cache: no FILTER-FN
 or CANDIDATES-FN argument, `vulpea-find-default-filter' and
-`vulpea-insert-default-filter' nil, the default candidate sources,
+`vulpea-insert-default-filter' nil (or declared cacheable with
+`vulpea-select-cache-default-filters'), the default candidate sources,
 alias expansion on and `vulpea-select-dyncontext-fn' nil.  Anything
 else takes the uncached path, and so does every selection while
 `vulpea-select-from' is advised (see `vulpea-select-cache-usable-p').
@@ -551,6 +552,24 @@ Emacs has been idle for a moment, provided `vulpea-find' or
 It reads notes in small chunks and stops as soon as there is input,
 so the first `vulpea-find' is fast without blocking the editor.
 Has no effect when `vulpea-select-cache' is nil."
+  :type 'boolean
+  :group 'vulpea-select)
+
+(defcustom vulpea-select-cache-default-filters nil
+  "When non-nil, serve filtered default selections from the cache.
+
+By default a non-nil `vulpea-find-default-filter' or
+`vulpea-insert-default-filter' makes that command skip the candidate
+cache, since the cache cannot know what a filter depends on.  Set
+this to t to declare that both filters depend on the note alone,
+like the describe and annotate functions (see `vulpea-select-cache'):
+the cache then records which notes pass each filter, and every
+command completes over its own slice of one cache.
+
+A filter that looks at anything else - the current buffer or
+project, the time, other notes - gives stale results with this on:
+a note is filtered again only when its file changes.  Changing
+either filter variable rebuilds the cache."
   :type 'boolean
   :group 'vulpea-select)
 
@@ -586,7 +605,9 @@ in the middle of that would only see it dropped again.")
   db
   location
   fingerprint
-  ;; id -> (PATH . CANDIDATES), in load order
+  ;; id -> (PATH MASK . CANDIDATES), in load order; bit I of MASK
+  ;; is set when the note passes the Ith of `vulpea-select--cache-filters'
+
   (by-id (make-hash-table :test #'equal))
   ;; path -> ids
   (by-path (make-hash-table :test #'equal))
@@ -596,7 +617,7 @@ in the middle of that would only see it dropped again.")
   version
   ;; files table as stored: raw path -> raw hash
   (stamps (make-hash-table :test #'equal))
-  ;; flat candidate list, valid unless STALE
+  ;; alist of FILTER (nil for none) -> candidate list, valid unless STALE
   candidates
   (stale t)
   ;; last rowid read, nil once every note is loaded
@@ -620,7 +641,8 @@ A hash table from id to note, bound by `vulpea-select-from-cache'.")
         vulpea-select-annotate-fn
         vulpea-select-annotate-matchable
         vulpea-select-match-ids
-        (bound-and-true-p vulpea-buffer-alias-property)))
+        (bound-and-true-p vulpea-buffer-alias-property)
+        (vulpea-select--cache-filters)))
 
 (defun vulpea-select--advised-p (symbol)
   "Return non-nil when the function of SYMBOL carries advice."
@@ -646,6 +668,16 @@ is how a frontend opts into the cache."
 (defvar vulpea-insert-default-filter)
 (defvar vulpea-insert-default-candidates-source)
 
+(defun vulpea-select--cache-filters ()
+  "Return the default filters with results recorded in the cache.
+That is, the non-nil ones of `vulpea-find-default-filter' and
+`vulpea-insert-default-filter' when
+`vulpea-select-cache-default-filters' is on, otherwise nil."
+  (when vulpea-select-cache-default-filters
+    (delete-dups
+     (delq nil (list (bound-and-true-p vulpea-find-default-filter)
+                     (bound-and-true-p vulpea-insert-default-filter))))))
+
 (defun vulpea-select-cache-serves-p (filter-fn candidates-fn default-filter
                                                default-source expand-aliases)
   "Return non-nil when a selection may be served from the candidate cache.
@@ -654,11 +686,14 @@ FILTER-FN and CANDIDATES-FN are the arguments of `vulpea-find' or
 `vulpea-insert', DEFAULT-FILTER and DEFAULT-SOURCE the matching
 default variables and EXPAND-ALIASES the alias expansion flag.  The
 cache holds the default selection only: every note, aliases
-expanded, no filter.  See `vulpea-select-cache'."
+expanded, no filter argument, and no default filter unless
+`vulpea-select-cache-default-filters' is on.  See
+`vulpea-select-cache'."
   (and expand-aliases
        (null filter-fn)
        (null candidates-fn)
-       (null default-filter)
+       (or (null default-filter)
+           (member default-filter (vulpea-select--cache-filters)))
        (eq default-source #'vulpea-db-query)
        (vulpea-select-cache-usable-p)))
 
@@ -809,6 +844,16 @@ property, so displaying it never reads the note."
   (when vulpea-select--cache
     (car (gethash id (vulpea-select--cache-state-by-id vulpea-select--cache)))))
 
+(defun vulpea-select--cache-filter-mask (note)
+  "Return the bit mask of `vulpea-select--cache-filters' NOTE passes."
+  (let ((mask 0)
+        (bit 1))
+    (dolist (filter (vulpea-select--cache-filters))
+      (when (funcall filter note)
+        (setq mask (logior mask bit)))
+      (setq bit (ash bit 1)))
+    mask))
+
 (defun vulpea-select--cache-put (cache note)
   "Store the candidates of NOTE in CACHE, replacing older ones."
   (let* ((by-id (vulpea-select--cache-state-by-id cache))
@@ -821,7 +866,10 @@ property, so displaying it never reads the note."
       (when old-path
         (puthash old-path (delete id (gethash old-path by-path)) by-path))
       (puthash path (cons id (gethash path by-path)) by-path))
-    (puthash id (cons path (vulpea-select--cache-note-candidates note)) by-id)
+    (puthash id (cons path
+                      (cons (vulpea-select--cache-filter-mask note)
+                            (vulpea-select--cache-note-candidates note)))
+             by-id)
     (setf (vulpea-select--cache-state-stale cache) t)))
 
 (defun vulpea-select--cache-forget-path (cache path)
@@ -871,8 +919,12 @@ left the cursor becomes nil."
           (dolist (note (vulpea-db-query-by-file-paths chunk))
             (vulpea-select--cache-put cache note)))))))
 
-(defun vulpea-select-cache-candidates ()
+(defun vulpea-select-cache-candidates (&optional filter)
   "Return the cached selection candidates, brought up to date first.
+
+With FILTER, only the candidates of notes passing it.  FILTER must
+be one of the default filters the cache holds (see
+`vulpea-select-cache-default-filters'); anything else is an error.
 
 This is what `vulpea-select-from-cache' completes over, exposed for
 completion frontends that read candidates themselves (see
@@ -881,19 +933,32 @@ shared with the cache: do not modify it or its strings.  Resolve a
 candidate with `vulpea-select-candidate-note' once it is picked,
 and use `vulpea-select-candidate-path' for anything done per
 candidate, such as a preview, which must not read notes."
-  (let ((cache (vulpea-select--cache-sync-version
-                (vulpea-select--cache-current))))
+  (let* ((index (when filter
+                  (or (seq-position (vulpea-select--cache-filters) filter)
+                      (error "The candidate cache holds no filter %S"
+                             filter))))
+         (bit (when index (ash 1 index)))
+         (cache (vulpea-select--cache-sync-version
+                 (vulpea-select--cache-current))))
     (vulpea-select--cache-load cache nil)
     (vulpea-select--cache-flush cache)
     (when (vulpea-select--cache-state-stale cache)
-      (let (candidates)
-        (maphash (lambda (_id entry)
-                   (dolist (candidate (cdr entry))
-                     (push candidate candidates)))
-                 (vulpea-select--cache-state-by-id cache))
-        (setf (vulpea-select--cache-state-candidates cache) (nreverse candidates)
-              (vulpea-select--cache-state-stale cache) nil)))
-    (vulpea-select--cache-state-candidates cache)))
+      (setf (vulpea-select--cache-state-candidates cache) nil
+            (vulpea-select--cache-state-stale cache) nil))
+    (let ((lists (vulpea-select--cache-state-candidates cache)))
+      (if-let* ((cell (assq filter lists)))
+          (cdr cell)
+        (let (candidates)
+          (maphash (lambda (_id entry)
+                     (when (or (null bit)
+                               (/= 0 (logand bit (cadr entry))))
+                       (dolist (candidate (cddr entry))
+                         (push candidate candidates))))
+                   (vulpea-select--cache-state-by-id cache))
+          (setq candidates (nreverse candidates))
+          (push (cons filter candidates)
+                (vulpea-select--cache-state-candidates cache))
+          candidates)))))
 
 (defun vulpea-select--cache-file-updated (path _count)
   "Queue PATH for a candidate refresh on the next selection.
@@ -937,19 +1002,22 @@ at once, which is far cheaper than a query per candidate."
                   (cdr (vulpea-note-expand-aliases note)))
       note)))
 
-(cl-defun vulpea-select-from-cache (prompt &key require-match initial-prompt)
+(cl-defun vulpea-select-from-cache (prompt
+                                    &key require-match initial-prompt filter)
   "Select a note from the candidate cache.
 
-Behaves like `vulpea-select' with alias expansion and no filter,
-but the candidates come from the cache (see `vulpea-select-cache')
-and only the picked note is read from the database.
+Behaves like `vulpea-select' with alias expansion, but the
+candidates come from the cache (see `vulpea-select-cache') and only
+the picked note is read from the database.  FILTER is nil or one of
+the default filters the cache holds, as for
+`vulpea-select-cache-candidates'.
 
 Returns a selected `vulpea-note'.  If `vulpea-note-id' is nil, the
 user selected a non-existing note.
 
 PROMPT, REQUIRE-MATCH and INITIAL-PROMPT are as in
 `vulpea-select-from'."
-  (let* ((candidates (vulpea-select-cache-candidates))
+  (let* ((candidates (vulpea-select-cache-candidates filter))
          (vulpea-select--note-memo (make-hash-table :test #'equal))
          (choice (save-excursion
                    (completing-read

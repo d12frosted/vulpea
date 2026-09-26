@@ -1078,10 +1078,14 @@ for the original title and once for each alias."
          (note (if (vulpea-select-cache-serves-p
                     filter-fn candidates-fn vulpea-find-default-filter
                     vulpea-find-default-candidates-source expand-aliases)
-                   (vulpea-select-from-cache
-                    "Note"
-                    :require-match require-match
-                    :initial-prompt region-text)
+                   (apply #'vulpea-select-from-cache
+                          "Note"
+                          :require-match require-match
+                          :initial-prompt region-text
+                          ;; only when set, so frontends overriding the
+                          ;; function without FILTER keep working
+                          (when vulpea-find-default-filter
+                            (list :filter vulpea-find-default-filter)))
                  (vulpea-select-from
                   "Note"
                   (funcall
@@ -1371,8 +1375,11 @@ for the original title and once for each alias."
                 (if (vulpea-select-cache-serves-p
                      filter-fn candidates-fn vulpea-insert-default-filter
                      vulpea-insert-default-candidates-source expand-aliases)
-                    (vulpea-select-from-cache "Note"
-                                              :initial-prompt region-text)
+                    (apply #'vulpea-select-from-cache
+                           "Note"
+                           :initial-prompt region-text
+                           (when vulpea-insert-default-filter
+                             (list :filter vulpea-insert-default-filter)))
                   (vulpea-select-from
                    "Note"
                    (funcall (or candidates-fn
