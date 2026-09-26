@@ -504,32 +504,45 @@ worker, runs once per report.")
   "Return indexed .org files to compare between session and worker.
 Files open in a buffer are left out: parsing with `find-file' would
 reuse and then kill that buffer, and unsaved edits would show up as
-differences."
+differences.  Checks that touch the file system run only on the
+files being picked, not on every row of a large database."
   (let* ((rows (seq-filter
                 (lambda (row)
                   (pcase-let ((`(,path ,_mtime ,size) row))
                     (and (stringp path)
                          (string-suffix-p ".org" path)
                          (numberp size)
-                         (<= size vulpea-doctor--consistency-max-size)
-                         (file-readable-p path)
-                         (not (find-buffer-visiting path))
-                         (vulpea-db-worker-can-handle-p path))))
+                         (<= size vulpea-doctor--consistency-max-size))))
                 (ignore-errors
                   (emacsql (vulpea-db)
                            [:select [path mtime size] :from files]))))
+         (usable-p (lambda (row)
+                     (let ((path (car row)))
+                       (and (file-readable-p path)
+                            (not (find-buffer-visiting path))
+                            (vulpea-db-worker-can-handle-p path)))))
+         (take (lambda (candidates n)
+                 (let (picked)
+                   (while (and candidates (< (length picked) n))
+                     (let ((row (pop candidates)))
+                       (when (funcall usable-p row)
+                         (push row picked))))
+                   (nreverse picked))))
          (sorted (sort rows (lambda (a b)
                               (> (if (numberp (nth 1 a)) (nth 1 a) 0)
                                  (if (numberp (nth 1 b)) (nth 1 b) 0)))))
          (half (/ vulpea-doctor--consistency-sample-size 2))
-         (recent (seq-take sorted half))
-         (random (seq-take (mapcar #'cdr
-                                   (sort (mapcar (lambda (row)
-                                                   (cons (random) row))
-                                                 (seq-drop sorted half))
-                                         (lambda (a b) (< (car a) (car b)))))
-                           (- vulpea-doctor--consistency-sample-size
-                              (length recent))))
+         (recent (funcall take sorted half))
+         (random (funcall take
+                          (mapcar #'cdr
+                                  (sort (mapcar (lambda (row)
+                                                  (cons (random) row))
+                                                (seq-remove
+                                                 (lambda (row) (memq row recent))
+                                                 sorted))
+                                        (lambda (a b) (< (car a) (car b)))))
+                          (- vulpea-doctor--consistency-sample-size
+                             (length recent))))
          (total 0)
          (sample nil))
     (dolist (row (append recent random))
