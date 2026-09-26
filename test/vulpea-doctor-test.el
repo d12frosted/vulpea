@@ -741,5 +741,22 @@ doctor blames the user's setup for a broken worker."
         (should (string-match-p "worker exploded" report))
         (should-not (string-match-p "sampled files differently" report))))))
 
+(ert-deftest vulpea-doctor-consistency-sample-respects-budget ()
+  "The sample stops at the total size budget.
+Each sampled file is parsed twice while the doctor blocks Emacs, so
+the cost has to stay bounded however large the files are."
+  (vulpea-doctor-test--with-indexed-file "#+title: C\n"
+    (let ((extra (mapcar (lambda (i)
+                           (let ((path (vulpea-test--create-temp-org-file
+                                        (format ":PROPERTIES:\n:ID: budget-%d\n:END:\n#+title: B%d\n"
+                                                i i))))
+                             (vulpea-db-update-file path)
+                             path))
+                         '(1 2))))
+      (unwind-protect
+          (let ((vulpea-doctor--consistency-max-total 60))
+            (should (= 1 (length (vulpea-doctor--consistency-sample)))))
+        (mapc #'delete-file extra)))))
+
 (provide 'vulpea-doctor-test)
 ;;; vulpea-doctor-test.el ends here

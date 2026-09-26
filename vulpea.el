@@ -477,10 +477,15 @@ hooks in the session too."
   "How many indexed files the doctor parses in session and worker.
 Half are the most recently modified, half are picked at random.")
 
-(defconst vulpea-doctor--consistency-max-size (* 512 1024)
+(defconst vulpea-doctor--consistency-max-size (* 256 1024)
   "Largest file, in bytes, the consistency sample takes.
 Each sampled file is parsed twice, so large ones would slow the
 doctor down without making drift more likely to show.")
+
+(defconst vulpea-doctor--consistency-max-total (* 1024 1024)
+  "Total size, in bytes, of the files the consistency sample takes.
+The doctor blocks Emacs while it parses them twice; this keeps even a
+sample of large, dense files to a few seconds.")
 
 (defvar vulpea-doctor--consistency-result 'unset
   "Session vs worker comparison computed for the current report.
@@ -516,8 +521,14 @@ differences."
                                                  (seq-drop sorted half))
                                          (lambda (a b) (< (car a) (car b)))))
                            (- vulpea-doctor--consistency-sample-size
-                              (length recent)))))
-    (mapcar #'car (append recent random))))
+                              (length recent))))
+         (total 0)
+         (sample nil))
+    (dolist (row (append recent random))
+      (when (<= (+ total (nth 2 row)) vulpea-doctor--consistency-max-total)
+        (setq total (+ total (nth 2 row)))
+        (push (car row) sample)))
+    (nreverse sample)))
 
 (defun vulpea-doctor--compute-consistency ()
   "Compare a sample of indexed files between session and worker.
@@ -536,9 +547,12 @@ sample), `checked' (with :sampled and :diffs, see
       (if (null sample)
           (list :status 'empty)
         (condition-case err
-            (list :status 'checked
-                  :sampled (length sample)
-                  :diffs (vulpea-db-worker-compare-files sample))
+            (progn
+              (message "Vulpea doctor: comparing %d files with the worker..."
+                       (length sample))
+              (list :status 'checked
+                    :sampled (length sample)
+                    :diffs (vulpea-db-worker-compare-files sample)))
           (error (list :status 'failed
                        :error (error-message-string err)))))))))
 
@@ -892,18 +906,18 @@ sample), `checked' (with :sampled and :diffs, see
 
 The report covers versions, configuration, database state, sync
 state, external tool availability, and a list of detected issues.
-The doctor writes nothing: no file or database is created or
-modified, even when the database does not exist yet.  It does run
-code of yours: to find mode hooks the async worker would miss, it
-calls each function on `org-mode-hook' (and on the `text-mode-hook'
-and `outline-mode-hook' that `org-mode' runs first) in a temporary
-buffer, the way indexing in your session does, and restores the
-global values of the settings extraction reads afterwards.  With
-async extraction on, it also parses a sample of up to
-`vulpea-doctor--consistency-sample-size' indexed files both in your
-session and in a short-lived worker process, to catch files the
-worker would index differently; this takes a second or two.  Please
-include the report in bug reports.
+The doctor leaves your notes and the database alone, even when the
+database does not exist yet.  It does run code of yours: to find
+mode hooks the async worker would miss, it calls each function on
+`org-mode-hook' (and on the `text-mode-hook' and `outline-mode-hook'
+that `org-mode' runs first) in a temporary buffer, the way indexing
+in your session does, and restores the global values of the settings
+extraction reads afterwards.  With async extraction on, it also
+parses up to 20 indexed files (not ones open in a buffer) both in
+your session and in a short-lived worker process, to catch files the
+worker would index differently; this usually takes a second or two,
+and a cap on the sample's total size keeps it to a few seconds at
+most.  Please include the report in bug reports.
 
 When SHOW is non-nil (always when called interactively), also
 display the report in the *vulpea-doctor* buffer."
