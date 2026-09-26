@@ -586,6 +586,32 @@ announces nothing."
             (should (= 4 (length (vulpea-select-cache-candidates))))
             (should-not (eq cache vulpea-select--cache))))))))
 
+(defun vulpea-select-cache-test--prewarm-scheduled-p ()
+  "Return non-nil when enabling autosync schedules a prewarm."
+  (let (scheduled)
+    (cl-letf (((symbol-function 'run-with-idle-timer)
+               (lambda (&rest _) (setq scheduled t) nil)))
+      (let ((vulpea-db-autosync-mode t)
+            (vulpea-select-cache-prewarm t))
+        (vulpea-select--cache-autosync-started)))
+    scheduled))
+
+(ert-deftest vulpea-select-cache-prewarm-only-when-used ()
+  "No prewarm when neither `vulpea-find' nor `vulpea-insert' use the cache."
+  (vulpea-select-cache-test--with-cache
+    (vulpea-test--with-temp-db
+      (vulpea-db)
+      (should (vulpea-select-cache-test--prewarm-scheduled-p))
+      (let ((vulpea-find-default-filter #'always)
+            (vulpea-insert-default-candidates-source
+             (lambda (f) (vulpea-db-query f))))
+        (should-not (vulpea-select-cache-test--prewarm-scheduled-p)))
+      ;; one of them is enough
+      (let ((vulpea-find-default-filter #'always))
+        (should (vulpea-select-cache-test--prewarm-scheduled-p)))
+      (let ((vulpea-select-cache nil))
+        (should-not (vulpea-select-cache-test--prewarm-scheduled-p))))))
+
 (ert-deftest vulpea-select-cache-prewarm-in-chunks ()
   "The idle prewarm builds the same candidates in several steps."
   (vulpea-select-cache-test--with-cache
