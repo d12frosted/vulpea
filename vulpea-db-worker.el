@@ -872,6 +872,9 @@ file behind it."
             (vulpea-db-worker--log "filter: %.0fms on %d bytes (slow)"
                                    ms (length output))))))))
 
+(defvar vulpea-db-worker--reported-failures (make-hash-table :test #'equal)
+  "Worker failure messages already shown, so each is shown once.")
+
 (defun vulpea-db-worker--dispatch (msg)
   "Handle one protocol MSG from the worker."
   (pcase msg
@@ -973,7 +976,19 @@ file behind it."
      (setq vulpea-db-worker--current nil)
      (vulpea-db-worker--forget path)
      (vulpea-db-worker--log "error %s: %s" path message)
-     (message "Vulpea: worker failed on %s: %s" path message)
+     ;; The worker can fail where the session would not (a setting
+     ;; naming a function only the session defines, a package it does
+     ;; not load); index the file here rather than leave it out
+     (unless (gethash message vulpea-db-worker--reported-failures)
+       (puthash message t vulpea-db-worker--reported-failures)
+       (message "Vulpea: worker failed on %s (%s); files it fails on are indexed synchronously"
+                path message))
+     (when (file-exists-p path)
+       (condition-case err
+           (vulpea-db-update-file path)
+         (error
+          (message "Vulpea: failed to index %s: %s"
+                   path (error-message-string err)))))
      (run-hook-with-args 'vulpea-db-worker-done-functions
                          path 'error nil))))
 
