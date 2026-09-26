@@ -1863,11 +1863,21 @@ https://github.com/d12frosted/vulpea/issues/457"
         (should (equal (plist-get sync-dump table)
                        (plist-get async-dump table)))))))
 
+(defun vulpea-db-worker-test--drain-fallbacks ()
+  "Run the deferred synchronous fallbacks until none is left."
+  (let ((deadline (+ (float-time) 10)))
+    (while (and vulpea-db-worker--fallback-queue
+                (< (float-time) deadline))
+      (sit-for 0.01))))
+
 (ert-deftest vulpea-db-worker-error-falls-back-to-sync ()
   "A file the worker fails on is indexed in the main process instead.
 The worker can fail where the session would not - a setting that
 names a function only the session defines, a package it does not
-load - and a failure must not leave the file out of the database."
+load - and a failure must not leave the file out of the database.
+The fallback runs from a timer, not inside the reply handler, where
+quitting is inhibited and a burst of failures would parse file after
+file; the file then counts as applied."
   (vulpea-db-worker-test--with-file
       ":PROPERTIES:\n:ID: worker-error-note\n:END:\n#+title: E\n"
     (vulpea-test--with-temp-db
@@ -1875,13 +1885,17 @@ load - and a failure must not leave the file out of the database."
       (let ((vulpea-db-worker--in-flight (list path))
             (vulpea-db-worker--in-flight-tail nil)
             (vulpea-db-worker--in-flight-count 1)
+            (vulpea-db-worker--reported-failures (make-hash-table :test #'equal))
+            (vulpea-db-worker--fallback-queue nil)
             statuses)
         (setq vulpea-db-worker--in-flight-tail vulpea-db-worker--in-flight)
         (let ((vulpea-db-worker-done-functions
                (list (lambda (_p status _c) (push status statuses))))
               (inhibit-message t))
-          (vulpea-db-worker--dispatch `(error ,path "boom")))
-        (should (equal statuses '(error)))
+          (vulpea-db-worker--dispatch `(error ,path "boom"))
+          (should-not (vulpea-db-get-by-id "worker-error-note"))
+          (vulpea-db-worker-test--drain-fallbacks))
+        (should (equal statuses '(applied)))
         (should (vulpea-db-get-by-id "worker-error-note"))))))
 
 (ert-deftest vulpea-db-worker-error-reported-once ()
@@ -1895,6 +1909,10 @@ and a full scan must not print one line per file."
                              (format ":PROPERTIES:\n:ID: once-%d\n:END:\n#+title: O\n" i)))
                           '(1 2 3)))
            (vulpea-db-worker--reported-failures (make-hash-table :test #'equal))
+           (vulpea-db-worker--fallback-queue nil)
+           (vulpea-db-worker--in-flight nil)
+           (vulpea-db-worker--in-flight-tail nil)
+           (vulpea-db-worker--in-flight-count 0)
            (messages 0))
       (unwind-protect
           (cl-letf* ((orig (symbol-function 'message))
@@ -1908,6 +1926,7 @@ and a full scan must not print one line per file."
                     (vulpea-db-worker--in-flight-tail nil))
                 (vulpea-db-worker--dispatch
                  `(error ,path "Symbol's function definition is void: f"))))
+            (vulpea-db-worker-test--drain-fallbacks)
             (should (= messages 1))
             (dolist (i '(1 2 3))
               (should (vulpea-db-get-by-id (format "once-%d" i)))))
