@@ -683,6 +683,7 @@ Mode hooks are emptied; BODY binds them as needed."
            (vulpea-db--extractors nil)
            (vulpea-db-index-heading-level t)
            (vulpea-db-worker--broken nil)
+           (vulpea-db-worker--crash-times nil)
            (vulpea-db-sync-directories nil)
            (org-mode-hook nil)
            (outline-mode-hook nil)
@@ -805,6 +806,12 @@ Non-.org files, missing files and files over the size limit stay out;
 the most recently modified file is always in."
   (vulpea-test--with-temp-db
     (let* ((db (vulpea-db))
+           ;; Whether the worker takes a file must not depend on what
+           ;; earlier tests left in the crash bookkeeping
+           (vulpea-db-worker--broken nil)
+           (vulpea-db-worker--crash-times nil)
+           (vulpea-db--extractors nil)
+           (vulpea-db-index-heading-level t)
            (paths (mapcar (lambda (i)
                             (vulpea-test--create-temp-org-file
                              (format ":PROPERTIES:\n:ID: pick-%d\n:END:\n" i)))
@@ -887,6 +894,12 @@ for a report straight away."
 database with 100k files they took seconds before sampling."
   (vulpea-test--with-temp-db
     (let* ((db (vulpea-db))
+           ;; Whether the worker takes a file must not depend on what
+           ;; earlier tests left in the crash bookkeeping
+           (vulpea-db-worker--broken nil)
+           (vulpea-db-worker--crash-times nil)
+           (vulpea-db--extractors nil)
+           (vulpea-db-index-heading-level t)
            (paths (mapcar (lambda (i)
                             (vulpea-test--create-temp-org-file
                              (format ":PROPERTIES:\n:ID: cheap-%d\n:END:\n" i)))
@@ -935,6 +948,12 @@ would be a prompt each time."
 The random half is what reaches files nobody touched lately."
   (vulpea-test--with-temp-db
     (let* ((db (vulpea-db))
+           ;; Whether the worker takes a file must not depend on what
+           ;; earlier tests left in the crash bookkeeping
+           (vulpea-db-worker--broken nil)
+           (vulpea-db-worker--crash-times nil)
+           (vulpea-db--extractors nil)
+           (vulpea-db-index-heading-level t)
            (paths (mapcar (lambda (i)
                             (vulpea-test--create-temp-org-file
                              (format ":PROPERTIES:\n:ID: budget-mix-%d\n:END:\n" i)))
