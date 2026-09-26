@@ -677,6 +677,14 @@ lands here.  Idempotent: the second caller finds no pending work."
   (process-send-string vulpea-db-worker--process
                        (concat (vulpea-db-worker--print form) "\n")))
 
+(defvar vulpea-db-worker--fallback-queue nil
+  "Files the worker failed on, waiting to be indexed synchronously.
+One entry per dispatch: a file dispatched twice appears twice, since
+each dispatch expects its own completion.")
+
+(defvar vulpea-db-worker--fallback-timer nil
+  "Timer indexing the next file of `vulpea-db-worker--fallback-queue'.")
+
 (defun vulpea-db-worker-stop ()
   "Stop the extraction worker, discarding any in-flight work."
   (when (process-live-p vulpea-db-worker--process)
@@ -694,11 +702,17 @@ lands here.  Idempotent: the second caller finds no pending work."
         vulpea-db-worker--in-flight-tail nil
         vulpea-db-worker--in-flight-count 0
         vulpea-db-worker--current nil)
+  ;; Files waiting for the synchronous fallback are in-flight work too
+  (when (timerp vulpea-db-worker--fallback-timer)
+    (cancel-timer vulpea-db-worker--fallback-timer))
+  (setq vulpea-db-worker--fallback-timer nil
+        vulpea-db-worker--fallback-queue nil)
   (clrhash vulpea-db-worker--force))
 
 (defun vulpea-db-worker-busy-p ()
-  "Return non-nil while the worker has unfinished requests."
-  (and vulpea-db-worker--in-flight t))
+  "Return non-nil while the worker has unfinished requests.
+Files waiting for the synchronous fallback count too."
+  (and (or vulpea-db-worker--in-flight vulpea-db-worker--fallback-queue) t))
 
 (defun vulpea-db-worker--org-attach-function-p (fn)
   "Return non-nil when FN is defined by org-attach itself.
@@ -1052,14 +1066,6 @@ file behind it."
          (message "Vulpea: worker failed on %s (%s); files it fails on are indexed synchronously"
                   path message))
        (vulpea-db-worker--queue-fallback path)))))
-
-(defvar vulpea-db-worker--fallback-queue nil
-  "Files the worker failed on, waiting to be indexed synchronously.
-One entry per dispatch: a file dispatched twice appears twice, since
-each dispatch expects its own completion.")
-
-(defvar vulpea-db-worker--fallback-timer nil
-  "Timer indexing the next file of `vulpea-db-worker--fallback-queue'.")
 
 (defun vulpea-db-worker--queue-fallback (path)
   "Index PATH synchronously soon, outside the worker's reply handler.

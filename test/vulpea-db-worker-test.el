@@ -1973,6 +1973,27 @@ still indexed once."
         (should (= updates 1))
         (should (vulpea-db-get-by-id "twice-in-flight"))))))
 
+(ert-deftest vulpea-db-worker-stop-drops-pending-fallbacks ()
+  "Stopping the worker also drops files waiting for the fallback.
+An explicit stop means the caller does not want the work back; left
+alone, the timer would index them later, after autosync was turned
+off or in another test."
+  (vulpea-db-worker-test--with-file
+      ":PROPERTIES:\n:ID: stopped-fallback\n:END:\n#+title: S\n"
+    (vulpea-test--with-temp-db
+      (vulpea-db)
+      (let ((vulpea-db-worker--fallback-queue nil)
+            (vulpea-db-worker--fallback-timer nil))
+        (vulpea-db-worker--queue-fallback path)
+        ;; Pending fallbacks are unfinished work: diagnose, which
+        ;; restarts the worker, must refuse to run meanwhile
+        (should (vulpea-db-worker-busy-p))
+        (vulpea-db-worker-stop)
+        (should-not vulpea-db-worker--fallback-queue)
+        (should-not (timerp vulpea-db-worker--fallback-timer))
+        (sit-for 0.05)
+        (should-not (vulpea-db-get-by-id "stopped-fallback"))))))
+
 ;;; Session vs worker comparison
 
 (ert-deftest vulpea-db-worker-compare-files-sees-heading-only-drift ()
