@@ -669,6 +669,23 @@ https://github.com/d12frosted/vulpea/issues/501"
       (should (= (length notes) 1))
       (should (equal (vulpea-note-id (car notes)) "note1")))))
 
+(ert-deftest vulpea-db-query-by-meta-some ()
+  "Notes carrying any of VALUES under KEY, in one query."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "note1" "Note 1"
+                                   :meta '(("state" . ("running"))))
+    (vulpea-test--insert-test-note "note2" "Note 2"
+                                   :meta '(("state" . ("done"))))
+    (vulpea-test--insert-test-note "note3" "Note 3"
+                                   :meta '(("state" . ("waiting"))))
+
+    (let ((notes (vulpea-db-query-by-meta-some "state" '("running" "waiting" "queued"))))
+      (should (equal (sort (mapcar #'vulpea-note-id notes) #'string<)
+                     '("note1" "note3"))))
+    (should-not (vulpea-db-query-by-meta-some "state" nil))
+    (should-not (vulpea-db-query-by-meta-some "state" '("failed")))))
+
 (ert-deftest vulpea-db-query-by-meta-with-type ()
   "Test querying notes by metadata - type filtering no longer supported."
   (vulpea-test--with-temp-db
