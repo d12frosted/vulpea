@@ -330,6 +330,17 @@ cases."
             (setq value (vulpea-db-worker--portable-link-abbrevs value)))
           (when (vulpea-db-worker--printable-p value)
             (push (cons sym value) vars)))))
+    ;; Which settings may come from dir-locals without a prompt: users
+    ;; mark org options safe in their init, which the worker never read
+    (let ((safe (delq nil
+                      (mapcar (lambda (sym)
+                                (let ((prop (get sym 'safe-local-variable)))
+                                  (when (and prop
+                                             (vulpea-db-worker--printable-p prop))
+                                    (cons sym prop))))
+                              vulpea-db-worker--settings-vars))))
+      (when safe
+        (push (cons 'vulpea-db-worker--safe-local-properties safe) vars)))
     `(settings ,(nreverse vars) ,(org-link-types)
                ,(vulpea-db-worker--extractor-specs)
                (:db-version ,vulpea-db-version
@@ -1352,7 +1363,10 @@ this worker."
   ;; (org-category) would otherwise be set locally in whatever buffer
   ;; is current here, invisible to the parse buffers extraction uses.
   (pcase-dolist (`(,sym . ,value) vars)
-    (set-default sym value))
+    (if (eq sym 'vulpea-db-worker--safe-local-properties)
+        (pcase-dolist (`(,var . ,prop) value)
+          (put var 'safe-local-variable prop))
+      (set-default sym value)))
   (vulpea-db-worker--apply-session-abbrevs)
   ;; With t, one variable the worker does not know to be safe (packages
   ;; mark theirs with a property, and the worker does not load them)
