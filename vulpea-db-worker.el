@@ -1099,17 +1099,20 @@ Further entries for the same file are served by the same parse, but
 each still gets its own completion, reported as unchanged."
   (setq vulpea-db-worker--fallback-timer nil)
   (when-let* ((path (pop vulpea-db-worker--fallback-queue)))
-    (let ((extra (seq-count (lambda (p) (equal p path))
-                            vulpea-db-worker--fallback-queue))
-          (count (condition-case err
-                     (when (file-exists-p path)
-                       (vulpea-db-update-file path))
-                   (error
-                    (message "Vulpea: failed to index %s: %s"
-                             path (error-message-string err))
-                    nil))))
-      (setq vulpea-db-worker--fallback-queue
-            (delete path vulpea-db-worker--fallback-queue))
+    ;; Take this file's other entries now: the parse below can let the
+    ;; reply handler run, and whatever it queues meanwhile must get a
+    ;; run of its own
+    (let* ((extra (prog1 (seq-count (lambda (p) (equal p path))
+                                    vulpea-db-worker--fallback-queue)
+                    (setq vulpea-db-worker--fallback-queue
+                          (delete path vulpea-db-worker--fallback-queue))))
+           (count (condition-case err
+                      (when (file-exists-p path)
+                        (vulpea-db-update-file path))
+                    (error
+                     (message "Vulpea: failed to index %s: %s"
+                              path (error-message-string err))
+                     nil))))
       (run-hook-with-args 'vulpea-db-worker-done-functions
                           path (if count 'applied 'error) count)
       (dotimes (_ extra)
