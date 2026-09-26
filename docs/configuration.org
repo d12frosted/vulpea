@@ -364,7 +364,7 @@ The trade-offs of the default:
   instead (or see the threshold below). Programmatic APIs
   (=vulpea-create=, move/split/merge, =vulpea-utils-with-note-sync=)
   index synchronously and are not affected.
-- *One more Emacs process* (about 70MB), started lazily on the first
+- *One more Emacs process* (about 70MB when idle), started lazily on the first
   changed file. If it cannot start or keeps crashing, vulpea falls
   back to the synchronous path with a warning.
 
