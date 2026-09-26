@@ -1034,18 +1034,49 @@ file behind it."
      ;; The worker can fail where the session would not (a setting
      ;; naming a function only the session defines, a package it does
      ;; not load); index the file here rather than leave it out
-     (unless (gethash message vulpea-db-worker--reported-failures)
-       (puthash message t vulpea-db-worker--reported-failures)
-       (message "Vulpea: worker failed on %s (%s); files it fails on are indexed synchronously"
-                path message))
-     (when (file-exists-p path)
-       (condition-case err
-           (vulpea-db-update-file path)
-         (error
-          (message "Vulpea: failed to index %s: %s"
-                   path (error-message-string err)))))
-     (run-hook-with-args 'vulpea-db-worker-done-functions
-                         path 'error nil))))
+     (if (not (file-exists-p path))
+         (run-hook-with-args 'vulpea-db-worker-done-functions
+                             path 'error nil)
+       (unless (gethash message vulpea-db-worker--reported-failures)
+         (puthash message t vulpea-db-worker--reported-failures)
+         (message "Vulpea: worker failed on %s (%s); files it fails on are indexed synchronously"
+                  path message))
+       (vulpea-db-worker--queue-fallback path)))))
+
+(defvar vulpea-db-worker--fallback-queue nil
+  "Files the worker failed on, waiting to be indexed synchronously.")
+
+(defvar vulpea-db-worker--fallback-timer nil
+  "Timer indexing the next file of `vulpea-db-worker--fallback-queue'.")
+
+(defun vulpea-db-worker--queue-fallback (path)
+  "Index PATH synchronously soon, outside the worker's reply handler.
+The handler runs with quitting inhibited, and a setting that breaks
+every file would make it parse one file after another; a timer takes
+one file per tick instead."
+  (unless (member path vulpea-db-worker--fallback-queue)
+    (setq vulpea-db-worker--fallback-queue
+          (append vulpea-db-worker--fallback-queue (list path))))
+  (unless (timerp vulpea-db-worker--fallback-timer)
+    (setq vulpea-db-worker--fallback-timer
+          (run-with-timer 0 nil #'vulpea-db-worker--run-fallback))))
+
+(defun vulpea-db-worker--run-fallback ()
+  "Index the next file the worker failed on, in this process."
+  (setq vulpea-db-worker--fallback-timer nil)
+  (when-let* ((path (pop vulpea-db-worker--fallback-queue)))
+    (let ((count (condition-case err
+                     (when (file-exists-p path)
+                       (vulpea-db-update-file path))
+                   (error
+                    (message "Vulpea: failed to index %s: %s"
+                             path (error-message-string err))
+                    nil))))
+      (run-hook-with-args 'vulpea-db-worker-done-functions
+                          path (if count 'applied 'error) count)))
+  (when vulpea-db-worker--fallback-queue
+    (setq vulpea-db-worker--fallback-timer
+          (run-with-timer 0 nil #'vulpea-db-worker--run-fallback))))
 
 (defun vulpea-db-worker--reenqueue (path &optional force)
   "Schedule PATH for another pass, via the sync queue when active.
