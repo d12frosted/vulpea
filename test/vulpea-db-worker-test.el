@@ -340,6 +340,36 @@ indexes such a link as a fuzzy one and the backlink disappears."
   "Expand link abbreviation TAG, as a session-only function would."
   (concat "id:" tag))
 
+(ert-deftest vulpea-db-worker-sends-only-portable-link-abbreviations ()
+  "Function-valued abbreviations are named, not sent, to the worker.
+The function exists only in the session; depending on the org
+version, the worker would either fail or silently index the link as
+a fuzzy one."
+  (let* ((org-link-abbrev-alist '(("str" . "https://example.com/%s")
+                                  ("fn" . vulpea-db-worker-test--abbrev-fn)))
+         (sent (alist-get 'org-link-abbrev-alist
+                          (nth 1 (vulpea-db-worker--settings-form)))))
+    (should (equal sent '(("str" . "https://example.com/%s")
+                          ("fn" . :vulpea-session-function))))))
+
+(ert-deftest vulpea-db-worker-hands-back-files-using-session-abbreviations ()
+  "The worker refuses a file that uses a session-only abbreviation.
+It answers with an error, which the main process turns into a
+synchronous index; files that do not use it are extracted as usual."
+  (let ((org-link-abbrev-alist '(("str" . "https://example.com/%s")))
+        (vulpea-db-worker--session-abbrev-tags nil))
+    (setq org-link-abbrev-alist '(("str" . "https://example.com/%s")
+                                  ("fn" . :vulpea-session-function)))
+    (vulpea-db-worker--apply-session-abbrevs)
+    (should (equal org-link-abbrev-alist '(("str" . "https://example.com/%s"))))
+    (should (equal vulpea-db-worker--session-abbrev-tags '("fn")))
+    (vulpea-db-worker-test--with-file
+        ":PROPERTIES:\n:ID: uses-fn\n:END:\n#+title: U\n\n[[fn:target]]\n"
+      (should (vulpea-db-worker--session-abbrev-used-p path)))
+    (vulpea-db-worker-test--with-file
+        ":PROPERTIES:\n:ID: no-fn\n:END:\n#+title: N\n\n[[str:target]] and fn:plain\n"
+      (should-not (vulpea-db-worker--session-abbrev-used-p path)))))
+
 (ert-deftest vulpea-db-worker-link-abbreviation-functions ()
   "A function-valued link abbreviation is expanded by the session.
 The function exists only in the session, so the worker hands files
