@@ -2099,6 +2099,31 @@ off or in another test."
         (sit-for 0.05)
         (should-not (vulpea-db-get-by-id "stopped-fallback"))))))
 
+(ert-deftest vulpea-db-worker-fallback-completes-dispatch-queued-mid-parse ()
+  "A dispatch handed back while its file is being indexed still completes.
+The reply handler can run during the synchronous parse (a hook that
+waits, a prompt), and a new entry for the same file must not be
+swallowed by the run that was already under way."
+  (vulpea-db-worker-test--with-file
+      ":PROPERTIES:\n:ID: mid-parse\n:END:\n#+title: M\n"
+    (vulpea-test--with-temp-db
+      (vulpea-db)
+      (let ((vulpea-db-worker--fallback-queue nil)
+            (vulpea-db-worker--fallback-timer nil)
+            (queued-again nil)
+            statuses)
+        (let ((vulpea-db-worker-done-functions
+               (list (lambda (_p status _c) (push status statuses))))
+              (vulpea-db-updated-functions
+               (list (lambda (&rest _)
+                       (unless queued-again
+                         (setq queued-again t)
+                         (vulpea-db-worker--queue-fallback path))))))
+          (vulpea-db-worker--queue-fallback path)
+          (vulpea-db-worker-test--drain-fallbacks))
+        (should (= 2 (length statuses)))
+        (should-not vulpea-db-worker--fallback-queue)))))
+
 ;;; Session vs worker comparison
 
 (ert-deftest vulpea-db-worker-compare-files-sees-heading-only-drift ()
