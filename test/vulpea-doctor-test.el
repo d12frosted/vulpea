@@ -632,6 +632,27 @@ starts; comparing the raw variable would cry wolf."
   (should-not (vulpea-doctor-test--hook-issue
                '((org-mode-hook vulpea-doctor-test--local-todo-keywords)))))
 
+(defun vulpea-doctor-test--load-late-setting ()
+  "Stand-in for a hook that loads a library defining a setting.
+Loading `org-attach' from a hook does exactly this for its options."
+  (unless (boundp 'vulpea-doctor-test--late-setting)
+    (set-default 'vulpea-doctor-test--late-setting "from-library")))
+
+(ert-deftest vulpea-doctor-hook-check-leaves-new-settings-alone ()
+  "A setting a hook's library defines is neither blamed nor clobbered.
+Before the probe it was unbound, so there is nothing to compare it
+with and nothing to restore; writing nil over it would break the
+library (for org-attach, the worker would get a nil attach dir)."
+  (unwind-protect
+      (let ((vulpea-db-worker--settings-vars
+             (cons 'vulpea-doctor-test--late-setting
+                   vulpea-db-worker--settings-vars)))
+        (should-not (vulpea-doctor-test--hook-issue
+                     '((org-mode-hook vulpea-doctor-test--load-late-setting))))
+        (should (equal (default-value 'vulpea-doctor-test--late-setting)
+                       "from-library")))
+    (makunbound 'vulpea-doctor-test--late-setting)))
+
 ;;; Session vs worker consistency
 
 (defmacro vulpea-doctor-test--with-indexed-file (content &rest body)

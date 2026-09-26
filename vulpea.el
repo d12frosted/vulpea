@@ -355,9 +355,9 @@ the session prepares one: variable `buffer-file-name' set to a path
 under the first sync directory and `vulpea-db--active-parse-method'
 bound.
 Returns an alist of (VARIABLE . VALUE) over
-`vulpea-db-worker--settings-vars'; for the settings in
-`vulpea-doctor--derived-settings', VALUE is what org derived from
-them.  Nothing is written to disk."
+`vulpea-db-worker--settings-vars', leaving out unbound ones; for
+the settings in `vulpea-doctor--derived-settings', VALUE is what
+org derived from them.  Nothing is written to disk."
   (let* ((dir (file-name-as-directory
                (expand-file-name
                 (or (seq-find #'file-directory-p vulpea-db-sync-directories)
@@ -370,16 +370,17 @@ them.  Nothing is written to disk."
                                                      dir)
                   default-directory dir)
             (funcall setup)
-            (mapcar (lambda (var)
-                      (cons var
-                            (if-let* ((derived (alist-get
-                                                var
-                                                vulpea-doctor--derived-settings)))
-                                (mapcar (lambda (d)
-                                          (and (boundp d) (symbol-value d)))
-                                        derived)
-                              (and (boundp var) (symbol-value var)))))
-                    vulpea-db-worker--settings-vars))
+            (delq nil
+                  (mapcar
+                   (lambda (var)
+                     (let ((derived (or (alist-get
+                                         var vulpea-doctor--derived-settings)
+                                        (list var))))
+                       (when (seq-every-p #'boundp derived)
+                         (cons var (if (cdr derived)
+                                       (mapcar #'symbol-value derived)
+                                     (symbol-value (car derived)))))))
+                   vulpea-db-worker--settings-vars)))
         (set-buffer-modified-p nil)
         (setq buffer-file-name nil)))))
 
@@ -424,15 +425,22 @@ hooks in the session too."
   (when (and vulpea-db-async-extraction
              (not (eq vulpea-db-parse-method 'single-temp-buffer))
              (vulpea-db-worker-can-handle-p "probe.org"))
+    ;; Extraction loads org-attach anyway; loading it now keeps a hook
+    ;; that loads it from looking like it changed the attach settings
+    (require 'org-attach)
     (let ((baseline (vulpea-doctor--probe-settings
                      (lambda () (vulpea-doctor--org-mode-with-hooks nil))))
           (found nil))
       (dolist (hook vulpea-doctor--mode-hooks)
         (dolist (fn (vulpea-doctor--hook-functions hook))
-          (let* ((globals (mapcar (lambda (var)
-                                    (cons var (and (default-boundp var)
-                                                   (default-value var))))
-                                  vulpea-db-worker--settings-vars))
+          ;; Snapshot only what is bound: a setting a hook's library
+          ;; defines has no earlier value, and writing nil over it would
+          ;; break that library (and reach the worker through watchers)
+          (let* ((globals (delq nil
+                                (mapcar (lambda (var)
+                                          (when (default-boundp var)
+                                            (cons var (default-value var))))
+                                        vulpea-db-worker--settings-vars)))
                  (probe
                   (unwind-protect
                       (ignore-errors
@@ -441,16 +449,17 @@ hooks in the session too."
                            (vulpea-doctor--org-mode-with-hooks
                             (list (list hook fn))))))
                     (dolist (entry globals)
-                      (when (default-boundp (car entry))
-                        (unless (equal (default-value (car entry)) (cdr entry))
-                          (set-default (car entry) (cdr entry))))))))
+                      (unless (equal (default-value (car entry)) (cdr entry))
+                        (set-default (car entry) (cdr entry)))))))
             (dolist (entry probe)
-              (unless (equal (cdr entry)
-                             (alist-get (car entry) baseline))
+              ;; A setting unbound in the baseline has nothing to
+              ;; compare with
+              (when-let* ((base (assq (car entry) baseline)))
+                (unless (equal (cdr entry) (cdr base))
                 (let ((cell (assq (car entry) found)))
                   (if cell
                       (setcdr cell (append (cdr cell) (list fn)))
-                    (push (list (car entry) fn) found))))))))
+                    (push (list (car entry) fn) found)))))))))
       (nreverse found))))
 
 (defun vulpea-doctor--describe-hook-functions (fns)
