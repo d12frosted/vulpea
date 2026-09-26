@@ -1054,7 +1054,9 @@ file behind it."
        (vulpea-db-worker--queue-fallback path)))))
 
 (defvar vulpea-db-worker--fallback-queue nil
-  "Files the worker failed on, waiting to be indexed synchronously.")
+  "Files the worker failed on, waiting to be indexed synchronously.
+One entry per dispatch: a file dispatched twice appears twice, since
+each dispatch expects its own completion.")
 
 (defvar vulpea-db-worker--fallback-timer nil
   "Timer indexing the next file of `vulpea-db-worker--fallback-queue'.")
@@ -1064,26 +1066,34 @@ file behind it."
 The handler runs with quitting inhibited, and a setting that breaks
 every file would make it parse one file after another; a timer takes
 one file per tick instead."
-  (unless (member path vulpea-db-worker--fallback-queue)
-    (setq vulpea-db-worker--fallback-queue
-          (append vulpea-db-worker--fallback-queue (list path))))
+  (setq vulpea-db-worker--fallback-queue
+        (append vulpea-db-worker--fallback-queue (list path)))
   (unless (timerp vulpea-db-worker--fallback-timer)
     (setq vulpea-db-worker--fallback-timer
           (run-with-timer 0 nil #'vulpea-db-worker--run-fallback))))
 
 (defun vulpea-db-worker--run-fallback ()
-  "Index the next file the worker failed on, in this process."
+  "Index the next file the worker failed on, in this process.
+Further entries for the same file are served by the same parse, but
+each still gets its own completion, reported as unchanged."
   (setq vulpea-db-worker--fallback-timer nil)
   (when-let* ((path (pop vulpea-db-worker--fallback-queue)))
-    (let ((count (condition-case err
+    (let ((extra (seq-count (lambda (p) (equal p path))
+                            vulpea-db-worker--fallback-queue))
+          (count (condition-case err
                      (when (file-exists-p path)
                        (vulpea-db-update-file path))
                    (error
                     (message "Vulpea: failed to index %s: %s"
                              path (error-message-string err))
                     nil))))
+      (setq vulpea-db-worker--fallback-queue
+            (delete path vulpea-db-worker--fallback-queue))
       (run-hook-with-args 'vulpea-db-worker-done-functions
-                          path (if count 'applied 'error) count)))
+                          path (if count 'applied 'error) count)
+      (dotimes (_ extra)
+        (run-hook-with-args 'vulpea-db-worker-done-functions
+                            path (if count 'unchanged 'error) nil))))
   (when vulpea-db-worker--fallback-queue
     (setq vulpea-db-worker--fallback-timer
           (run-with-timer 0 nil #'vulpea-db-worker--run-fallback))))
