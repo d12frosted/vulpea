@@ -1444,10 +1444,15 @@ compared in order; a different number of them adds `:headings'."
 The worker gets the same settings message as the live one, runs
 synchronously, and exits when its input ends; the live worker and
 the database are not touched.  Returns a hash table mapping each
-path to (FILE-NODE . HEADING-NODES), or to an error message."
+path to (FILE-NODE . HEADING-NODES), or to an error message.
+Signals an error, with the tail of the worker's stderr, when the
+worker exits abnormally or answers nothing: a broken worker is not
+a difference in the files."
   (let ((command (vulpea-db-worker--command))
         (input (make-temp-file "vulpea-compare-" nil ".eld"))
-        (results (make-hash-table :test #'equal)))
+        (stderr (make-temp-file "vulpea-compare-" nil ".err"))
+        (results (make-hash-table :test #'equal))
+        status)
     (unwind-protect
         (progn
           (with-temp-file input
@@ -1456,8 +1461,8 @@ path to (FILE-NODE . HEADING-NODES), or to an error message."
             (dolist (path paths)
               (insert (vulpea-db-worker--print `(parse ,path)) "\n")))
           (with-temp-buffer
-            (apply #'call-process (car command) input (list t nil) nil
-                   (cdr command))
+            (setq status (apply #'call-process (car command) input
+                                (list t stderr) nil (cdr command)))
             (goto-char (point-min))
             (let (file-node headings)
               (while (not (eobp))
@@ -1471,8 +1476,18 @@ path to (FILE-NODE . HEADING-NODES), or to an error message."
                   (`(done ,path . ,_)
                    (puthash path (cons file-node (reverse headings)) results))
                   (`(error ,path ,message) (puthash path message results)))
-                (forward-line 1)))))
-      (delete-file input))
+                (forward-line 1))))
+          (unless (and (eql status 0)
+                       (or (null paths) (> (hash-table-count results) 0)))
+            (error "Worker exited with %s: %s"
+                   status
+                   (with-temp-buffer
+                     (insert-file-contents stderr)
+                     (string-trim
+                      (buffer-substring (max (point-min) (- (point-max) 400))
+                                        (point-max)))))))
+      (delete-file input)
+      (delete-file stderr))
     results))
 
 (defun vulpea-db-worker-compare-files (paths)
