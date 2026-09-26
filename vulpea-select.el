@@ -221,6 +221,23 @@ full read of the notes table per selection."
         (vulpea-select--cached-note
          id (get-text-property 0 'vulpea-select-alias candidate)))))
 
+(defun vulpea-select-candidate-path (candidate)
+  "Return the file path of the note behind CANDIDATE, or nil.
+
+CANDIDATE is a completion candidate string built by
+`vulpea-select-describe' or served by the candidate cache (see
+`vulpea-select-cache').  Unlike `vulpea-select-candidate-note', it
+never reads the database for a cached candidate, which makes it the
+cheap choice for work done per displayed candidate, like previewing
+the note's file."
+  (if-let* ((note (get-text-property 0 'vulpea-note candidate)))
+      (vulpea-note-path note)
+    (when-let* ((id (get-text-property 0 'vulpea-note-id candidate)))
+      (or (vulpea-select--cache-path-of id)
+          ;; not in the cache (any more): read the note
+          (when-let* ((note (vulpea-select-candidate-note candidate)))
+            (vulpea-note-path note))))))
+
 (defun vulpea-select-candidate-context (candidate)
   "Return the dynamic context carried by CANDIDATE, or nil.
 
@@ -661,6 +678,11 @@ alias in the `vulpea-select-alias' property."
               candidate))
           (vulpea-note-expand-aliases note)))
 
+(defun vulpea-select--cache-path-of (id)
+  "Return the path the candidate cache has for the note with ID, or nil."
+  (when vulpea-select--cache
+    (car (gethash id (vulpea-select--cache-state-by-id vulpea-select--cache)))))
+
 (defun vulpea-select--cache-put (cache note)
   "Store the candidates of NOTE in CACHE, replacing older ones."
   (let* ((by-id (vulpea-select--cache-state-by-id cache))
@@ -718,8 +740,16 @@ left the cursor becomes nil."
         (dolist (note (vulpea-db-query-by-file-paths chunk))
           (vulpea-select--cache-put cache note))))))
 
-(defun vulpea-select--cache-candidates ()
-  "Return the cached candidate list, bringing the cache up to date first."
+(defun vulpea-select-cache-candidates ()
+  "Return the cached selection candidates, brought up to date first.
+
+This is what `vulpea-select-from-cache' completes over, exposed for
+completion frontends that read candidates themselves (see
+`vulpea-select-cache-usable-p' for how one opts in).  The list is
+shared with the cache: do not modify it or its strings.  Resolve a
+candidate with `vulpea-select-candidate-note' once it is picked,
+and use `vulpea-select-candidate-path' for anything done per
+candidate, such as a preview, which must not read notes."
   (let ((cache (vulpea-select--cache-current)))
     (vulpea-select--cache-load cache nil)
     (vulpea-select--cache-flush cache)
@@ -784,7 +814,7 @@ user selected a non-existing note.
 
 PROMPT, REQUIRE-MATCH and INITIAL-PROMPT are as in
 `vulpea-select-from'."
-  (let* ((candidates (vulpea-select--cache-candidates))
+  (let* ((candidates (vulpea-select-cache-candidates))
          (vulpea-select--note-memo (make-hash-table :test #'equal))
          (choice (save-excursion
                    (completing-read
@@ -822,7 +852,7 @@ list is assembled as well."
                                      #'vulpea-select-cache-prewarm))
         ;; assemble the candidate list too, so the first selection
         ;; does not pay for it
-        (vulpea-select--cache-candidates)))))
+        (vulpea-select-cache-candidates)))))
 
 (defun vulpea-select--cache-autosync-started ()
   "Schedule a prewarm of the candidate cache on autosync start."

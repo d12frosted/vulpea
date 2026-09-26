@@ -58,7 +58,7 @@
 (defun vulpea-select-cache-test--same-as-uncached ()
   "Assert that cached and uncached candidates agree."
   (should (equal (vulpea-select-cache-test--sorted
-                  (vulpea-select--cache-candidates))
+                  (vulpea-select-cache-candidates))
                  (vulpea-select-cache-test--sorted
                   (vulpea-select-cache-test--uncached)))))
 
@@ -101,12 +101,12 @@ TARGET is compared to candidates without their invisible id suffix."
       (vulpea-db)
       (vulpea-select-cache-test--insert-fixture)
       ;; same order on a fresh build
-      (should (equal (vulpea-select--cache-candidates)
+      (should (equal (vulpea-select-cache-candidates)
                      (vulpea-select-cache-test--uncached)))
       (vulpea-select-cache-test--same-as-uncached)
       ;; the alias rows are there and annotated with the primary title
       (should (seq-find (lambda (c) (string-prefix-p "First (Alpha)" c))
-                        (vulpea-select--cache-candidates))))))
+                        (vulpea-select-cache-candidates))))))
 
 (ert-deftest vulpea-select-cache-matches-uncached-non-matchable ()
   "The cache agrees with the uncached path when annotations are separate."
@@ -116,7 +116,7 @@ TARGET is compared to candidates without their invisible id suffix."
       (vulpea-test--with-temp-db
         (vulpea-db)
         (vulpea-select-cache-test--insert-fixture)
-        (should (equal (vulpea-select--cache-candidates)
+        (should (equal (vulpea-select-cache-candidates)
                        (vulpea-select-cache-test--uncached)))))))
 
 (ert-deftest vulpea-select-cache-candidates-do-not-hold-notes ()
@@ -125,7 +125,7 @@ TARGET is compared to candidates without their invisible id suffix."
     (vulpea-test--with-temp-db
       (vulpea-db)
       (vulpea-select-cache-test--insert-fixture)
-      (dolist (c (vulpea-select--cache-candidates))
+      (dolist (c (vulpea-select-cache-candidates))
         (should (get-text-property 0 'vulpea-note-id c))
         (should-not (text-property-not-all 0 (length c) 'vulpea-note nil c))))))
 
@@ -135,7 +135,7 @@ TARGET is compared to candidates without their invisible id suffix."
     (vulpea-test--with-temp-db
       (vulpea-db)
       (vulpea-select-cache-test--insert-fixture)
-      (let* ((cands (vulpea-select--cache-candidates))
+      (let* ((cands (vulpea-select-cache-candidates))
              (alias (seq-find (lambda (c) (string-prefix-p "Primus" c)) cands))
              (beta (seq-find (lambda (c) (string-prefix-p "Beta" c)) cands))
              (alias-note (vulpea-select-candidate-note alias)))
@@ -145,6 +145,28 @@ TARGET is compared to candidates without their invisible id suffix."
         (should (equal (vulpea-note-id (vulpea-select-candidate-note beta))
                        "id-b"))
         (should-not (vulpea-select-candidate-note "free text"))))))
+
+;;; Frontend API
+
+(ert-deftest vulpea-select-cache-candidate-path ()
+  "`vulpea-select-candidate-path' answers without reading the note."
+  (vulpea-select-cache-test--with-cache
+    (vulpea-test--with-temp-db
+      (vulpea-db)
+      (vulpea-select-cache-test--insert-fixture)
+      (let* ((cands (vulpea-select-cache-candidates))
+             (alias (seq-find (lambda (c) (string-prefix-p "Primus" c)) cands))
+             (beta (seq-find (lambda (c) (string-prefix-p "Beta" c)) cands)))
+        (cl-letf (((symbol-function 'vulpea-db-get-by-id)
+                   (lambda (&rest _) (error "Should not read the note"))))
+          (should (equal (vulpea-select-candidate-path alias) "/tmp/a.org"))
+          (should (equal (vulpea-select-candidate-path beta) "/tmp/b.org")))
+        (should-not (vulpea-select-candidate-path "free text"))
+        ;; uncached candidates carry their note
+        (let ((uncached (car (vulpea-select-cache-test--uncached))))
+          (should (equal (vulpea-select-candidate-path uncached)
+                         (vulpea-note-path
+                          (vulpea-select-candidate-note uncached)))))))))
 
 ;;; Selection
 
@@ -289,7 +311,7 @@ silently skip them."
       (vulpea-db)
       (vulpea-select-cache-test--insert-fixture)
       ;; warm the cache first
-      (vulpea-select--cache-candidates)
+      (vulpea-select-cache-candidates)
       (let ((vulpea-find-default-filter
              (lambda (n) (equal (vulpea-note-id n) "id-b")))
             seen)
@@ -309,11 +331,11 @@ silently skip them."
     (vulpea-test--with-temp-db
       (vulpea-db)
       (vulpea-select-cache-test--insert-fixture)
-      (vulpea-select--cache-candidates)
+      (vulpea-select-cache-candidates)
       (let ((vulpea-select-describe-fn
              (lambda (n) (upcase (vulpea-note-title n)))))
         (should (seq-find (lambda (c) (string-prefix-p "BETA" c))
-                          (vulpea-select--cache-candidates)))
+                          (vulpea-select-cache-candidates)))
         (vulpea-select-cache-test--same-as-uncached))
       (let ((vulpea-select-annotate-fn nil))
         (vulpea-select-cache-test--same-as-uncached))
@@ -329,12 +351,12 @@ silently skip them."
     (vulpea-test--with-temp-db
       (vulpea-db)
       (vulpea-select-cache-test--insert-fixture)
-      (vulpea-select--cache-candidates))
+      (vulpea-select-cache-candidates))
     (vulpea-test--with-temp-db
       (vulpea-db)
       (vulpea-test--insert-test-note "id-z" "Zeta")
       (should (equal (mapcar #'substring-no-properties
-                             (vulpea-select--cache-candidates))
+                             (vulpea-select-cache-candidates))
                      (mapcar #'substring-no-properties
                              (vulpea-select-cache-test--uncached))))
       (vulpea-select-cache-test--same-as-uncached))))
@@ -345,9 +367,9 @@ silently skip them."
     (vulpea-test--with-temp-db
       (vulpea-db)
       (vulpea-select-cache-test--insert-fixture)
-      (vulpea-select--cache-candidates)
+      (vulpea-select-cache-candidates)
       (vulpea-db-clear)
-      (should-not (vulpea-select--cache-candidates)))))
+      (should-not (vulpea-select-cache-candidates)))))
 
 (ert-deftest vulpea-select-cache-drop-command ()
   "`vulpea-select-cache-drop' forgets everything."
@@ -355,7 +377,7 @@ silently skip them."
     (vulpea-test--with-temp-db
       (vulpea-db)
       (vulpea-select-cache-test--insert-fixture)
-      (vulpea-select--cache-candidates)
+      (vulpea-select-cache-candidates)
       (should vulpea-select--cache)
       (vulpea-select-cache-drop)
       (should-not vulpea-select--cache))))
@@ -370,24 +392,24 @@ silently skip them."
             (b (expand-file-name "b.org" root)))
         (vulpea-select-cache-test--write a "id-a" "Alpha")
         (vulpea-db-update-file a)
-        (vulpea-select--cache-candidates)
+        (vulpea-select-cache-candidates)
         (let ((cache vulpea-select--cache))
           ;; edit
           (vulpea-select-cache-test--write a "id-a" "Alpha renamed")
           (vulpea-db-update-file a)
           (vulpea-select-cache-test--same-as-uncached)
           (should (seq-find (lambda (c) (string-prefix-p "Alpha renamed" c))
-                            (vulpea-select--cache-candidates)))
+                            (vulpea-select-cache-candidates)))
           ;; add
           (vulpea-select-cache-test--write b "id-b" "Beta")
           (vulpea-db-update-file b)
           (vulpea-select-cache-test--same-as-uncached)
-          (should (= 2 (length (vulpea-select--cache-candidates))))
+          (should (= 2 (length (vulpea-select-cache-candidates))))
           ;; delete
           (delete-file a)
           (vulpea-db--forget-file a)
           (vulpea-select-cache-test--same-as-uncached)
-          (should (= 1 (length (vulpea-select--cache-candidates))))
+          (should (= 1 (length (vulpea-select-cache-candidates))))
           ;; all of that without a full rebuild
           (should (eq cache vulpea-select--cache)))))))
 
@@ -399,18 +421,18 @@ silently skip them."
             (b (expand-file-name "b.org" root)))
         (vulpea-select-cache-test--write a "id-a" "Alpha")
         (vulpea-db-update-file a)
-        (vulpea-select--cache-candidates)
+        (vulpea-select-cache-candidates)
         ;; the note moves to b; b is indexed before a is forgotten
         (delete-file a)
         (vulpea-select-cache-test--write b "id-a" "Alpha moved")
         (vulpea-db-update-file b)
         (should (equal (mapcar #'substring-no-properties
-                               (vulpea-select--cache-candidates))
+                               (vulpea-select-cache-candidates))
                        (list (concat "Alpha moved id-a"))))
         ;; forgetting a later must not drop the moved note
         (vulpea-db--forget-file a)
         (vulpea-select-cache-test--same-as-uncached)
-        (should (= 1 (length (vulpea-select--cache-candidates))))))))
+        (should (= 1 (length (vulpea-select-cache-candidates))))))))
 
 (ert-deftest vulpea-select-cache-follows-worker-results ()
   "A result written by the extraction worker reaches the cache."
@@ -419,7 +441,7 @@ silently skip them."
       (let ((a (expand-file-name "a.org" root)))
         (vulpea-select-cache-test--write a "id-a" "Alpha")
         (vulpea-db-update-file a)
-        (vulpea-select--cache-candidates)
+        (vulpea-select-cache-candidates)
         (let ((cache vulpea-select--cache))
           ;; the worker writes the database itself, then replies
           (vulpea-select-cache-test--write a "id-a" "Alpha from worker")
@@ -434,7 +456,7 @@ silently skip them."
                        ,(file-attribute-size attrs)
                        1 ("id-a") nil nil)))
           (should (equal (mapcar #'substring-no-properties
-                                 (vulpea-select--cache-candidates))
+                                 (vulpea-select-cache-candidates))
                          (list "Alpha from worker id-a")))
           (should (eq cache vulpea-select--cache)))))))
 
@@ -448,7 +470,7 @@ silently skip them."
                              '(1 2 3 4))))
           (vulpea-select-cache-test--write (car files) "id-1" "N1")
           (vulpea-db-update-file (car files))
-          (vulpea-select--cache-candidates)
+          (vulpea-select-cache-candidates)
           (let ((cache vulpea-select--cache)
                 (i 1))
             (dolist (f files)
@@ -457,7 +479,7 @@ silently skip them."
               (vulpea-db-update-file f)
               (setq i (1+ i)))
             (vulpea-select-cache-test--same-as-uncached)
-            (should (= 4 (length (vulpea-select--cache-candidates))))
+            (should (= 4 (length (vulpea-select-cache-candidates))))
             (should-not (eq cache vulpea-select--cache))))))))
 
 (ert-deftest vulpea-select-cache-prewarm-in-chunks ()
