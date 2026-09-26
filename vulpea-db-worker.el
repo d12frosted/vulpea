@@ -726,11 +726,15 @@ Files waiting for the synchronous fallback count too."
   (and (or vulpea-db-worker--in-flight vulpea-db-worker--fallback-queue) t))
 
 (defun vulpea-db-worker--org-attach-function-p (fn)
-  "Return non-nil when FN is defined by org-attach itself.
-Those exist in the worker too; anything else is the session's own."
+  "Return non-nil when FN is defined by `org-attach' itself.
+Those exist in the worker too; anything else is the session's own.
+Compares with the file `org-attach' was loaded from, which may be
+.elc, .el or compressed source depending on the installation."
   (and (symbolp fn)
-       (when-let* ((file (symbol-file fn 'defun)))
-         (equal (file-name-base file) "org-attach"))))
+       (when-let* ((file (symbol-file fn 'defun))
+                   (org-attach-file (symbol-file 'org-attach-dir-from-id
+                                                 'defun)))
+         (equal file org-attach-file))))
 
 (defun vulpea-db-worker-rejection-reasons (path)
   "Return the reasons PATH cannot be extracted in the worker, if any.
