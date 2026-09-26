@@ -864,7 +864,9 @@ sample), `checked' (with :sampled and :diffs, see
                               " the likely cause: deal with them, or keep"
                               " indexing in your session with"
                               " (setq vulpea-db-async-extraction nil), then"
-                              " run the doctor again.")
+                              " run the doctor again; if the difference"
+                              " stays, please report it with this doctor"
+                              " output.")
                     (concat "Something in your session changes extraction"
                             " without reaching the worker - a setting vulpea"
                             " does not mirror, or a package the worker does"
