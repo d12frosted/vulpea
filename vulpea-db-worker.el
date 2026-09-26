@@ -1658,13 +1658,22 @@ a difference in the files."
                 (forward-line 1))))
           (unless (and (eql status 0)
                        (or (null paths) (> (hash-table-count results) 0)))
-            (error "Worker exited with %s: %s"
-                   status
+            (let ((last-line
+                   ;; Batch Emacs prints the error last, after any
+                   ;; backtrace; one line keeps the report readable
                    (with-temp-buffer
                      (insert-file-contents stderr)
-                     (string-trim
-                      (buffer-substring (max (point-min) (- (point-max) 400))
-                                        (point-max)))))))
+                     (when-let* ((line (car (last (split-string
+                                                   (buffer-string)
+                                                   "\n" t "[ \t]+")))))
+                       (truncate-string-to-width
+                        (replace-regexp-in-string "[ \t]+" " " line)
+                        200 nil nil "...")))))
+              (if (and (eql status 0) (null last-line))
+                  (error "The worker exited without answering")
+                (error "The worker exited with %s%s"
+                       status
+                       (if last-line (concat ": " last-line) ""))))))
       (delete-file input)
       (delete-file stderr))
     results))
