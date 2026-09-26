@@ -72,7 +72,17 @@ On a large collection, most of the time =vulpea-find= and =vulpea-insert= take t
 
 The cache follows the database file by file: when a file is indexed, re-indexed or removed, the candidates of its notes are rebuilt on the next open. Writes this Emacs did not make - another Emacs on the same database, or the extraction worker in =full= mode - are noticed too: when SQLite reports a commit from another connection, the next open compares the stored file hashes with the ones the cache saw and rebuilds the files that differ. A large batch of changes (a full re-index) drops the cache and it is built again from scratch, in idle time once the changes stop when autosync is on. With =vulpea-db-autosync-mode= on, the cache is also built in idle time, a small chunk at a time, so the first open is fast too (=vulpea-select-cache-prewarm=). That only happens when =vulpea-find= or =vulpea-insert= would use the cache with their default settings, so a setup that never does pays no memory for it.
 
-Only the default selection is cached: all notes, aliases expanded, no filter. A =:filter-fn= or =:candidates-fn= argument, =vulpea-find-default-filter= or =vulpea-insert-default-filter=, a custom candidates source, =:expand-aliases nil= or =vulpea-select-dyncontext-fn= all take the uncached path, the same as before. So does every selection while a completion frontend advises =vulpea-select-from= (consult-vulpea overrides it to show previews); a frontend opts into the cache by advising =vulpea-select-from-cache= too.
+Only the default selection is cached: all notes, aliases expanded, no filter. A =:filter-fn= or =:candidates-fn= argument, =vulpea-find-default-filter= or =vulpea-insert-default-filter= (unless declared cacheable, see below), a custom candidates source, =:expand-aliases nil= or =vulpea-select-dyncontext-fn= all take the uncached path, the same as before. So does every selection while a completion frontend advises =vulpea-select-from= (consult-vulpea overrides it to show previews); a frontend opts into the cache by advising =vulpea-select-from-cache= too.
+
+Default filters are a common reason to skip the cache - hiding heading notes from =vulpea-find=, say. When yours depend on the note alone, the same contract as below, declare it and the cache serves them too: it records which notes pass each filter, and each command completes over its own slice.
+
+#+begin_src emacs-lisp
+(setq vulpea-find-default-filter (lambda (note) (= (vulpea-note-level note) 0))
+      vulpea-insert-default-filter vulpea-find-default-filter
+      vulpea-select-cache-default-filters t)
+#+end_src
+
+A filter that looks at the current buffer, project or time would go stale with this on, so it is off by default.
 
 The one contract to know: describe and annotate functions must depend only on the note. A candidate is rebuilt when its note's file changes and when =vulpea-select-describe-fn=, =vulpea-select-annotate-fn=, =vulpea-select-annotate-matchable= or =vulpea-select-match-ids= change, never otherwise. Anything else shown in a candidate - a backlink count, a relative date, another note's title - stays as it was when the candidate was built. Use =vulpea-select-dyncontext-fn= for that kind of data (it skips the cache), run =M-x vulpea-select-cache-drop= after redefining a describe function in place, or turn the cache off:
 

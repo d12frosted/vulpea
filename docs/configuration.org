@@ -510,7 +510,17 @@ per 165k candidates.
 
 Default: both =t=
 
-Describe and annotate functions must depend only on the note: a
+A default filter (=vulpea-find-default-filter=, =vulpea-insert-default-filter=)
+bypasses the cache, unless you declare that it depends only on the note:
+
+#+begin_src emacs-lisp
+(setq vulpea-select-cache-default-filters t)
+#+end_src
+
+Default: =nil=
+
+Describe and annotate functions (and, with the setting above, default
+filters) must depend only on the note: a
 candidate is rebuilt when its file changes or a selection setting
 changes, never otherwise. =M-x vulpea-select-cache-drop= forces a
 rebuild.

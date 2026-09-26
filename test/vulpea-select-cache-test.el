@@ -360,6 +360,124 @@ silently skip them."
           (vulpea-find))
         (should (= 1 (length seen)))))))
 
+;;; Default filters
+
+(defun vulpea-select-cache-test--file-level-p (note)
+  "Return non-nil when NOTE is a file-level note."
+  (= (vulpea-note-level note) 0))
+
+(defun vulpea-select-cache-test--tagged-t1-p (note)
+  "Return non-nil when NOTE is tagged t1."
+  (member "t1" (vulpea-note-tags note)))
+
+(defun vulpea-select-cache-test--uncached-filtered (filter)
+  "Return the candidates the uncached path builds with FILTER."
+  (mapcar #'car (vulpea-select--completions (vulpea-db-query filter) t)))
+
+(defun vulpea-select-cache-test--seen-by (command)
+  "Return the candidates `completing-read' receives from COMMAND."
+  (let (seen)
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (_p collection &rest _)
+                 (setq seen (all-completions "" collection))
+                 "Brand new"))
+              ((symbol-function 'vulpea-visit) #'ignore)
+              ((symbol-function 'vulpea-create) #'ignore))
+      (funcall command))
+    seen))
+
+(ert-deftest vulpea-select-cache-serves-default-filters ()
+  "Opted-in default filters are served from one cache, each its slice."
+  (vulpea-select-cache-test--with-cache
+    (let ((vulpea-select-cache-default-filters t)
+          (vulpea-find-default-filter
+           #'vulpea-select-cache-test--file-level-p)
+          (vulpea-insert-default-filter
+           #'vulpea-select-cache-test--tagged-t1-p))
+      (vulpea-test--with-temp-db
+        (vulpea-db)
+        (vulpea-select-cache-test--insert-fixture)
+        (let ((find (vulpea-select-cache-test--seen-by
+                     (lambda () (vulpea-find :create-fn #'ignore))))
+              (cache vulpea-select--cache)
+              (insert (vulpea-select-cache-test--seen-by
+                       (lambda ()
+                         (with-temp-buffer
+                           (org-mode)
+                           (vulpea-insert :note-fn #'ignore))))))
+          (should cache)
+          (should (eq cache vulpea-select--cache))
+          (should (equal (vulpea-select-cache-test--sorted find)
+                         (vulpea-select-cache-test--sorted
+                          (vulpea-select-cache-test--uncached-filtered
+                           #'vulpea-select-cache-test--file-level-p))))
+          (should (equal (vulpea-select-cache-test--sorted insert)
+                         (vulpea-select-cache-test--sorted
+                          (vulpea-select-cache-test--uncached-filtered
+                           #'vulpea-select-cache-test--tagged-t1-p))))
+          ;; the heading note is filtered out of find, Beta out of insert
+          (should-not (seq-find (lambda (c) (string-prefix-p "Alpha heading" c))
+                                find))
+          (should (seq-find (lambda (c) (string-prefix-p "Beta" c)) find))
+          (should-not (seq-find (lambda (c) (string-prefix-p "Beta" c)) insert))
+          ;; the unfiltered list is still all of them
+          (vulpea-select-cache-test--same-as-uncached))))))
+
+(ert-deftest vulpea-select-cache-default-filters-opt-in ()
+  "Without the opt-in a default filter keeps the uncached path."
+  (vulpea-select-cache-test--with-cache
+    (let ((vulpea-find-default-filter
+           #'vulpea-select-cache-test--file-level-p))
+      (vulpea-test--with-temp-db
+        (vulpea-db)
+        (vulpea-select-cache-test--insert-fixture)
+        (vulpea-select-cache-test--seen-by
+         (lambda () (vulpea-find :create-fn #'ignore)))
+        (should-not vulpea-select--cache)
+        ;; an explicit filter argument is never cached
+        (let ((vulpea-select-cache-default-filters t))
+          (vulpea-select-cache-test--seen-by
+           (lambda () (vulpea-find :filter-fn #'always :create-fn #'ignore)))
+          (should-not vulpea-select--cache))))))
+
+(ert-deftest vulpea-select-cache-default-filters-follow-changes ()
+  "Filter results follow file edits, and a new filter rebuilds the cache."
+  (vulpea-select-cache-test--with-cache
+    (let ((vulpea-select-cache-default-filters t)
+          (vulpea-find-default-filter
+           #'vulpea-select-cache-test--tagged-t1-p))
+      (vulpea-test--with-temp-notes-dir
+        (let ((a (expand-file-name "a.org" root)))
+          (with-temp-file a
+            (insert ":PROPERTIES:\n:ID: id-a\n:END:\n#+title: Alpha\n"))
+          (vulpea-db-update-file a)
+          (should-not (vulpea-select-cache-candidates
+                       #'vulpea-select-cache-test--tagged-t1-p))
+          ;; now it passes the filter
+          (with-temp-file a
+            (insert ":PROPERTIES:\n:ID: id-a\n:END:\n#+title: Alpha\n"
+                    "#+filetags: :t1:\n"))
+          (vulpea-db-update-file a)
+          (should (equal (mapcar #'substring-no-properties
+                                 (vulpea-select-cache-candidates
+                                  #'vulpea-select-cache-test--tagged-t1-p))
+                         '("Alpha #t1 id-a")))
+          ;; another default filter is another cache
+          (let ((cache vulpea-select--cache)
+                (vulpea-find-default-filter
+                 #'vulpea-select-cache-test--file-level-p))
+            (should (vulpea-select-cache-candidates
+                     #'vulpea-select-cache-test--file-level-p))
+            (should-not (eq cache vulpea-select--cache))))))))
+
+(ert-deftest vulpea-select-cache-unknown-filter ()
+  "Asking for a filter the cache does not hold is an error."
+  (vulpea-select-cache-test--with-cache
+    (vulpea-test--with-temp-db
+      (vulpea-db)
+      (vulpea-select-cache-test--insert-fixture)
+      (should-error (vulpea-select-cache-candidates #'always)))))
+
 ;;; Invalidation
 
 (ert-deftest vulpea-select-cache-settings-change-invalidates ()
