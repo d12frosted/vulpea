@@ -33,7 +33,7 @@ Lists and maps in =notes= (tags, aliases, links, metadata, properties) are JSON.
 
 A save hook blocks the save and never sees changes made outside Emacs. File watchers see both, and routing their events through a queue lets many changes land in one transaction. The design came from the sync prototype in [[https://github.com/d12frosted/vulpea/pull/194][vulpea#194]].
 
-*Today:* =vulpea-db-autosync-mode= with filenotify, fswatch, or polling when neither is available. For a long time "non-blocking" only covered scheduling: once a queue timer fired, parsing and writing still ran on the main thread. v2.6 closed that gap with =vulpea-db-async-extraction=, which moves parsing, and optionally the database write, into a background =emacs --batch= worker. [[file:sync-architecture.org][sync-architecture]] has the details.
+*Today:* =vulpea-db-autosync-mode= with filenotify, fswatch, or polling when neither is available. For a long time "non-blocking" only covered scheduling: once a queue timer fired, parsing and writing still ran on the main thread. v2.6 closed that gap with =vulpea-db-async-extraction=, which moves parsing, and optionally the database write, into a background =emacs --batch= worker, and v2.8 turned it on by default. [[file:sync-architecture.org][sync-architecture]] has the details.
 
 ** 4. Parse once, feed every extractor
 
