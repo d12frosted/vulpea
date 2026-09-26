@@ -380,6 +380,34 @@ still apply the variables it does know are safe, like the category."
       (put 'vulpea-db-worker-test--package-var 'safe-local-variable nil)
       (delete-directory dir t))))
 
+(ert-deftest vulpea-db-worker-honors-settings-marked-safe-in-session ()
+  "A setting the user marked safe applies from dir-locals in the worker.
+Marking an org option safe with a `safe-local-variable' property in
+the init file is how a dir-local for it applies without a prompt;
+the worker never read that init file."
+  (let* ((dir (make-temp-file "vulpea-worker-marked-safe-" t))
+         (path (expand-file-name "note.org" dir))
+         (vulpea-db-parse-method 'temp-buffer)
+         (enable-local-variables t)
+         (org-use-tag-inheritance t)
+         (old-prop (get 'org-use-tag-inheritance 'safe-local-variable)))
+    (put 'org-use-tag-inheritance 'safe-local-variable #'booleanp)
+    (unwind-protect
+        (progn
+          (with-temp-file (expand-file-name ".dir-locals.el" dir)
+            (prin1 '((org-mode . ((org-use-tag-inheritance . nil))))
+                   (current-buffer)))
+          (with-temp-file path
+            (insert ":PROPERTIES:\n:ID: marked-file\n:END:\n"
+                    "#+title: F\n#+filetags: :ftag:\n\n"
+                    "* H\n:PROPERTIES:\n:ID: marked-h\n:END:\n"))
+          (let* ((dumps (vulpea-db-worker-test--dumps path))
+                 (sync-tags (plist-get (car dumps) :tags)))
+            (should-not (assoc "marked-h" sync-tags))
+            (should (equal sync-tags (plist-get (cdr dumps) :tags)))))
+      (put 'org-use-tag-inheritance 'safe-local-variable old-prop)
+      (delete-directory dir t))))
+
 (ert-deftest vulpea-db-worker-honors-link-abbreviations ()
   "Links written with an `org-link-abbrev-alist' abbreviation match.
 Org expands abbreviations while parsing, so a worker without them
