@@ -146,6 +146,42 @@ TARGET is compared to candidates without their invisible id suffix."
                        "id-b"))
         (should-not (vulpea-select-candidate-note "free text"))))))
 
+;;; Separate annotations
+
+(ert-deftest vulpea-select-cache-separate-annotations-read-no-notes ()
+  "With annotations outside the candidate, the cache still has them.
+Annotating a displayed candidate must not read its note: past a few
+dozen of them that turned into a read of every note mid-typing."
+  (vulpea-select-cache-test--with-cache
+    (let ((vulpea-select-annotate-matchable nil))
+      (vulpea-test--with-temp-db
+        (vulpea-db)
+        (vulpea-select-cache-test--insert-fixture)
+        (let* ((annotate
+                (lambda (candidates)
+                  (let ((fn (completion-metadata-get
+                             (funcall (vulpea-select--completion-table
+                                       candidates)
+                                      "" nil 'metadata)
+                             'annotation-function)))
+                    (sort (mapcar (lambda (c)
+                                    (cons (substring-no-properties c)
+                                          (substring-no-properties
+                                           (funcall fn c))))
+                                  candidates)
+                          (lambda (a b) (string< (car a) (car b)))))))
+               (expected (funcall annotate
+                                  (vulpea-select-cache-test--uncached)))
+               (cached (vulpea-select-cache-candidates)))
+          (should (assoc "First id-a" expected))
+          (should (equal (cdr (assoc "First id-a" expected))
+                         " (Alpha) #t1 #t2"))
+          (cl-letf (((symbol-function 'vulpea-db-get-by-id)
+                     (lambda (&rest _) (error "Should not read a note")))
+                    ((symbol-function 'vulpea-db-query)
+                     (lambda (&rest _) (error "Should not read notes"))))
+            (should (equal (funcall annotate cached) expected))))))))
+
 ;;; Frontend API
 
 (ert-deftest vulpea-select-cache-candidate-path ()

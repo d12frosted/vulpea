@@ -275,12 +275,15 @@ calls ANNOTATION-FN with the note and context extracted from the
 candidate. The wrapper function is suitable for use as a completion
 annotation."
   (lambda (candidate)
-    (let ((note (vulpea-select-candidate-note candidate))
-          (context (vulpea-select-candidate-context candidate)))
-      (if note
-          (vulpea-select--annotation-face
-           (vulpea-select--funcall annotation-fn note context))
-        ""))))
+    (or
+     ;; cached candidates carry their annotation instead of the note
+     (get-text-property 0 'vulpea-select-annotation candidate)
+     (let ((note (vulpea-select-candidate-note candidate))
+           (context (vulpea-select-candidate-context candidate)))
+       (if note
+           (vulpea-select--annotation-face
+            (vulpea-select--funcall annotation-fn note context))
+         "")))))
 
 ;;; Describe Functions
 
@@ -729,7 +732,10 @@ patching would cost more than a rebuild."
 They are what `vulpea-select-from' builds with alias expansion,
 minus the note and context properties: holding every note in
 memory is what the cache avoids.  Alias candidates remember their
-alias in the `vulpea-select-alias' property."
+alias in the `vulpea-select-alias' property.  When annotations are
+served apart from the candidate (`vulpea-select-annotate-matchable'
+nil), the annotation is kept in the `vulpea-select-annotation'
+property, so displaying it never reads the note."
   (mapcar (lambda (n)
             (let ((candidate (vulpea-select-describe n)))
               (remove-list-of-text-properties
@@ -738,6 +744,14 @@ alias in the `vulpea-select-alias' property."
               (when (vulpea-note-primary-title n)
                 (put-text-property 0 (length candidate)
                                    'vulpea-select-alias (vulpea-note-title n)
+                                   candidate))
+              (when (and vulpea-select-annotate-fn
+                         (not vulpea-select-annotate-matchable))
+                (put-text-property 0 (length candidate)
+                                   'vulpea-select-annotation
+                                   (vulpea-select--annotation-face
+                                    (vulpea-select--funcall
+                                     vulpea-select-annotate-fn n nil))
                                    candidate))
               candidate))
           (vulpea-note-expand-aliases note)))

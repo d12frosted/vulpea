@@ -1362,7 +1362,7 @@ Both return nil when the string is not a candidate - for example the free-form i
 
 This matters wherever your code receives only strings: a =display-sort-function= (below), an embark action, an annotator registered for the category.
 
-On cached candidates, the first few lookups in a selection read one note each; past that, all notes are read at once and reused until the prompt closes. So a sort function that asks for the note of every candidate costs one full read of the notes table per =vulpea-find=, most of what the cache saves. If that is your setup and the delay bothers you, sort on something the candidate string already shows, or turn the cache off.
+Annotations served through =annotation-function= (=vulpea-select-annotate-matchable= set to =nil=) are kept on cached candidates, so showing them reads nothing. For any other lookup on cached candidates, the first few in a selection read one note each; past that, all notes are read at once and reused until the prompt closes. So a sort function that asks for the note of every candidate costs one full read of the notes table per =vulpea-find=, most of what the cache saves. If that is your setup and the delay bothers you, sort on something the candidate string already shows, or turn the cache off.
 
 ** Sorting Candidates
 
