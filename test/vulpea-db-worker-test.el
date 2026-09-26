@@ -1540,6 +1540,33 @@ synchronous path."
         (vulpea-db-worker-stop)
         (mapc #'delete-file paths)))))
 
+(ert-deftest vulpea-db-worker-learns-link-types-registered-later ()
+  "A link type registered after the worker spawned still reaches it.
+`org-link-set-parameters' changes `org-link-parameters' in place, so
+no variable watcher fires; packages registering types lazily would
+otherwise leave the worker indexing their links as fuzzy ones."
+  (let ((org-link-parameters (copy-tree org-link-parameters))
+        (first (vulpea-test--create-temp-org-file
+                ":PROPERTIES:\n:ID: late-first\n:END:\n#+title: F\n"))
+        (second (vulpea-test--create-temp-org-file
+                 ":PROPERTIES:\n:ID: late-second\n:END:\n#+title: S\n\n[[vulpealate:target]]\n")))
+    (unwind-protect
+        (vulpea-test--with-temp-db
+          (vulpea-db)
+          ;; Spawn the worker before the type exists
+          (vulpea-db-worker-request first)
+          (vulpea-db-worker-test--wait)
+          (org-link-set-parameters "vulpealate")
+          (vulpea-db-worker-request second)
+          (vulpea-db-worker-test--wait)
+          (should (equal (mapcar (lambda (row) (list (nth 1 row) (nth 2 row)))
+                                 (plist-get (vulpea-db-worker-test--db-dump)
+                                            :links))
+                         '(("target" "vulpealate")))))
+      (vulpea-db-worker-stop)
+      (delete-file first)
+      (delete-file second))))
+
 (ert-deftest vulpea-db-worker-completion-resets-hang-counter ()
   "A successful completion proves liveness and resets the hang count."
   (vulpea-db-worker-test--with-file

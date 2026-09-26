@@ -336,14 +336,27 @@ instead."
 (defvar vulpea-db-worker--refresh-timer nil
   "Debounce timer for pushing settings to a live worker.")
 
+(defvar vulpea-db-worker--sent-link-types nil
+  "Link types in the last settings message sent to the worker.
+`org-link-set-parameters' changes `org-link-parameters' in place,
+which no variable watcher sees; requests compare against this to
+catch types registered after the worker started.")
+
+(defun vulpea-db-worker--send-settings ()
+  "Send current settings to the worker and return the message."
+  (let ((settings (vulpea-db-worker--settings-form)))
+    (vulpea-db-worker--send settings)
+    (setq vulpea-db-worker--sent-link-types (nth 2 settings))
+    settings))
+
 (defun vulpea-db-worker-refresh-settings ()
   "Send current settings to a running worker, if any.
-Called by `vulpea-db-register-extractor' and by the variable
-watchers on the settings allowlist, so a live worker mirrors
-setting changes made mid-session."
+Called by `vulpea-db-register-extractor', by the variable watchers
+on the settings allowlist, and by requests that find new link types,
+so a live worker mirrors setting changes made mid-session."
   (when (process-live-p vulpea-db-worker--process)
     (vulpea-db-worker--log "settings refresh")
-    (vulpea-db-worker--send (vulpea-db-worker--settings-form))))
+    (vulpea-db-worker--send-settings)))
 
 (defun vulpea-db-worker--schedule-refresh (&rest _)
   "Debounced settings refresh, triggered by a watched variable change.
@@ -612,11 +625,10 @@ lands here.  Idempotent: the second caller finds no pending work."
                 (error-message-string err))
         :error)
        (signal (car err) (cdr err))))
-    (let ((settings (vulpea-db-worker--settings-form)))
+    (let ((settings (vulpea-db-worker--send-settings)))
       (vulpea-db-worker--log "settings: %d vars, %d link types"
                              (length (nth 1 settings))
-                             (length (nth 2 settings)))
-      (vulpea-db-worker--send settings)))
+                             (length (nth 2 settings)))))
   vulpea-db-worker--process)
 
 (defun vulpea-db-worker--send (form)
@@ -777,6 +789,10 @@ result is applied even when the content hash matches - required when
 extraction output changed while content did not (parser epoch or
 settings changes)."
   (vulpea-db-worker--ensure)
+  ;; A package that registered a link type since the last settings
+  ;; message would otherwise have its links indexed as fuzzy ones
+  (unless (equal (org-link-types) vulpea-db-worker--sent-link-types)
+    (vulpea-db-worker-refresh-settings))
   (when force
     (puthash path t vulpea-db-worker--force))
   ;; Track the path BEFORE sending: a send that errors on a dying
