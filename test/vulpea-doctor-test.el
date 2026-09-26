@@ -758,5 +758,47 @@ the cost has to stay bounded however large the files are."
             (should (= 1 (length (vulpea-doctor--consistency-sample)))))
         (mapc #'delete-file extra)))))
 
+(ert-deftest vulpea-doctor-flags-outline-mode-hook ()
+  "Functions on `outline-mode-hook' run for org buffers too."
+  (let ((issue (vulpea-doctor-test--hook-issue
+                '((outline-mode-hook vulpea-doctor-test--set-tag-inheritance)))))
+    (should issue)
+    (should (string-match-p "vulpea-doctor-test--set-tag-inheritance" issue))))
+
+(ert-deftest vulpea-doctor-consistency-sample-selection ()
+  "The sample prefers recent files and skips what it cannot compare.
+Non-.org files, missing files and files over the size limit stay out;
+the most recently modified file is always in."
+  (vulpea-test--with-temp-db
+    (let* ((db (vulpea-db))
+           (paths (mapcar (lambda (i)
+                            (vulpea-test--create-temp-org-file
+                             (format ":PROPERTIES:\n:ID: pick-%d\n:END:\n" i)))
+                          '(1 2 3)))
+           (vulpea-doctor--consistency-sample-size 2))
+      (unwind-protect
+          (progn
+            (cl-loop for path in paths
+                     for mtime in '(100 200 300)
+                     do (emacsql db [:insert :into files :values $v1]
+                                 (vector path "h" mtime 10)))
+            (emacsql db [:insert :into files :values $v1]
+                     (vector "/tmp/vulpea-pick.txt" "h" 900 10))
+            (emacsql db [:insert :into files :values $v1]
+                     (vector "/tmp/vulpea-pick-missing.org" "h" 900 10))
+            (let ((big (vulpea-test--create-temp-org-file
+                        ":PROPERTIES:\n:ID: pick-big\n:END:\n")))
+              (push big paths)
+              (emacsql db [:insert :into files :values $v1]
+                       (vector big "h" 999 (* 10 1024 1024))))
+            (dotimes (_ 10)
+              (let ((sample (vulpea-doctor--consistency-sample)))
+                (should (= (length sample) 2))
+                (should (member (nth 3 paths) sample))
+                (should-not (member (car paths) sample))
+                (should-not (seq-some (lambda (p) (string-prefix-p "/tmp/vulpea-pick" p))
+                                      sample)))))
+        (mapc #'delete-file paths)))))
+
 (provide 'vulpea-doctor-test)
 ;;; vulpea-doctor-test.el ends here

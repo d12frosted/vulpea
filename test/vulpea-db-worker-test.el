@@ -1758,6 +1758,33 @@ and a full scan must not print one line per file."
 
 ;;; Session vs worker comparison
 
+(ert-deftest vulpea-db-worker-compare-files-sees-heading-only-drift ()
+  "A difference only a heading carries is still reported.
+With tag inheritance turned off by a session-only hook, the file
+note keeps its own tags and only the heading's inherited ones move."
+  (vulpea-db-worker-test--with-file
+      ":PROPERTIES:\n:ID: head-file\n:END:\n#+title: F\n#+filetags: :ftag:\n\n* H\n:PROPERTIES:\n:ID: head-h\n:END:\n"
+    (let ((vulpea-db-parse-method 'temp-buffer)
+          (org-use-tag-inheritance t)
+          (org-mode-hook
+           (list (lambda () (setq-local org-use-tag-inheritance nil)))))
+      (let ((result (vulpea-db-worker-compare-files (list path))))
+        (should (equal (mapcar #'car result) (list path)))
+        (should (equal (cdar result) '(:tags)))))))
+
+(ert-deftest vulpea-db-worker-compare-files-sees-heading-count-drift ()
+  "A different number of heading notes is reported as :headings."
+  (vulpea-db-worker-test--with-file
+      ":PROPERTIES:\n:ID: count-file\n:END:\n#+title: F\n\n* H\n:PROPERTIES:\n:ID: count-h\n:END:\n"
+    (let ((vulpea-db-parse-method 'temp-buffer)
+          (vulpea-db-index-heading-level t)
+          (org-mode-hook
+           (list (lambda () (setq-local vulpea-db-index-heading-level nil)))))
+      (let ((result (vulpea-db-worker-compare-files (list path))))
+        (should (equal (mapcar #'car result) (list path)))
+        (should (memq :headings (cdar result)))))))
+
+
 (ert-deftest vulpea-db-worker-compare-files-agrees-by-default ()
   "With nothing configured differently, worker and session agree."
   (vulpea-db-worker-test--with-file
