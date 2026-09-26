@@ -657,6 +657,34 @@ Returns list of `vulpea-note' structs."
                          key (vconcat values))))
       (mapcar #'vulpea-db--row-to-note rows))))
 
+(defun vulpea-db-query-by-meta-every (key values)
+  "Get notes where metadata KEY carries ALL of VALUES.
+
+Uses normalized meta table with GROUP BY + HAVING for efficient
+filtering.  Only values under KEY count; the same value under
+another key does not.
+
+KEY is a metadata key string.
+VALUES is a list of metadata values.  When it is empty, every note
+matches, as with `vulpea-db-query-by-tags-every'.
+
+Returns list of `vulpea-note' structs."
+  (if (null values)
+      (vulpea-db-query nil)
+    ;; De-duplicate: the HAVING clause compares COUNT(DISTINCT value)
+    ;; against the requested count, so a repeated value would inflate
+    ;; the target past what any note can match and return nothing.
+    (let* ((values (seq-uniq values))
+           (value-count (length values))
+           (rows (vulpea-db--select
+                  (concat "SELECT * FROM notes WHERE id IN"
+                          " (SELECT note_id FROM meta"
+                          " WHERE key = ? AND value IN "
+                          (vulpea-db--sql-list values)
+                          " GROUP BY note_id HAVING count(DISTINCT value) = ?)")
+                  (list key value-count))))
+      (mapcar #'vulpea-db--row-to-note rows))))
+
 ;;; Tag Queries
 
 (defun vulpea-db-query-tags ()
