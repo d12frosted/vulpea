@@ -686,6 +686,28 @@ https://github.com/d12frosted/vulpea/issues/501"
     (should-not (vulpea-db-query-by-meta-some "state" nil))
     (should-not (vulpea-db-query-by-meta-some "state" '("failed")))))
 
+(ert-deftest vulpea-db-query-by-meta-every ()
+  "Notes whose KEY carries ALL of VALUES, other keys ignored."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "note1" "Note 1"
+                                   :meta '(("grape" . ("merlot" "cabernet" "malbec"))))
+    (vulpea-test--insert-test-note "note2" "Note 2"
+                                   :meta '(("grape" . ("merlot"))
+                                           ("blend" . ("cabernet"))))
+    (vulpea-test--insert-test-note "note3" "Note 3"
+                                   :meta '(("grape" . ("merlot" "cabernet"))))
+
+    (let ((notes (vulpea-db-query-by-meta-every "grape" '("merlot" "cabernet"))))
+      (should (equal (sort (mapcar #'vulpea-note-id notes) #'string<)
+                     '("note1" "note3"))))
+    ;; A repeated value does not raise the bar.
+    (let ((notes (vulpea-db-query-by-meta-every "grape" '("malbec" "malbec"))))
+      (should (equal (mapcar #'vulpea-note-id notes) '("note1"))))
+    (should-not (vulpea-db-query-by-meta-every "grape" '("merlot" "syrah")))
+    ;; No values constrain nothing, like the tags and links variants.
+    (should (= (length (vulpea-db-query-by-meta-every "grape" nil)) 3))))
+
 (ert-deftest vulpea-db-query-by-meta-with-type ()
   "Test querying notes by metadata - type filtering no longer supported."
   (vulpea-test--with-temp-db
