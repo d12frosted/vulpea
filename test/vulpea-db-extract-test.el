@@ -4809,5 +4809,33 @@ a dynamic block or babel results print one above it."
                            '("generated-source"))))
         (delete-file path)))))
 
+(ert-deftest vulpea-db-extract-find-file-leaves-open-buffers-alone ()
+  "The find-file parse method never kills or reads a buffer you have open.
+It used to reuse the visiting buffer, index its unsaved contents and
+kill it, losing the edits without a prompt."
+  (let* ((vulpea-db-parse-method 'find-file)
+         (path (vulpea-test--create-temp-org-file
+                ":PROPERTIES:\n:ID: open-buffer\n:END:\n#+title: Saved\n"))
+         (buffer (find-file-noselect path)))
+    (unwind-protect
+        (progn
+          (with-current-buffer buffer
+            (goto-char (point-max))
+            (insert "unsaved edit\n")
+            (goto-char (point-min))
+            (re-search-forward "Saved")
+            (replace-match "Edited"))
+          (let ((ctx (vulpea-db--parse-file path)))
+            (should (equal (plist-get (vulpea-parse-ctx-file-node ctx) :title)
+                           "Saved")))
+          (should (buffer-live-p buffer))
+          (with-current-buffer buffer
+            (should (buffer-modified-p))
+            (should (string-match-p "unsaved edit" (buffer-string)))))
+      (when (buffer-live-p buffer)
+        (with-current-buffer buffer (set-buffer-modified-p nil))
+        (kill-buffer buffer))
+      (delete-file path))))
+
 (provide 'vulpea-db-extract-test)
 ;;; vulpea-db-extract-test.el ends here
