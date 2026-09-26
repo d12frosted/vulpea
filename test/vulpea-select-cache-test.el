@@ -460,6 +460,74 @@ silently skip them."
                          (list "Alpha from worker id-a")))
           (should (eq cache vulpea-select--cache)))))))
 
+(defmacro vulpea-select-cache-test--from-other-connection (&rest body)
+  "Run BODY writing through a second connection to the same database.
+Nothing is announced on `vulpea-db-updated-functions', like a write
+made by another Emacs or by the extraction worker."
+  (declare (indent 0))
+  `(let ((main vulpea-db--connection)
+         (other (emacsql-sqlite-builtin vulpea-db-location)))
+     (unwind-protect
+         (let ((vulpea-db--connection other)
+               (vulpea-db-updated-functions nil))
+           ,@body)
+       (emacsql-close other)
+       (setq vulpea-db--connection main))))
+
+(ert-deftest vulpea-select-cache-follows-other-connections ()
+  "Writes by another connection reach the cache, though never announced."
+  (vulpea-select-cache-test--with-cache
+    (vulpea-test--with-temp-notes-dir
+      (let ((a (expand-file-name "a.org" root))
+            (b (expand-file-name "b.org" root))
+            (c (expand-file-name "c.org" root)))
+        (vulpea-select-cache-test--write a "id-a" "Alpha")
+        (vulpea-select-cache-test--write b "id-b" "Beta")
+        (vulpea-db-update-file a)
+        (vulpea-db-update-file b)
+        (vulpea-select-cache-candidates)
+        (let ((cache vulpea-select--cache))
+          ;; edit, add and delete, all in another session
+          (vulpea-select-cache-test--write a "id-a" "Alpha renamed")
+          (vulpea-select-cache-test--write c "id-c" "Gamma")
+          (delete-file b)
+          (vulpea-select-cache-test--from-other-connection
+            (vulpea-db-update-file a)
+            (vulpea-db-update-file c)
+            (vulpea-db--forget-file b))
+          ;; this session's watcher finds nothing to do: the stored
+          ;; hashes already match the files
+          (should-not (vulpea-db-sync--update-file-if-changed a))
+          (vulpea-select-cache-test--same-as-uncached)
+          (should (equal (sort (mapcar #'substring-no-properties
+                                       (vulpea-select-cache-candidates))
+                               #'string<)
+                         '("Alpha renamed id-a" "Gamma id-c")))
+          ;; patched, not rebuilt
+          (should (eq cache vulpea-select--cache))
+          ;; nothing changed since: the next open does not look again
+          (cl-letf (((symbol-function 'vulpea-select--cache-diff-stamps)
+                     (lambda (&rest _) (error "Should not diff"))))
+            (vulpea-select-cache-candidates)))))))
+
+(ert-deftest vulpea-select-cache-follows-lost-worker-reply ()
+  "A worker commit whose reply was lost still reaches the cache.
+The retry finds the file unchanged and answers `stamped', which
+announces nothing."
+  (vulpea-select-cache-test--with-cache
+    (vulpea-test--with-temp-notes-dir
+      (let ((a (expand-file-name "a.org" root)))
+        (vulpea-select-cache-test--write a "id-a" "Alpha")
+        (vulpea-db-update-file a)
+        (vulpea-select-cache-candidates)
+        (vulpea-select-cache-test--write a "id-a" "Alpha from worker")
+        (vulpea-select-cache-test--from-other-connection
+          (vulpea-db-update-file a))
+        (vulpea-db-worker--dispatch `(stamped ,a ("id-a")))
+        (should (equal (mapcar #'substring-no-properties
+                               (vulpea-select-cache-candidates))
+                       '("Alpha from worker id-a")))))))
+
 (ert-deftest vulpea-select-cache-bulk-updates-rebuild ()
   "Past the pending threshold the cache rebuilds instead of patching."
   (vulpea-select-cache-test--with-cache

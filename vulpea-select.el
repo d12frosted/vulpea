@@ -535,7 +535,7 @@ relative time, state of other notes - stays as it was when the
 candidate was built.  Use `vulpea-select-cache-drop' to force a
 rebuild, or set this to nil if your candidates need such data.
 
-Each candidate costs memory: roughly 110MB for 165k candidates."
+Each candidate costs memory: roughly 130MB for 165k candidates."
   :type 'boolean
   :group 'vulpea-select)
 
@@ -580,6 +580,10 @@ See `vulpea-select--cached-note'.")
   (by-path (make-hash-table :test #'equal))
   ;; paths changed since the last selection
   (pending (make-hash-table :test #'equal))
+  ;; PRAGMA data_version when the cache last matched the database
+  version
+  ;; files table as stored: raw path -> raw hash
+  (stamps (make-hash-table :test #'equal))
   ;; flat candidate list, valid unless STALE
   candidates
   (stale t)
@@ -645,6 +649,22 @@ candidates show something the cache does not track (see
        (equal (vulpea-select--cache-state-fingerprint cache)
               (vulpea-select--cache-fingerprint))))
 
+(defun vulpea-select--cache-data-version ()
+  "Return PRAGMA data_version of the open database connection.
+It changes whenever another connection commits: another Emacs, or
+the extraction worker writing results itself."
+  (caar (sqlite-select (oref (vulpea-db) handle) "PRAGMA data_version")))
+
+(defun vulpea-select--cache-read-stamps (&optional paths)
+  "Return rows (PATH HASH) of the files table, as stored.
+Values are not decoded: they are only compared.  With PATHS, only
+the rows of those (decoded) paths."
+  (sqlite-select (oref (vulpea-db) handle)
+                 (if paths
+                     (concat "SELECT path, hash FROM files WHERE path IN "
+                             (vulpea-db--sql-list paths))
+                   "SELECT path, hash FROM files")))
+
 (defun vulpea-select--cache-current ()
   "Return the candidate cache of the open database, creating it if needed.
 A cache left from another database or other settings is replaced by
@@ -655,9 +675,53 @@ an empty one."
       (setq cache (vulpea-select--cache-state-create
                    :db vulpea-db--connection
                    :location vulpea-db-location
-                   :fingerprint (vulpea-select--cache-fingerprint))
-            vulpea-select--cache cache))
+                   :fingerprint (vulpea-select--cache-fingerprint)
+                   ;; read before any note, so that a commit by
+                   ;; another connection from here on is noticed
+                   :version (vulpea-select--cache-data-version))
+            vulpea-select--cache cache)
+      (let ((stamps (vulpea-select--cache-state-stamps cache)))
+        (dolist (row (vulpea-select--cache-read-stamps))
+          (puthash (car row) (cadr row) stamps))))
     cache))
+
+(defun vulpea-select--cache-diff-stamps (cache)
+  "Queue in CACHE every file whose stamp changed behind its back.
+
+Only writes from this process run `vulpea-db-updated-functions'.
+Another Emacs on the same database, or a worker result whose reply
+was lost, changes rows silently, and the watcher of this process
+then finds the file up to date.  The files table tells: a file
+added, removed or with another hash than recorded is queued for a
+refresh."
+  (let ((old (vulpea-select--cache-state-stamps cache))
+        (new (make-hash-table :test #'equal))
+        (pending (vulpea-select--cache-state-pending cache)))
+    (dolist (row (vulpea-select--cache-read-stamps))
+      (puthash (car row) (cadr row) new)
+      (unless (equal (gethash (car row) old) (cadr row))
+        (puthash (read (car row)) t pending)))
+    (maphash (lambda (path _)
+               (unless (gethash path new)
+                 (puthash (read path) t pending)))
+             old)
+    (setf (vulpea-select--cache-state-stamps cache) new)))
+
+(defun vulpea-select--cache-sync-version (cache)
+  "Look for writes of other connections when the data version moved.
+Return CACHE, or a new empty cache when so many files changed that
+patching would cost more than a rebuild."
+  (let ((version (vulpea-select--cache-data-version)))
+    (if (eql version (vulpea-select--cache-state-version cache))
+        cache
+      (setf (vulpea-select--cache-state-version cache) version)
+      (vulpea-select--cache-diff-stamps cache)
+      (if (> (hash-table-count (vulpea-select--cache-state-pending cache))
+             vulpea-select-cache--pending-limit)
+          (progn
+            (vulpea-select-cache-drop)
+            (vulpea-select--cache-current))
+        cache))))
 
 (defun vulpea-select--cache-note-candidates (note)
   "Return the candidate strings of NOTE, one per title and alias.
@@ -736,9 +800,14 @@ left the cursor becomes nil."
       (clrhash pending)
       (dolist (path paths)
         (vulpea-select--cache-forget-path cache path))
-      (dolist (chunk (seq-partition paths 200))
-        (dolist (note (vulpea-db-query-by-file-paths chunk))
-          (vulpea-select--cache-put cache note))))))
+      (let ((stamps (vulpea-select--cache-state-stamps cache)))
+        (dolist (chunk (seq-partition paths 200))
+          (dolist (path chunk)
+            (remhash (vulpea-db--bind-scalar path) stamps))
+          (dolist (row (vulpea-select--cache-read-stamps chunk))
+            (puthash (car row) (cadr row) stamps))
+          (dolist (note (vulpea-db-query-by-file-paths chunk))
+            (vulpea-select--cache-put cache note)))))))
 
 (defun vulpea-select-cache-candidates ()
   "Return the cached selection candidates, brought up to date first.
@@ -750,7 +819,8 @@ shared with the cache: do not modify it or its strings.  Resolve a
 candidate with `vulpea-select-candidate-note' once it is picked,
 and use `vulpea-select-candidate-path' for anything done per
 candidate, such as a preview, which must not read notes."
-  (let ((cache (vulpea-select--cache-current)))
+  (let ((cache (vulpea-select--cache-sync-version
+                (vulpea-select--cache-current))))
     (vulpea-select--cache-load cache nil)
     (vulpea-select--cache-flush cache)
     (when (vulpea-select--cache-state-stale cache)
