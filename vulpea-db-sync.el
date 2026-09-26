@@ -1095,6 +1095,10 @@ them."
             ;; here - reading, hashing, parsing and extraction all
             ;; run in the worker subprocess.  Forced entries (parser
             ;; or settings changed) skip change detection entirely.
+            ;; A mirrored setting changed in place since the last
+            ;; batch fired no watcher; bring the worker up to date.
+            (when vulpea-db-async-extraction
+              (vulpea-db-worker-refresh-if-changed))
             (let (sync-paths)
               (dolist (path paths)
                 (let ((force (gethash path vulpea-db-sync--force-set)))

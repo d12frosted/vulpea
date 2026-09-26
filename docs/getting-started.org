@@ -114,7 +114,7 @@ Vulpea defaults to using =org-directory=, so if that's already set correctly, yo
 (vulpea-db-autosync-mode +1)
 #+end_src
 
-On activation the mode scans your directories in the background, so the first run indexes everything the database does not know about yet. After that, file watchers keep the database up to date as you edit notes. For a large collection the first scan takes a while; you'll see progress messages like:
+On activation the mode scans your directories in the background, so the first run indexes everything the database does not know about yet. After that, file watchers keep the database up to date as you edit notes. Parsing runs in a separate background Emacs process, so neither the scan nor saving a large note freezes Emacs (see [[file:configuration.org::*Async Extraction][Async Extraction]] for the trade-offs). For a large collection the first scan takes a while; you'll see progress messages like:
 
 #+begin_example
 Vulpea: Syncing 1234 files...

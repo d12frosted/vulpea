@@ -70,7 +70,10 @@
     (let* ((path (vulpea-test--create-temp-org-file
                   ":PROPERTIES:\n:ID: test-id\n:END:\n#+TITLE: Test\n"))
            (vulpea-db-sync--queue (list (cons path (float-time))))
-           (vulpea-db-sync--processing nil))
+           (vulpea-db-sync--processing nil)
+           ;; The synchronous path; the worker path is covered in
+           ;; vulpea-db-worker-test.el.
+           (vulpea-db-async-extraction nil))
       (unwind-protect
           (progn
             (vulpea-db-sync--process-queue)
@@ -187,6 +190,25 @@ No call is made for the directory itself."
       (should (equal calls
                      (list (list (vulpea-db-normalize-path path) 0)))))))
 
+(ert-deftest vulpea-db-sync-process-queue-refreshes-worker-settings ()
+  "Each batch checks the worker's settings before dispatching to it."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((path (vulpea-test--create-temp-org-file
+                  ":PROPERTIES:\n:ID: refresh-id\n:END:\n#+TITLE: R\n"))
+           (vulpea-db-sync--queue (list (cons path (float-time))))
+           (vulpea-db-sync--processing nil)
+           (vulpea-db-async-extraction t)
+           (checks 0))
+      (unwind-protect
+          (cl-letf (((symbol-function 'vulpea-db-worker-refresh-if-changed)
+                     (lambda () (setq checks (1+ checks))))
+                    ((symbol-function 'vulpea-db-worker-request)
+                     (lambda (&rest _))))
+            (vulpea-db-sync--process-queue)
+            (should (= checks 1)))
+        (delete-file path)))))
+
 (ert-deftest vulpea-db-sync-process-queue-batch-limit ()
   "Test queue respects batch size limit."
   (vulpea-test--with-temp-db
@@ -194,6 +216,7 @@ No call is made for the directory itself."
     (let ((vulpea-db-sync-batch-size 2)
           (vulpea-db-sync--queue nil)
           (vulpea-db-sync--processing nil)
+          (vulpea-db-async-extraction nil)
           (files nil))
       (unwind-protect
           (progn
@@ -513,6 +536,7 @@ skipped files can put its id back."
       (let* ((dir (make-temp-file "vulpea-scan-test-" t))
              (path (expand-file-name "note.org" dir))
              (vulpea-db-sync-scan-on-enable scan-mode)
+             (vulpea-db-async-extraction nil)
              (vulpea-db-sync-external-method nil)
              (vulpea-db-sync-directories (list dir))
              (vulpea-db-sync--idle-timer nil)

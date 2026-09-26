@@ -73,12 +73,12 @@ the save for the three sizes.
 
 ### What the indexing options change
 
-The same 10MB file, save path, with one option changed from the
-default at a time:
+The same 10MB file, synchronous save path (`vulpea-db-async-extraction
+nil`), with one option changed from the default at a time:
 
 | setting                                  | save path | AST parse |
 |------------------------------------------|-----------|-----------|
-| defaults                                 | 2.28s     | 0.92s     |
+| defaults, async extraction off           | 2.28s     | 0.92s     |
 | `vulpea-db-parse-granularity 'object`    | 3.64s     | 2.39s     |
 | `vulpea-db-index-plain-links nil`        | 2.16s     | 0.90s     |
 | `vulpea-db-index-heading-level nil`      | 1.68s     | 0.90s     |

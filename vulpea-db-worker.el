@@ -59,7 +59,7 @@
 ;; customs, org link types, tag inheritance, org-attach
 ;; configuration).  Like `vulpea-db-parse-method' `single-temp-buffer',
 ;; it does not run the user's `org-mode-hook'.  Requests the worker
-;; cannot handle faithfully - extractor plugins registered,
+;; cannot handle faithfully - AST-reading extractor plugins,
 ;; function-valued `vulpea-db-index-heading-level', non-.org files
 ;; that need decryption - are rejected by
 ;; `vulpea-db-worker-can-handle-p' and the caller falls back to the
@@ -69,20 +69,31 @@
 
 (require 'vulpea-db)
 (require 'vulpea-db-extract)
+;; The worker needs the user's org-attach settings, and with async
+;; extraction the session may never load org-attach on its own; load
+;; it here so its defaults, and any `with-eval-after-load' setup, are
+;; in place before the first settings message
+(require 'org-attach)
 
 (declare-function vulpea-db-sync--enqueue "vulpea-db-sync"
                   (path &optional force))
 
 ;;; Customization
 
-(defcustom vulpea-db-async-extraction nil
+(defcustom vulpea-db-async-extraction t
   "Whether the sync queue extracts files in a background process.
 
-When t, `vulpea-db-sync' sends changed files to a persistent
-`emacs --batch' worker instead of parsing them on the main thread.
-The UI then only blocks for the database write of the results, not
-for reading, hashing, parsing, or extraction - the bulk of indexing
-time.
+When t (the default), `vulpea-db-sync' sends changed files to a
+persistent `emacs --batch' worker instead of parsing them on the
+main thread.  The UI then only blocks for the database write of the
+results, not for reading, hashing, parsing, or extraction - the bulk
+of indexing time.  The database is updated a moment after a save;
+code that reacts to indexed changes should listen on
+`vulpea-db-updated-functions'.  Programmatic APIs such as
+`vulpea-create' stay synchronous.
+
+When nil, files are parsed on the main thread, and saving a large
+file freezes Emacs for as long as indexing takes.
 
 When `full', the worker also writes the results to the database
 through its own connection, so the main thread only registers the
@@ -96,10 +107,12 @@ in the main process.
 
 The worker mirrors vulpea and org settings from an allowlist and,
 like `vulpea-db-parse-method' \\='single-temp-buffer, does not run
-`org-mode-hook'.  Files the worker cannot handle faithfully
-\(extractor plugins registered, function-valued
-`vulpea-db-index-heading-level', non-.org files) are processed
-synchronously as before."
+`org-mode-hook'.  `vulpea-doctor' reports hook functions that change
+settings extraction reads; if indexing depends on them, set this to
+nil.  Files the worker cannot handle
+faithfully (extractor plugins declaring :requires-ast t,
+function-valued `vulpea-db-index-heading-level', non-.org files)
+are processed synchronously as before."
   :type '(choice (const :tag "Off (parse on the main thread)" nil)
           (const :tag "Extract in worker, write in main" t)
           (const :tag "Extract and write in worker (WAL)" full))
@@ -205,6 +218,7 @@ This is an extension point, not a setting: attach to it with
     vulpea-db-exclude-property
     vulpea-db-exclude-children-property
     vulpea-buffer-alias-property
+    vulpea-db-path-normalization
     org-archive-tag
     org-use-tag-inheritance
     org-tags-exclude-from-inheritance
@@ -212,16 +226,87 @@ This is an extension point, not a setting: attach to it with
     org-category
     enable-local-variables
     enable-dir-local-variables
+    safe-local-variable-values
+    ignored-local-variables
+    ignored-local-variable-values
+    safe-local-variable-directories
+    enable-local-eval
     org-attach-id-dir
     org-attach-id-to-path-function-list
+    org-attach-use-inheritance
+    org-link-abbrev-alist
     org-todo-keywords
     org-plain-list-ordered-item-terminator
     org-list-allow-alphabetical)
   "Variables mirrored into the extraction worker.
 
-Grow this list when extraction starts depending on new
-configuration; the async-vs-sync equivalence test is the safety
-net.")
+The worker is a clean `emacs --batch' process, so any setting
+extraction reads must be listed here, or the worker extracts with
+its default.  For vulpea-db- and vulpea-buffer- options, and for
+options the worker's code names, the settings classification test
+fails until each is listed here or in
+`vulpea-db-worker--settings-not-mirrored'.  Org and Emacs settings
+read inside their own functions (for example `org-todo-keywords'
+through `org-element-parse-buffer', or `org-link-abbrev-alist') are
+invisible to that test: they are listed by hand, and the tests pin
+them so none is dropped by accident.")
+
+(defconst vulpea-db-worker--settings-not-mirrored
+  '((case-fold-search
+     . "bound by extraction code around each use")
+    (directory-abbrev-alist
+     . "only spells paths for org-id, registered in the main process")
+    (org-id-track-globally
+     . "org-id registration runs in the main process")
+    (org-link-parameters
+     . "link types travel separately in the settings message")
+    (vulpea-db-extra-extensions
+     . "the worker only takes .org files")
+    (vulpea-db-location
+     . "sent with each full-write request")
+    (vulpea-db-schema-validation-action
+     . "index filters run in the main process; full degrades to t")
+    (vulpea-buffer-meta-change-functions
+     . "editing hook, not read by extraction")
+    (vulpea-db-async-extraction . "worker control, main process")
+    (vulpea-db-async-extraction-threshold . "worker control, main process")
+    (vulpea-db-worker-debug . "worker control, main process")
+    (vulpea-db-worker-hang-timeout . "worker control, main process")
+    (vulpea-db-worker-max-in-flight . "worker control, main process")
+    (vulpea-db-autosync-mode . "sync scheduling, main process")
+    (vulpea-db-autosync-mode-hook . "sync scheduling, main process")
+    (vulpea-db-sync-batch-delay . "sync scheduling, main process")
+    (vulpea-db-sync-batch-size . "sync scheduling, main process")
+    (vulpea-db-sync-debug . "sync scheduling, main process")
+    (vulpea-db-sync-directories . "sync scheduling, main process")
+    (vulpea-db-sync-external-method . "sync scheduling, main process")
+    (vulpea-db-sync-fswatch-path-style . "sync scheduling, main process")
+    (vulpea-db-sync-idle-delay . "sync scheduling, main process")
+    (vulpea-db-sync-poll-interval . "sync scheduling, main process")
+    (vulpea-db-sync-progress-interval . "sync scheduling, main process")
+    (vulpea-db-sync-reindex-on-dir-locals-change
+     . "sync scheduling, main process")
+    (vulpea-db-sync-scan-on-enable . "sync scheduling, main process")
+    (vulpea-db-sync-verbose . "sync scheduling, main process"))
+  "Options deliberately left out of `vulpea-db-worker--settings-vars'.
+
+An alist of (SYMBOL . REASON).  Each entry is a vulpea option or an
+option named in the worker's code that does not change what the
+worker extracts or writes.")
+
+(defun vulpea-db-worker--portable-link-abbrevs (abbrevs)
+  "Return ABBREVS, an `org-link-abbrev-alist', ready for the worker.
+An abbreviation that expands through a function needs that function,
+which exists only in the session: a function value, or a string
+calling one with %(...).  It is sent by name, as
+`:vulpea-session-function', so the worker can hand the files using
+it back instead of expanding the link differently."
+  (mapcar (lambda (entry)
+            (if (and (stringp (cdr entry))
+                     (not (string-search "%(" (cdr entry))))
+                entry
+              (cons (car entry) :vulpea-session-function)))
+          abbrevs))
 
 (defun vulpea-db-worker--settings-form ()
   "Build the settings message for the worker.
@@ -241,6 +326,8 @@ cases."
       ;; to symbol-value.
       (when (default-boundp sym)
         (let ((value (default-value sym)))
+          (when (eq sym 'org-link-abbrev-alist)
+            (setq value (vulpea-db-worker--portable-link-abbrevs value)))
           (when (vulpea-db-worker--printable-p value)
             (push (cons sym value) vars)))))
     `(settings ,(nreverse vars) ,(org-link-types)
@@ -273,14 +360,44 @@ instead."
 (defvar vulpea-db-worker--refresh-timer nil
   "Debounce timer for pushing settings to a live worker.")
 
+(defvar vulpea-db-worker--sent-settings nil
+  "The last settings message sent to the worker.
+Changes made in place - `org-link-set-parameters' on
+`org-link-parameters', `setf' on an `alist-get' - fire no variable
+watcher; comparing against this catches them.")
+
+(defvar vulpea-db-worker--sent-link-types nil
+  "Link types in the last settings message sent to the worker.
+Requests compare against this, a cheap check for the most common
+in-place change: a link type registered after the worker started.")
+
+(defun vulpea-db-worker--send-settings ()
+  "Send current settings to the worker and return the message."
+  (let ((settings (vulpea-db-worker--settings-form)))
+    (vulpea-db-worker--send settings)
+    ;; A deep copy: the message shares structure with the live
+    ;; settings, and an in-place edit would change the record too
+    (setq vulpea-db-worker--sent-settings (copy-tree settings t)
+          vulpea-db-worker--sent-link-types (nth 2 settings))
+    settings))
+
+(defun vulpea-db-worker-refresh-if-changed ()
+  "Send settings to a running worker when they changed since the last.
+Builds and compares the whole settings message, so the sync queue
+calls it once per batch rather than per file."
+  (when (and (process-live-p vulpea-db-worker--process)
+             (not (equal (vulpea-db-worker--settings-form)
+                         vulpea-db-worker--sent-settings)))
+    (vulpea-db-worker-refresh-settings)))
+
 (defun vulpea-db-worker-refresh-settings ()
   "Send current settings to a running worker, if any.
-Called by `vulpea-db-register-extractor' and by the variable
-watchers on the settings allowlist, so a live worker mirrors
-setting changes made mid-session."
+Called by `vulpea-db-register-extractor', by the variable watchers
+on the settings allowlist, and by requests that find new link types,
+so a live worker mirrors setting changes made mid-session."
   (when (process-live-p vulpea-db-worker--process)
     (vulpea-db-worker--log "settings refresh")
-    (vulpea-db-worker--send (vulpea-db-worker--settings-form))))
+    (vulpea-db-worker--send-settings)))
 
 (defun vulpea-db-worker--schedule-refresh (&rest _)
   "Debounced settings refresh, triggered by a watched variable change.
@@ -518,26 +635,41 @@ lands here.  Idempotent: the second caller finds no pending work."
     (unless vulpea-db-worker--watchdog-timer
       (setq vulpea-db-worker--watchdog-timer
             (run-with-timer 30 30 #'vulpea-db-worker--watchdog)))
-    (let ((command (vulpea-db-worker--command)))
-      (vulpea-db-worker--log "spawn: %s ... (%d args)"
-                             (vulpea-db-worker--log-truncate
-                              (string-join (seq-take command 6) " "))
-                             (length command))
-      (setq vulpea-db-worker--process
-            (make-process
-             :name "vulpea-worker"
-             :command command
-             :connection-type 'pipe
-             :noquery t
-             :coding 'utf-8-unix
-             :stderr (get-buffer-create " *vulpea-worker-stderr*")
-             :filter #'vulpea-db-worker--filter
-             :sentinel #'vulpea-db-worker--sentinel)))
-    (let ((settings (vulpea-db-worker--settings-form)))
+    ;; A worker that cannot start at all (Emacs binary gone after an
+    ;; upgrade, library not on the load path) never reaches the
+    ;; sentinel's crash-loop detection.  Mark it broken here, so the
+    ;; queue stops retrying per file and indexes synchronously.
+    (condition-case err
+        (let ((command (vulpea-db-worker--command)))
+          (vulpea-db-worker--log "spawn: %s ... (%d args)"
+                                 (vulpea-db-worker--log-truncate
+                                  (string-join (seq-take command 6) " "))
+                                 (length command))
+          (setq vulpea-db-worker--process
+                (make-process
+                 :name "vulpea-worker"
+                 :command command
+                 :connection-type 'pipe
+                 :noquery t
+                 :coding 'utf-8-unix
+                 :stderr (get-buffer-create " *vulpea-worker-stderr*")
+                 :filter #'vulpea-db-worker--filter
+                 :sentinel #'vulpea-db-worker--sentinel)))
+      (error
+       (setq vulpea-db-worker--broken t)
+       (display-warning
+        'vulpea
+        (format (concat "Extraction worker cannot start (%s); falling "
+                        "back to synchronous indexing.  Run "
+                        "M-x vulpea-db-worker-diagnose to investigate, "
+                        "M-x vulpea-db-worker-reset to retry.")
+                (error-message-string err))
+        :error)
+       (signal (car err) (cdr err))))
+    (let ((settings (vulpea-db-worker--send-settings)))
       (vulpea-db-worker--log "settings: %d vars, %d link types"
                              (length (nth 1 settings))
-                             (length (nth 2 settings)))
-      (vulpea-db-worker--send settings)))
+                             (length (nth 2 settings)))))
   vulpea-db-worker--process)
 
 (defun vulpea-db-worker--send (form)
@@ -568,6 +700,13 @@ lands here.  Idempotent: the second caller finds no pending work."
   "Return non-nil while the worker has unfinished requests."
   (and vulpea-db-worker--in-flight t))
 
+(defun vulpea-db-worker--org-attach-function-p (fn)
+  "Return non-nil when FN is defined by org-attach itself.
+Those exist in the worker too; anything else is the session's own."
+  (and (symbolp fn)
+       (when-let* ((file (symbol-file fn 'defun)))
+         (equal (file-name-base file) "org-attach"))))
+
 (defun vulpea-db-worker-rejection-reasons (path)
   "Return the reasons PATH cannot be extracted in the worker, if any.
 
@@ -579,6 +718,9 @@ A list of symbols, nil when the worker can handle PATH faithfully:
   apply, against a context whose AST slot is nil)
 - `heading-level-predicate': `vulpea-db-index-heading-level' is a
   function, which is not serializable
+- `attach-path-functions': `org-attach-id-to-path-function-list'
+  holds functions that are not org's own; the worker cannot call
+  them, and every note with an id needs them
 - `extension': PATH is not a plain .org file (decryption may require
   user interaction)"
   (let (reasons)
@@ -588,6 +730,10 @@ A list of symbols, nil when the worker can handle PATH faithfully:
       (push 'ast-extractors reasons))
     (unless (booleanp vulpea-db-index-heading-level)
       (push 'heading-level-predicate reasons))
+    (unless (seq-every-p #'vulpea-db-worker--org-attach-function-p
+                         (bound-and-true-p
+                          org-attach-id-to-path-function-list))
+      (push 'attach-path-functions reasons))
     (unless (string-suffix-p ".org" path)
       (push 'extension reasons))
     (nreverse reasons)))
@@ -698,6 +844,10 @@ result is applied even when the content hash matches - required when
 extraction output changed while content did not (parser epoch or
 settings changes)."
   (vulpea-db-worker--ensure)
+  ;; A package that registered a link type since the last settings
+  ;; message would otherwise have its links indexed as fuzzy ones
+  (unless (equal (org-link-types) vulpea-db-worker--sent-link-types)
+    (vulpea-db-worker-refresh-settings))
   (when force
     (puthash path t vulpea-db-worker--force))
   ;; Track the path BEFORE sending: a send that errors on a dying
@@ -776,6 +926,9 @@ file behind it."
           (when (> ms 50)
             (vulpea-db-worker--log "filter: %.0fms on %d bytes (slow)"
                                    ms (length output))))))))
+
+(defvar vulpea-db-worker--reported-failures (make-hash-table :test #'equal)
+  "Worker failure messages already shown, so each is shown once.")
 
 (defun vulpea-db-worker--dispatch (msg)
   "Handle one protocol MSG from the worker."
@@ -874,13 +1027,66 @@ file behind it."
                         "Check :worker-lib on the extractor definition.")
                 missing)
         :warning)))
+    (`(handback ,path ,reason)
+     ;; Not a failure: the file needs something only the session has
+     (setq vulpea-db-worker--current nil)
+     (vulpea-db-worker--forget path)
+     (vulpea-db-worker--log "handback %s: %s" path reason)
+     (unless (gethash reason vulpea-db-worker--reported-failures)
+       (puthash reason t vulpea-db-worker--reported-failures)
+       (message "Vulpea: %s needs your session (%s); files like it are indexed synchronously"
+                (file-name-nondirectory path) reason))
+     (vulpea-db-worker--queue-fallback path))
     (`(error ,path ,message)
      (setq vulpea-db-worker--current nil)
      (vulpea-db-worker--forget path)
      (vulpea-db-worker--log "error %s: %s" path message)
-     (message "Vulpea: worker failed on %s: %s" path message)
-     (run-hook-with-args 'vulpea-db-worker-done-functions
-                         path 'error nil))))
+     ;; The worker can fail where the session would not (a setting
+     ;; naming a function only the session defines, a package it does
+     ;; not load); index the file here rather than leave it out
+     (if (not (file-exists-p path))
+         (run-hook-with-args 'vulpea-db-worker-done-functions
+                             path 'error nil)
+       (unless (gethash message vulpea-db-worker--reported-failures)
+         (puthash message t vulpea-db-worker--reported-failures)
+         (message "Vulpea: worker failed on %s (%s); files it fails on are indexed synchronously"
+                  path message))
+       (vulpea-db-worker--queue-fallback path)))))
+
+(defvar vulpea-db-worker--fallback-queue nil
+  "Files the worker failed on, waiting to be indexed synchronously.")
+
+(defvar vulpea-db-worker--fallback-timer nil
+  "Timer indexing the next file of `vulpea-db-worker--fallback-queue'.")
+
+(defun vulpea-db-worker--queue-fallback (path)
+  "Index PATH synchronously soon, outside the worker's reply handler.
+The handler runs with quitting inhibited, and a setting that breaks
+every file would make it parse one file after another; a timer takes
+one file per tick instead."
+  (unless (member path vulpea-db-worker--fallback-queue)
+    (setq vulpea-db-worker--fallback-queue
+          (append vulpea-db-worker--fallback-queue (list path))))
+  (unless (timerp vulpea-db-worker--fallback-timer)
+    (setq vulpea-db-worker--fallback-timer
+          (run-with-timer 0 nil #'vulpea-db-worker--run-fallback))))
+
+(defun vulpea-db-worker--run-fallback ()
+  "Index the next file the worker failed on, in this process."
+  (setq vulpea-db-worker--fallback-timer nil)
+  (when-let* ((path (pop vulpea-db-worker--fallback-queue)))
+    (let ((count (condition-case err
+                     (when (file-exists-p path)
+                       (vulpea-db-update-file path))
+                   (error
+                    (message "Vulpea: failed to index %s: %s"
+                             path (error-message-string err))
+                    nil))))
+      (run-hook-with-args 'vulpea-db-worker-done-functions
+                          path (if count 'applied 'error) count)))
+  (when vulpea-db-worker--fallback-queue
+    (setq vulpea-db-worker--fallback-timer
+          (run-with-timer 0 nil #'vulpea-db-worker--run-fallback))))
 
 (defun vulpea-db-worker--reenqueue (path &optional force)
   "Schedule PATH for another pass, via the sync queue when active.
@@ -1045,6 +1251,73 @@ and rebuilds the database file on a schema version mismatch, which
 would destroy the main process's data from underneath it.  While set,
 `parse-and-write' requests fall back to streaming results.")
 
+(defvar vulpea-db-worker--session-abbrev-tags nil
+  "Link abbreviations that expand through a function of the session.
+Worker side; see `vulpea-db-worker--portable-link-abbrevs'.")
+
+(defun vulpea-db-worker--apply-session-abbrevs ()
+  "Split session-only link abbreviations out of `org-link-abbrev-alist'.
+Worker side: keeps the portable ones for org and remembers the others
+in `vulpea-db-worker--session-abbrev-tags'."
+  (when (boundp 'org-link-abbrev-alist)
+    (setq vulpea-db-worker--session-abbrev-tags
+          (mapcar #'car (seq-filter
+                         (lambda (entry)
+                           (eq (cdr entry) :vulpea-session-function))
+                         (default-value 'org-link-abbrev-alist))))
+    (set-default 'org-link-abbrev-alist
+                 (seq-remove (lambda (entry)
+                               (eq (cdr entry) :vulpea-session-function))
+                             (default-value 'org-link-abbrev-alist)))))
+
+(defun vulpea-db-worker--session-abbrev-used-p (path)
+  "Return non-nil when PATH links through a session-only abbreviation.
+See `vulpea-db-worker--session-abbrev-tags'.  Reads PATH only when
+there are such abbreviations."
+  (when vulpea-db-worker--session-abbrev-tags
+    (with-temp-buffer
+      (insert-file-contents path)
+      (let ((case-fold-search nil))
+        (re-search-forward
+         (concat "\\[\\[" (regexp-opt vulpea-db-worker--session-abbrev-tags)
+                 "[]:]")
+         nil t)))))
+
+(defun vulpea-db-worker--local-abbrevs-need-session-p (path)
+  "Return non-nil when PATH's own #+LINK: keywords call a function.
+Org expands a %(...) abbreviation by calling that function, which
+exists only in the session (and on failure org drops the
+abbreviation, so the parse leaves no trace of it).  Checked after
+parsing against the text still in the parse buffer, so no extra read
+is needed - except with the `find-file' parse method, whose buffer is
+gone by then."
+  (let ((case-fold-search t)
+        (regexp "^[ \t]*#\\+link:.*%("))
+    (if (and (not (eq vulpea-db-parse-method 'find-file))
+             (buffer-live-p vulpea-db--parse-buffer))
+        (with-current-buffer vulpea-db--parse-buffer
+          (save-excursion
+            (goto-char (point-min))
+            (re-search-forward regexp nil t)))
+      (with-temp-buffer
+        (insert-file-contents path)
+        (re-search-forward regexp nil t)))))
+
+(define-error 'vulpea-db-worker-handback
+  "File needs the session to be indexed faithfully")
+
+(defun vulpea-db-worker--parse-file (path)
+  "Parse PATH in the worker, as `vulpea-db--parse-file' does.
+Signals `vulpea-db-worker-handback' when the result would differ
+from the session's because the file needs one of its functions; the
+handlers answer with a `handback' reply, and the main process indexes
+the file synchronously."
+  (let ((ctx (vulpea-db--parse-file path)))
+    (when (vulpea-db-worker--local-abbrevs-need-session-p path)
+      (signal 'vulpea-db-worker-handback
+              '("its #+LINK: keywords expand with a function from your session")))
+    ctx))
+
 (defun vulpea-db-worker--apply-settings (vars link-types extractors
                                               &optional db-constants)
   "Set allowlisted VARS, register LINK-TYPES and EXTRACTORS here.
@@ -1064,6 +1337,14 @@ this worker."
   ;; is current here, invisible to the parse buffers extraction uses.
   (pcase-dolist (`(,sym . ,value) vars)
     (set-default sym value))
+  (vulpea-db-worker--apply-session-abbrevs)
+  ;; With t, one variable the worker does not know to be safe (packages
+  ;; mark theirs with a property, and the worker does not load them)
+  ;; sends the whole set to a prompt, which batch answers with no.  The
+  ;; session applies it; applying what is known safe and skipping the
+  ;; rest is the closest the worker can get
+  (when (eq enable-local-variables t)
+    (setq-default enable-local-variables :safe))
   ;; A code-version mismatch (main upgraded vulpea while running, or
   ;; stale byte-code) forbids opening the database from this worker:
   ;; vulpea-db--init would delete and rebuild it on a schema mismatch
@@ -1196,7 +1477,7 @@ result is written even when the content hash matches."
       (progn
         (vulpea-db-worker--ensure-db db)
         (let* ((stored (vulpea-db--get-file-hash path))
-               (ctx (vulpea-db--parse-file path))
+               (ctx (vulpea-db-worker--parse-file path))
                (attrs (file-attributes path)))
           (cond
            ;; File changed or vanished while parsing: the result
@@ -1247,6 +1528,8 @@ result is written even when the content hash matches."
                            ,(vulpea-db-worker--ctx-ids ctx)
                            ,claimants
                            ,released)))))))))
+      (vulpea-db-worker-handback
+       (vulpea-db-worker--reply `(handback ,path ,(cadr err))))
       (error
        (vulpea-db-worker--reply
         `(error ,path ,(error-message-string err)))))))
@@ -1254,7 +1537,7 @@ result is written even when the content hash matches."
 (defun vulpea-db-worker--handle-parse (path)
   "Extract PATH and stream the results to stdout."
   (condition-case err
-      (let ((ctx (vulpea-db--parse-file path)))
+      (let ((ctx (vulpea-db-worker--parse-file path)))
         (vulpea-db-worker--reply `(begin ,path))
         (vulpea-db-worker--reply
          `(file-node ,(vulpea-parse-ctx-file-node ctx)))
@@ -1265,6 +1548,8 @@ result is written even when the content hash matches."
                 ,(vulpea-parse-ctx-hash ctx)
                 ,(vulpea-parse-ctx-mtime ctx)
                 ,(vulpea-parse-ctx-size ctx))))
+    (vulpea-db-worker-handback
+     (vulpea-db-worker--reply `(handback ,path ,(cadr err))))
     (error
      (vulpea-db-worker--reply
       `(error ,path ,(error-message-string err))))))
@@ -1286,11 +1571,148 @@ writes protocol lines to stdout.  Exits when stdin closes."
         (`(settings ,vars ,link-types ,extractors ,db-constants)
          (vulpea-db-worker--apply-settings vars link-types extractors
                                            db-constants))
+        ;; A file linking through a session-only abbreviation goes
+        ;; back to the main process, which indexes it synchronously
+        ((and `(,(or 'parse 'parse-and-write) ,path . ,_)
+              (guard (ignore-errors
+                       (vulpea-db-worker--session-abbrev-used-p path))))
+         (vulpea-db-worker--reply
+          `(handback ,path
+                  ,(format "it links through %s, which expands with a function from your session"
+                           (string-join
+                            (mapcar (lambda (tag) (format "[[%s:...]]" tag))
+                                    vulpea-db-worker--session-abbrev-tags)
+                            ", ")))))
         (`(parse ,path)
          (vulpea-db-worker--handle-parse path))
         (`(parse-and-write ,path ,db ,force)
          (vulpea-db-worker--handle-parse-and-write path db force))
         (_ nil)))))
+
+;;; Session vs worker comparison
+
+(defun vulpea-db-worker--plist-diff (a b)
+  "Return the keys whose values differ between plists A and B."
+  (let (keys)
+    (dolist (plist (list a b))
+      (cl-loop for key in plist by #'cddr
+               do (unless (or (memq key keys)
+                              (equal (plist-get a key) (plist-get b key)))
+                    (push key keys))))
+    (nreverse keys)))
+
+(defun vulpea-db-worker--nodes-diff (ours theirs)
+  "Return the fields that differ between two extraction results.
+OURS and THEIRS are (FILE-NODE . HEADING-NODES).  Headings are
+compared in order; a different number of them adds `:headings'."
+  (let ((fields (vulpea-db-worker--plist-diff (car ours) (car theirs))))
+    (unless (= (length (cdr ours)) (length (cdr theirs)))
+      (push :headings fields))
+    (cl-mapc (lambda (a b)
+               (dolist (key (vulpea-db-worker--plist-diff a b))
+                 (unless (memq key fields)
+                   (setq fields (append fields (list key))))))
+             (cdr ours) (cdr theirs))
+    fields))
+
+(defun vulpea-db-worker--parse-in-fresh-worker (paths)
+  "Parse PATHS in a new, short-lived worker and collect the results.
+
+The worker gets the same settings message as the live one, runs
+synchronously, and exits when its input ends; the live worker and
+the database are not touched.  Returns a hash table mapping each
+path to (FILE-NODE . HEADING-NODES), to an error message, or to
+`:handback' for a file the worker leaves to the session.
+Signals an error, with the tail of the worker's stderr, when the
+worker exits abnormally or answers nothing: a broken worker is not
+a difference in the files."
+  (let ((command (vulpea-db-worker--command))
+        (input (make-temp-file "vulpea-compare-" nil ".eld"))
+        (stderr (make-temp-file "vulpea-compare-" nil ".err"))
+        (results (make-hash-table :test #'equal))
+        status)
+    (unwind-protect
+        (progn
+          (with-temp-file input
+            (insert (vulpea-db-worker--print (vulpea-db-worker--settings-form))
+                    "\n")
+            (dolist (path paths)
+              (insert (vulpea-db-worker--print `(parse ,path)) "\n")))
+          (with-temp-buffer
+            (setq status (apply #'call-process (car command) input
+                                (list t stderr) nil (cdr command)))
+            (goto-char (point-min))
+            (let (file-node headings)
+              (while (not (eobp))
+                (pcase (ignore-errors
+                         (car (read-from-string
+                               (buffer-substring (line-beginning-position)
+                                                 (line-end-position)))))
+                  (`(begin ,_) (setq file-node nil headings nil))
+                  (`(file-node ,node) (setq file-node node))
+                  (`(heading-node ,node) (push node headings))
+                  (`(done ,path . ,_)
+                   (puthash path (cons file-node (reverse headings)) results))
+                  (`(error ,path ,message) (puthash path message results))
+                  (`(handback ,path ,_) (puthash path :handback results)))
+                (forward-line 1))))
+          (unless (and (eql status 0)
+                       (or (null paths) (> (hash-table-count results) 0)))
+            (let ((last-line
+                   ;; Batch Emacs prints the error last, after any
+                   ;; backtrace; one line keeps the report readable
+                   (with-temp-buffer
+                     (insert-file-contents stderr)
+                     (when-let* ((line (car (last (split-string
+                                                   (buffer-string)
+                                                   "\n" t "[ \t]+")))))
+                       (truncate-string-to-width
+                        (replace-regexp-in-string "[ \t]+" " " line)
+                        200 nil nil "...")))))
+              (if (and (eql status 0) (null last-line))
+                  (error "The worker exited without answering")
+                (error "The worker exited with %s%s"
+                       status
+                       (if last-line (concat ": " last-line) ""))))))
+      (delete-file input)
+      (delete-file stderr))
+    results))
+
+(defun vulpea-db-worker-compare-files (paths)
+  "Parse PATHS in this session and in a fresh worker; return differences.
+
+Detects files the worker indexes differently from the session - a
+mode hook it does not run, a setting it does not mirror, a feature
+it does not load - whatever the cause.  The session side parses
+through `vulpea-db--parse-file', as synchronous indexing does.
+Nothing is written to the database.
+
+Returns a list of (PATH . FIELDS) for the files that differ, where
+FIELDS lists the extracted fields that do (`:headings' when the
+number of heading notes differs), or (PATH . MESSAGE) when a side
+could not parse PATH.  Returns nil when every file matches."
+  (let ((worker (vulpea-db-worker--parse-in-fresh-worker paths))
+        result)
+    (dolist (path paths)
+      (let ((theirs (gethash path worker 'missing)))
+        (cond
+         ((eq theirs 'missing)
+          (push (cons path "no result from the worker") result))
+         ;; Handed back: the session indexes it, so nothing differs
+         ((eq theirs :handback))
+         ((stringp theirs)
+          (push (cons path theirs) result))
+         (t
+          (let ((ours (condition-case err
+                          (let ((ctx (vulpea-db--parse-file path)))
+                            (cons (vulpea-parse-ctx-file-node ctx)
+                                  (vulpea-parse-ctx-heading-nodes ctx)))
+                        (error (error-message-string err)))))
+            (if (stringp ours)
+                (push (cons path ours) result)
+              (when-let* ((fields (vulpea-db-worker--nodes-diff ours theirs)))
+                (push (cons path fields) result))))))))
+    (nreverse result)))
 
 ;;; Diagnostics
 

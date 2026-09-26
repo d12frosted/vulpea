@@ -68,14 +68,205 @@ busy again a moment later."
 
 (defmacro vulpea-db-worker-test--with-file (content &rest body)
   "Run BODY with PATH bound to a temp org file holding CONTENT.
-Ensures the worker and the file are cleaned up."
+Ensures the worker and the file are cleaned up.  The crash
+bookkeeping starts clean: deaths caused by earlier tests must not
+mark this test's worker broken."
   (declare (indent 1))
-  `(let ((path (vulpea-test--create-temp-org-file ,content)))
+  `(let ((path (vulpea-test--create-temp-org-file ,content))
+         (vulpea-db-worker--broken nil)
+         (vulpea-db-worker--crash-times nil))
      (unwind-protect
          (progn ,@body)
        (vulpea-db-worker-stop)
        (when (file-exists-p path)
          (delete-file path)))))
+
+(ert-deftest vulpea-db-worker-async-extraction-default ()
+  "Async extraction ships enabled in extract-only mode; `full' is opt-in."
+  (should (eq t (eval (car (get 'vulpea-db-async-extraction 'standard-value))
+                      t))))
+
+;;; Settings the worker needs from libraries the session may not load
+
+(ert-deftest vulpea-db-worker-sends-attach-settings-without-org-attach ()
+  "The settings message carries org-attach options in a fresh session.
+With async extraction the session may never load org-attach itself,
+yet the worker needs the user's attach settings; a value set in
+`with-eval-after-load' must reach it too."
+  (let* ((emacs (expand-file-name invocation-name invocation-directory))
+         (output
+          (with-temp-buffer
+            (apply #'call-process emacs nil t nil
+                   (append
+                    (list "--batch" "-Q")
+                    (mapcan (lambda (dir) (list "-L" dir))
+                            (seq-filter #'stringp load-path))
+                    (list "--eval"
+                          (prin1-to-string
+                           '(progn
+                              (with-eval-after-load 'org-attach
+                                (setq org-attach-id-dir "custom-attach/"))
+                              (require 'vulpea-db-worker)
+                              (princ (format "ATTACH=%S"
+                                             (alist-get
+                                              'org-attach-id-dir
+                                              (nth 1 (vulpea-db-worker--settings-form))))))))))
+            (buffer-string))))
+    (should (string-match-p "ATTACH=\"custom-attach/\"" output))))
+
+(defun vulpea-db-worker-test--attach-path (id)
+  "Map ID to an attachment path, as a user function would."
+  (concat "mine/" id))
+
+(ert-deftest vulpea-db-worker-rejects-custom-attach-path-functions ()
+  "Files need the session when attach paths come from its functions.
+Every note with an id gets its attach dir through
+`org-attach-id-to-path-function-list'; a function the worker does
+not have would fail every file there, only to be parsed again in the
+session.  Org's own functions are fine."
+  (let ((vulpea-db--extractors nil)
+        (vulpea-db-index-heading-level t)
+        (vulpea-db-worker--broken nil))
+    (let ((org-attach-id-to-path-function-list
+           (default-value 'org-attach-id-to-path-function-list)))
+      (should-not (vulpea-db-worker-rejection-reasons "x.org")))
+    (let ((org-attach-id-to-path-function-list
+           '(vulpea-db-worker-test--attach-path
+             org-attach-id-uuid-folder-format)))
+      (should (memq 'attach-path-functions
+                    (vulpea-db-worker-rejection-reasons "x.org"))))
+    (let ((org-attach-id-to-path-function-list
+           (list (lambda (id) id))))
+      (should (memq 'attach-path-functions
+                    (vulpea-db-worker-rejection-reasons "x.org"))))))
+
+;;; Settings classification
+
+(defun vulpea-db-worker-test--worker-sources ()
+  "Return the source files of every vulpea feature the worker loads.
+Follows `require' forms from vulpea-db-worker.el, so a module the
+worker starts loading is scanned without updating this test."
+  (let ((queue (list 'vulpea-db-worker))
+        seen files)
+    (while queue
+      (let ((feature (pop queue)))
+        (unless (memq feature seen)
+          (push feature seen)
+          (let ((file (locate-library (format "%s.el" feature) t)))
+            (push file files)
+            (with-temp-buffer
+              (insert-file-contents file)
+              (goto-char (point-min))
+              (condition-case nil
+                  (while t
+                    (pcase (read (current-buffer))
+                      (`(require ',(and dep (pred symbolp)) . ,_)
+                       (when (string-prefix-p "vulpea" (symbol-name dep))
+                         (push dep queue)))))
+                (end-of-file nil)))))))
+    files))
+
+(defun vulpea-db-worker-test--referenced-customs (files)
+  "Return the customizable variables whose symbols appear in FILES.
+The two classification lists are skipped: naming a setting there must
+not count as the worker's code reading it, or dropping a setting from
+the allowlist would also drop it from the candidates."
+  (let ((found (make-hash-table :test #'eq)))
+    (cl-labels ((walk (form)
+                  (cond
+                   ((symbolp form)
+                    (when (custom-variable-p form)
+                      (puthash form t found)))
+                   ((consp form)
+                    (walk (car form))
+                    (walk (cdr form)))
+                   ((vectorp form)
+                    (mapc #'walk form)))))
+      (dolist (file files)
+        (with-temp-buffer
+          (insert-file-contents file)
+          (goto-char (point-min))
+          (condition-case nil
+              (while t
+                (let ((form (read (current-buffer))))
+                  (unless (and (eq (car-safe form) 'defconst)
+                               (memq (cadr form)
+                                     '(vulpea-db-worker--settings-vars
+                                       vulpea-db-worker--settings-not-mirrored)))
+                    (walk form))))
+            (end-of-file nil)))))
+    (hash-table-keys found)))
+
+(defconst vulpea-db-worker-test--org-internal-settings
+  '(org-archive-tag
+    org-use-tag-inheritance
+    org-tags-exclude-from-inheritance
+    org-use-property-inheritance
+    org-category
+    enable-local-variables
+    enable-dir-local-variables
+    safe-local-variable-values
+    ignored-local-variables
+    ignored-local-variable-values
+    safe-local-variable-directories
+    enable-local-eval
+    org-attach-id-dir
+    org-attach-id-to-path-function-list
+    org-attach-use-inheritance
+    org-link-abbrev-alist
+    org-todo-keywords
+    org-plain-list-ordered-item-terminator
+    org-list-allow-alphabetical)
+  "Settings extraction reads inside org and Emacs internals.
+The classification test only sees what vulpea's code names, so these
+are pinned by hand: dropping one from the allowlist must fail.")
+
+(ert-deftest vulpea-db-worker-mirrors-org-internal-settings ()
+  "Settings read inside org's own functions stay on the allowlist."
+  (should (equal (seq-remove (lambda (sym)
+                               (memq sym vulpea-db-worker--settings-vars))
+                             vulpea-db-worker-test--org-internal-settings)
+                 nil)))
+
+(ert-deftest vulpea-db-worker-settings-are-classified ()
+  "Every setting extraction may read is either mirrored or excused.
+The worker is a clean `emacs --batch' process: a setting missing from
+`vulpea-db-worker--settings-vars' keeps its default there, so users
+who customize it get different results from the worker than from
+their session, and the async-vs-sync equivalence tests, which run
+with defaults, cannot notice.  Candidates are all vulpea-db- and
+vulpea-buffer- options plus every option the worker's code names.  A
+failure lists the unclassified ones: add each to the allowlist, or
+to `vulpea-db-worker--settings-not-mirrored' with the reason."
+  ;; The worker loads org-attach on demand; load it here so its
+  ;; options are custom variables the scan can see
+  (require 'org-attach)
+  (let* ((prefixed nil)
+         (_ (mapatoms
+             (lambda (sym)
+               (when (and (custom-variable-p sym)
+                          (string-match-p "\\`vulpea-\\(?:db\\|buffer\\)-"
+                                          (symbol-name sym)))
+                 (push sym prefixed)))))
+         (candidates (seq-uniq
+                      (append prefixed
+                              (vulpea-db-worker-test--referenced-customs
+                               (vulpea-db-worker-test--worker-sources)))))
+         (unclassified
+          (sort (seq-remove
+                 (lambda (sym)
+                   (or (memq sym vulpea-db-worker--settings-vars)
+                       (assq sym vulpea-db-worker--settings-not-mirrored)))
+                 candidates)
+                (lambda (a b) (string< a b)))))
+    (should (equal unclassified nil))))
+
+(ert-deftest vulpea-db-worker-settings-classification-consistent ()
+  "No setting is both mirrored and excused, and every excuse has a reason."
+  (dolist (entry vulpea-db-worker--settings-not-mirrored)
+    (should (symbolp (car entry)))
+    (should (stringp (cdr entry)))
+    (should-not (memq (car entry) vulpea-db-worker--settings-vars))))
 
 (ert-deftest vulpea-db-worker-command-prefers-newer ()
   "The worker command forces `load-prefer-newer'.
@@ -117,6 +308,234 @@ This is the correctness contract of async extraction."
       (dolist (table '(:notes :tags :links :meta :properties))
         (should (equal (plist-get sync-dump table)
                        (plist-get async-dump table)))))))
+
+(defun vulpea-db-worker-test--dumps (path)
+  "Index PATH synchronously and through the worker; return both dumps.
+Returns (SYNC . ASYNC), each from its own temporary database."
+  (let (sync-dump async-dump)
+    (vulpea-test--with-temp-db
+      (vulpea-db)
+      (vulpea-db-update-file path)
+      (setq sync-dump (vulpea-db-worker-test--db-dump)))
+    (unwind-protect
+        (vulpea-test--with-temp-db
+          (vulpea-db)
+          (vulpea-db-worker-request path)
+          (vulpea-db-worker-test--wait)
+          (setq async-dump (vulpea-db-worker-test--db-dump)))
+      (vulpea-db-worker-stop))
+    (cons sync-dump async-dump)))
+
+(ert-deftest vulpea-db-worker-honors-approved-dir-locals ()
+  "An unsafe dir-local the user approved reaches the worker too.
+Approving one stores it in `safe-local-variable-values'; the worker
+must see that list, or it silently drops the value."
+  (let* ((dir (make-temp-file "vulpea-worker-approved-" t))
+         (path (expand-file-name "note.org" dir))
+         (vulpea-db-parse-method 'temp-buffer)
+         (enable-local-variables t)
+         (org-use-tag-inheritance t)
+         (safe-local-variable-values '((org-use-tag-inheritance))))
+    (unwind-protect
+        (progn
+          (with-temp-file (expand-file-name ".dir-locals.el" dir)
+            (prin1 '((org-mode . ((org-use-tag-inheritance . nil))))
+                   (current-buffer)))
+          (with-temp-file path
+            (insert ":PROPERTIES:\n:ID: approved-file\n:END:\n"
+                    "#+title: F\n#+filetags: :ftag:\n\n"
+                    "* H\n:PROPERTIES:\n:ID: approved-h\n:END:\n"))
+          (let* ((dumps (vulpea-db-worker-test--dumps path))
+                 (sync-tags (plist-get (car dumps) :tags)))
+            (should-not (assoc "approved-h" sync-tags))
+            (should (equal sync-tags (plist-get (cdr dumps) :tags)))))
+      (delete-directory dir t))))
+
+(ert-deftest vulpea-db-worker-applies-safe-dir-locals-despite-unknown-ones ()
+  "A dir-local only the session knows is safe does not cost the rest.
+Packages mark their variables safe with a `safe-local-variable'
+property, and the worker does not load them.  With
+`enable-local-variables' t one unknown variable sends the whole set
+to a prompt, which a batch process answers with no; the worker must
+still apply the variables it does know are safe, like the category."
+  (let* ((dir (make-temp-file "vulpea-worker-unknown-" t))
+         (path (expand-file-name "note.org" dir))
+         (vulpea-db-parse-method 'temp-buffer)
+         (enable-local-variables t))
+    (put 'vulpea-db-worker-test--package-var 'safe-local-variable #'stringp)
+    (unwind-protect
+        (progn
+          (with-temp-file (expand-file-name ".dir-locals.el" dir)
+            (prin1 '((org-mode . ((org-category . "dirlocal")
+                                  (vulpea-db-worker-test--package-var . "x"))))
+                   (current-buffer)))
+          (with-temp-file path
+            (insert ":PROPERTIES:\n:ID: unknown-file\n:END:\n#+title: F\n"))
+          (let ((dumps (vulpea-db-worker-test--dumps path)))
+            (should (equal (nth 14 (assoc "unknown-file"
+                                          (plist-get (car dumps) :notes)))
+                           "dirlocal"))
+            (should (equal (plist-get (car dumps) :notes)
+                           (plist-get (cdr dumps) :notes)))))
+      (put 'vulpea-db-worker-test--package-var 'safe-local-variable nil)
+      (delete-directory dir t))))
+
+(ert-deftest vulpea-db-worker-honors-link-abbreviations ()
+  "Links written with an `org-link-abbrev-alist' abbreviation match.
+Org expands abbreviations while parsing, so a worker without them
+indexes such a link as a fuzzy one and the backlink disappears."
+  (let ((org-link-abbrev-alist '(("nt" . "id:%s"))))
+    (vulpea-db-worker-test--with-file
+        ":PROPERTIES:\n:ID: abbrev-src\n:END:\n#+title: S\n\n[[nt:abbrev-target]]\n"
+      (let ((dumps (vulpea-db-worker-test--dumps path)))
+        (should (equal (mapcar (lambda (row) (list (nth 1 row) (nth 2 row)))
+                               (plist-get (car dumps) :links))
+                       '(("abbrev-target" "id"))))
+        (should (equal (plist-get (car dumps) :links)
+                       (plist-get (cdr dumps) :links)))))))
+
+(defun vulpea-db-worker-test--abbrev-fn (tag)
+  "Expand link abbreviation TAG, as a session-only function would."
+  (concat "id:" tag))
+
+(ert-deftest vulpea-db-worker-sends-only-portable-link-abbreviations ()
+  "Function-valued abbreviations are named, not sent, to the worker.
+The function exists only in the session; depending on the org
+version, the worker would either fail or silently index the link as
+a fuzzy one."
+  (let* ((org-link-abbrev-alist '(("str" . "https://example.com/%s")
+                                  ("fn" . vulpea-db-worker-test--abbrev-fn)
+                                  ("pct" . "https://example.com/%(upcase)")))
+         (sent (alist-get 'org-link-abbrev-alist
+                          (nth 1 (vulpea-db-worker--settings-form)))))
+    (should (equal sent '(("str" . "https://example.com/%s")
+                          ("fn" . :vulpea-session-function)
+                          ("pct" . :vulpea-session-function))))))
+
+(ert-deftest vulpea-db-worker-hands-back-files-using-session-abbreviations ()
+  "The worker refuses a file that uses a session-only abbreviation.
+It answers with an error, which the main process turns into a
+synchronous index; files that do not use it are extracted as usual."
+  (let ((org-link-abbrev-alist '(("str" . "https://example.com/%s")))
+        (vulpea-db-worker--session-abbrev-tags nil))
+    (setq org-link-abbrev-alist '(("str" . "https://example.com/%s")
+                                  ("fn" . :vulpea-session-function)))
+    (vulpea-db-worker--apply-session-abbrevs)
+    (should (equal org-link-abbrev-alist '(("str" . "https://example.com/%s"))))
+    (should (equal vulpea-db-worker--session-abbrev-tags '("fn")))
+    (vulpea-db-worker-test--with-file
+        ":PROPERTIES:\n:ID: uses-fn\n:END:\n#+title: U\n\n[[fn:target]]\n"
+      (should (vulpea-db-worker--session-abbrev-used-p path)))
+    (vulpea-db-worker-test--with-file
+        ":PROPERTIES:\n:ID: no-fn\n:END:\n#+title: N\n\n[[str:target]] and fn:plain\n"
+      (should-not (vulpea-db-worker--session-abbrev-used-p path)))))
+
+(defun vulpea-db-worker-test--pct-fn (tag)
+  "Expand TAG for a %(...) link abbreviation."
+  (concat "id:" tag))
+(put 'vulpea-db-worker-test--pct-fn 'org-link-abbrev-safe t)
+
+(ert-deftest vulpea-db-worker-percent-function-abbreviations ()
+  "A %(fn) link abbreviation indexes the same through the worker."
+  (let ((org-link-abbrev-alist
+         '(("pf" . "%(vulpea-db-worker-test--pct-fn)"))))
+    (vulpea-db-worker-test--with-file
+        ":PROPERTIES:\n:ID: pct-src\n:END:\n#+title: S\n\n[[pf:pct-target]]\n"
+      (let ((dumps (let ((inhibit-message t))
+                     (vulpea-db-worker-test--dumps path))))
+        (should (equal (mapcar (lambda (row) (list (nth 1 row) (nth 2 row)))
+                               (plist-get (car dumps) :links))
+                       '(("pct-target" "id"))))
+        (should (equal (plist-get (car dumps) :links)
+                       (plist-get (cdr dumps) :links)))))))
+
+(ert-deftest vulpea-db-worker-percent-function-link-keywords ()
+  "A file whose own #+LINK: calls a function indexes the same.
+The worker parses it, finds the keyword needs a session function and
+hands the file back; a file with a plain #+LINK: stays in the worker."
+  (vulpea-db-worker-test--with-file
+      ":PROPERTIES:\n:ID: kw-src\n:END:\n#+title: K\n#+LINK: pk %(vulpea-db-worker-test--pct-fn)\n\n[[pk:kw-target]]\n"
+    (let ((dumps (let ((inhibit-message t))
+                   (vulpea-db-worker-test--dumps path))))
+      (should (equal (mapcar (lambda (row) (list (nth 1 row) (nth 2 row)))
+                             (plist-get (car dumps) :links))
+                     '(("kw-target" "id"))))
+      (should (equal (plist-get (car dumps) :links)
+                     (plist-get (cdr dumps) :links)))))
+  (vulpea-db-worker-test--with-file
+      ":PROPERTIES:\n:ID: kw-plain\n:END:\n#+title: K\n#+LINK: pk https://example.com/%s\n\n[[pk:x]]\n"
+    (vulpea-test--with-temp-db
+      (vulpea-db)
+      (let (statuses)
+        (let ((vulpea-db-worker-done-functions
+               (list (lambda (_p status _c) (push status statuses)))))
+          (vulpea-db-worker-request path)
+          (vulpea-db-worker-test--wait))
+        (should (equal statuses '(applied)))))))
+
+(ert-deftest vulpea-db-worker-link-abbreviation-functions ()
+  "A function-valued link abbreviation is expanded by the session.
+The function exists only in the session, so the worker hands files
+that use it back to the main process; files that do not use it are
+still extracted in the worker."
+  (let ((org-link-abbrev-alist
+         '(("fn" . vulpea-db-worker-test--abbrev-fn))))
+    (vulpea-db-worker-test--with-file
+        ":PROPERTIES:\n:ID: abbrev-fn-src\n:END:\n#+title: S\n\n[[fn:abbrev-fn-target]]\n"
+      (let ((dumps (let ((inhibit-message t))
+                     (vulpea-db-worker-test--dumps path))))
+        (should (equal (mapcar (lambda (row) (list (nth 1 row) (nth 2 row)))
+                               (plist-get (car dumps) :links))
+                       '(("abbrev-fn-target" "id"))))
+        (should (equal (plist-get (car dumps) :links)
+                       (plist-get (cdr dumps) :links)))))
+    (vulpea-db-worker-test--with-file
+        ":PROPERTIES:\n:ID: abbrev-fn-plain\n:END:\n#+title: P\n"
+      (vulpea-test--with-temp-db
+        (vulpea-db)
+        (let (statuses)
+          (let ((vulpea-db-worker-done-functions
+                 (list (lambda (_p status _c) (push status statuses)))))
+            (vulpea-db-worker-request path)
+            (vulpea-db-worker-test--wait))
+          (should (equal statuses '(applied))))))))
+
+(ert-deftest vulpea-db-worker-honors-file-keywords-and-dir-locals ()
+  "In-file keywords and dir-locals reach the worker as they reach the session.
+The worker skips the user's mode hooks but re-runs `org-mode' per
+file under the default parse method, which reads #+TODO and applies
+dir-locals; the doctor points people with hook-set settings there."
+  (let* ((dir (make-temp-file "vulpea-worker-dirlocals-" t))
+         (path (expand-file-name "note.org" dir))
+         (vulpea-db-parse-method 'temp-buffer)
+         (enable-local-variables :all)
+         sync-dump async-dump)
+    (unwind-protect
+        (progn
+          (with-temp-file (expand-file-name ".dir-locals.el" dir)
+            (prin1 '((org-mode . ((org-category . "dirlocal"))))
+                   (current-buffer)))
+          (with-temp-file path
+            (insert ":PROPERTIES:\n:ID: dirlocal-file\n:END:\n#+title: F\n"
+                    "#+TODO: TODO WAITING | DONE\n\n"
+                    "* WAITING Call Bob\n:PROPERTIES:\n:ID: dirlocal-h\n:END:\n"))
+          (vulpea-test--with-temp-db
+            (vulpea-db)
+            (vulpea-db-update-file path)
+            (setq sync-dump (vulpea-db-worker-test--db-dump)))
+          (vulpea-test--with-temp-db
+            (vulpea-db)
+            (vulpea-db-worker-request path)
+            (vulpea-db-worker-test--wait)
+            (setq async-dump (vulpea-db-worker-test--db-dump)))
+          (let ((heading (assoc "dirlocal-h" (plist-get sync-dump :notes))))
+            (should (equal (nth 3 heading) "Call Bob"))
+            (should (equal (nth 9 heading) "WAITING"))
+            (should (equal (nth 14 heading) "dirlocal")))
+          (should (equal (plist-get sync-dump :notes)
+                         (plist-get async-dump :notes))))
+      (vulpea-db-worker-stop)
+      (delete-directory dir t))))
 
 (ert-deftest vulpea-db-worker-async-database-equals-sync-headings-off ()
   "The worker agrees with sync indexing when heading notes are off.
@@ -1271,9 +1690,112 @@ kills must mark the worker broken."
           (should (memq 'requeued statuses))
           ;; Second consecutive hang marks broken
           (setq vulpea-db-worker--last-activity (- (float-time) 301))
-          (when (process-live-p vulpea-db-worker--process)
-            (vulpea-db-worker--watchdog))
+          (let ((w2 vulpea-db-worker--process))
+            (when (process-live-p w2)
+              (vulpea-db-worker--watchdog))
+            ;; Let the kill's salvage run here: left pending, it would
+            ;; requeue this test's file into whatever test runs next
+            (while (process-live-p w2)
+              (accept-process-output nil 0.05))
+            (sit-for 0.2))
           (should (>= vulpea-db-worker--hang-kills 1)))))))
+
+(ert-deftest vulpea-db-worker-spawn-failure-marks-broken ()
+  "A worker that cannot start is marked broken with one warning.
+Without this, every queued file retried the spawn and printed a
+message of its own - thousands of lines on a full scan - while
+nothing told the user why.  The files still get indexed, through the
+synchronous path."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((paths (mapcar (lambda (i)
+                            (vulpea-test--create-temp-org-file
+                             (format ":PROPERTIES:\n:ID: spawn-fail-%d\n:END:\n#+title: S%d\n"
+                                     i i)))
+                          '(1 2 3)))
+           (invocation-directory "/nonexistent/vulpea-test-emacs/")
+           (vulpea-db-async-extraction t)
+           (vulpea-db-worker--broken nil)
+           (vulpea-db-sync--queue nil)
+           (vulpea-db-sync--queue-tail nil)
+           (vulpea-db-sync--queue-set (make-hash-table :test #'equal))
+           (vulpea-db-sync--processing nil)
+           (warnings 0)
+           (dispatch-errors 0))
+      (unwind-protect
+          (cl-letf* ((orig-message (symbol-function 'message))
+                     ((symbol-function 'display-warning)
+                      (lambda (&rest _) (setq warnings (1+ warnings))))
+                     ((symbol-function 'message)
+                      (lambda (fmt &rest args)
+                        (when (and fmt (string-prefix-p "Vulpea: Error dispatching" fmt))
+                          (setq dispatch-errors (1+ dispatch-errors)))
+                        (apply orig-message fmt args))))
+            (dolist (path paths)
+              (vulpea-db-sync--enqueue path))
+            (vulpea-db-sync--process-queue)
+            (should vulpea-db-worker--broken)
+            (should (= 1 warnings))
+            (should (<= dispatch-errors 1))
+            (dolist (i '(1 2 3))
+              (should (vulpea-db-get-by-id (format "spawn-fail-%d" i)))))
+        (vulpea-db-worker-stop)
+        (mapc #'delete-file paths)))))
+
+(ert-deftest vulpea-db-worker-learns-link-types-registered-later ()
+  "A link type registered after the worker spawned still reaches it.
+`org-link-set-parameters' changes `org-link-parameters' in place, so
+no variable watcher fires; packages registering types lazily would
+otherwise leave the worker indexing their links as fuzzy ones."
+  (let ((org-link-parameters (copy-tree org-link-parameters))
+        (first (vulpea-test--create-temp-org-file
+                ":PROPERTIES:\n:ID: late-first\n:END:\n#+title: F\n"))
+        (second (vulpea-test--create-temp-org-file
+                 ":PROPERTIES:\n:ID: late-second\n:END:\n#+title: S\n\n[[vulpealate:target]]\n")))
+    (unwind-protect
+        (vulpea-test--with-temp-db
+          (vulpea-db)
+          ;; Spawn the worker before the type exists
+          (vulpea-db-worker-request first)
+          (vulpea-db-worker-test--wait)
+          (org-link-set-parameters "vulpealate")
+          (vulpea-db-worker-request second)
+          (vulpea-db-worker-test--wait)
+          (should (equal (mapcar (lambda (row) (list (nth 1 row) (nth 2 row)))
+                                 (plist-get (vulpea-db-worker-test--db-dump)
+                                            :links))
+                         '(("target" "vulpealate")))))
+      (vulpea-db-worker-stop)
+      (delete-file first)
+      (delete-file second))))
+
+(ert-deftest vulpea-db-worker-refreshes-settings-changed-in-place ()
+  "A mirrored setting changed in place reaches the live worker.
+Editing a list in place (say `setf' on an `alist-get') fires no
+variable watcher; comparing the whole settings message catches it."
+  (let ((org-link-abbrev-alist (list (cons "ddg" "https://a.example/%s")))
+        (first (vulpea-test--create-temp-org-file
+                ":PROPERTIES:\n:ID: inplace-first\n:END:\n#+title: F\n")))
+    (unwind-protect
+        (vulpea-test--with-temp-db
+          (vulpea-db)
+          (vulpea-db-worker-request first)
+          (vulpea-db-worker-test--wait)
+          (setcdr (car org-link-abbrev-alist) "https://b.example/%s")
+          (let ((sent nil)
+                (send (symbol-function 'vulpea-db-worker--send)))
+            (cl-letf (((symbol-function 'vulpea-db-worker--send)
+                       (lambda (form)
+                         (push form sent)
+                         (funcall send form))))
+              (vulpea-db-worker-refresh-if-changed)
+              (vulpea-db-worker-refresh-if-changed))
+            (should (= 1 (length sent)))
+            (should (equal (alist-get 'org-link-abbrev-alist
+                                      (nth 1 (car sent)))
+                           '(("ddg" . "https://b.example/%s"))))))
+      (vulpea-db-worker-stop)
+      (delete-file first))))
 
 (ert-deftest vulpea-db-worker-completion-resets-hang-counter ()
   "A successful completion proves liveness and resets the hang count."
@@ -1350,6 +1872,143 @@ https://github.com/d12frosted/vulpea/issues/457"
       (dolist (table '(:notes :tags :links :meta :properties))
         (should (equal (plist-get sync-dump table)
                        (plist-get async-dump table)))))))
+
+(defun vulpea-db-worker-test--drain-fallbacks ()
+  "Run the deferred synchronous fallbacks until none is left."
+  (let ((deadline (+ (float-time) 10)))
+    (while (and vulpea-db-worker--fallback-queue
+                (< (float-time) deadline))
+      (sit-for 0.01))))
+
+(ert-deftest vulpea-db-worker-error-falls-back-to-sync ()
+  "A file the worker fails on is indexed in the main process instead.
+The worker can fail where the session would not - a setting that
+names a function only the session defines, a package it does not
+load - and a failure must not leave the file out of the database.
+The fallback runs from a timer, not inside the reply handler, where
+quitting is inhibited and a burst of failures would parse file after
+file; the file then counts as applied."
+  (vulpea-db-worker-test--with-file
+      ":PROPERTIES:\n:ID: worker-error-note\n:END:\n#+title: E\n"
+    (vulpea-test--with-temp-db
+      (vulpea-db)
+      (let ((vulpea-db-worker--in-flight (list path))
+            (vulpea-db-worker--in-flight-tail nil)
+            (vulpea-db-worker--in-flight-count 1)
+            (vulpea-db-worker--reported-failures (make-hash-table :test #'equal))
+            (vulpea-db-worker--fallback-queue nil)
+            statuses)
+        (setq vulpea-db-worker--in-flight-tail vulpea-db-worker--in-flight)
+        (let ((vulpea-db-worker-done-functions
+               (list (lambda (_p status _c) (push status statuses))))
+              (inhibit-message t))
+          (vulpea-db-worker--dispatch `(error ,path "boom"))
+          (should-not (vulpea-db-get-by-id "worker-error-note"))
+          (vulpea-db-worker-test--drain-fallbacks))
+        (should (equal statuses '(applied)))
+        (should (vulpea-db-get-by-id "worker-error-note"))))))
+
+(ert-deftest vulpea-db-worker-error-reported-once ()
+  "The same worker failure is announced once, not per file.
+A setting that breaks the worker breaks it for every file using it,
+and a full scan must not print one line per file."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((paths (mapcar (lambda (i)
+                            (vulpea-test--create-temp-org-file
+                             (format ":PROPERTIES:\n:ID: once-%d\n:END:\n#+title: O\n" i)))
+                          '(1 2 3)))
+           (vulpea-db-worker--reported-failures (make-hash-table :test #'equal))
+           (vulpea-db-worker--fallback-queue nil)
+           (vulpea-db-worker--in-flight nil)
+           (vulpea-db-worker--in-flight-tail nil)
+           (vulpea-db-worker--in-flight-count 0)
+           (messages 0))
+      (unwind-protect
+          (cl-letf* ((orig (symbol-function 'message))
+                     ((symbol-function 'message)
+                      (lambda (fmt &rest args)
+                        (when (and fmt (string-match-p "worker failed" fmt))
+                          (setq messages (1+ messages)))
+                        (apply orig fmt args))))
+            (dolist (path paths)
+              (let ((vulpea-db-worker--in-flight (list path))
+                    (vulpea-db-worker--in-flight-tail nil))
+                (vulpea-db-worker--dispatch
+                 `(error ,path "Symbol's function definition is void: f"))))
+            (vulpea-db-worker-test--drain-fallbacks)
+            (should (= messages 1))
+            (dolist (i '(1 2 3))
+              (should (vulpea-db-get-by-id (format "once-%d" i)))))
+        (mapc #'delete-file paths)))))
+
+;;; Session vs worker comparison
+
+(ert-deftest vulpea-db-worker-compare-files-sees-heading-only-drift ()
+  "A difference only a heading carries is still reported.
+With tag inheritance turned off by a session-only hook, the file
+note keeps its own tags and only the heading's inherited ones move."
+  (vulpea-db-worker-test--with-file
+      ":PROPERTIES:\n:ID: head-file\n:END:\n#+title: F\n#+filetags: :ftag:\n\n* H\n:PROPERTIES:\n:ID: head-h\n:END:\n"
+    (let ((vulpea-db-parse-method 'temp-buffer)
+          (org-use-tag-inheritance t)
+          (org-mode-hook
+           (list (lambda () (setq-local org-use-tag-inheritance nil)))))
+      (let ((result (vulpea-db-worker-compare-files (list path))))
+        (should (equal (mapcar #'car result) (list path)))
+        (should (equal (cdar result) '(:tags)))))))
+
+(ert-deftest vulpea-db-worker-compare-files-sees-heading-count-drift ()
+  "A different number of heading notes is reported as :headings."
+  (vulpea-db-worker-test--with-file
+      ":PROPERTIES:\n:ID: count-file\n:END:\n#+title: F\n\n* H\n:PROPERTIES:\n:ID: count-h\n:END:\n"
+    (let ((vulpea-db-parse-method 'temp-buffer)
+          (vulpea-db-index-heading-level t)
+          (org-mode-hook
+           (list (lambda () (setq-local vulpea-db-index-heading-level nil)))))
+      (let ((result (vulpea-db-worker-compare-files (list path))))
+        (should (equal (mapcar #'car result) (list path)))
+        (should (memq :headings (cdar result)))))))
+
+(ert-deftest vulpea-db-worker-compare-files-agrees-by-default ()
+  "With nothing configured differently, worker and session agree."
+  (vulpea-db-worker-test--with-file
+      vulpea-db-extract-test--granularity-corpus
+    (let ((vulpea-db-parse-method 'temp-buffer)
+          (org-mode-hook nil))
+      (should (equal (vulpea-db-worker-compare-files (list path))
+                     nil)))))
+
+(ert-deftest vulpea-db-worker-compare-files-names-differing-fields ()
+  "A session-only setting shows up as the fields it changes.
+Here a mode hook the worker never runs sets the category, so every
+note's category (and where it came from) differs."
+  (vulpea-db-worker-test--with-file
+      ":PROPERTIES:\n:ID: cmp-file\n:END:\n#+title: F\n\n* H\n:PROPERTIES:\n:ID: cmp-h\n:END:\n"
+    (let ((vulpea-db-parse-method 'temp-buffer)
+          (org-mode-hook
+           (list (lambda () (setq-local org-category "from-hook")))))
+      (let ((result (vulpea-db-worker-compare-files (list path))))
+        (should (equal (mapcar #'car result) (list path)))
+        (should (memq :category (cdar result)))))))
+
+(ert-deftest vulpea-db-worker-compare-files-accepts-handed-back-files ()
+  "A file the worker hands back is not a difference.
+It is indexed in the session, so session and database agree."
+  (let ((org-link-abbrev-alist '(("fn" . vulpea-db-worker-test--abbrev-fn))))
+    (vulpea-db-worker-test--with-file
+        ":PROPERTIES:\n:ID: handed-back\n:END:\n#+title: H\n\n[[fn:target]]\n"
+      (let ((vulpea-db-parse-method 'temp-buffer)
+            (org-mode-hook nil))
+        (should (equal (vulpea-db-worker-compare-files (list path)) nil))))))
+
+(ert-deftest vulpea-db-worker-compare-files-reports-errors ()
+  "A file that cannot be compared is reported, not fatal."
+  (let ((missing (expand-file-name "vulpea-no-such-file.org"
+                                   temporary-file-directory)))
+    (let ((result (vulpea-db-worker-compare-files (list missing))))
+      (should (equal (mapcar #'car result) (list missing)))
+      (should (stringp (cdar result))))))
 
 (provide 'vulpea-db-worker-test)
 ;;; vulpea-db-worker-test.el ends here

@@ -480,17 +480,18 @@ M-x vulpea-db-sync-update-directory
 
 * Async Extraction (the worker process)
 
-Everything above describes scheduling: queues, timers, batching. By
-default the *work* - reading, hashing, parsing, extraction, database
-write - still runs on the main thread when a timer fires. Async
-extraction moves it into a persistent =emacs --batch= subprocess.
+Everything above describes scheduling: queues, timers, batching. Without
+async extraction the *work* - reading, hashing, parsing, extraction,
+database write - runs on the main thread when a timer fires. Async
+extraction (on by default) moves it into a persistent =emacs --batch=
+subprocess.
 
 ** Modes
 
 | =vulpea-db-async-extraction= | parse    | db write | main thread blocks for       |
 |------------------------------+----------+----------+------------------------------|
-| =nil= (default)              | main     | main     | everything                   |
-| =t=                          | worker   | main     | db write of results          |
+| =nil=                        | main     | main     | everything                   |
+| =t= (default)                | worker   | main     | db write of results          |
 | ='full=                      | worker   | worker   | org-id registration (~1ms)   |
 
 ** How a file flows through the worker
@@ -514,7 +515,13 @@ extraction moves it into a persistent =emacs --batch= subprocess.
 
 The worker mirrors an allowlist of settings (kept current through
 variable watchers) and does not run =org-mode-hook= - the same
-trade-off as =vulpea-db-parse-method= ='single-temp-buffer=. Files it
+trade-off as =vulpea-db-parse-method= ='single-temp-buffer=; =M-x
+vulpea-doctor= reports hook functions that change settings
+extraction reads. A test requires every =vulpea-db-*= and
+=vulpea-buffer-*= option, and every option the worker's code names,
+to be either mirrored or listed in
+=vulpea-db-worker--settings-not-mirrored=; org settings read inside
+org itself are pinned by hand. Files it
 cannot handle faithfully take the synchronous path automatically:
 non-.org files, function-valued =vulpea-db-index-heading-level=, and
 extractor plugins declaring =:requires-ast t= (see the plugin guide

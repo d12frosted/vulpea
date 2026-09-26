@@ -456,5 +456,535 @@ declare their intent; the doctor names the extractor and both options."
       (should-not (string-match-p "will NOT use the worker"
                                   (vulpea-doctor))))))
 
+;;; Mode hooks vs the worker
+
+(defun vulpea-doctor-test--hook-issue (hooks &rest bindings)
+  "Return the mode-hook issue the doctor raises, or nil.
+HOOKS is an alist of (HOOK-VARIABLE . FUNCTIONS) installed as global
+hook values; the other mode hooks org runs are emptied.  BINDINGS is
+a plist overriding the async mode (:async), parse method
+\(:parse-method) and sync directories (:dirs); the first two default
+to the shipped defaults."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((org-mode-hook (alist-get 'org-mode-hook hooks))
+          (outline-mode-hook (alist-get 'outline-mode-hook hooks))
+          (text-mode-hook (alist-get 'text-mode-hook hooks))
+          (vulpea-db-sync-directories (plist-get bindings :dirs))
+          (enable-local-variables :all)
+          (vulpea-db-async-extraction
+           (if (plist-member bindings :async) (plist-get bindings :async) t))
+          (vulpea-db-parse-method
+           (or (plist-get bindings :parse-method) 'temp-buffer))
+          (vulpea-db--extractors nil)
+          (vulpea-db-index-heading-level t)
+          (vulpea-db-worker--broken nil))
+      (seq-find (lambda (i) (string-match-p "mode hooks" i))
+                (vulpea-doctor--issues)))))
+
+(defun vulpea-doctor-test--set-tag-inheritance ()
+  "Stand-in for a user hook that changes what extraction reads."
+  (setq-local org-use-tag-inheritance nil))
+
+(defun vulpea-doctor-test--local-todo-keywords ()
+  "Stand-in for a hook org itself ignores.
+`org-set-regexps-and-options' reads the default value of
+`org-todo-keywords', so a buffer-local one changes no parse."
+  (setq-local org-todo-keywords '((sequence "TODO" "WAITING" "|" "DONE"))))
+
+(defun vulpea-doctor-test--guarded-tag-inheritance ()
+  "The same hook, skipped while vulpea parses."
+  (unless (bound-and-true-p vulpea-db--active-parse-method)
+    (setq-local org-use-tag-inheritance nil)))
+
+(defun vulpea-doctor-test--cosmetic ()
+  "Stand-in for a user hook that only touches display settings."
+  (setq-local fill-column 72)
+  (visual-line-mode 1))
+
+(defun vulpea-doctor-test--broken ()
+  "Stand-in for a user hook that signals."
+  (error "Boom"))
+
+(ert-deftest vulpea-doctor-flags-hook-changing-extraction-setting ()
+  "A hook setting something extraction reads is named with its setting.
+The issue explains the drift and the ways out."
+  (let ((issue (vulpea-doctor-test--hook-issue
+                `((org-mode-hook vulpea-doctor-test--cosmetic
+                                 vulpea-doctor-test--set-tag-inheritance)))))
+    (should issue)
+    (should (string-match-p "`org-use-tag-inheritance'" issue))
+    (should (string-match-p "`vulpea-doctor-test--set-tag-inheritance'" issue))
+    (should-not (string-match-p "vulpea-doctor-test--cosmetic" issue))
+    (should (string-match-p "#\\+TODO" issue))
+    (should (string-match-p (regexp-quote "(setq vulpea-db-async-extraction nil)")
+                            issue))))
+
+(ert-deftest vulpea-doctor-flags-anonymous-and-parent-mode-hooks ()
+  "Anonymous functions and the parent mode hooks org runs count too."
+  (let ((issue (vulpea-doctor-test--hook-issue
+                `((text-mode-hook
+                   ,(lambda () (setq-local org-category "from-hook")))))))
+    (should issue)
+    (should (string-match-p "`org-category'" issue))
+    (should (string-match-p "an anonymous function" issue))))
+
+(ert-deftest vulpea-doctor-no-hook-issue-for-display-hooks ()
+  "Hooks that leave extraction settings alone raise nothing.
+Includes org's own default hook functions."
+  (should-not (vulpea-doctor-test--hook-issue
+               `((org-mode-hook ,@(default-value 'org-mode-hook)
+                                vulpea-doctor-test--cosmetic
+                                org-indent-mode)))))
+
+(ert-deftest vulpea-doctor-no-hook-issue-when-guarded ()
+  "A hook guarded with `vulpea-db--active-parse-method' is consistent."
+  (should-not (vulpea-doctor-test--hook-issue
+               '((org-mode-hook vulpea-doctor-test--guarded-tag-inheritance)))))
+
+(ert-deftest vulpea-doctor-no-hook-issue-when-empty ()
+  "Empty hooks give the worker nothing to miss."
+  (should-not (vulpea-doctor-test--hook-issue nil)))
+
+(ert-deftest vulpea-doctor-no-hook-issue-when-async-off ()
+  "With async off every file runs the hooks, so nothing differs."
+  (should-not (vulpea-doctor-test--hook-issue
+               '((org-mode-hook vulpea-doctor-test--set-tag-inheritance))
+               :async nil)))
+
+(ert-deftest vulpea-doctor-no-hook-issue-with-single-temp-buffer ()
+  "`single-temp-buffer' skips the hooks in the session too."
+  (should-not (vulpea-doctor-test--hook-issue
+               '((org-mode-hook vulpea-doctor-test--set-tag-inheritance))
+               :parse-method 'single-temp-buffer)))
+
+(ert-deftest vulpea-doctor-hook-check-survives-failing-hook ()
+  "A hook function that signals does not break the doctor."
+  (let ((issue (vulpea-doctor-test--hook-issue
+                '((org-mode-hook vulpea-doctor-test--broken
+                                 vulpea-doctor-test--set-tag-inheritance)))))
+    (should issue)
+    (should (string-match-p "vulpea-doctor-test--set-tag-inheritance" issue))))
+
+(defun vulpea-doctor-test--set-todo-keywords-globally ()
+  "Stand-in for a hook that sets TODO keywords globally and applies them."
+  (setq org-todo-keywords '((sequence "TODO" "WAITING" "|" "DONE")))
+  (org-set-regexps-and-options))
+
+(defun vulpea-doctor-test--deferred-tag-inheritance ()
+  "Stand-in for a hook deferring work to local variables, like Doom."
+  (add-hook 'hack-local-variables-hook
+            #'vulpea-doctor-test--set-tag-inheritance nil t))
+
+(defun vulpea-doctor-test--set-category ()
+  "Stand-in for a hook setting the category."
+  (setq-local org-category "from-hook"))
+
+(ert-deftest vulpea-doctor-hook-check-accepts-single-function-hook ()
+  "A hook whose value is one function, not a list, is probed too."
+  (let ((issue (vulpea-doctor-test--hook-issue
+                '((org-mode-hook . vulpea-doctor-test--set-tag-inheritance)))))
+    (should issue)
+    (should (string-match-p "vulpea-doctor-test--set-tag-inheritance" issue))))
+
+(ert-deftest vulpea-doctor-hook-check-blames-only-global-setter ()
+  "A hook setting a value globally is blamed alone and undone.
+Later hook functions must not inherit the blame, and the doctor
+must leave the global value as it found it."
+  (let* ((before (default-value 'org-todo-keywords))
+         (issue (vulpea-doctor-test--hook-issue
+                 '((org-mode-hook vulpea-doctor-test--set-todo-keywords-globally
+                                  vulpea-doctor-test--cosmetic)))))
+    (should issue)
+    (should (string-match-p "vulpea-doctor-test--set-todo-keywords-globally"
+                            issue))
+    (should (string-match-p "`org-todo-keywords'" issue))
+    (should-not (string-match-p "vulpea-doctor-test--cosmetic" issue))
+    (should (equal (default-value 'org-todo-keywords) before))))
+
+(ert-deftest vulpea-doctor-hook-check-sees-deferred-work ()
+  "Work a hook defers to `hack-local-variables-hook' is caught."
+  (let ((issue (vulpea-doctor-test--hook-issue
+                '((org-mode-hook vulpea-doctor-test--deferred-tag-inheritance)))))
+    (should issue)
+    (should (string-match-p "vulpea-doctor-test--deferred-tag-inheritance"
+                            issue))))
+
+(ert-deftest vulpea-doctor-hook-check-respects-dir-locals ()
+  "A hook value that dir-locals override everywhere is harmless.
+Dir-locals apply after the mode hooks, in the session and in the
+worker alike, so the indexed value is the dir-local one either way."
+  (let ((dir (make-temp-file "vulpea-doctor-dirlocals-" t)))
+    (unwind-protect
+        (progn
+          (with-temp-file (expand-file-name ".dir-locals.el" dir)
+            (prin1 '((org-mode . ((org-category . "from-dir-locals"))))
+                   (current-buffer)))
+          (should-not (vulpea-doctor-test--hook-issue
+                       '((org-mode-hook vulpea-doctor-test--set-category))
+                       :dirs (list dir))))
+      (delete-directory dir t))))
+
+(ert-deftest vulpea-doctor-no-hook-issue-for-settings-org-ignores ()
+  "A buffer-local `org-todo-keywords' changes no parse, so no issue.
+Org derives the TODO regexps from the default value when the mode
+starts; comparing the raw variable would cry wolf."
+  (should-not (vulpea-doctor-test--hook-issue
+               '((org-mode-hook vulpea-doctor-test--local-todo-keywords)))))
+
+(defun vulpea-doctor-test--load-late-setting ()
+  "Stand-in for a hook that loads a library defining a setting.
+Loading `org-attach' from a hook does exactly this for its options."
+  (unless (boundp 'vulpea-doctor-test--late-setting)
+    (set-default 'vulpea-doctor-test--late-setting "from-library")))
+
+(ert-deftest vulpea-doctor-hook-check-leaves-new-settings-alone ()
+  "A setting a hook's library defines is neither blamed nor clobbered.
+Before the probe it was unbound, so there is nothing to compare it
+with and nothing to restore; writing nil over it would break the
+library (for org-attach, the worker would get a nil attach dir)."
+  (unwind-protect
+      (let ((vulpea-db-worker--settings-vars
+             (cons 'vulpea-doctor-test--late-setting
+                   vulpea-db-worker--settings-vars)))
+        (should-not (vulpea-doctor-test--hook-issue
+                     '((org-mode-hook vulpea-doctor-test--load-late-setting))))
+        (should (equal (default-value 'vulpea-doctor-test--late-setting)
+                       "from-library")))
+    (makunbound 'vulpea-doctor-test--late-setting)))
+
+(defvar vulpea-doctor-test--doomed-setting "original"
+  "A mirrored setting a hook unbinds, for the restore test.")
+
+(defun vulpea-doctor-test--unbind-setting ()
+  "Stand-in for a hook that unbinds a setting."
+  (makunbound 'vulpea-doctor-test--doomed-setting))
+
+(ert-deftest vulpea-doctor-hook-check-survives-unbinding-hook ()
+  "A hook that unbinds a setting neither crashes the doctor nor
+leaves the setting unbound."
+  (let ((vulpea-db-worker--settings-vars
+         (cons 'vulpea-doctor-test--doomed-setting
+               vulpea-db-worker--settings-vars)))
+    (vulpea-doctor-test--hook-issue
+     '((org-mode-hook vulpea-doctor-test--unbind-setting)))
+    (should (equal (default-value 'vulpea-doctor-test--doomed-setting)
+                   "original"))))
+
+;;; Session vs worker consistency
+
+(defmacro vulpea-doctor-test--with-indexed-file (content &rest body)
+  "Run BODY with CONTENT indexed and async extraction eligible.
+Mode hooks are emptied; BODY binds them as needed."
+  (declare (indent 1))
+  `(vulpea-test--with-temp-db-and-file "consistency-file" ,content
+     (let ((vulpea-db-async-extraction t)
+           (vulpea-db-parse-method 'temp-buffer)
+           (vulpea-db--extractors nil)
+           (vulpea-db-index-heading-level t)
+           (vulpea-db-worker--broken nil)
+           (vulpea-db-worker--crash-times nil)
+           (vulpea-db-sync-directories nil)
+           (org-mode-hook nil)
+           (outline-mode-hook nil)
+           (text-mode-hook nil))
+       ,@body)))
+
+(ert-deftest vulpea-doctor-flags-files-the-worker-indexes-differently ()
+  "Sampled files that index differently in the worker are named.
+The check compares outcomes, so it catches causes no list predicts."
+  (vulpea-doctor-test--with-indexed-file "#+title: C\n"
+    (let* ((org-mode-hook (list (lambda () (setq-local org-category "hooked"))))
+           (issue (seq-find (lambda (i) (string-match-p "sampled files" i))
+                            (vulpea-doctor--issues))))
+      (should issue)
+      (should (string-match-p (regexp-quote (file-name-nondirectory temp-org-file))
+                              issue))
+      (should (string-match-p ":category" issue))
+      (should (string-match-p (regexp-quote "(setq vulpea-db-async-extraction nil)")
+                              issue)))))
+
+(ert-deftest vulpea-doctor-reports-consistent-sample ()
+  "A clean setup raises no issue and says how much was checked.
+The comparison spawns a worker, so one report runs it once."
+  (vulpea-doctor-test--with-indexed-file "#+title: C\n"
+    (let* ((calls 0)
+           (compare (symbol-function 'vulpea-db-worker-compare-files))
+           (report (cl-letf (((symbol-function 'vulpea-db-worker-compare-files)
+                              (lambda (paths)
+                                (setq calls (1+ calls))
+                                (funcall compare paths))))
+                     (vulpea-doctor))))
+      (should (= calls 1))
+      (should-not (string-match-p "sampled files" report))
+      (should (string-match-p "session vs worker +1 sampled, all match" report)))))
+
+(ert-deftest vulpea-doctor-skips-consistency-when-async-off ()
+  "With async extraction off there is nothing to compare."
+  (vulpea-doctor-test--with-indexed-file "#+title: C\n"
+    (let* ((vulpea-db-async-extraction nil)
+           (org-mode-hook (list (lambda () (setq-local org-category "hooked"))))
+           (report (vulpea-doctor)))
+      (should-not (string-match-p "sampled files" report))
+      (should (string-match-p "session vs worker +n/a" report)))))
+
+(ert-deftest vulpea-doctor-consistency-skips-visited-files ()
+  "Files open in a buffer are left out of the sample.
+Parsing with `find-file' reuses and then kills a visiting buffer,
+and an unsaved one would compare its edits against the file."
+  (vulpea-doctor-test--with-indexed-file "#+title: C\n"
+    (let* ((vulpea-db-parse-method 'find-file)
+           (buffer (find-file-noselect temp-org-file)))
+      (unwind-protect
+          (progn
+            (should-not (member temp-org-file
+                                (vulpea-doctor--consistency-sample)))
+            (should (string-match-p "session vs worker +nothing to sample"
+                                    (vulpea-doctor)))
+            (should (buffer-live-p buffer)))
+        (when (buffer-live-p buffer)
+          (kill-buffer buffer))))))
+
+(defmacro vulpea-doctor-test--with-worker-command (form &rest body)
+  "Run BODY with the worker replaced by an Emacs evaluating FORM."
+  (declare (indent 1))
+  `(cl-letf (((symbol-function 'vulpea-db-worker--command)
+              (lambda ()
+                (list (expand-file-name invocation-name invocation-directory)
+                      "--batch" "-Q" "--eval" ,form))))
+     ,@body))
+
+(ert-deftest vulpea-doctor-consistency-reports-broken-worker ()
+  "A worker that dies on startup is a failure, not drift.
+Otherwise every sampled file comes back without a result and the
+doctor blames the user's setup for a broken worker.  The report
+keeps to one line: the last line of the worker's output, which is
+where batch Emacs prints the error after any backtrace."
+  (vulpea-doctor-test--with-indexed-file "#+title: C\n"
+    (vulpea-doctor-test--with-worker-command
+        "(progn (message \"frame one\nframe two\") (message \"worker exploded\") (kill-emacs 3))"
+      (let ((report (vulpea-doctor)))
+        (should (string-match-p "session vs worker +FAILED: [^\n]*worker exploded" report))
+        (should-not (string-match-p "frame one" report))
+        (should (string-match-p "worker used for the comparison failed" report))
+        (should-not (string-match-p "sampled files differently" report))))))
+
+(ert-deftest vulpea-doctor-consistency-reports-silent-worker ()
+  "A worker that exits cleanly without answering says so."
+  (vulpea-doctor-test--with-indexed-file "#+title: C\n"
+    (vulpea-doctor-test--with-worker-command "(kill-emacs 0)"
+      (should (string-match-p "session vs worker +FAILED: the worker exited without answering"
+                              (vulpea-doctor))))))
+
+(ert-deftest vulpea-doctor-consistency-sample-respects-budget ()
+  "The sample stops at the total size budget.
+Each sampled file is parsed twice while the doctor blocks Emacs, so
+the cost has to stay bounded however large the files are."
+  (vulpea-doctor-test--with-indexed-file "#+title: C\n"
+    (let ((extra (mapcar (lambda (i)
+                           (let ((path (vulpea-test--create-temp-org-file
+                                        (format ":PROPERTIES:\n:ID: budget-%d\n:END:\n#+title: B%d\n"
+                                                i i))))
+                             (vulpea-db-update-file path)
+                             path))
+                         '(1 2))))
+      (unwind-protect
+          (let ((vulpea-doctor--consistency-max-total 60))
+            (should (= 1 (length (vulpea-doctor--consistency-sample)))))
+        (mapc #'delete-file extra)))))
+
+(ert-deftest vulpea-doctor-flags-outline-mode-hook ()
+  "Functions on `outline-mode-hook' run for org buffers too."
+  (let ((issue (vulpea-doctor-test--hook-issue
+                '((outline-mode-hook vulpea-doctor-test--set-tag-inheritance)))))
+    (should issue)
+    (should (string-match-p "vulpea-doctor-test--set-tag-inheritance" issue))))
+
+(ert-deftest vulpea-doctor-consistency-sample-selection ()
+  "The sample prefers recent files and skips what it cannot compare.
+Non-.org files, missing files and files over the size limit stay out;
+the most recently modified file is always in."
+  (vulpea-test--with-temp-db
+    (let* ((db (vulpea-db))
+           ;; Whether the worker takes a file must not depend on what
+           ;; earlier tests left in the crash bookkeeping
+           (vulpea-db-worker--broken nil)
+           (vulpea-db-worker--crash-times nil)
+           (vulpea-db--extractors nil)
+           (vulpea-db-index-heading-level t)
+           (paths (mapcar (lambda (i)
+                            (vulpea-test--create-temp-org-file
+                             (format ":PROPERTIES:\n:ID: pick-%d\n:END:\n" i)))
+                          '(1 2 3)))
+           (vulpea-doctor--consistency-sample-size 2))
+      (unwind-protect
+          (progn
+            (cl-loop for path in paths
+                     for mtime in '(100 200 300)
+                     do (emacsql db [:insert :into files :values $v1]
+                                 (vector path "h" mtime 10)))
+            (emacsql db [:insert :into files :values $v1]
+                     (vector "/tmp/vulpea-pick.txt" "h" 900 10))
+            (emacsql db [:insert :into files :values $v1]
+                     (vector "/tmp/vulpea-pick-missing.org" "h" 900 10))
+            (let ((big (vulpea-test--create-temp-org-file
+                        ":PROPERTIES:\n:ID: pick-big\n:END:\n")))
+              (push big paths)
+              (emacsql db [:insert :into files :values $v1]
+                       (vector big "h" 999 (* 10 1024 1024))))
+            (dotimes (_ 10)
+              (let ((sample (vulpea-doctor--consistency-sample)))
+                (should (= (length sample) 2))
+                (should (member (nth 3 paths) sample))
+                (should-not (member (car paths) sample))
+                (should-not (seq-some (lambda (p) (string-prefix-p "/tmp/vulpea-pick" p))
+                                      sample)))))
+        (mapc #'delete-file paths)))))
+
+(defun vulpea-doctor-test--set-parse-method ()
+  "Stand-in for a hook setting a setting read outside the parse buffer."
+  (setq-local vulpea-db-parse-method 'find-file)
+  (setq-local vulpea-db-path-normalization nil))
+
+(ert-deftest vulpea-doctor-no-hook-issue-for-settings-read-outside ()
+  "Settings read before the parse buffer exists cannot drift by hook.
+`vulpea-db-parse-method' picks the buffer and path normalization
+keys the database, both outside the buffer a hook runs in."
+  (should-not (vulpea-doctor-test--hook-issue
+               '((org-mode-hook vulpea-doctor-test--set-parse-method)))))
+
+(ert-deftest vulpea-doctor-asks-for-report-only-without-hook ()
+  "Drift with reported hooks points at them first; other drift asks
+for a report straight away."
+  (vulpea-doctor-test--with-indexed-file "#+title: C\n"
+    (let* ((org-mode-hook (list #'vulpea-doctor-test--set-category))
+           (issue (seq-find (lambda (i) (string-match-p "sampled files" i))
+                            (vulpea-doctor--issues))))
+      (should issue)
+      (should (string-match-p "hook functions reported above" issue))
+      ;; The hooks may not explain every field; a difference that
+      ;; outlives dealing with them is still worth a report
+      (should (string-match-p "if the difference stays, please report" issue)))
+    (let* ((title-fn (symbol-function 'vulpea-db--extract-file-title))
+           (issue (cl-letf (((symbol-function 'vulpea-db--extract-file-title)
+                             (lambda (&rest args)
+                               (concat "session " (apply title-fn args)))))
+                    (seq-find (lambda (i) (string-match-p "sampled files" i))
+                              (vulpea-doctor--issues)))))
+      (should issue)
+      (should (string-match-p "please report" issue)))))
+
+(ert-deftest vulpea-doctor-explains-custom-attach-path-functions ()
+  "The doctor says why custom attach path functions bypass the worker."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((vulpea-db-async-extraction t)
+           (vulpea-db--extractors nil)
+           (vulpea-db-index-heading-level t)
+           (vulpea-db-worker--broken nil)
+           (org-attach-id-to-path-function-list (list (lambda (id) id)))
+           (issue (seq-find (lambda (i) (string-match-p "will NOT use the worker" i))
+                            (vulpea-doctor--issues))))
+      (should issue)
+      (should (string-match-p "org-attach-id-to-path-function-list" issue)))))
+
+(ert-deftest vulpea-doctor-consistency-sample-checks-only-candidates ()
+  "Expensive per-file checks run on the files being picked, not all rows.
+`find-buffer-visiting' and friends touch the file system; on a
+database with 100k files they took seconds before sampling."
+  (vulpea-test--with-temp-db
+    (let* ((db (vulpea-db))
+           ;; Whether the worker takes a file must not depend on what
+           ;; earlier tests left in the crash bookkeeping
+           (vulpea-db-worker--broken nil)
+           (vulpea-db-worker--crash-times nil)
+           (vulpea-db--extractors nil)
+           (vulpea-db-index-heading-level t)
+           (paths (mapcar (lambda (i)
+                            (vulpea-test--create-temp-org-file
+                             (format ":PROPERTIES:\n:ID: cheap-%d\n:END:\n" i)))
+                          (number-sequence 1 50)))
+           (vulpea-doctor--consistency-sample-size 2)
+           (checks 0))
+      (unwind-protect
+          (progn
+            (cl-loop for path in paths
+                     for mtime from 1
+                     do (emacsql db [:insert :into files :values $v1]
+                                 (vector path "h" mtime 10)))
+            (cl-letf* ((visiting (symbol-function 'find-buffer-visiting))
+                       ((symbol-function 'find-buffer-visiting)
+                        (lambda (&rest args)
+                          (setq checks (1+ checks))
+                          (apply visiting args))))
+              (should (= 2 (length (vulpea-doctor--consistency-sample))))
+              (should (<= checks 4))))
+        (mapc #'delete-file paths)))))
+
+(ert-deftest vulpea-doctor-does-not-prompt-for-local-variables ()
+  "The doctor never asks about risky local variables.
+It enters `org-mode' once per hook function and once per sampled
+file; with `enable-local-variables' t and a risky dir-local that
+would be a prompt each time."
+  (let ((dir (make-temp-file "vulpea-doctor-prompt-" t)))
+    (unwind-protect
+        (vulpea-doctor-test--with-indexed-file "#+title: C\n"
+          (with-temp-file (expand-file-name ".dir-locals.el" dir)
+            (prin1 '((org-mode . ((eval . (setq-local fill-column 50))
+                                  (org-category . "dl"))))
+                   (current-buffer)))
+          (let* ((vulpea-db-sync-directories (list dir))
+                 (enable-local-variables t)
+                 (org-mode-hook (list #'vulpea-doctor-test--cosmetic))
+                 (prompts 0))
+            (cl-letf (((symbol-function 'hack-local-variables-confirm)
+                       (lambda (&rest _) (setq prompts (1+ prompts)) nil)))
+              (vulpea-doctor))
+            (should (= prompts 0))))
+      (delete-directory dir t))))
+
+(ert-deftest vulpea-doctor-consistency-budget-keeps-random-half ()
+  "Recent files cannot take the whole budget from the random half.
+The random half is what reaches files nobody touched lately."
+  (vulpea-test--with-temp-db
+    (let* ((db (vulpea-db))
+           ;; Whether the worker takes a file must not depend on what
+           ;; earlier tests left in the crash bookkeeping
+           (vulpea-db-worker--broken nil)
+           (vulpea-db-worker--crash-times nil)
+           (vulpea-db--extractors nil)
+           (vulpea-db-index-heading-level t)
+           (paths (mapcar (lambda (i)
+                            (vulpea-test--create-temp-org-file
+                             (format ":PROPERTIES:\n:ID: budget-mix-%d\n:END:\n" i)))
+                          '(1 2 3 4 5 6)))
+           (vulpea-doctor--consistency-sample-size 4)
+           (vulpea-doctor--consistency-max-total 600))
+      (unwind-protect
+          (progn
+            (cl-loop for path in paths
+                     for mtime in '(900 800 30 20 10 5)
+                     do (emacsql db [:insert :into files :values $v1]
+                                 (vector path "h" mtime 300)))
+            (let ((sample (vulpea-doctor--consistency-sample)))
+              (should (= 2 (length sample)))
+              (should (member (nth 0 paths) sample))
+              (should (seq-some (lambda (p) (member p (nthcdr 2 paths)))
+                                sample))))
+        (mapc #'delete-file paths)))))
+
+(defun vulpea-doctor-test--set-local-abbrevs ()
+  "Stand-in for a hook adding link abbreviations to one buffer."
+  (setq-local org-link-abbrev-alist-local '(("hk" . "https://hk.example/%s"))))
+
+(ert-deftest vulpea-doctor-flags-hook-setting-local-link-abbrevs ()
+  "A hook setting buffer-local link abbreviations is named.
+`org-link-abbrev-alist-local' is never mirrored - it only exists in
+buffers - yet it changes how links are indexed."
+  (let ((issue (vulpea-doctor-test--hook-issue
+                '((org-mode-hook vulpea-doctor-test--set-local-abbrevs)))))
+    (should issue)
+    (should (string-match-p "org-link-abbrev-alist-local" issue))))
+
 (provide 'vulpea-doctor-test)
 ;;; vulpea-doctor-test.el ends here
