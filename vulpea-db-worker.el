@@ -289,6 +289,18 @@ An alist of (SYMBOL . REASON).  Each entry is a vulpea option or an
 option named in the worker's code that does not change what the
 worker extracts or writes.")
 
+(defun vulpea-db-worker--portable-link-abbrevs (abbrevs)
+  "Return ABBREVS, an `org-link-abbrev-alist', ready for the worker.
+An abbreviation that expands through a function needs that function,
+which exists only in the session; it is sent by name, as
+`:vulpea-session-function', so the worker can hand the files using
+it back instead of expanding the link differently."
+  (mapcar (lambda (entry)
+            (if (stringp (cdr entry))
+                entry
+              (cons (car entry) :vulpea-session-function)))
+          abbrevs))
+
 (defun vulpea-db-worker--settings-form ()
   "Build the settings message for the worker.
 
@@ -307,6 +319,8 @@ cases."
       ;; to symbol-value.
       (when (default-boundp sym)
         (let ((value (default-value sym)))
+          (when (eq sym 'org-link-abbrev-alist)
+            (setq value (vulpea-db-worker--portable-link-abbrevs value)))
           (when (vulpea-db-worker--printable-p value)
             (push (cons sym value) vars)))))
     `(settings ,(nreverse vars) ,(org-link-types)
@@ -1158,6 +1172,36 @@ and rebuilds the database file on a schema version mismatch, which
 would destroy the main process's data from underneath it.  While set,
 `parse-and-write' requests fall back to streaming results.")
 
+(defvar vulpea-db-worker--session-abbrev-tags nil
+  "Link abbreviations that expand through a function of the session.
+Worker side; see `vulpea-db-worker--portable-link-abbrevs'.")
+
+(defun vulpea-db-worker--apply-session-abbrevs ()
+  "Split session-only link abbreviations out of `org-link-abbrev-alist'.
+Worker side: keeps the portable ones for org and remembers the others
+in `vulpea-db-worker--session-abbrev-tags'."
+  (when (boundp 'org-link-abbrev-alist)
+    (setq vulpea-db-worker--session-abbrev-tags
+          (mapcar #'car (seq-filter
+                         (lambda (entry)
+                           (eq (cdr entry) :vulpea-session-function))
+                         (default-value 'org-link-abbrev-alist))))
+    (set-default 'org-link-abbrev-alist
+                 (seq-remove (lambda (entry)
+                               (eq (cdr entry) :vulpea-session-function))
+                             (default-value 'org-link-abbrev-alist)))))
+
+(defun vulpea-db-worker--session-abbrev-used-p (path)
+  "Return non-nil when PATH links through a session-only abbreviation."
+  (when vulpea-db-worker--session-abbrev-tags
+    (with-temp-buffer
+      (insert-file-contents path)
+      (let ((case-fold-search nil))
+        (re-search-forward
+         (concat "\\[\\[" (regexp-opt vulpea-db-worker--session-abbrev-tags)
+                 "[]:]")
+         nil t)))))
+
 (defun vulpea-db-worker--apply-settings (vars link-types extractors
                                               &optional db-constants)
   "Set allowlisted VARS, register LINK-TYPES and EXTRACTORS here.
@@ -1177,6 +1221,7 @@ this worker."
   ;; is current here, invisible to the parse buffers extraction uses.
   (pcase-dolist (`(,sym . ,value) vars)
     (set-default sym value))
+  (vulpea-db-worker--apply-session-abbrevs)
   ;; With t, one variable the worker does not know to be safe (packages
   ;; mark theirs with a property, and the worker does not load them)
   ;; sends the whole set to a prompt, which batch answers with no.  The
@@ -1406,6 +1451,18 @@ writes protocol lines to stdout.  Exits when stdin closes."
         (`(settings ,vars ,link-types ,extractors ,db-constants)
          (vulpea-db-worker--apply-settings vars link-types extractors
                                            db-constants))
+        ;; A file linking through a session-only abbreviation goes
+        ;; back to the main process, which indexes it synchronously
+        ((and `(,(or 'parse 'parse-and-write) ,path . ,_)
+              (guard (ignore-errors
+                       (vulpea-db-worker--session-abbrev-used-p path))))
+         (vulpea-db-worker--reply
+          `(error ,path
+                  ,(format "it links through %s, which expands with a function from your session"
+                           (string-join
+                            (mapcar (lambda (tag) (format "[[%s:...]]" tag))
+                                    vulpea-db-worker--session-abbrev-tags)
+                            ", ")))))
         (`(parse ,path)
          (vulpea-db-worker--handle-parse path))
         (`(parse-and-write ,path ,db ,force)
