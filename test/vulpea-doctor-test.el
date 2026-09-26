@@ -984,7 +984,24 @@ buffers - yet it changes how links are indexed."
   (let ((issue (vulpea-doctor-test--hook-issue
                 '((org-mode-hook vulpea-doctor-test--set-local-abbrevs)))))
     (should issue)
-    (should (string-match-p "org-link-abbrev-alist-local" issue))))
+    (should (string-match-p "org-link-abbrev-alist-local" issue))
+    ;; Setting it globally would not reach the worker; the advice must
+    ;; point at what does
+    (should (string-match-p "`org-link-abbrev-alist' or #\\+LINK:" issue))))
+
+(defun vulpea-doctor-test--set-default-local-abbrevs ()
+  "Stand-in for a hook setting the global link abbreviations of buffers."
+  (setq-default org-link-abbrev-alist-local '(("hg" . "https://hg.example/%s"))))
+
+(ert-deftest vulpea-doctor-hook-check-restores-buffer-local-settings ()
+  "Probing leaves the global value of buffer-local settings as it was."
+  (let ((before (default-value 'org-link-abbrev-alist-local)))
+    (unwind-protect
+        (progn
+          (vulpea-doctor-test--hook-issue
+           '((org-mode-hook vulpea-doctor-test--set-default-local-abbrevs)))
+          (should (equal (default-value 'org-link-abbrev-alist-local) before)))
+      (set-default 'org-link-abbrev-alist-local before))))
 
 (ert-deftest vulpea-doctor-summary-counts-files-indexed-in-session ()
   "The summary says how many sampled files the session indexes itself.
