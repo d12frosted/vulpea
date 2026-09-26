@@ -1983,6 +1983,16 @@ note's category (and where it came from) differs."
         (should (equal (mapcar #'car result) (list path)))
         (should (memq :category (cdar result)))))))
 
+(ert-deftest vulpea-db-worker-compare-files-accepts-handed-back-files ()
+  "A file the worker hands back is not a difference.
+It is indexed in the session, so session and database agree."
+  (let ((org-link-abbrev-alist '(("fn" . vulpea-db-worker-test--abbrev-fn))))
+    (vulpea-db-worker-test--with-file
+        ":PROPERTIES:\n:ID: handed-back\n:END:\n#+title: H\n\n[[fn:target]]\n"
+      (let ((vulpea-db-parse-method 'temp-buffer)
+            (org-mode-hook nil))
+        (should (equal (vulpea-db-worker-compare-files (list path)) nil))))))
+
 (ert-deftest vulpea-db-worker-compare-files-reports-errors ()
   "A file that cannot be compared is reported, not fatal."
   (let ((missing (expand-file-name "vulpea-no-such-file.org"

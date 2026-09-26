@@ -1027,6 +1027,16 @@ file behind it."
                         "Check :worker-lib on the extractor definition.")
                 missing)
         :warning)))
+    (`(handback ,path ,reason)
+     ;; Not a failure: the file needs something only the session has
+     (setq vulpea-db-worker--current nil)
+     (vulpea-db-worker--forget path)
+     (vulpea-db-worker--log "handback %s: %s" path reason)
+     (unless (gethash reason vulpea-db-worker--reported-failures)
+       (puthash reason t vulpea-db-worker--reported-failures)
+       (message "Vulpea: %s needs your session (%s); files like it are indexed synchronously"
+                (file-name-nondirectory path) reason))
+     (vulpea-db-worker--queue-fallback path))
     (`(error ,path ,message)
      (setq vulpea-db-worker--current nil)
      (vulpea-db-worker--forget path)
@@ -1293,14 +1303,19 @@ gone by then."
         (insert-file-contents path)
         (re-search-forward regexp nil t)))))
 
+(define-error 'vulpea-db-worker-handback
+  "File needs the session to be indexed faithfully")
+
 (defun vulpea-db-worker--parse-file (path)
   "Parse PATH in the worker, as `vulpea-db--parse-file' does.
-Signals an error when the result would differ from the session's
-because the file needs one of its functions; the error sends the
-file back to the main process, which indexes it synchronously."
+Signals `vulpea-db-worker-handback' when the result would differ
+from the session's because the file needs one of its functions; the
+handlers answer with a `handback' reply, and the main process indexes
+the file synchronously."
   (let ((ctx (vulpea-db--parse-file path)))
     (when (vulpea-db-worker--local-abbrevs-need-session-p path)
-      (error "Its #+LINK: keywords expand with a function from your session"))
+      (signal 'vulpea-db-worker-handback
+              '("its #+LINK: keywords expand with a function from your session")))
     ctx))
 
 (defun vulpea-db-worker--apply-settings (vars link-types extractors
@@ -1513,6 +1528,8 @@ result is written even when the content hash matches."
                            ,(vulpea-db-worker--ctx-ids ctx)
                            ,claimants
                            ,released)))))))))
+      (vulpea-db-worker-handback
+       (vulpea-db-worker--reply `(handback ,path ,(cadr err))))
       (error
        (vulpea-db-worker--reply
         `(error ,path ,(error-message-string err)))))))
@@ -1531,6 +1548,8 @@ result is written even when the content hash matches."
                 ,(vulpea-parse-ctx-hash ctx)
                 ,(vulpea-parse-ctx-mtime ctx)
                 ,(vulpea-parse-ctx-size ctx))))
+    (vulpea-db-worker-handback
+     (vulpea-db-worker--reply `(handback ,path ,(cadr err))))
     (error
      (vulpea-db-worker--reply
       `(error ,path ,(error-message-string err))))))
@@ -1558,7 +1577,7 @@ writes protocol lines to stdout.  Exits when stdin closes."
               (guard (ignore-errors
                        (vulpea-db-worker--session-abbrev-used-p path))))
          (vulpea-db-worker--reply
-          `(error ,path
+          `(handback ,path
                   ,(format "it links through %s, which expands with a function from your session"
                            (string-join
                             (mapcar (lambda (tag) (format "[[%s:...]]" tag))
@@ -1602,7 +1621,8 @@ compared in order; a different number of them adds `:headings'."
 The worker gets the same settings message as the live one, runs
 synchronously, and exits when its input ends; the live worker and
 the database are not touched.  Returns a hash table mapping each
-path to (FILE-NODE . HEADING-NODES), or to an error message.
+path to (FILE-NODE . HEADING-NODES), to an error message, or to
+`:handback' for a file the worker leaves to the session.
 Signals an error, with the tail of the worker's stderr, when the
 worker exits abnormally or answers nothing: a broken worker is not
 a difference in the files."
@@ -1633,7 +1653,8 @@ a difference in the files."
                   (`(heading-node ,node) (push node headings))
                   (`(done ,path . ,_)
                    (puthash path (cons file-node (reverse headings)) results))
-                  (`(error ,path ,message) (puthash path message results)))
+                  (`(error ,path ,message) (puthash path message results))
+                  (`(handback ,path ,_) (puthash path :handback results)))
                 (forward-line 1))))
           (unless (and (eql status 0)
                        (or (null paths) (> (hash-table-count results) 0)))
@@ -1668,6 +1689,8 @@ could not parse PATH.  Returns nil when every file matches."
         (cond
          ((eq theirs 'missing)
           (push (cons path "no result from the worker") result))
+         ;; Handed back: the session indexes it, so nothing differs
+         ((eq theirs :handback))
          ((stringp theirs)
           (push (cons path theirs) result))
          (t
