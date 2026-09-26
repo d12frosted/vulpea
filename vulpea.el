@@ -488,7 +488,10 @@ doctor down without making drift more likely to show.")
 worker, runs once per report.")
 
 (defun vulpea-doctor--consistency-sample ()
-  "Return indexed .org files to compare between session and worker."
+  "Return indexed .org files to compare between session and worker.
+Files open in a buffer are left out: parsing with `find-file' would
+reuse and then kill that buffer, and unsaved edits would show up as
+differences."
   (let* ((rows (seq-filter
                 (lambda (row)
                   (pcase-let ((`(,path ,_mtime ,size) row))
@@ -497,6 +500,7 @@ worker, runs once per report.")
                          (numberp size)
                          (<= size vulpea-doctor--consistency-max-size)
                          (file-readable-p path)
+                         (not (find-buffer-visiting path))
                          (vulpea-db-worker-can-handle-p path))))
                 (ignore-errors
                   (emacsql (vulpea-db)
