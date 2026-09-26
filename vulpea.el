@@ -602,10 +602,12 @@ sample), `checked' (with :sampled and :diffs, see
                    (vulpea-doctor--no-prompt-local-variables)))
               (message "Vulpea doctor: comparing %d files with the worker..."
                        (length sample))
-              (prog1 (list :status 'checked
-                           :sampled (length sample)
-                           :diffs (vulpea-db-worker-compare-files sample))
-                (message nil)))
+              (let ((diffs (vulpea-db-worker-compare-files sample)))
+                (message nil)
+                (list :status 'checked
+                      :sampled (length sample)
+                      :diffs diffs
+                      :session-indexed vulpea-db-worker--compare-session-indexed)))
           (error (list :status 'failed
                        :error (error-message-string err)))))))))
 
@@ -628,7 +630,11 @@ sample), `checked' (with :sampled and :diffs, see
              (sampled (plist-get result :sampled)))
          (if diffs
              (format "%d of %d sampled DIFFER" (length diffs) sampled)
-           (format "%d sampled, all match" sampled)))))))
+           (format "%d sampled, all match%s" sampled
+                   (let ((own (or (plist-get result :session-indexed) 0)))
+                     (if (> own 0)
+                         (format " (%d indexed in your session)" own)
+                       "")))))))))
 
 (defun vulpea-doctor--describe-consistency-diffs (diffs)
   "Return a readable list of DIFFS, at most five files."
