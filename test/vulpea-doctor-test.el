@@ -986,5 +986,22 @@ buffers - yet it changes how links are indexed."
     (should issue)
     (should (string-match-p "org-link-abbrev-alist-local" issue))))
 
+(ert-deftest vulpea-doctor-summary-counts-files-indexed-in-session ()
+  "The summary says how many sampled files the session indexes itself.
+They match by definition, so \"all match\" alone would hide that
+nothing was compared for them."
+  (vulpea-doctor-test--with-indexed-file "#+title: C\n"
+    (let ((org-link-abbrev-alist '(("fn" . vulpea-doctor-test--abbrev-fn))))
+      (with-temp-file temp-org-file
+        (insert ":PROPERTIES:\n:ID: consistency-file\n:END:\n#+title: C\n\n[[fn:x]]\n"))
+      (vulpea-db-update-file temp-org-file)
+      (should (string-match-p
+               "session vs worker +1 sampled, all match (1 indexed in your session)"
+               (vulpea-doctor))))))
+
+(defun vulpea-doctor-test--abbrev-fn (tag)
+  "Expand TAG, as a session-only link abbreviation function would."
+  (concat "id:" tag))
+
 (provide 'vulpea-doctor-test)
 ;;; vulpea-doctor-test.el ends here

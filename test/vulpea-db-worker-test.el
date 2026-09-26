@@ -2142,6 +2142,20 @@ It is indexed in the session, so session and database agree."
             (org-mode-hook nil))
         (should (equal (vulpea-db-worker-compare-files (list path)) nil))))))
 
+(ert-deftest vulpea-db-worker-compare-files-accepts-fallback-files ()
+  "A file the worker fails on is not a difference either.
+The live path indexes it in the session, so session and database
+agree; the comparison counts it among the files the session indexes."
+  (vulpea-db-worker-test--with-file
+      ":PROPERTIES:\n:ID: falls-back\n:END:\n#+title: F\n"
+    (cl-letf (((symbol-function 'vulpea-db-worker--parse-in-fresh-worker)
+               (lambda (paths)
+                 (let ((results (make-hash-table :test #'equal)))
+                   (dolist (p paths) (puthash p "Lisp nesting exceeds" results))
+                   results))))
+      (should (equal (vulpea-db-worker-compare-files (list path)) nil))
+      (should (= 1 vulpea-db-worker--compare-session-indexed)))))
+
 (ert-deftest vulpea-db-worker-compare-files-reports-errors ()
   "A file that cannot be compared is reported, not fatal."
   (let ((missing (expand-file-name "vulpea-no-such-file.org"

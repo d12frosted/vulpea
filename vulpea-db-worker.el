@@ -1715,6 +1715,10 @@ a difference in the files."
       (delete-file stderr))
     results))
 
+(defvar vulpea-db-worker--compare-session-indexed 0
+  "How many files the last comparison left to the session.
+See `vulpea-db-worker-compare-files'.")
+
 (defun vulpea-db-worker-compare-files (paths)
   "Parse PATHS in this session and in a fresh worker; return differences.
 
@@ -1726,19 +1730,34 @@ Nothing is written to the database.
 
 Returns a list of (PATH . FIELDS) for the files that differ, where
 FIELDS lists the extracted fields that do (`:headings' when the
-number of heading notes differs), or (PATH . MESSAGE) when a side
-could not parse PATH.  Returns nil when every file matches."
+number of heading notes differs), or (PATH . MESSAGE) when the
+session could not parse PATH.  Returns nil when every file matches.
+
+Files the worker hands back or fails on are indexed in the session
+on the live path, so they match by definition; their number is left
+in `vulpea-db-worker--compare-session-indexed'."
   (let ((worker (vulpea-db-worker--parse-in-fresh-worker paths))
         result)
+    (setq vulpea-db-worker--compare-session-indexed 0)
     (dolist (path paths)
       (let ((theirs (gethash path worker 'missing)))
         (cond
          ((eq theirs 'missing)
           (push (cons path "no result from the worker") result))
-         ;; Handed back: the session indexes it, so nothing differs
-         ((eq theirs :handback))
+         ;; Handed back: the session indexes it
+         ((eq theirs :handback)
+          (setq vulpea-db-worker--compare-session-indexed
+                (1+ vulpea-db-worker--compare-session-indexed)))
+         ;; Failed in the worker: the synchronous fallback indexes it,
+         ;; as long as the session can
          ((stringp theirs)
-          (push (cons path theirs) result))
+          (let ((ours (condition-case err
+                          (progn (vulpea-db--parse-file path) nil)
+                        (error (error-message-string err)))))
+            (if ours
+                (push (cons path ours) result)
+              (setq vulpea-db-worker--compare-session-indexed
+                    (1+ vulpea-db-worker--compare-session-indexed)))))
          (t
           (let ((ours (condition-case err
                           (let ((ctx (vulpea-db--parse-file path)))
