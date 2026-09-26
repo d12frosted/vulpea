@@ -680,17 +680,18 @@ ensure decryption hooks run properly."
            ;; that buffer, unsaved edits and all, and killing it after
            ;; the parse would throw those edits away.  Parse the saved
            ;; file in the reused buffer instead, hooks and dir-locals
-           ;; still applied, and clear it afterwards: find-file is the
-           ;; method for encrypted files, and their decrypted text must
-           ;; not linger there.
+           ;; still applied, and kill that buffer afterwards: find-file
+           ;; is the method for encrypted files, whose decrypted text
+           ;; and keywords must not linger, and a later
+           ;; `single-temp-buffer' parse must not inherit this file's
+           ;; settings.  The next parse creates a fresh buffer.
            (unwind-protect
                (vulpea-db--parse-with-temp-buffer path t)
              (when (buffer-live-p vulpea-db--parse-buffer)
                (with-current-buffer vulpea-db--parse-buffer
-                 (let ((inhibit-read-only t)
-                       (inhibit-modification-hooks t))
-                   (erase-buffer)
-                   (set-buffer-modified-p nil)))))
+                 (set-buffer-modified-p nil))
+               (kill-buffer vulpea-db--parse-buffer))
+             (setq vulpea-db--parse-buffer nil))
          (vulpea-db--parse-with-find-file path)))
 
       (_

@@ -4857,5 +4857,34 @@ find-file method promises not to keep around."
         (kill-buffer buffer))
       (delete-file path))))
 
+(ert-deftest vulpea-db-extract-find-file-open-file-leaves-no-settings-behind ()
+  "An open file's keywords do not outlive its find-file parse.
+The parse runs `org-mode' in the shared parse buffer, which then
+holds the file's TODO keywords, tags and other buffer-local state;
+a later `single-temp-buffer' parse, which never re-runs `org-mode',
+would inherit them."
+  (let* ((open-path (vulpea-test--create-temp-org-file
+                     ":PROPERTIES:\n:ID: open-kw\n:END:\n#+title: O\n#+TODO: SECRETKW | DONE\n#+filetags: :secrettag:\n"))
+         (other-path (vulpea-test--create-temp-org-file
+                      ":PROPERTIES:\n:ID: other-kw\n:END:\n#+title: B\n\n* SECRETKW heading\n:PROPERTIES:\n:ID: other-kw-h\n:END:\n"))
+         (buffer (find-file-noselect open-path)))
+    (unwind-protect
+        (progn
+          (let ((vulpea-db-parse-method 'find-file))
+            (vulpea-db--parse-file open-path))
+          (should-not (and (buffer-live-p vulpea-db--parse-buffer)
+                           (member "SECRETKW"
+                                   (buffer-local-value 'org-todo-keywords-1
+                                                       vulpea-db--parse-buffer))))
+          (let* ((vulpea-db-parse-method 'single-temp-buffer)
+                 (heading (car (vulpea-parse-ctx-heading-nodes
+                                (vulpea-db--parse-file other-path)))))
+            (should-not (plist-get heading :todo))
+            (should (equal (plist-get heading :title) "SECRETKW heading"))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer))
+      (delete-file open-path)
+      (delete-file other-path))))
+
 (provide 'vulpea-db-extract-test)
 ;;; vulpea-db-extract-test.el ends here
