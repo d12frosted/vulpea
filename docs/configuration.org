@@ -496,7 +496,7 @@ Or interactively with =C-u M-x vulpea-db-sync-full-scan=. The same applies in re
 =vulpea-find= and =vulpea-insert= keep their completion candidates in
 memory and update them file by file, so opening them does not read
 every note from the database (see [[file:user-guide.org::*Candidate Cache][Candidate Cache]] in the user guide
-for what is cached and when it is bypassed). It costs roughly 110MB
+for what is cached and when it is bypassed). It costs roughly 130MB
 per 165k candidates.
 
 #+begin_src emacs-lisp
