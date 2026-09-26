@@ -558,9 +558,10 @@ its worker stderr tail names a version mismatch.
 
 ** Worker marked broken
 
-After a crash loop or repeated hangs, vulpea stops respawning the
-worker and falls back to synchronous indexing. The warning includes
-the worker's stderr tail. Investigate with
+When the worker cannot start, crash-loops, or hangs repeatedly,
+vulpea stops respawning it and falls back to synchronous indexing.
+The warning says why (for a crash loop, with the worker's stderr
+tail). Investigate with
 =M-x vulpea-db-worker-diagnose=, then =M-x vulpea-db-worker-reset=
 to re-arm. For a full protocol trace, =(setq vulpea-db-worker-debug
 t)= and read =*vulpea-worker-log*=.
