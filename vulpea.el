@@ -602,8 +602,9 @@ sample), `checked' (with :sampled and :diffs, see
                    (vulpea-doctor--no-prompt-local-variables)))
               (message "Vulpea doctor: comparing %d files with the worker..."
                        (length sample))
-              (let ((diffs (vulpea-db-worker-compare-files sample)))
-                (message nil)
+              (let ((diffs (unwind-protect
+                               (vulpea-db-worker-compare-files sample)
+                             (message nil))))
                 (list :status 'checked
                       :sampled (length sample)
                       :diffs diffs
@@ -895,10 +896,9 @@ sample), `checked' (with :sampled and :diffs, see
                  issues)))
         ('failed
          (push (format
-                (concat "The worker used for the comparison failed (%s),"
-                        " so indexing could not be compared with your"
-                        " session. Run M-x vulpea-db-worker-diagnose for"
-                        " details.")
+                (concat "Indexing could not be compared with your"
+                        " session: %s. Run M-x vulpea-db-worker-diagnose"
+                        " for details.")
                 (plist-get result :error))
                issues))))
     (nreverse issues)))
