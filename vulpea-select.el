@@ -504,7 +504,8 @@ Only the default selection is served from the cache: no FILTER-FN
 or CANDIDATES-FN argument, `vulpea-find-default-filter' and
 `vulpea-insert-default-filter' nil, the default candidate sources,
 alias expansion on and `vulpea-select-dyncontext-fn' nil.  Anything
-else takes the uncached path.
+else takes the uncached path, and so does every selection while
+`vulpea-select-from' is advised (see `vulpea-select-cache-usable-p').
 
 Changing `vulpea-select-describe-fn', `vulpea-select-annotate-fn',
 `vulpea-select-annotate-matchable' or `vulpea-select-match-ids'
@@ -588,10 +589,24 @@ A hash table from id to note, bound by `vulpea-select-from-cache'.")
         vulpea-select-match-ids
         (bound-and-true-p vulpea-buffer-alias-property)))
 
+(defun vulpea-select--advised-p (symbol)
+  "Return non-nil when the function of SYMBOL carries advice."
+  (catch 'advised
+    (advice-mapc (lambda (&rest _) (throw 'advised t)) symbol)
+    nil))
+
 (defun vulpea-select-cache-usable-p ()
-  "Return non-nil when the default selection may use the candidate cache."
+  "Return non-nil when the default selection may use the candidate cache.
+
+Besides `vulpea-select-cache' and `vulpea-select-dyncontext-fn', this
+respects completion frontends: one that advises `vulpea-select-from',
+as consult-vulpea does to add previews, keeps receiving every
+selection, unless it advises `vulpea-select-from-cache' as well, which
+is how a frontend opts into the cache."
   (and vulpea-select-cache
-       (null vulpea-select-dyncontext-fn)))
+       (null vulpea-select-dyncontext-fn)
+       (or (not (vulpea-select--advised-p 'vulpea-select-from))
+           (vulpea-select--advised-p 'vulpea-select-from-cache))))
 
 (defun vulpea-select-cache-drop ()
   "Drop the note selection candidate cache.

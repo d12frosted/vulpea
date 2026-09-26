@@ -239,6 +239,49 @@ TARGET is compared to candidates without their invisible id suffix."
             (funcall case))
           (should-not vulpea-select--cache))))))
 
+(defun vulpea-select-cache-test--override (prompt notes &rest _)
+  "Stand in for a frontend overriding `vulpea-select-from'.
+Return the first of NOTES, recording PROMPT."
+  (ignore prompt)
+  (car notes))
+
+(defun vulpea-select-cache-test--override-cached (&rest _)
+  "Stand in for a frontend overriding `vulpea-select-from-cache'."
+  (make-vulpea-note :id "from-override" :title "Override" :level 0))
+
+(ert-deftest vulpea-select-cache-bypassed-when-select-from-advised ()
+  "An advised `vulpea-select-from' keeps receiving `vulpea-find' calls.
+Frontends such as consult-vulpea override it; serving the cache would
+silently skip them."
+  (vulpea-select-cache-test--with-cache
+    (vulpea-test--with-temp-db
+      (vulpea-db)
+      (vulpea-select-cache-test--insert-fixture)
+      (let (visited)
+        (advice-add 'vulpea-select-from :override
+                    #'vulpea-select-cache-test--override)
+        (unwind-protect
+            (cl-letf (((symbol-function 'vulpea-visit)
+                       (lambda (note &optional _) (setq visited note)))
+                      ((symbol-function 'completing-read)
+                       (lambda (&rest _) "picked by plain completion")))
+              (vulpea-find)
+              (should (vulpea-note-p visited))
+              (should (member (vulpea-note-id visited) '("id-a" "id-a-h" "id-b")))
+              (should-not vulpea-select--cache)
+              ;; a frontend that also overrides the cached entry point
+              ;; opts into the cache
+              (advice-add 'vulpea-select-from-cache :override
+                          #'vulpea-select-cache-test--override-cached)
+              (unwind-protect
+                  (progn
+                    (vulpea-find)
+                    (should (equal (vulpea-note-id visited) "from-override")))
+                (advice-remove 'vulpea-select-from-cache
+                               #'vulpea-select-cache-test--override-cached)))
+          (advice-remove 'vulpea-select-from
+                         #'vulpea-select-cache-test--override))))))
+
 (ert-deftest vulpea-select-cache-filter-still-filters ()
   "A default filter keeps working: the cache does not leak other notes."
   (vulpea-select-cache-test--with-cache
