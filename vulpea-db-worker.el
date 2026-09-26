@@ -683,6 +683,13 @@ lands here.  Idempotent: the second caller finds no pending work."
   "Return non-nil while the worker has unfinished requests."
   (and vulpea-db-worker--in-flight t))
 
+(defun vulpea-db-worker--org-attach-function-p (fn)
+  "Return non-nil when FN is defined by org-attach itself.
+Those exist in the worker too; anything else is the session's own."
+  (and (symbolp fn)
+       (when-let* ((file (symbol-file fn 'defun)))
+         (equal (file-name-base file) "org-attach"))))
+
 (defun vulpea-db-worker-rejection-reasons (path)
   "Return the reasons PATH cannot be extracted in the worker, if any.
 
@@ -694,6 +701,9 @@ A list of symbols, nil when the worker can handle PATH faithfully:
   apply, against a context whose AST slot is nil)
 - `heading-level-predicate': `vulpea-db-index-heading-level' is a
   function, which is not serializable
+- `attach-path-functions': `org-attach-id-to-path-function-list'
+  holds functions that are not org's own; the worker cannot call
+  them, and every note with an id needs them
 - `extension': PATH is not a plain .org file (decryption may require
   user interaction)"
   (let (reasons)
@@ -703,6 +713,10 @@ A list of symbols, nil when the worker can handle PATH faithfully:
       (push 'ast-extractors reasons))
     (unless (booleanp vulpea-db-index-heading-level)
       (push 'heading-level-predicate reasons))
+    (unless (seq-every-p #'vulpea-db-worker--org-attach-function-p
+                         (bound-and-true-p
+                          org-attach-id-to-path-function-list))
+      (push 'attach-path-functions reasons))
     (unless (string-suffix-p ".org" path)
       (push 'extension reasons))
     (nreverse reasons)))

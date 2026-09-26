@@ -752,6 +752,12 @@ sample), `checked' (with :sampled and :diffs, see
                          " the AST cannot cross the process boundary, so"
                          " AST-reading extractors and async extraction"
                          " do not combine."))
+                ((memq 'attach-path-functions reasons)
+                 (concat "`org-attach-id-to-path-function-list' holds"
+                         " functions of your own, which the worker cannot"
+                         " call, and every note with an id needs them for"
+                         " its attach dir. Files are indexed in your"
+                         " session, as with async extraction off."))
                 ((memq 'broken reasons)
                  (concat "The worker crash-looped; see *Warnings*, then"
                          " M-x vulpea-db-worker-reset to retry."))
