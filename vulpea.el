@@ -457,7 +457,10 @@ hooks in the session too."
                            (vulpea-doctor--org-mode-with-hooks
                             (list (list hook fn))))))
                     (dolist (entry globals)
-                      (unless (equal (default-value (car entry)) (cdr entry))
+                      ;; A hook may even unbind a setting; put it back
+                      (unless (and (default-boundp (car entry))
+                                   (equal (default-value (car entry))
+                                          (cdr entry)))
                         (set-default (car entry) (cdr entry)))))))
             (dolist (entry probe)
               ;; A setting unbound in the baseline has nothing to

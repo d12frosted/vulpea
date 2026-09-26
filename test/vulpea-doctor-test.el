@@ -653,6 +653,24 @@ library (for org-attach, the worker would get a nil attach dir)."
                        "from-library")))
     (makunbound 'vulpea-doctor-test--late-setting)))
 
+(defvar vulpea-doctor-test--doomed-setting "original"
+  "A mirrored setting a hook unbinds, for the restore test.")
+
+(defun vulpea-doctor-test--unbind-setting ()
+  "Stand-in for a hook that unbinds a setting."
+  (makunbound 'vulpea-doctor-test--doomed-setting))
+
+(ert-deftest vulpea-doctor-hook-check-survives-unbinding-hook ()
+  "A hook that unbinds a setting neither crashes the doctor nor
+leaves the setting unbound."
+  (let ((vulpea-db-worker--settings-vars
+         (cons 'vulpea-doctor-test--doomed-setting
+               vulpea-db-worker--settings-vars)))
+    (vulpea-doctor-test--hook-issue
+     '((org-mode-hook vulpea-doctor-test--unbind-setting)))
+    (should (equal (default-value 'vulpea-doctor-test--doomed-setting)
+                   "original"))))
+
 ;;; Session vs worker consistency
 
 (defmacro vulpea-doctor-test--with-indexed-file (content &rest body)
