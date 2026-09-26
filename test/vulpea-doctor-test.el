@@ -812,5 +812,23 @@ keys the database, both outside the buffer a hook runs in."
   (should-not (vulpea-doctor-test--hook-issue
                '((org-mode-hook vulpea-doctor-test--set-parse-method)))))
 
+(ert-deftest vulpea-doctor-asks-for-report-only-without-hook ()
+  "Drift a reported hook explains needs no bug report; other drift does."
+  (vulpea-doctor-test--with-indexed-file "#+title: C\n"
+    (let* ((org-mode-hook (list #'vulpea-doctor-test--set-category))
+           (issue (seq-find (lambda (i) (string-match-p "sampled files" i))
+                            (vulpea-doctor--issues))))
+      (should issue)
+      (should-not (string-match-p "please report" issue))
+      (should (string-match-p "hook" issue)))
+    (let* ((title-fn (symbol-function 'vulpea-db--extract-file-title))
+           (issue (cl-letf (((symbol-function 'vulpea-db--extract-file-title)
+                             (lambda (&rest args)
+                               (concat "session " (apply title-fn args)))))
+                    (seq-find (lambda (i) (string-match-p "sampled files" i))
+                              (vulpea-doctor--issues)))))
+      (should issue)
+      (should (string-match-p "please report" issue)))))
+
 (provide 'vulpea-doctor-test)
 ;;; vulpea-doctor-test.el ends here

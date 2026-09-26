@@ -606,6 +606,7 @@ sample), `checked' (with :sampled and :diffs, see
   ;; Rebind the comparison cache: a report shares its result with
   ;; this call, but nothing may survive past it
   (let ((vulpea-doctor--consistency-result vulpea-doctor--consistency-result)
+        (hook-changes nil)
         (issues nil)
         (fswatch (executable-find "fswatch"))
         (fd (executable-find "fd"))
@@ -773,7 +774,8 @@ sample), `checked' (with :sampled and :diffs, see
                       " your session.")
               issues)))
     ;; The worker does not run the user's mode hooks
-    (when-let* ((changed (vulpea-doctor--hook-set-settings)))
+    (when-let* ((changed (setq hook-changes
+                               (vulpea-doctor--hook-set-settings))))
       (push (format
              (concat "`vulpea-db-async-extraction' is enabled, but your"
                      " mode hooks change settings extraction reads: %s."
@@ -803,17 +805,23 @@ sample), `checked' (with :sampled and :diffs, see
            (push (format
                   (concat "`vulpea-db-async-extraction' is enabled, but the"
                           " worker indexes %d of %d sampled files differently"
-                          " from your session: %s. Something in your session"
-                          " changes extraction without reaching the worker -"
-                          " a mode hook (see above if one is listed), a"
-                          " setting vulpea does not mirror, or a package the"
-                          " worker does not load. Until it is found,"
-                          " (setq vulpea-db-async-extraction nil) keeps"
-                          " indexing in your session; please report it with"
-                          " this doctor output.")
+                          " from your session: %s. %s")
                   (length diffs)
                   (plist-get result :sampled)
-                  (vulpea-doctor--describe-consistency-diffs diffs))
+                  (vulpea-doctor--describe-consistency-diffs diffs)
+                  (if hook-changes
+                      (concat "The mode hook functions reported above are"
+                              " the likely cause: deal with them, or keep"
+                              " indexing in your session with"
+                              " (setq vulpea-db-async-extraction nil), then"
+                              " run the doctor again.")
+                    (concat "Something in your session changes extraction"
+                            " without reaching the worker - a setting vulpea"
+                            " does not mirror, or a package the worker does"
+                            " not load. Until it is found,"
+                            " (setq vulpea-db-async-extraction nil) keeps"
+                            " indexing in your session; please report it"
+                            " with this doctor output.")))
                  issues)))
         ('failed
          (push (format
