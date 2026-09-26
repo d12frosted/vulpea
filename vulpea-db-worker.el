@@ -69,6 +69,11 @@
 
 (require 'vulpea-db)
 (require 'vulpea-db-extract)
+;; The worker needs the user's org-attach settings, and with async
+;; extraction the session may never load org-attach on its own; load
+;; it here so its defaults, and any `with-eval-after-load' setup, are
+;; in place before the first settings message
+(require 'org-attach)
 
 (declare-function vulpea-db-sync--enqueue "vulpea-db-sync"
                   (path &optional force))
