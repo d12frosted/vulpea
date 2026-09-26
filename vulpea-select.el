@@ -546,10 +546,11 @@ Each candidate costs memory: roughly 130MB for 165k candidates."
   "When non-nil, build the candidate cache in idle time.
 
 The build starts after `vulpea-db-autosync-mode' is enabled and
-Emacs has been idle for a moment.  It reads notes in small chunks
-and stops as soon as there is input, so the first `vulpea-find' is
-fast without blocking the editor.  Has no effect when
-`vulpea-select-cache' is nil."
+Emacs has been idle for a moment, provided `vulpea-find' or
+`vulpea-insert' would use the cache with their default settings.
+It reads notes in small chunks and stops as soon as there is input,
+so the first `vulpea-find' is fast without blocking the editor.
+Has no effect when `vulpea-select-cache' is nil."
   :type 'boolean
   :group 'vulpea-select)
 
@@ -631,6 +632,45 @@ is how a frontend opts into the cache."
        (null vulpea-select-dyncontext-fn)
        (or (not (vulpea-select--advised-p 'vulpea-select-from))
            (vulpea-select--advised-p 'vulpea-select-from-cache))))
+
+(defvar vulpea-find-default-filter)
+(defvar vulpea-find-default-candidates-source)
+(defvar vulpea-insert-default-filter)
+(defvar vulpea-insert-default-candidates-source)
+
+(defun vulpea-select-cache-serves-p (filter-fn candidates-fn default-filter
+                                               default-source expand-aliases)
+  "Return non-nil when a selection may be served from the candidate cache.
+
+FILTER-FN and CANDIDATES-FN are the arguments of `vulpea-find' or
+`vulpea-insert', DEFAULT-FILTER and DEFAULT-SOURCE the matching
+default variables and EXPAND-ALIASES the alias expansion flag.  The
+cache holds the default selection only: every note, aliases
+expanded, no filter.  See `vulpea-select-cache'."
+  (and expand-aliases
+       (null filter-fn)
+       (null candidates-fn)
+       (null default-filter)
+       (eq default-source #'vulpea-db-query)
+       (vulpea-select-cache-usable-p)))
+
+(defun vulpea-select--cache-wanted-p ()
+  "Return non-nil when `vulpea-find' or `vulpea-insert' would use the cache.
+Only their defaults count; explicit arguments cannot be known ahead."
+  (or (vulpea-select-cache-serves-p
+       nil nil
+       (bound-and-true-p vulpea-find-default-filter)
+       (if (boundp 'vulpea-find-default-candidates-source)
+           vulpea-find-default-candidates-source
+         #'vulpea-db-query)
+       t)
+      (vulpea-select-cache-serves-p
+       nil nil
+       (bound-and-true-p vulpea-insert-default-filter)
+       (if (boundp 'vulpea-insert-default-candidates-source)
+           vulpea-insert-default-candidates-source
+         #'vulpea-db-query)
+       t)))
 
 (defun vulpea-select-cache-drop ()
   "Drop the note selection candidate cache.
@@ -942,7 +982,7 @@ list is assembled as well."
   "Schedule a prewarm of the candidate cache on autosync start."
   (when (and (bound-and-true-p vulpea-db-autosync-mode)
              vulpea-select-cache-prewarm
-             (vulpea-select-cache-usable-p)
+             (vulpea-select--cache-wanted-p)
              (not vulpea-select--cache-timer)
              (not (vulpea-select--cache-complete-p)))
     (setq vulpea-select--cache-timer

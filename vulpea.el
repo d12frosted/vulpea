@@ -1017,22 +1017,6 @@ Optional: HEAD, META (alist), TAGS (list), PROPERTIES (alist)."
    "\n"))
 
 
-(defun vulpea--select-cached-p (filter-fn candidates-fn default-filter
-                                          default-source expand-aliases)
-  "Return non-nil when a selection may be served from the candidate cache.
-
-FILTER-FN and CANDIDATES-FN are the arguments of `vulpea-find' or
-`vulpea-insert', DEFAULT-FILTER and DEFAULT-SOURCE the matching
-default variables and EXPAND-ALIASES the alias expansion flag.  The
-cache holds the default selection only: every note, aliases
-expanded, no filter.  See `vulpea-select-cache'."
-  (and expand-aliases
-       (null filter-fn)
-       (null candidates-fn)
-       (null default-filter)
-       (eq default-source #'vulpea-db-query)
-       (vulpea-select-cache-usable-p)))
-
 (defun vulpea-find-create-note (title &optional _props)
   "Create a new note with TITLE selected in `vulpea-find'.
 
@@ -1091,7 +1075,7 @@ for the original title and once for each alias."
                (make-marker) (region-beginning))
               (set-marker
                (make-marker) (region-end))))))
-         (note (if (vulpea--select-cached-p
+         (note (if (vulpea-select-cache-serves-p
                     filter-fn candidates-fn vulpea-find-default-filter
                     vulpea-find-default-candidates-source expand-aliases)
                    (vulpea-select-from-cache
@@ -1384,7 +1368,7 @@ for the original title and once for each alias."
                       (buffer-substring-no-properties
                        beg end)))))
                (note
-                (if (vulpea--select-cached-p
+                (if (vulpea-select-cache-serves-p
                      filter-fn candidates-fn vulpea-insert-default-filter
                      vulpea-insert-default-candidates-source expand-aliases)
                     (vulpea-select-from-cache "Note"
