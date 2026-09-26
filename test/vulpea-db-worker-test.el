@@ -110,6 +110,32 @@ yet the worker needs the user's attach settings; a value set in
             (buffer-string))))
     (should (string-match-p "ATTACH=\"custom-attach/\"" output))))
 
+(defun vulpea-db-worker-test--attach-path (id)
+  "Map ID to an attachment path, as a user function would."
+  (concat "mine/" id))
+
+(ert-deftest vulpea-db-worker-rejects-custom-attach-path-functions ()
+  "Files need the session when attach paths come from its functions.
+Every note with an id gets its attach dir through
+`org-attach-id-to-path-function-list'; a function the worker does
+not have would fail every file there, only to be parsed again in the
+session.  Org's own functions are fine."
+  (let ((vulpea-db--extractors nil)
+        (vulpea-db-index-heading-level t)
+        (vulpea-db-worker--broken nil))
+    (let ((org-attach-id-to-path-function-list
+           (default-value 'org-attach-id-to-path-function-list)))
+      (should-not (vulpea-db-worker-rejection-reasons "x.org")))
+    (let ((org-attach-id-to-path-function-list
+           '(vulpea-db-worker-test--attach-path
+             org-attach-id-uuid-folder-format)))
+      (should (memq 'attach-path-functions
+                    (vulpea-db-worker-rejection-reasons "x.org"))))
+    (let ((org-attach-id-to-path-function-list
+           (list (lambda (id) id))))
+      (should (memq 'attach-path-functions
+                    (vulpea-db-worker-rejection-reasons "x.org"))))))
+
 ;;; Settings classification
 
 (defun vulpea-db-worker-test--worker-sources ()

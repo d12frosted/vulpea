@@ -830,5 +830,19 @@ keys the database, both outside the buffer a hook runs in."
       (should issue)
       (should (string-match-p "please report" issue)))))
 
+(ert-deftest vulpea-doctor-explains-custom-attach-path-functions ()
+  "The doctor says why custom attach path functions bypass the worker."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((vulpea-db-async-extraction t)
+           (vulpea-db--extractors nil)
+           (vulpea-db-index-heading-level t)
+           (vulpea-db-worker--broken nil)
+           (org-attach-id-to-path-function-list (list (lambda (id) id)))
+           (issue (seq-find (lambda (i) (string-match-p "will NOT use the worker" i))
+                            (vulpea-doctor--issues))))
+      (should issue)
+      (should (string-match-p "org-attach-id-to-path-function-list" issue)))))
+
 (provide 'vulpea-doctor-test)
 ;;; vulpea-doctor-test.el ends here
