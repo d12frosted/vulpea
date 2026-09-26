@@ -696,6 +696,14 @@ each dispatch expects its own completion.")
 (defvar vulpea-db-worker--fallback-timer nil
   "Timer indexing the next file of `vulpea-db-worker--fallback-queue'.")
 
+(defvar vulpea-db-worker--fallback-attempts (make-hash-table :test #'equal)
+  "Times each queued fallback found the database locked.")
+
+(defconst vulpea-db-worker--fallback-max-attempts 20
+  "How often a fallback retries a locked database before giving up.
+Retries are a quarter second apart, so a few seconds in all: enough
+to outlast a commit of the full-write worker.")
+
 (defun vulpea-db-worker-stop ()
   "Stop the extraction worker, discarding any in-flight work."
   (when (process-live-p vulpea-db-worker--process)
@@ -718,6 +726,7 @@ each dispatch expects its own completion.")
     (cancel-timer vulpea-db-worker--fallback-timer))
   (setq vulpea-db-worker--fallback-timer nil
         vulpea-db-worker--fallback-queue nil)
+  (clrhash vulpea-db-worker--fallback-attempts)
   (clrhash vulpea-db-worker--force))
 
 (defun vulpea-db-worker-busy-p ()
@@ -1119,18 +1128,39 @@ queue never strands."
                                         vulpea-db-worker--fallback-queue)
                         (setq vulpea-db-worker--fallback-queue
                               (delete path vulpea-db-worker--fallback-queue))))
+               (locked nil)
                (count (condition-case err
                           (when (file-exists-p path)
                             (vulpea-db-update-file path))
+                        ;; The full-write worker may be committing: try
+                        ;; again shortly rather than leave the file out
+                        ((sqlite-locked-error emacsql-locked)
+                         (let ((attempts (1+ (gethash path vulpea-db-worker--fallback-attempts 0))))
+                           (if (< attempts vulpea-db-worker--fallback-max-attempts)
+                               (progn
+                                 (puthash path attempts vulpea-db-worker--fallback-attempts)
+                                 (setq locked t))
+                             (message "Vulpea: failed to index %s: %s"
+                                      path (error-message-string err))))
+                         nil)
                         (error
                          (message "Vulpea: failed to index %s: %s"
                                   path (error-message-string err))
                          nil))))
-          (vulpea-db-worker--fallback-done
-           path (if count 'applied 'error) count)
-          (dotimes (_ extra)
+          (if locked
+              ;; Back to the queue, entries and all, for a later tick
+              (progn
+                (setq vulpea-db-worker--fallback-queue
+                      (append vulpea-db-worker--fallback-queue
+                              (make-list (1+ extra) path)))
+                (setq vulpea-db-worker--fallback-timer
+                      (run-with-timer 0.25 nil #'vulpea-db-worker--run-fallback)))
+            (remhash path vulpea-db-worker--fallback-attempts)
             (vulpea-db-worker--fallback-done
-             path (if count 'unchanged 'error) nil))))
+             path (if count 'applied 'error) count)
+            (dotimes (_ extra)
+              (vulpea-db-worker--fallback-done
+               path (if count 'unchanged 'error) nil)))))
     (when (and vulpea-db-worker--fallback-queue
                (not (timerp vulpea-db-worker--fallback-timer)))
       (setq vulpea-db-worker--fallback-timer
