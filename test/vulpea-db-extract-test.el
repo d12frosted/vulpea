@@ -4837,5 +4837,25 @@ kill it, losing the edits without a prompt."
         (kill-buffer buffer))
       (delete-file path))))
 
+(ert-deftest vulpea-db-extract-find-file-open-file-leaves-no-text-behind ()
+  "Parsing an open file with find-file leaves no copy of its text.
+The file is read into the reused parse buffer instead of its own
+visiting one; for an encrypted file that is decrypted text, which the
+find-file method promises not to keep around."
+  (let* ((vulpea-db-parse-method 'find-file)
+         (path (vulpea-test--create-temp-org-file
+                ":PROPERTIES:\n:ID: open-secret\n:END:\n#+title: SECRET PLAINTEXT\n"))
+         (buffer (find-file-noselect path)))
+    (unwind-protect
+        (progn
+          (vulpea-db--parse-file path)
+          (should-not (and (buffer-live-p vulpea-db--parse-buffer)
+                           (with-current-buffer vulpea-db--parse-buffer
+                             (string-match-p "SECRET PLAINTEXT"
+                                             (buffer-string))))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer))
+      (delete-file path))))
+
 (provide 'vulpea-db-extract-test)
 ;;; vulpea-db-extract-test.el ends here
