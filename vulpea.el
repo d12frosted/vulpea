@@ -602,9 +602,10 @@ sample), `checked' (with :sampled and :diffs, see
                    (vulpea-doctor--no-prompt-local-variables)))
               (message "Vulpea doctor: comparing %d files with the worker..."
                        (length sample))
-              (list :status 'checked
-                    :sampled (length sample)
-                    :diffs (vulpea-db-worker-compare-files sample)))
+              (prog1 (list :status 'checked
+                           :sampled (length sample)
+                           :diffs (vulpea-db-worker-compare-files sample))
+                (message nil)))
           (error (list :status 'failed
                        :error (error-message-string err)))))))))
 
