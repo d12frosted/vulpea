@@ -1498,6 +1498,48 @@ kills must mark the worker broken."
             (vulpea-db-worker--watchdog))
           (should (>= vulpea-db-worker--hang-kills 1)))))))
 
+(ert-deftest vulpea-db-worker-spawn-failure-marks-broken ()
+  "A worker that cannot start is marked broken with one warning.
+Without this, every queued file retried the spawn and printed a
+message of its own - thousands of lines on a full scan - while
+nothing told the user why.  The files still get indexed, through the
+synchronous path."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((paths (mapcar (lambda (i)
+                            (vulpea-test--create-temp-org-file
+                             (format ":PROPERTIES:\n:ID: spawn-fail-%d\n:END:\n#+title: S%d\n"
+                                     i i)))
+                          '(1 2 3)))
+           (invocation-directory "/nonexistent/vulpea-test-emacs/")
+           (vulpea-db-async-extraction t)
+           (vulpea-db-worker--broken nil)
+           (vulpea-db-sync--queue nil)
+           (vulpea-db-sync--queue-tail nil)
+           (vulpea-db-sync--queue-set (make-hash-table :test #'equal))
+           (vulpea-db-sync--processing nil)
+           (warnings 0)
+           (dispatch-errors 0))
+      (unwind-protect
+          (cl-letf* ((orig-message (symbol-function 'message))
+                     ((symbol-function 'display-warning)
+                      (lambda (&rest _) (setq warnings (1+ warnings))))
+                     ((symbol-function 'message)
+                      (lambda (fmt &rest args)
+                        (when (and fmt (string-prefix-p "Vulpea: Error dispatching" fmt))
+                          (setq dispatch-errors (1+ dispatch-errors)))
+                        (apply orig-message fmt args))))
+            (dolist (path paths)
+              (vulpea-db-sync--enqueue path))
+            (vulpea-db-sync--process-queue)
+            (should vulpea-db-worker--broken)
+            (should (= 1 warnings))
+            (should (<= dispatch-errors 1))
+            (dolist (i '(1 2 3))
+              (should (vulpea-db-get-by-id (format "spawn-fail-%d" i)))))
+        (vulpea-db-worker-stop)
+        (mapc #'delete-file paths)))))
+
 (ert-deftest vulpea-db-worker-completion-resets-hang-counter ()
   "A successful completion proves liveness and resets the hang count."
   (vulpea-db-worker-test--with-file

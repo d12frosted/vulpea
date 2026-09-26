@@ -581,21 +581,37 @@ lands here.  Idempotent: the second caller finds no pending work."
     (unless vulpea-db-worker--watchdog-timer
       (setq vulpea-db-worker--watchdog-timer
             (run-with-timer 30 30 #'vulpea-db-worker--watchdog)))
-    (let ((command (vulpea-db-worker--command)))
-      (vulpea-db-worker--log "spawn: %s ... (%d args)"
-                             (vulpea-db-worker--log-truncate
-                              (string-join (seq-take command 6) " "))
-                             (length command))
-      (setq vulpea-db-worker--process
-            (make-process
-             :name "vulpea-worker"
-             :command command
-             :connection-type 'pipe
-             :noquery t
-             :coding 'utf-8-unix
-             :stderr (get-buffer-create " *vulpea-worker-stderr*")
-             :filter #'vulpea-db-worker--filter
-             :sentinel #'vulpea-db-worker--sentinel)))
+    ;; A worker that cannot start at all (Emacs binary gone after an
+    ;; upgrade, library not on the load path) never reaches the
+    ;; sentinel's crash-loop detection.  Mark it broken here, so the
+    ;; queue stops retrying per file and indexes synchronously.
+    (condition-case err
+        (let ((command (vulpea-db-worker--command)))
+          (vulpea-db-worker--log "spawn: %s ... (%d args)"
+                                 (vulpea-db-worker--log-truncate
+                                  (string-join (seq-take command 6) " "))
+                                 (length command))
+          (setq vulpea-db-worker--process
+                (make-process
+                 :name "vulpea-worker"
+                 :command command
+                 :connection-type 'pipe
+                 :noquery t
+                 :coding 'utf-8-unix
+                 :stderr (get-buffer-create " *vulpea-worker-stderr*")
+                 :filter #'vulpea-db-worker--filter
+                 :sentinel #'vulpea-db-worker--sentinel)))
+      (error
+       (setq vulpea-db-worker--broken t)
+       (display-warning
+        'vulpea
+        (format (concat "Extraction worker cannot start (%s); falling "
+                        "back to synchronous indexing.  Run "
+                        "M-x vulpea-db-worker-diagnose to investigate, "
+                        "M-x vulpea-db-worker-reset to retry.")
+                (error-message-string err))
+        :error)
+       (signal (car err) (cdr err))))
     (let ((settings (vulpea-db-worker--settings-form)))
       (vulpea-db-worker--log "settings: %d vars, %d link types"
                              (length (nth 1 settings))
