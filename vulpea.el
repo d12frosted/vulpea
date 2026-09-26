@@ -519,10 +519,11 @@ worker, runs once per report.")
 
 (defun vulpea-doctor--consistency-sample ()
   "Return indexed .org files to compare between session and worker.
-Files open in a buffer are left out: parsing with `find-file' would
-reuse and then kill that buffer, and unsaved edits would show up as
-differences.  Checks that touch the file system run only on the
-files being picked, not on every row of a large database."
+Files open in a buffer are left out: they are the ones most likely
+to be mid-edit, so their content on disk can change between the two
+parses, which would show up as a difference.  Checks that touch the
+file system run only on the files being picked, not on every row of
+a large database."
   (let* ((rows (seq-filter
                 (lambda (row)
                   (pcase-let ((`(,path ,_mtime ,size) row))
@@ -1002,9 +1003,11 @@ in your session does, and restores the global values of the settings
 extraction reads afterwards.  With async extraction on, it also
 parses up to 20 indexed files (not ones open in a buffer) both in
 your session and in a short-lived worker process, to catch files the
-worker would index differently; this usually takes a second or two,
-and a cap on the sample's total size keeps it to a few seconds at
-most.  Please include the report in bug reports.
+worker would index differently; this takes a few seconds at most,
+kept there by a cap on the sample's total size.  While diagnosing,
+local variables Emacs would ask about are skipped rather than asked
+about, as the worker does.  Please include the report in bug
+reports.
 
 When SHOW is non-nil (always when called interactively), also
 display the report in the *vulpea-doctor* buffer."
