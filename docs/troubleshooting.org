@@ -599,7 +599,7 @@ the files and fields that differ (the "session vs worker" line shows
 how many it checked). The second check catches causes no list
 predicts, such as a package the worker does not load; if it reports
 files and no hook is named, please open an issue with the doctor
-output. One gap is known: the worker does not load =org-inlinetask=,
+output. A known gap: the worker does not load =org-inlinetask=,
 so if you use inline tasks with ids on them, the worker indexes them
 as headings ([[https://github.com/d12frosted/vulpea/issues/530][vulpea#530]]). For each reported hook function:
 
