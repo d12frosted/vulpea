@@ -436,9 +436,11 @@ hooks in the session too."
     ;; Extraction loads org-attach anyway; loading it now keeps a hook
     ;; that loads it from looking like it changed the attach settings
     (require 'org-attach)
-    (let ((baseline (vulpea-doctor--probe-settings
+    (let ((enable-local-variables (vulpea-doctor--no-prompt-local-variables))
+          (baseline nil))
+      (setq baseline (vulpea-doctor--probe-settings
                      (lambda () (vulpea-doctor--org-mode-with-hooks nil))))
-          (found nil))
+      (let ((found nil))
       (dolist (hook vulpea-doctor--mode-hooks)
         (dolist (fn (vulpea-doctor--hook-functions hook))
           ;; Snapshot only what is bound: a setting a hook's library
@@ -471,7 +473,7 @@ hooks in the session too."
                   (if cell
                       (setcdr cell (append (cdr cell) (list fn)))
                     (push (list (car entry) fn) found)))))))))
-      (nreverse found))))
+      (nreverse found)))))
 
 (defun vulpea-doctor--describe-hook-functions (fns)
   "Return a readable list of hook functions FNS."
@@ -554,6 +556,13 @@ files being picked, not on every row of a large database."
         (push (car row) sample)))
     (nreverse sample)))
 
+(defun vulpea-doctor--no-prompt-local-variables ()
+  "Return `enable-local-variables' for the doctor's own parsing.
+The doctor enters `org-mode' once per hook function and once per
+sampled file; with t, risky local variables would prompt each time.
+It uses :safe instead, as the worker does."
+  (if (eq enable-local-variables t) :safe enable-local-variables))
+
 (defun vulpea-doctor--compute-consistency ()
   "Compare a sample of indexed files between session and worker.
 
@@ -571,7 +580,8 @@ sample), `checked' (with :sampled and :diffs, see
       (if (null sample)
           (list :status 'empty)
         (condition-case err
-            (progn
+            (let ((enable-local-variables
+                   (vulpea-doctor--no-prompt-local-variables)))
               (message "Vulpea doctor: comparing %d files with the worker..."
                        (length sample))
               (list :status 'checked

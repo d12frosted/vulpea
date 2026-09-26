@@ -905,5 +905,27 @@ database with 100k files they took seconds before sampling."
               (should (<= checks 4))))
         (mapc #'delete-file paths)))))
 
+(ert-deftest vulpea-doctor-does-not-prompt-for-local-variables ()
+  "The doctor never asks about risky local variables.
+It enters `org-mode' once per hook function and once per sampled
+file; with `enable-local-variables' t and a risky dir-local that
+would be a prompt each time."
+  (let ((dir (make-temp-file "vulpea-doctor-prompt-" t)))
+    (unwind-protect
+        (vulpea-doctor-test--with-indexed-file "#+title: C\n"
+          (with-temp-file (expand-file-name ".dir-locals.el" dir)
+            (prin1 '((org-mode . ((eval . (setq-local fill-column 50))
+                                  (org-category . "dl"))))
+                   (current-buffer)))
+          (let* ((vulpea-db-sync-directories (list dir))
+                 (enable-local-variables t)
+                 (org-mode-hook (list #'vulpea-doctor-test--cosmetic))
+                 (prompts 0))
+            (cl-letf (((symbol-function 'hack-local-variables-confirm)
+                       (lambda (&rest _) (setq prompts (1+ prompts)) nil)))
+              (vulpea-doctor))
+            (should (= prompts 0))))
+      (delete-directory dir t))))
+
 (provide 'vulpea-doctor-test)
 ;;; vulpea-doctor-test.el ends here
