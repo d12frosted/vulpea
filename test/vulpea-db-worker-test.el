@@ -149,6 +149,9 @@ the allowlist would also drop it from the candidates."
     enable-dir-local-variables
     safe-local-variable-values
     ignored-local-variables
+    ignored-local-variable-values
+    safe-local-variable-directories
+    enable-local-eval
     org-attach-id-dir
     org-attach-id-to-path-function-list
     org-attach-use-inheritance
@@ -288,6 +291,35 @@ must see that list, or it silently drops the value."
                  (sync-tags (plist-get (car dumps) :tags)))
             (should-not (assoc "approved-h" sync-tags))
             (should (equal sync-tags (plist-get (cdr dumps) :tags)))))
+      (delete-directory dir t))))
+
+(ert-deftest vulpea-db-worker-applies-safe-dir-locals-despite-unknown-ones ()
+  "A dir-local only the session knows is safe does not cost the rest.
+Packages mark their variables safe with a `safe-local-variable'
+property, and the worker does not load them.  With
+`enable-local-variables' t one unknown variable sends the whole set
+to a prompt, which a batch process answers with no; the worker must
+still apply the variables it does know are safe, like the category."
+  (let* ((dir (make-temp-file "vulpea-worker-unknown-" t))
+         (path (expand-file-name "note.org" dir))
+         (vulpea-db-parse-method 'temp-buffer)
+         (enable-local-variables t))
+    (put 'vulpea-db-worker-test--package-var 'safe-local-variable #'stringp)
+    (unwind-protect
+        (progn
+          (with-temp-file (expand-file-name ".dir-locals.el" dir)
+            (prin1 '((org-mode . ((org-category . "dirlocal")
+                                  (vulpea-db-worker-test--package-var . "x"))))
+                   (current-buffer)))
+          (with-temp-file path
+            (insert ":PROPERTIES:\n:ID: unknown-file\n:END:\n#+title: F\n"))
+          (let ((dumps (vulpea-db-worker-test--dumps path)))
+            (should (equal (nth 14 (assoc "unknown-file"
+                                          (plist-get (car dumps) :notes)))
+                           "dirlocal"))
+            (should (equal (plist-get (car dumps) :notes)
+                           (plist-get (cdr dumps) :notes)))))
+      (put 'vulpea-db-worker-test--package-var 'safe-local-variable nil)
       (delete-directory dir t))))
 
 (ert-deftest vulpea-db-worker-honors-link-abbreviations ()

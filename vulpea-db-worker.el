@@ -223,6 +223,9 @@ This is an extension point, not a setting: attach to it with
     enable-dir-local-variables
     safe-local-variable-values
     ignored-local-variables
+    ignored-local-variable-values
+    safe-local-variable-directories
+    enable-local-eval
     org-attach-id-dir
     org-attach-id-to-path-function-list
     org-attach-use-inheritance
@@ -1174,6 +1177,13 @@ this worker."
   ;; is current here, invisible to the parse buffers extraction uses.
   (pcase-dolist (`(,sym . ,value) vars)
     (set-default sym value))
+  ;; With t, one variable the worker does not know to be safe (packages
+  ;; mark theirs with a property, and the worker does not load them)
+  ;; sends the whole set to a prompt, which batch answers with no.  The
+  ;; session applies it; applying what is known safe and skipping the
+  ;; rest is the closest the worker can get
+  (when (eq enable-local-variables t)
+    (setq-default enable-local-variables :safe))
   ;; A code-version mismatch (main upgraded vulpea while running, or
   ;; stale byte-code) forbids opening the database from this worker:
   ;; vulpea-db--init would delete and rebuild it on a schema mismatch
