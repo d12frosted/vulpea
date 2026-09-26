@@ -766,7 +766,7 @@ where batch Emacs prints the error after any backtrace."
       (let ((report (vulpea-doctor)))
         (should (string-match-p "session vs worker +FAILED: [^\n]*worker exploded" report))
         (should-not (string-match-p "frame one" report))
-        (should (string-match-p "worker used for the comparison failed" report))
+        (should (string-match-p "could not be compared with your session: The worker exited" report))
         (should-not (string-match-p "sampled files differently" report))))))
 
 (ert-deftest vulpea-doctor-consistency-reports-silent-worker ()
@@ -1019,6 +1019,19 @@ nothing was compared for them."
 (defun vulpea-doctor-test--abbrev-fn (tag)
   "Expand TAG, as a session-only link abbreviation function would."
   (concat "id:" tag))
+
+(ert-deftest vulpea-doctor-clears-progress-message-on-failure ()
+  "The progress message goes away even when the comparison fails."
+  (vulpea-doctor-test--with-indexed-file "#+title: C\n"
+    (vulpea-doctor-test--with-worker-command "(kill-emacs 3)"
+      (let ((last 'none))
+        (cl-letf* ((orig (symbol-function 'message))
+                   ((symbol-function 'message)
+                    (lambda (fmt &rest args)
+                      (setq last fmt)
+                      (apply orig fmt args))))
+          (vulpea-doctor--compute-consistency))
+        (should (null last))))))
 
 (provide 'vulpea-doctor-test)
 ;;; vulpea-doctor-test.el ends here
