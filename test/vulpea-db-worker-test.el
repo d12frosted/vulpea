@@ -2124,6 +2124,33 @@ swallowed by the run that was already under way."
         (should (= 2 (length statuses)))
         (should-not vulpea-db-worker--fallback-queue)))))
 
+(ert-deftest vulpea-db-worker-fallback-survives-failing-done-hook ()
+  "A done hook that signals does not strand the rest of the queue.
+Pending fallbacks count as busy, so a stranded queue would keep the
+worker busy for good."
+  (let* ((first (vulpea-test--create-temp-org-file
+                 ":PROPERTIES:\n:ID: hook-fails-1\n:END:\n#+title: A\n"))
+         (second (vulpea-test--create-temp-org-file
+                  ":PROPERTIES:\n:ID: hook-fails-2\n:END:\n#+title: B\n")))
+    (unwind-protect
+        (vulpea-test--with-temp-db
+          (vulpea-db)
+          (let ((vulpea-db-worker--fallback-queue nil)
+                (vulpea-db-worker--fallback-timer nil)
+                (calls 0))
+            (let ((vulpea-db-worker-done-functions
+                   (list (lambda (&rest _)
+                           (setq calls (1+ calls))
+                           (when (= calls 1) (error "Hook failure")))))
+                  (inhibit-message t))
+              (vulpea-db-worker--queue-fallback first)
+              (vulpea-db-worker--queue-fallback second)
+              (vulpea-db-worker-test--drain-fallbacks))
+            (should (vulpea-db-get-by-id "hook-fails-2"))
+            (should-not (vulpea-db-worker-busy-p))))
+      (delete-file first)
+      (delete-file second))))
+
 ;;; Session vs worker comparison
 
 (ert-deftest vulpea-db-worker-compare-files-sees-heading-only-drift ()

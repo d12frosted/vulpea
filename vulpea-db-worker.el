@@ -1093,34 +1093,48 @@ one file per tick instead."
     (setq vulpea-db-worker--fallback-timer
           (run-with-timer 0 nil #'vulpea-db-worker--run-fallback))))
 
+(defun vulpea-db-worker--fallback-done (path status count)
+  "Announce that the fallback finished PATH with STATUS and COUNT.
+A hook function that signals is reported, not propagated: it must not
+cost the files still waiting in the queue."
+  (condition-case err
+      (run-hook-with-args 'vulpea-db-worker-done-functions path status count)
+    (error
+     (message "Vulpea: error in vulpea-db-worker-done-functions: %s"
+              (error-message-string err)))))
+
 (defun vulpea-db-worker--run-fallback ()
   "Index the next file the worker failed on, in this process.
 Further entries for the same file are served by the same parse, but
-each still gets its own completion, reported as unchanged."
+each still gets its own completion, reported as unchanged.  The next
+tick is scheduled whatever happens here, a quit included, so the
+queue never strands."
   (setq vulpea-db-worker--fallback-timer nil)
-  (when-let* ((path (pop vulpea-db-worker--fallback-queue)))
-    ;; Take this file's other entries now: the parse below can let the
-    ;; reply handler run, and whatever it queues meanwhile must get a
-    ;; run of its own
-    (let* ((extra (prog1 (seq-count (lambda (p) (equal p path))
-                                    vulpea-db-worker--fallback-queue)
-                    (setq vulpea-db-worker--fallback-queue
-                          (delete path vulpea-db-worker--fallback-queue))))
-           (count (condition-case err
-                      (when (file-exists-p path)
-                        (vulpea-db-update-file path))
-                    (error
-                     (message "Vulpea: failed to index %s: %s"
-                              path (error-message-string err))
-                     nil))))
-      (run-hook-with-args 'vulpea-db-worker-done-functions
-                          path (if count 'applied 'error) count)
-      (dotimes (_ extra)
-        (run-hook-with-args 'vulpea-db-worker-done-functions
-                            path (if count 'unchanged 'error) nil))))
-  (when vulpea-db-worker--fallback-queue
-    (setq vulpea-db-worker--fallback-timer
-          (run-with-timer 0 nil #'vulpea-db-worker--run-fallback))))
+  (unwind-protect
+      (when-let* ((path (pop vulpea-db-worker--fallback-queue)))
+        ;; Take this file's other entries now: the parse below can let
+        ;; the reply handler run, and whatever it queues meanwhile must
+        ;; get a run of its own
+        (let* ((extra (prog1 (seq-count (lambda (p) (equal p path))
+                                        vulpea-db-worker--fallback-queue)
+                        (setq vulpea-db-worker--fallback-queue
+                              (delete path vulpea-db-worker--fallback-queue))))
+               (count (condition-case err
+                          (when (file-exists-p path)
+                            (vulpea-db-update-file path))
+                        (error
+                         (message "Vulpea: failed to index %s: %s"
+                                  path (error-message-string err))
+                         nil))))
+          (vulpea-db-worker--fallback-done
+           path (if count 'applied 'error) count)
+          (dotimes (_ extra)
+            (vulpea-db-worker--fallback-done
+             path (if count 'unchanged 'error) nil))))
+    (when (and vulpea-db-worker--fallback-queue
+               (not (timerp vulpea-db-worker--fallback-timer)))
+      (setq vulpea-db-worker--fallback-timer
+            (run-with-timer 0 nil #'vulpea-db-worker--run-fallback)))))
 
 (defun vulpea-db-worker--reenqueue (path &optional force)
   "Schedule PATH for another pass, via the sync queue when active.
