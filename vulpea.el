@@ -353,6 +353,18 @@ variables instead, and reports a difference under the setting.")
 Both are read outside the parse buffer the hooks run in: the parse
 method picks that buffer, path normalization keys the database.")
 
+(defconst vulpea-doctor--buffer-local-settings
+  '(org-link-abbrev-alist-local)
+  "Buffer-local settings extraction reads that are never mirrored.
+They only exist in buffers (from keywords or hooks), so the worker
+has no global value to receive, but a hook setting one still makes
+the session index differently.")
+
+(defun vulpea-doctor--probed-settings ()
+  "Return the settings the hook probe compares."
+  (append vulpea-db-worker--settings-vars
+          vulpea-doctor--buffer-local-settings))
+
 (defun vulpea-doctor--probe-settings (setup)
   "Return the mirrored settings a parse buffer ends up with after SETUP.
 
@@ -361,7 +373,7 @@ the session prepares one: variable `buffer-file-name' set to a path
 under the first sync directory and `vulpea-db--active-parse-method'
 bound.
 Returns an alist of (VARIABLE . VALUE) over
-`vulpea-db-worker--settings-vars', leaving out unbound ones and
+`vulpea-doctor--probed-settings', leaving out unbound ones and
 `vulpea-doctor--unprobed-settings'; for
 the settings in `vulpea-doctor--derived-settings', VALUE is what
 org derived from them.  Nothing is written to disk."
@@ -388,7 +400,7 @@ org derived from them.  Nothing is written to disk."
                          (cons var (if (cdr derived)
                                        (mapcar #'symbol-value derived)
                                      (symbol-value (car derived)))))))
-                   vulpea-db-worker--settings-vars)))
+                   (vulpea-doctor--probed-settings))))
         (set-buffer-modified-p nil)
         (setq buffer-file-name nil)))))
 
@@ -821,7 +833,7 @@ sample), `checked' (with :sampled and :diffs, see
                      " indexes get the global value while files indexed"
                      " in your session get the hook's, and a note can"
                      " change between saves. Set these globally, or in"
-                     " the files themselves (#+TODO:, #+CATEGORY:), which"
+                     " the files themselves (#+CATEGORY:, #+TODO:, #+LINK:), which"
                      " the worker reads; skip them while vulpea parses"
                      " with `vulpea-db--active-parse-method' if indexing"
                      " should ignore them; or turn the worker off with"
