@@ -140,6 +140,23 @@ session.  Org's own functions are fine."
       (should (memq 'attach-path-functions
                     (vulpea-db-worker-rejection-reasons "x.org"))))))
 
+(ert-deftest vulpea-db-worker-recognizes-org-attach-functions-from-source ()
+  "Org's own attach functions are recognized however org was loaded.
+From compressed source the file is org-attach.el.gz, whose base name
+is not \"org-attach\"; comparing base names would reject everyone."
+  (let ((org-file "/opt/org/org-attach.el.gz"))
+    (cl-letf* ((orig (symbol-function 'symbol-file))
+               ((symbol-function 'symbol-file)
+                (lambda (sym &optional type native)
+                  (cond
+                   ((eq sym 'vulpea-db-worker-test--attach-path) "/home/me/init.el")
+                   ((string-prefix-p "org-attach" (symbol-name sym)) org-file)
+                   (t (funcall orig sym type native))))))
+      (should (vulpea-db-worker--org-attach-function-p
+               'org-attach-id-uuid-folder-format))
+      (should-not (vulpea-db-worker--org-attach-function-p
+                   'vulpea-db-worker-test--attach-path)))))
+
 ;;; Settings classification
 
 (defun vulpea-db-worker-test--worker-sources ()
