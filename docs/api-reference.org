@@ -178,6 +178,9 @@ This is an optimized query that retrieves all attachment link destinations along
 
 ;; Notes where key equals value (matched as the string written in the note)
 (vulpea-db-query-by-meta "status" "active")
+
+;; Notes where key carries ANY of these values
+(vulpea-db-query-by-meta-some "status" '("active" "waiting"))
 #+end_src
 
 ** By Properties
@@ -2034,6 +2037,7 @@ package - it flags the same violations inline as you edit.)
 | =vulpea-db-query-by-links-every=      | Notes linking to ALL IDs             |
 | =vulpea-db-query-attachments-by-path= | Attachment (dest . attach-dir) pairs |
 | =vulpea-db-query-by-meta=             | Notes with metadata key=value        |
+| =vulpea-db-query-by-meta-some=        | Notes with metadata key=ANY values   |
 | =vulpea-db-query-by-meta-key=         | Notes having metadata key            |
 | =vulpea-db-query-by-property=         | Notes with property key=value        |
 | =vulpea-db-query-by-property-key=     | Notes having property key            |
