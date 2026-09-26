@@ -462,7 +462,7 @@ hooks in the session too."
                                 (mapcar (lambda (var)
                                           (when (default-boundp var)
                                             (cons var (default-value var))))
-                                        vulpea-db-worker--settings-vars)))
+                                        (vulpea-doctor--probed-settings))))
                  (probe
                   (unwind-protect
                       (ignore-errors
@@ -840,9 +840,10 @@ sample), `checked' (with :sampled and :diffs, see
                      " indexes get the global value while files indexed"
                      " in your session get the hook's, and a note can"
                      " change between saves. Set these globally, or in"
-                     " the files themselves (#+CATEGORY:, #+TODO:, #+LINK:), which"
-                     " the worker reads; skip them while vulpea parses"
-                     " with `vulpea-db--active-parse-method' if indexing"
+                     " the files themselves (#+CATEGORY:, #+TODO:,"
+                     " #+LINK:), which the worker reads;%s skip them"
+                     " while vulpea parses with"
+                     " `vulpea-db--active-parse-method' if indexing"
                      " should ignore them; or turn the worker off with"
                      " (setq vulpea-db-async-extraction nil).")
              (mapconcat
@@ -852,7 +853,17 @@ sample), `checked' (with :sampled and :diffs, see
                         (vulpea-doctor--describe-hook-functions
                          (cdr entry))))
               changed
-              "; "))
+              "; ")
+             ;; Buffer-local settings have no global value the worker
+             ;; could receive; name what it does receive
+             (if (seq-some (lambda (entry)
+                             (memq (car entry)
+                                   vulpea-doctor--buffer-local-settings))
+                           changed)
+                 (concat " for `org-link-abbrev-alist-local', that means"
+                         " `org-link-abbrev-alist' or #+LINK:, since the"
+                         " worker never sees a buffer-local value;")
+               ""))
             issues))
     ;; Outcome check: whatever the cause, does the worker agree?
     (let ((result (vulpea-doctor--consistency)))
