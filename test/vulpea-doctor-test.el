@@ -709,5 +709,22 @@ The comparison spawns a worker, so one report runs it once."
       (should-not (string-match-p "sampled files" report))
       (should (string-match-p "session vs worker +n/a" report)))))
 
+(ert-deftest vulpea-doctor-consistency-skips-visited-files ()
+  "Files open in a buffer are left out of the sample.
+Parsing with `find-file' reuses and then kills a visiting buffer,
+and an unsaved one would compare its edits against the file."
+  (vulpea-doctor-test--with-indexed-file "#+title: C\n"
+    (let* ((vulpea-db-parse-method 'find-file)
+           (buffer (find-file-noselect temp-org-file)))
+      (unwind-protect
+          (progn
+            (should-not (member temp-org-file
+                                (vulpea-doctor--consistency-sample)))
+            (should (string-match-p "session vs worker +nothing to sample"
+                                    (vulpea-doctor)))
+            (should (buffer-live-p buffer)))
+        (when (buffer-live-p buffer)
+          (kill-buffer buffer))))))
+
 (provide 'vulpea-doctor-test)
 ;;; vulpea-doctor-test.el ends here
