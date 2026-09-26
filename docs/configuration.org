@@ -438,8 +438,13 @@ It re-runs =org-mode= per file like the session does, so in-file
 keywords (=#+TODO:=, =#+CATEGORY:=) and dir-locals apply there too.
 Files it cannot handle faithfully are processed synchronously as
 before: extractor plugins declaring =:requires-ast t=,
-function-valued =vulpea-db-index-heading-level=, and non-=.org=
-files (decryption may require interaction).
+function-valued =vulpea-db-index-heading-level=, functions of your
+own in =org-attach-id-to-path-function-list=, and non-=.org= files
+(decryption may require interaction). A file linking through a link
+abbreviation that expands with a function of your session (a
+function value, or =%(...)= in =org-link-abbrev-alist= or the file's
+own =#+LINK:=) is handed back and indexed in your session, and so is
+any file the worker fails on.
 
 The worker starts lazily on the first changed file, restarts
 automatically if it dies (re-queueing in-flight files), and stops
