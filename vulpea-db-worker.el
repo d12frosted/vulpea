@@ -1310,25 +1310,29 @@ there are such abbreviations."
                  "[]:]")
          nil t)))))
 
-(defun vulpea-db-worker--local-abbrevs-need-session-p (path)
-  "Return non-nil when PATH's own #+LINK: keywords call a function.
-Org expands a %(...) abbreviation by calling that function, which
-exists only in the session (and on failure org drops the
-abbreviation, so the parse leaves no trace of it).  Checked after
-parsing against the text still in the parse buffer, so no extra read
-is needed - except with the `find-file' parse method, whose buffer is
-gone by then."
-  (let ((case-fold-search t)
-        (regexp "^[ \t]*#\\+link:.*%("))
-    (if (and (not (eq vulpea-db-parse-method 'find-file))
-             (buffer-live-p vulpea-db--parse-buffer))
-        (with-current-buffer vulpea-db--parse-buffer
-          (save-excursion
-            (goto-char (point-min))
-            (re-search-forward regexp nil t)))
-      (with-temp-buffer
-        (insert-file-contents path)
-        (re-search-forward regexp nil t)))))
+(defvar vulpea-db-worker--session-abbrev-expanded nil
+  "Non-nil once the current parse expanded a %(...) link abbreviation.
+Worker side; see `vulpea-db-worker--note-abbrev-expansion'.")
+
+(defun vulpea-db-worker--note-abbrev-expansion (link)
+  "Note when LINK expands through a %(...) link abbreviation.
+Installed in the worker as advice before `org-link-expand-abbrev'.
+Org calls the function named in %(...), which exists only in the
+session, and on failure drops the abbreviation without a trace, so
+the worker watches the expansion itself.  That covers abbreviations
+from the settings, the file's own #+LINK: keywords and setup files
+alike, and only those the parse actually uses.  Mirrors the lookup
+of `org-link-expand-abbrev'."
+  (save-match-data
+    (when (and (stringp link)
+               (string-match "^\\([^:]*\\)\\(::?\\(.*\\)\\)?$" link))
+      (let* ((key (match-string 1 link))
+             (entry (or (assoc key (bound-and-true-p org-link-abbrev-alist-local))
+                        (assoc key org-link-abbrev-alist))))
+        (when (and entry
+                   (stringp (cdr entry))
+                   (string-search "%(" (cdr entry)))
+          (setq vulpea-db-worker--session-abbrev-expanded t))))))
 
 (define-error 'vulpea-db-worker-handback
   "File needs the session to be indexed faithfully")
@@ -1339,10 +1343,11 @@ Signals `vulpea-db-worker-handback' when the result would differ
 from the session's because the file needs one of its functions; the
 handlers answer with a `handback' reply, and the main process indexes
 the file synchronously."
-  (let ((ctx (vulpea-db--parse-file path)))
-    (when (vulpea-db-worker--local-abbrevs-need-session-p path)
+  (let* ((vulpea-db-worker--session-abbrev-expanded nil)
+         (ctx (vulpea-db--parse-file path)))
+    (when vulpea-db-worker--session-abbrev-expanded
       (signal 'vulpea-db-worker-handback
-              '("its #+LINK: keywords expand with a function from your session")))
+              '("it links through an abbreviation that expands with a function from your session")))
     ctx))
 
 (defun vulpea-db-worker--apply-settings (vars link-types extractors
@@ -1590,6 +1595,8 @@ result is written even when the content hash matches."
 Runs in `emacs --batch': reads one request per line from stdin,
 writes protocol lines to stdout.  Exits when stdin closes."
   (require 'org-attach)
+  (advice-add 'org-link-expand-abbrev :before
+              #'vulpea-db-worker--note-abbrev-expansion)
   (while t
     (let* ((line (condition-case nil
                      (read-from-minibuffer "")
