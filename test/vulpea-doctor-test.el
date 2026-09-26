@@ -951,5 +951,18 @@ The random half is what reaches files nobody touched lately."
                                 sample))))
         (mapc #'delete-file paths)))))
 
+(defun vulpea-doctor-test--set-local-abbrevs ()
+  "Stand-in for a hook adding link abbreviations to one buffer."
+  (setq-local org-link-abbrev-alist-local '(("hk" . "https://hk.example/%s"))))
+
+(ert-deftest vulpea-doctor-flags-hook-setting-local-link-abbrevs ()
+  "A hook setting buffer-local link abbreviations is named.
+`org-link-abbrev-alist-local' is never mirrored - it only exists in
+buffers - yet it changes how links are indexed."
+  (let ((issue (vulpea-doctor-test--hook-issue
+                '((org-mode-hook vulpea-doctor-test--set-local-abbrevs)))))
+    (should issue)
+    (should (string-match-p "org-link-abbrev-alist-local" issue))))
+
 (provide 'vulpea-doctor-test)
 ;;; vulpea-doctor-test.el ends here
