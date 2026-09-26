@@ -463,7 +463,7 @@ candidates and the heap growth of the cache in MB."
                            (let ((before (funcall heap)))
                              (funcall open-find)
                              (- (funcall heap) before))))
-               (candidates (length (vulpea-select--cache-candidates)))
+               (candidates (length (vulpea-select-cache-candidates)))
                (find (funcall measure open-find))
                (changed-file (vulpea-note-path
                               (car (vulpea-db-query-by-ids (list hub)))))

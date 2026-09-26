@@ -1338,14 +1338,19 @@ All selection commands (=vulpea-select=, =vulpea-select-from=, and therefore =vu
 
 The category is additive - plain =completing-read= and frameworks that ignore it are unaffected.
 
+A frontend that replaces selection by advising =vulpea-select-from= keeps receiving every =vulpea-find= and =vulpea-insert= call: the candidate cache (see [[file:user-guide.org::*Candidate Cache][Candidate Cache]]) steps aside while that advice is present. To use the cache too, advise =vulpea-select-from-cache= (arguments =PROMPT &key REQUIRE-MATCH INITIAL-PROMPT=, returns a =vulpea-note=, with a nil id for input that matches no note), complete over =(vulpea-select-cache-candidates)=, preview with =vulpea-select-candidate-path= and resolve the pick with =vulpea-select-candidate-note=.
+
 ** Candidate Text Properties
 
 Each candidate string is self-describing: besides the note id (the =vulpea-note-id= property read by embark-vulpea), it carries the whole =vulpea-note= and the value produced by =vulpea-select-dyncontext-fn=. Candidates of =vulpea-find= and =vulpea-insert= served from the candidate cache (see [[file:user-guide.org::*Candidate Cache][Candidate Cache]]) are the exception: keeping every note in memory is what the cache avoids, so they carry the id only, and =vulpea-select-candidate-note= reads the note from the database when asked. Two accessors read them back:
 
 #+begin_src emacs-lisp
 (vulpea-select-candidate-note candidate)    ;; => the vulpea-note, or nil
+(vulpea-select-candidate-path candidate)    ;; => its file path, or nil
 (vulpea-select-candidate-context candidate) ;; => the dyncontext value, or nil
 #+end_src
+
+=vulpea-select-candidate-path= never reads the database for a cached candidate, so it is the one to use for work done per displayed candidate, such as previewing the note's file.
 
 Both return nil when the string is not a candidate - for example the free-form input a user types to name a new note - so code consuming mixed strings needs no special casing. Use the accessors rather than =get-text-property=: the property names are an implementation detail, the accessors are the supported surface.
 
