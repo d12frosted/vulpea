@@ -347,6 +347,12 @@ default value of `org-todo-keywords', so a buffer-local value set
 by a mode hook changes no parse.  The probe compares the derived
 variables instead, and reports a difference under the setting.")
 
+(defconst vulpea-doctor--unprobed-settings
+  '(vulpea-db-parse-method vulpea-db-path-normalization)
+  "Mirrored settings a mode hook cannot change for extraction.
+Both are read outside the parse buffer the hooks run in: the parse
+method picks that buffer, path normalization keys the database.")
+
 (defun vulpea-doctor--probe-settings (setup)
   "Return the mirrored settings a parse buffer ends up with after SETUP.
 
@@ -355,7 +361,8 @@ the session prepares one: variable `buffer-file-name' set to a path
 under the first sync directory and `vulpea-db--active-parse-method'
 bound.
 Returns an alist of (VARIABLE . VALUE) over
-`vulpea-db-worker--settings-vars', leaving out unbound ones; for
+`vulpea-db-worker--settings-vars', leaving out unbound ones and
+`vulpea-doctor--unprobed-settings'; for
 the settings in `vulpea-doctor--derived-settings', VALUE is what
 org derived from them.  Nothing is written to disk."
   (let* ((dir (file-name-as-directory
@@ -376,7 +383,8 @@ org derived from them.  Nothing is written to disk."
                      (let ((derived (or (alist-get
                                          var vulpea-doctor--derived-settings)
                                         (list var))))
-                       (when (seq-every-p #'boundp derived)
+                       (when (and (not (memq var vulpea-doctor--unprobed-settings))
+                                  (seq-every-p #'boundp derived))
                          (cons var (if (cdr derived)
                                        (mapcar #'symbol-value derived)
                                      (symbol-value (car derived)))))))

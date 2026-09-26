@@ -800,5 +800,17 @@ the most recently modified file is always in."
                                       sample)))))
         (mapc #'delete-file paths)))))
 
+(defun vulpea-doctor-test--set-parse-method ()
+  "Stand-in for a hook setting a setting read outside the parse buffer."
+  (setq-local vulpea-db-parse-method 'find-file)
+  (setq-local vulpea-db-path-normalization nil))
+
+(ert-deftest vulpea-doctor-no-hook-issue-for-settings-read-outside ()
+  "Settings read before the parse buffer exists cannot drift by hook.
+`vulpea-db-parse-method' picks the buffer and path normalization
+keys the database, both outside the buffer a hook runs in."
+  (should-not (vulpea-doctor-test--hook-issue
+               '((org-mode-hook vulpea-doctor-test--set-parse-method)))))
+
 (provide 'vulpea-doctor-test)
 ;;; vulpea-doctor-test.el ends here
