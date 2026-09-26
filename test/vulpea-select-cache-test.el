@@ -33,6 +33,7 @@
   (declare (indent 0))
   `(let ((vulpea-select-cache t)
          (vulpea-select-cache-prewarm nil)
+         (vulpea-select--cache-last-event nil)
          (vulpea-select-dyncontext-fn nil)
          (vulpea-find-default-filter nil)
          (vulpea-insert-default-filter nil)
@@ -611,6 +612,41 @@ announces nothing."
         (should (vulpea-select-cache-test--prewarm-scheduled-p)))
       (let ((vulpea-select-cache nil))
         (should-not (vulpea-select-cache-test--prewarm-scheduled-p))))))
+
+(ert-deftest vulpea-select-cache-prewarm-after-bulk-drop ()
+  "A bulk change drops the cache and prewarms again once changes stop."
+  (vulpea-select-cache-test--with-cache
+    (let ((vulpea-select-cache--pending-limit 1)
+          (vulpea-db-autosync-mode t)
+          (vulpea-select-cache-prewarm t)
+          timers)
+      (vulpea-test--with-temp-db
+        (vulpea-db)
+        (vulpea-select-cache-test--insert-fixture)
+        (cl-letf (((symbol-function 'run-with-idle-timer)
+                   (lambda (_secs _repeat fn &rest args)
+                     (push (cons fn args) timers)
+                     'timer))
+                  ((symbol-function 'cancel-timer) #'ignore)
+                  ((symbol-function 'input-pending-p) #'ignore))
+          (vulpea-select-cache-candidates)
+          (run-hook-with-args 'vulpea-db-updated-functions "/tmp/a.org" 2)
+          (run-hook-with-args 'vulpea-db-updated-functions "/tmp/b.org" 1)
+          ;; dropped, and a prewarm is on its way
+          (should-not (vulpea-select--cache-complete-p))
+          (should timers)
+          ;; changes are still coming in: the prewarm waits
+          (let ((timer (pop timers)))
+            (apply (car timer) (cdr timer)))
+          (should-not (vulpea-select--cache-complete-p))
+          (should timers)
+          ;; once they stop, it builds the cache
+          (setq vulpea-select--cache-last-event
+                (- (float-time) (* 2 vulpea-select-cache--quiet-period)))
+          (let ((timer (pop timers)))
+            (apply (car timer) (cdr timer)))
+          (should (vulpea-select--cache-complete-p))
+          (vulpea-select-cache-test--same-as-uncached))))))
 
 (ert-deftest vulpea-select-cache-prewarm-in-chunks ()
   "The idle prewarm builds the same candidates in several steps."

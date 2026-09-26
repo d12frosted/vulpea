@@ -571,6 +571,14 @@ See `vulpea-select--cached-note'.")
 (defvar vulpea-select-cache--prewarm-delay 2
   "Idle seconds before the prewarm starts or resumes.")
 
+(defvar vulpea-select-cache--quiet-period 5
+  "Seconds without database changes before a prewarm starts.
+A scan or re-index announces files one by one; building the cache
+in the middle of that would only see it dropped again.")
+
+(defvar vulpea-select--cache-last-event nil
+  "Time of the last `vulpea-db-updated-functions' call, as a float.")
+
 (cl-defstruct (vulpea-select--cache-state
                (:constructor vulpea-select--cache-state-create)
                (:copier nil))
@@ -892,13 +900,16 @@ candidate, such as a preview, which must not read notes."
 
 Runs on `vulpea-db-updated-functions'.  Past
 `vulpea-select-cache--pending-limit' queued files the cache is
-dropped: a bulk change is cheaper to rebuild than to patch."
+dropped: a bulk change is cheaper to rebuild than to patch.  A
+prewarm is then scheduled, and it waits for the changes to stop."
+  (setq vulpea-select--cache-last-event (float-time))
   (when-let* ((cache vulpea-select--cache))
     (when (eq (vulpea-select--cache-state-db cache) vulpea-db--connection)
       (let ((pending (vulpea-select--cache-state-pending cache)))
         (puthash (vulpea-db-normalize-path path) t pending)
         (when (> (hash-table-count pending) vulpea-select-cache--pending-limit)
-          (vulpea-select-cache-drop))))))
+          (vulpea-select-cache-drop)
+          (vulpea-select--cache-schedule-prewarm))))))
 
 (add-hook 'vulpea-db-updated-functions #'vulpea-select--cache-file-updated)
 
@@ -973,13 +984,29 @@ list is assembled as well."
       (if (vulpea-select--cache-state-cursor cache)
           (setq vulpea-select--cache-timer
                 (run-with-idle-timer vulpea-select-cache--prewarm-delay nil
-                                     #'vulpea-select-cache-prewarm))
+                                     #'vulpea-select--cache-prewarm-step))
         ;; assemble the candidate list too, so the first selection
         ;; does not pay for it
         (vulpea-select-cache-candidates)))))
 
-(defun vulpea-select--cache-autosync-started ()
-  "Schedule a prewarm of the candidate cache on autosync start."
+(defun vulpea-select--cache-prewarm-step ()
+  "Continue the prewarm, unless the database is still changing.
+While files keep being announced (a scan, a re-index), wait for
+`vulpea-select-cache--quiet-period' without changes first."
+  (setq vulpea-select--cache-timer nil)
+  (if (and vulpea-select--cache-last-event
+           (< (- (float-time) vulpea-select--cache-last-event)
+              vulpea-select-cache--quiet-period))
+      (setq vulpea-select--cache-timer
+            (run-with-idle-timer vulpea-select-cache--prewarm-delay nil
+                                 #'vulpea-select--cache-prewarm-step))
+    (vulpea-select-cache-prewarm)))
+
+(defun vulpea-select--cache-schedule-prewarm ()
+  "Schedule a prewarm of the candidate cache when it is wanted.
+That is, with `vulpea-db-autosync-mode' and
+`vulpea-select-cache-prewarm' on, and the cache serving `vulpea-find'
+or `vulpea-insert'."
   (when (and (bound-and-true-p vulpea-db-autosync-mode)
              vulpea-select-cache-prewarm
              (vulpea-select--cache-wanted-p)
@@ -987,7 +1014,11 @@ list is assembled as well."
              (not (vulpea-select--cache-complete-p)))
     (setq vulpea-select--cache-timer
           (run-with-idle-timer vulpea-select-cache--prewarm-delay nil
-                               #'vulpea-select-cache-prewarm))))
+                               #'vulpea-select--cache-prewarm-step))))
+
+(defun vulpea-select--cache-autosync-started ()
+  "Schedule a prewarm of the candidate cache on autosync start."
+  (vulpea-select--cache-schedule-prewarm))
 
 (add-hook 'vulpea-db-autosync-mode-hook #'vulpea-select--cache-autosync-started)
 
