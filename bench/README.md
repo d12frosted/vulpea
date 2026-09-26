@@ -145,23 +145,30 @@ building note structs, the rest garbage collection. The backlink query
 mostly gained from no longer asking SQLite for distinct whole note
 rows.
 
-With the candidate cache (`vulpea-select-cache`), same database and
-machine, median of 7 runs:
+With the candidate cache (`vulpea-select-cache`), same database with a
+stamp in `files` for each of its files, same machine, median of 7
+runs:
 
-| `vulpea-find` until its prompt          | time  |
-|-----------------------------------------|-------|
-| no candidate cache                      | 2.18s |
-| first open, building the cache          | 2.46s |
-| later opens                             | 33us  |
-| later open right after one file changed | 31ms  |
+| `vulpea-find` until its prompt            | time  |
+|-------------------------------------------|-------|
+| no candidate cache                        | 2.08s |
+| first open, building the cache            | 2.54s |
+| later opens                               | 0.1ms |
+| later open right after one file changed   | 28ms  |
+| later open after another connection wrote | 74ms  |
 
-The cache holds 165,090 candidates (notes plus aliases) in 108MB. A
-later open hands the cached list to completion, so the prompt appears
-at once; listing all 165k candidates for it (`all-completions` with
-empty input) adds about 5ms. After a change, most of the 31ms is
-assembling the candidate list again. Prewarming in idle time reads 500
-notes per step, about 10ms each, with garbage collection pauses of up
-to 190ms between steps. Measured on 2026-09-24, same machine as above.
+The cache holds 165,090 candidates (notes plus aliases) in 129MB, 21MB
+of which are the file hashes it compares when another connection (a
+second Emacs, the worker in `full` mode) wrote to the database. A
+later open checks SQLite's `data_version` and hands the cached list to
+completion; listing all 165k candidates for it (`all-completions` with
+empty input) adds about 5ms. After a change, most of the 28ms is
+assembling the candidate list again. After another connection wrote,
+the next open compares every file hash first. Prewarming in idle time
+reads 500 notes per step, about 10ms each (the first step also reads
+the file hashes), with garbage collection
+pauses of up to 190ms between steps. Measured on 2026-09-26, same
+machine as above.
 
 ## Components
 
@@ -234,11 +241,12 @@ Core benchmarking utilities:
 (vulpea-bench-file-listing "/path/to/notes")
 ;; => (:count N :fd S :find S :directory-files-recursively S)
 ;; Time vulpea-db-query, vulpea-find until its prompt (without the
-;; candidate cache, first open, later opens, after a change), and
+;; candidate cache, first open, later opens, after a change, after
+;; another connection wrote), and
 ;; the backlink queries for the most linked note
 (vulpea-bench-read-path "/path/to/db.db")
 ;; => (:count N :backlinks N :query S :find-uncached S :find-first S
-;;     :find S :find-changed S :candidates N :cache-mb MB
+;;     :find S :find-changed S :find-foreign S :candidates N :cache-mb MB
 ;;     :by-links S :links-to S)
 ```
 
