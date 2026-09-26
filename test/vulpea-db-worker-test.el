@@ -82,6 +82,34 @@ Ensures the worker and the file are cleaned up."
   (should (eq t (eval (car (get 'vulpea-db-async-extraction 'standard-value))
                       t))))
 
+;;; Settings the worker needs from libraries the session may not load
+
+(ert-deftest vulpea-db-worker-sends-attach-settings-without-org-attach ()
+  "The settings message carries org-attach options in a fresh session.
+With async extraction the session may never load org-attach itself,
+yet the worker needs the user's attach settings; a value set in
+`with-eval-after-load' must reach it too."
+  (let* ((emacs (expand-file-name invocation-name invocation-directory))
+         (output
+          (with-temp-buffer
+            (apply #'call-process emacs nil t nil
+                   (append
+                    (list "--batch" "-Q")
+                    (mapcan (lambda (dir) (list "-L" dir))
+                            (seq-filter #'stringp load-path))
+                    (list "--eval"
+                          (prin1-to-string
+                           '(progn
+                              (with-eval-after-load 'org-attach
+                                (setq org-attach-id-dir "custom-attach/"))
+                              (require 'vulpea-db-worker)
+                              (princ (format "ATTACH=%S"
+                                             (alist-get
+                                              'org-attach-id-dir
+                                              (nth 1 (vulpea-db-worker--settings-form))))))))))
+            (buffer-string))))
+    (should (string-match-p "ATTACH=\"custom-attach/\"" output))))
+
 ;;; Settings classification
 
 (defun vulpea-db-worker-test--worker-sources ()
