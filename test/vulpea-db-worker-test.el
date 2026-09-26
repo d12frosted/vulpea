@@ -2151,6 +2151,36 @@ worker busy for good."
       (delete-file first)
       (delete-file second))))
 
+(ert-deftest vulpea-db-worker-fallback-retries-locked-database ()
+  "A fallback that finds the database locked tries again.
+In full-write mode the worker commits through its own connection, and
+a synchronous write from the session can meet that commit; giving up
+would leave the file out of the database until its next change."
+  (vulpea-db-worker-test--with-file
+      ":PROPERTIES:\n:ID: locked-once\n:END:\n#+title: L\n"
+    (vulpea-test--with-temp-db
+      (vulpea-db)
+      (let ((vulpea-db-worker--fallback-queue nil)
+            (vulpea-db-worker--fallback-timer nil)
+            (vulpea-db-worker--fallback-attempts (make-hash-table :test #'equal))
+            (update (symbol-function 'vulpea-db-update-file))
+            (attempts 0)
+            statuses)
+        (cl-letf (((symbol-function 'vulpea-db-update-file)
+                   (lambda (p)
+                     (setq attempts (1+ attempts))
+                     (if (= attempts 1)
+                         (signal 'sqlite-locked-error '("database is locked"))
+                       (funcall update p)))))
+          (let ((vulpea-db-worker-done-functions
+                 (list (lambda (_p status _c) (push status statuses))))
+                (inhibit-message t))
+            (vulpea-db-worker--queue-fallback path)
+            (vulpea-db-worker-test--drain-fallbacks)))
+        (should (= attempts 2))
+        (should (equal statuses '(applied)))
+        (should (vulpea-db-get-by-id "locked-once"))))))
+
 ;;; Session vs worker comparison
 
 (ert-deftest vulpea-db-worker-compare-files-sees-heading-only-drift ()
