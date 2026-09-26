@@ -726,5 +726,20 @@ and an unsaved one would compare its edits against the file."
         (when (buffer-live-p buffer)
           (kill-buffer buffer))))))
 
+(ert-deftest vulpea-doctor-consistency-reports-broken-worker ()
+  "A worker that dies on startup is a failure, not drift.
+Otherwise every sampled file comes back without a result and the
+doctor blames the user's setup for a broken worker."
+  (vulpea-doctor-test--with-indexed-file "#+title: C\n"
+    (cl-letf (((symbol-function 'vulpea-db-worker--command)
+               (lambda ()
+                 (list (expand-file-name invocation-name invocation-directory)
+                       "--batch" "-Q" "--eval"
+                       "(progn (message \"worker exploded\") (kill-emacs 3))"))))
+      (let ((report (vulpea-doctor)))
+        (should (string-match-p "session vs worker +FAILED" report))
+        (should (string-match-p "worker exploded" report))
+        (should-not (string-match-p "sampled files differently" report))))))
+
 (provide 'vulpea-doctor-test)
 ;;; vulpea-doctor-test.el ends here
