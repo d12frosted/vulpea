@@ -611,6 +611,35 @@ after loading PATH so file-local keywords and hooks are respected."
         (setq buffer-file-name nil)
         (set-buffer-modified-p nil)))))
 
+(defun vulpea-db--parse-with-find-file (path)
+  "Parse org file at PATH by visiting it, then kill the buffer.
+Slower than the temp-buffer methods, but runs every file-visiting
+hook and applies dir-locals.  Only for files no buffer visits: the
+caller parses an open file another way, so its unsaved edits are
+neither indexed nor lost."
+  (let ((buffer (find-file-noselect path t)))
+    (unwind-protect
+        (with-current-buffer buffer
+          (let* ((ast (org-element-parse-buffer (vulpea-db--effective-granularity)))
+                 (attrs (file-attributes path))
+                 (mtime (float-time (file-attribute-modification-time attrs)))
+                 (size (file-attribute-size attrs))
+                 (hash (secure-hash 'sha256 (current-buffer)))
+                 (file-title (vulpea-db--extract-file-title ast path))
+                 (file-category (vulpea-db--file-category ast path (current-buffer))))
+
+            (make-vulpea-parse-ctx
+             :path path
+             :ast ast
+             :file-node (vulpea-db--extract-file-node ast path (current-buffer) file-title file-category)
+             :heading-nodes (vulpea-db--extract-heading-nodes ast path (current-buffer) file-title file-category)
+             :hash hash
+             :mtime mtime
+             :size size)))
+      ;; Nobody else had this buffer: it was visited for the parse
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
 (defun vulpea-db--parse-file (path)
   "Parse org file at PATH and return parse context.
 
@@ -646,29 +675,14 @@ ensure decryption hooks run properly."
        (vulpea-db--parse-with-temp-buffer path t))
 
       ('find-file
-       ;; Use find-file-noselect: slower but respects hooks and dir-locals
-       (let ((buffer (find-file-noselect path t)))
-         (unwind-protect
-             (with-current-buffer buffer
-               (let* ((ast (org-element-parse-buffer (vulpea-db--effective-granularity)))
-                      (attrs (file-attributes path))
-                      (mtime (float-time (file-attribute-modification-time attrs)))
-                      (size (file-attribute-size attrs))
-                      (hash (secure-hash 'sha256 (current-buffer)))
-                      (file-title (vulpea-db--extract-file-title ast path))
-                      (file-category (vulpea-db--file-category ast path (current-buffer))))
-
-                 (make-vulpea-parse-ctx
-                  :path path
-                  :ast ast
-                  :file-node (vulpea-db--extract-file-node ast path (current-buffer) file-title file-category)
-                  :heading-nodes (vulpea-db--extract-heading-nodes ast path (current-buffer) file-title file-category)
-                  :hash hash
-                  :mtime mtime
-                  :size size)))
-           ;; Always kill the buffer after parsing
-           (when (buffer-live-p buffer)
-             (kill-buffer buffer)))))
+       (if (find-buffer-visiting path)
+           ;; The file is open: `find-file-noselect' would hand back
+           ;; that buffer, unsaved edits and all, and killing it after
+           ;; the parse would throw those edits away.  Parse the saved
+           ;; file in the reused buffer instead, hooks and dir-locals
+           ;; still applied.
+           (vulpea-db--parse-with-temp-buffer path t)
+         (vulpea-db--parse-with-find-file path)))
 
       (_
        (error "Unsupported vulpea-db-parse-method: %s" vulpea-db-parse-method)))))

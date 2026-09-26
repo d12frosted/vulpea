@@ -91,6 +91,8 @@
 
 *Fixes*
 
+- [[https://github.com/d12frosted/vulpea/issues/535][vulpea#535]] The =find-file= parse method no longer kills a buffer you have open. It visited the file with =find-file-noselect=, which hands back the existing buffer, indexed that buffer's unsaved contents and then killed it, throwing the edits away without a prompt. A file that is open is now parsed from disk the =temp-buffer= way (hooks and dir-locals still apply), and your buffer is left as it was.
+
 - The extraction worker now sees a few settings it used to ignore: =org-link-abbrev-alist=, =org-attach-use-inheritance=, the local variables you approved (=safe-local-variable-values=, =ignored-local-variables=) and =vulpea-db-path-normalization=. With the worker on, a link written with an abbreviation such as =[[nt:ID]]= was indexed as a fuzzy link and lost its backlink, an unsafe dir-local you had approved (say =org-use-tag-inheritance=) was dropped, and in =full= mode on macOS with path normalization off, non-ASCII paths were stored in a different form than the session looked them up with. A test now requires every =vulpea-db-*= and =vulpea-buffer-*= option, and every option the worker's code names, to be mirrored or listed as not affecting extraction. Org settings read inside org itself are invisible to that test, so they are pinned by hand.
 
 - The extraction worker gets your =org-attach= settings even when your session never loaded =org-attach=. They were only sent once the library was loaded, and with the worker doing the parsing your session might never load it, so a custom =org-attach-id-dir= (set in =with-eval-after-load=, say) was ignored and attachment dirs were indexed at the default location. vulpea now loads =org-attach= along with the worker code.
