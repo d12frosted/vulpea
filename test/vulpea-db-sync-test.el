@@ -190,6 +190,25 @@ No call is made for the directory itself."
       (should (equal calls
                      (list (list (vulpea-db-normalize-path path) 0)))))))
 
+(ert-deftest vulpea-db-sync-process-queue-refreshes-worker-settings ()
+  "Each batch checks the worker's settings before dispatching to it."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((path (vulpea-test--create-temp-org-file
+                  ":PROPERTIES:\n:ID: refresh-id\n:END:\n#+TITLE: R\n"))
+           (vulpea-db-sync--queue (list (cons path (float-time))))
+           (vulpea-db-sync--processing nil)
+           (vulpea-db-async-extraction t)
+           (checks 0))
+      (unwind-protect
+          (cl-letf (((symbol-function 'vulpea-db-worker-refresh-if-changed)
+                     (lambda () (setq checks (1+ checks))))
+                    ((symbol-function 'vulpea-db-worker-request)
+                     (lambda (&rest _))))
+            (vulpea-db-sync--process-queue)
+            (should (= checks 1)))
+        (delete-file path)))))
+
 (ert-deftest vulpea-db-sync-process-queue-batch-limit ()
   "Test queue respects batch size limit."
   (vulpea-test--with-temp-db

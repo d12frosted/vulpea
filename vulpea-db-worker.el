@@ -360,18 +360,35 @@ instead."
 (defvar vulpea-db-worker--refresh-timer nil
   "Debounce timer for pushing settings to a live worker.")
 
+(defvar vulpea-db-worker--sent-settings nil
+  "The last settings message sent to the worker.
+Changes made in place - `org-link-set-parameters' on
+`org-link-parameters', `setf' on an `alist-get' - fire no variable
+watcher; comparing against this catches them.")
+
 (defvar vulpea-db-worker--sent-link-types nil
   "Link types in the last settings message sent to the worker.
-`org-link-set-parameters' changes `org-link-parameters' in place,
-which no variable watcher sees; requests compare against this to
-catch types registered after the worker started.")
+Requests compare against this, a cheap check for the most common
+in-place change: a link type registered after the worker started.")
 
 (defun vulpea-db-worker--send-settings ()
   "Send current settings to the worker and return the message."
   (let ((settings (vulpea-db-worker--settings-form)))
     (vulpea-db-worker--send settings)
-    (setq vulpea-db-worker--sent-link-types (nth 2 settings))
+    ;; A deep copy: the message shares structure with the live
+    ;; settings, and an in-place edit would change the record too
+    (setq vulpea-db-worker--sent-settings (copy-tree settings t)
+          vulpea-db-worker--sent-link-types (nth 2 settings))
     settings))
+
+(defun vulpea-db-worker-refresh-if-changed ()
+  "Send settings to a running worker when they changed since the last.
+Builds and compares the whole settings message, so the sync queue
+calls it once per batch rather than per file."
+  (when (and (process-live-p vulpea-db-worker--process)
+             (not (equal (vulpea-db-worker--settings-form)
+                         vulpea-db-worker--sent-settings)))
+    (vulpea-db-worker-refresh-settings)))
 
 (defun vulpea-db-worker-refresh-settings ()
   "Send current settings to a running worker, if any.

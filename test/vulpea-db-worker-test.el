@@ -1759,6 +1759,34 @@ otherwise leave the worker indexing their links as fuzzy ones."
       (delete-file first)
       (delete-file second))))
 
+(ert-deftest vulpea-db-worker-refreshes-settings-changed-in-place ()
+  "A mirrored setting changed in place reaches the live worker.
+Editing a list in place (say `setf' on an `alist-get') fires no
+variable watcher; comparing the whole settings message catches it."
+  (let ((org-link-abbrev-alist (list (cons "ddg" "https://a.example/%s")))
+        (first (vulpea-test--create-temp-org-file
+                ":PROPERTIES:\n:ID: inplace-first\n:END:\n#+title: F\n")))
+    (unwind-protect
+        (vulpea-test--with-temp-db
+          (vulpea-db)
+          (vulpea-db-worker-request first)
+          (vulpea-db-worker-test--wait)
+          (setcdr (car org-link-abbrev-alist) "https://b.example/%s")
+          (let ((sent nil)
+                (send (symbol-function 'vulpea-db-worker--send)))
+            (cl-letf (((symbol-function 'vulpea-db-worker--send)
+                       (lambda (form)
+                         (push form sent)
+                         (funcall send form))))
+              (vulpea-db-worker-refresh-if-changed)
+              (vulpea-db-worker-refresh-if-changed))
+            (should (= 1 (length sent)))
+            (should (equal (alist-get 'org-link-abbrev-alist
+                                      (nth 1 (car sent)))
+                           '(("ddg" . "https://b.example/%s"))))))
+      (vulpea-db-worker-stop)
+      (delete-file first))))
+
 (ert-deftest vulpea-db-worker-completion-resets-hang-counter ()
   "A successful completion proves liveness and resets the hang count."
   (vulpea-db-worker-test--with-file
