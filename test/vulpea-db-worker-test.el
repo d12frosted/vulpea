@@ -68,9 +68,13 @@ busy again a moment later."
 
 (defmacro vulpea-db-worker-test--with-file (content &rest body)
   "Run BODY with PATH bound to a temp org file holding CONTENT.
-Ensures the worker and the file are cleaned up."
+Ensures the worker and the file are cleaned up.  The crash
+bookkeeping starts clean: deaths caused by earlier tests must not
+mark this test's worker broken."
   (declare (indent 1))
-  `(let ((path (vulpea-test--create-temp-org-file ,content)))
+  `(let ((path (vulpea-test--create-temp-org-file ,content))
+         (vulpea-db-worker--broken nil)
+         (vulpea-db-worker--crash-times nil))
      (unwind-protect
          (progn ,@body)
        (vulpea-db-worker-stop)
@@ -1686,8 +1690,14 @@ kills must mark the worker broken."
           (should (memq 'requeued statuses))
           ;; Second consecutive hang marks broken
           (setq vulpea-db-worker--last-activity (- (float-time) 301))
-          (when (process-live-p vulpea-db-worker--process)
-            (vulpea-db-worker--watchdog))
+          (let ((w2 vulpea-db-worker--process))
+            (when (process-live-p w2)
+              (vulpea-db-worker--watchdog))
+            ;; Let the kill's salvage run here: left pending, it would
+            ;; requeue this test's file into whatever test runs next
+            (while (process-live-p w2)
+              (accept-process-output nil 0.05))
+            (sit-for 0.2))
           (should (>= vulpea-db-worker--hang-kills 1)))))))
 
 (ert-deftest vulpea-db-worker-spawn-failure-marks-broken ()
@@ -1959,7 +1969,6 @@ note keeps its own tags and only the heading's inherited ones move."
       (let ((result (vulpea-db-worker-compare-files (list path))))
         (should (equal (mapcar #'car result) (list path)))
         (should (memq :headings (cdar result)))))))
-
 
 (ert-deftest vulpea-db-worker-compare-files-agrees-by-default ()
   "With nothing configured differently, worker and session agree."
