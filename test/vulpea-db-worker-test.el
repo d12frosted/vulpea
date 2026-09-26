@@ -1942,6 +1942,37 @@ and a full scan must not print one line per file."
               (should (vulpea-db-get-by-id (format "once-%d" i)))))
         (mapc #'delete-file paths)))))
 
+(ert-deftest vulpea-db-worker-fallback-completes-every-dispatch ()
+  "Each dispatch that falls back gets its own completion event.
+A file saved again while in flight is dispatched twice; the sync
+queue counts completions per dispatch and only reports the
+background sync done when every one has come back.  The file is
+still indexed once."
+  (vulpea-db-worker-test--with-file
+      ":PROPERTIES:\n:ID: twice-in-flight\n:END:\n#+title: T\n"
+    (vulpea-test--with-temp-db
+      (vulpea-db)
+      (let ((vulpea-db-worker--reported-failures (make-hash-table :test #'equal))
+            (vulpea-db-worker--fallback-queue nil)
+            (vulpea-db-worker--in-flight (list path path))
+            (vulpea-db-worker--in-flight-tail nil)
+            (vulpea-db-worker--in-flight-count 2)
+            (updates 0)
+            statuses)
+        (setq vulpea-db-worker--in-flight-tail (last vulpea-db-worker--in-flight))
+        (let ((vulpea-db-worker-done-functions
+               (list (lambda (_p status _c) (push status statuses))))
+              (vulpea-db-updated-functions
+               (list (lambda (&rest _) (setq updates (1+ updates)))))
+              (inhibit-message t))
+          (vulpea-db-worker--dispatch `(handback ,path "needs the session"))
+          (vulpea-db-worker--dispatch `(handback ,path "needs the session"))
+          (vulpea-db-worker-test--drain-fallbacks))
+        (should (equal (sort statuses (lambda (a b) (string< a b)))
+                       '(applied unchanged)))
+        (should (= updates 1))
+        (should (vulpea-db-get-by-id "twice-in-flight"))))))
+
 ;;; Session vs worker comparison
 
 (ert-deftest vulpea-db-worker-compare-files-sees-heading-only-drift ()
