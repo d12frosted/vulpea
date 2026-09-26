@@ -927,5 +927,29 @@ would be a prompt each time."
             (should (= prompts 0))))
       (delete-directory dir t))))
 
+(ert-deftest vulpea-doctor-consistency-budget-keeps-random-half ()
+  "Recent files cannot take the whole budget from the random half.
+The random half is what reaches files nobody touched lately."
+  (vulpea-test--with-temp-db
+    (let* ((db (vulpea-db))
+           (paths (mapcar (lambda (i)
+                            (vulpea-test--create-temp-org-file
+                             (format ":PROPERTIES:\n:ID: budget-mix-%d\n:END:\n" i)))
+                          '(1 2 3 4 5 6)))
+           (vulpea-doctor--consistency-sample-size 4)
+           (vulpea-doctor--consistency-max-total 600))
+      (unwind-protect
+          (progn
+            (cl-loop for path in paths
+                     for mtime in '(900 800 30 20 10 5)
+                     do (emacsql db [:insert :into files :values $v1]
+                                 (vector path "h" mtime 300)))
+            (let ((sample (vulpea-doctor--consistency-sample)))
+              (should (= 2 (length sample)))
+              (should (member (nth 0 paths) sample))
+              (should (seq-some (lambda (p) (member p (nthcdr 2 paths)))
+                                sample))))
+        (mapc #'delete-file paths)))))
+
 (provide 'vulpea-doctor-test)
 ;;; vulpea-doctor-test.el ends here

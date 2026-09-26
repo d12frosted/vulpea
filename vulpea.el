@@ -550,7 +550,13 @@ files being picked, not on every row of a large database."
                              (length recent))))
          (total 0)
          (sample nil))
-    (dolist (row (append recent random))
+    ;; Alternate the halves, so recent files cannot take the whole
+    ;; budget from the random ones
+    (dolist (row (let (mixed)
+                   (while (or recent random)
+                     (when recent (push (pop recent) mixed))
+                     (when random (push (pop random) mixed)))
+                   (nreverse mixed)))
       (when (<= (+ total (nth 2 row)) vulpea-doctor--consistency-max-total)
         (setq total (+ total (nth 2 row)))
         (push (car row) sample)))
