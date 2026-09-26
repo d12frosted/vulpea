@@ -501,6 +501,66 @@ hands the file back; a file with a plain #+LINK: stays in the worker."
           (vulpea-db-worker-test--wait))
         (should (equal statuses '(applied)))))))
 
+(defun vulpea-db-worker-test--handbacks-of (path)
+  "Request PATH from the worker; return how often it was handed back.
+A handed-back file is indexed by the fallback and completes as
+applied too, so the fallback queue is where the difference shows."
+  (let ((handbacks 0)
+        (queue (symbol-function 'vulpea-db-worker--queue-fallback)))
+    (cl-letf (((symbol-function 'vulpea-db-worker--queue-fallback)
+               (lambda (p)
+                 (setq handbacks (1+ handbacks))
+                 (funcall queue p))))
+      (let ((inhibit-message t))
+        (vulpea-db-worker-request path)
+        (vulpea-db-worker-test--wait)))
+    handbacks))
+
+(ert-deftest vulpea-db-worker-percent-function-from-setupfile ()
+  "A %(fn) abbreviation from a #+SETUPFILE: is handed back too.
+Only org knows where an abbreviation came from, so the worker notes
+the expansion itself rather than reading keywords."
+  (let* ((dir (make-temp-file "vulpea-worker-setupfile-" t))
+         (setup (expand-file-name "setup.org" dir))
+         (path (expand-file-name "note.org" dir))
+         (vulpea-db-parse-method 'temp-buffer))
+    (unwind-protect
+        (progn
+          (with-temp-file setup
+            (insert "#+LINK: sk %(vulpea-db-worker-test--pct-fn)\n"))
+          (with-temp-file path
+            (insert ":PROPERTIES:\n:ID: setup-src\n:END:\n#+title: S\n"
+                    "#+SETUPFILE: setup.org\n\n[[sk:setup-target]]\n"))
+          (let ((dumps (let ((inhibit-message t))
+                         (vulpea-db-worker-test--dumps path))))
+            (should (equal (mapcar (lambda (row) (list (nth 1 row) (nth 2 row)))
+                                   (plist-get (car dumps) :links))
+                           '(("setup-target" "id"))))
+            (should (equal (plist-get (car dumps) :links)
+                           (plist-get (cdr dumps) :links)))))
+      (delete-directory dir t))))
+
+(ert-deftest vulpea-db-worker-keeps-files-that-expand-nothing ()
+  "A %(fn) #+LINK: the parse never expands keeps the file in the worker.
+Inside a source block it is not a keyword; with the
+`single-temp-buffer' method no #+LINK: is read at all, in the
+session either."
+  (let ((vulpea-db-parse-method 'temp-buffer))
+    (vulpea-db-worker-test--with-file
+        ":PROPERTIES:\n:ID: in-src\n:END:\n#+title: B\n\n#+begin_src org\n#+LINK: sb %(vulpea-db-worker-test--pct-fn)\n[[sb:x]]\n#+end_src\n"
+      (vulpea-test--with-temp-db
+        (vulpea-db)
+        (should (= 0 (vulpea-db-worker-test--handbacks-of path))))))
+  (let ((vulpea-db-parse-method 'single-temp-buffer))
+    (vulpea-db-worker-test--with-file
+        ":PROPERTIES:\n:ID: stb-kw\n:END:\n#+title: K\n#+LINK: pk %(vulpea-db-worker-test--pct-fn)\n\n[[pk:kw-target]]\n"
+      (vulpea-test--with-temp-db
+        (vulpea-db)
+        (should (= 0 (vulpea-db-worker-test--handbacks-of path))))
+      (let ((dumps (vulpea-db-worker-test--dumps path)))
+        (should (equal (plist-get (car dumps) :links)
+                       (plist-get (cdr dumps) :links)))))))
+
 (ert-deftest vulpea-db-worker-link-abbreviation-functions ()
   "A function-valued link abbreviation is expanded by the session.
 The function exists only in the session, so the worker hands files
