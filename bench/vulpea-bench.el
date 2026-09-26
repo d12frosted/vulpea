@@ -409,6 +409,8 @@ Measures, as the median of RUNS runs (default 5) after one warmup:
 - find: the same with the cache warm, every later open
 - find-changed: a warm open right after one file was announced
   as changed, which refreshes that file's candidates
+- find-foreign: a warm open right after another connection
+  committed, which compares every file hash with the cache
 - backlinks: `vulpea-db-query-by-links-some' for the most linked note
 - links-to: `vulpea-db-query-links-to' for the same note
 
@@ -454,6 +456,23 @@ candidates and the heap growth of the cache in MB."
                                     (lambda ()
                                       (vulpea-select-cache-drop)
                                       (funcall open-find))))
+               (find-foreign (let ((other (sqlite-open db-file)))
+                               (unwind-protect
+                                   (funcall
+                                    measure
+                                    (lambda ()
+                                      ;; two commits that leave the
+                                      ;; row as it was: a write that
+                                      ;; changes nothing is no commit
+                                      (dolist (delta '("+ 1" "- 1"))
+                                        (sqlite-execute
+                                         other
+                                         (concat
+                                          "UPDATE files SET mtime = mtime "
+                                          delta " WHERE rowid ="
+                                          " (SELECT min(rowid) FROM files)")))
+                                      (funcall open-find)))
+                                 (sqlite-close other))))
                (heap (lambda ()
                        (/ (cl-loop for (_ size used . _) in (garbage-collect)
                                    sum (* (or size 0) (or used 0)))
@@ -489,6 +508,8 @@ candidates and the heap growth of the cache in MB."
                    (vulpea-bench--format-time find))
           (message "vulpea-find, after one file changed:   %s"
                    (vulpea-bench--format-time find-changed))
+          (message "vulpea-find, after a foreign commit:   %s"
+                   (vulpea-bench--format-time find-foreign))
           (message "candidate cache: %d candidates, %.0f MB"
                    candidates cache-mb)
           (message "vulpea-db-query-by-links-some (%d):  %s"
@@ -497,7 +518,7 @@ candidates and the heap growth of the cache in MB."
                    (vulpea-bench--format-time links-to))
           (list :count count :backlinks backlinks :query query
                 :find-uncached find-uncached :find-first find-first
-                :find find :find-changed find-changed
+                :find find :find-changed find-changed :find-foreign find-foreign
                 :candidates candidates :cache-mb cache-mb
                 :by-links by-links :links-to links-to))
       (when vulpea-db--connection
