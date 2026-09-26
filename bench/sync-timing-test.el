@@ -29,6 +29,9 @@
          (vulpea-db-sync-external-method
           (if (executable-find "fswatch") 'fswatch nil))
          (vulpea-db-parse-method 'single-temp-buffer)
+         ;; Time parsing in this process; with the worker, the queue
+         ;; drain below would only measure dispatch
+         (vulpea-db-async-extraction nil)
          (vulpea-db-index-heading-level t)
          (vulpea-db-sync-debug t))
 
