@@ -726,20 +726,36 @@ and an unsaved one would compare its edits against the file."
         (when (buffer-live-p buffer)
           (kill-buffer buffer))))))
 
+(defmacro vulpea-doctor-test--with-worker-command (form &rest body)
+  "Run BODY with the worker replaced by an Emacs evaluating FORM."
+  (declare (indent 1))
+  `(cl-letf (((symbol-function 'vulpea-db-worker--command)
+              (lambda ()
+                (list (expand-file-name invocation-name invocation-directory)
+                      "--batch" "-Q" "--eval" ,form))))
+     ,@body))
+
 (ert-deftest vulpea-doctor-consistency-reports-broken-worker ()
   "A worker that dies on startup is a failure, not drift.
 Otherwise every sampled file comes back without a result and the
-doctor blames the user's setup for a broken worker."
+doctor blames the user's setup for a broken worker.  The report
+keeps to one line: the last line of the worker's output, which is
+where batch Emacs prints the error after any backtrace."
   (vulpea-doctor-test--with-indexed-file "#+title: C\n"
-    (cl-letf (((symbol-function 'vulpea-db-worker--command)
-               (lambda ()
-                 (list (expand-file-name invocation-name invocation-directory)
-                       "--batch" "-Q" "--eval"
-                       "(progn (message \"worker exploded\") (kill-emacs 3))"))))
+    (vulpea-doctor-test--with-worker-command
+        "(progn (message \"frame one\nframe two\") (message \"worker exploded\") (kill-emacs 3))"
       (let ((report (vulpea-doctor)))
-        (should (string-match-p "session vs worker +FAILED" report))
-        (should (string-match-p "worker exploded" report))
+        (should (string-match-p "session vs worker +FAILED: [^\n]*worker exploded" report))
+        (should-not (string-match-p "frame one" report))
+        (should (string-match-p "worker used for the comparison failed" report))
         (should-not (string-match-p "sampled files differently" report))))))
+
+(ert-deftest vulpea-doctor-consistency-reports-silent-worker ()
+  "A worker that exits cleanly without answering says so."
+  (vulpea-doctor-test--with-indexed-file "#+title: C\n"
+    (vulpea-doctor-test--with-worker-command "(kill-emacs 0)"
+      (should (string-match-p "session vs worker +FAILED: the worker exited without answering"
+                              (vulpea-doctor))))))
 
 (ert-deftest vulpea-doctor-consistency-sample-respects-budget ()
   "The sample stops at the total size budget.

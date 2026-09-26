@@ -844,9 +844,10 @@ sample), `checked' (with :sampled and :diffs, see
                  issues)))
         ('failed
          (push (format
-                (concat "Could not start a worker to compare indexing with"
-                        " your session (%s). Run"
-                        " M-x vulpea-db-worker-diagnose for details.")
+                (concat "The worker used for the comparison failed (%s),"
+                        " so indexing could not be compared with your"
+                        " session. Run M-x vulpea-db-worker-diagnose for"
+                        " details.")
                 (plist-get result :error))
                issues))))
     (nreverse issues)))
