@@ -374,11 +374,13 @@ The function exists only in the session; depending on the org
 version, the worker would either fail or silently index the link as
 a fuzzy one."
   (let* ((org-link-abbrev-alist '(("str" . "https://example.com/%s")
-                                  ("fn" . vulpea-db-worker-test--abbrev-fn)))
+                                  ("fn" . vulpea-db-worker-test--abbrev-fn)
+                                  ("pct" . "https://example.com/%(upcase)")))
          (sent (alist-get 'org-link-abbrev-alist
                           (nth 1 (vulpea-db-worker--settings-form)))))
     (should (equal sent '(("str" . "https://example.com/%s")
-                          ("fn" . :vulpea-session-function))))))
+                          ("fn" . :vulpea-session-function)
+                          ("pct" . :vulpea-session-function))))))
 
 (ert-deftest vulpea-db-worker-hands-back-files-using-session-abbreviations ()
   "The worker refuses a file that uses a session-only abbreviation.
@@ -397,6 +399,49 @@ synchronous index; files that do not use it are extracted as usual."
     (vulpea-db-worker-test--with-file
         ":PROPERTIES:\n:ID: no-fn\n:END:\n#+title: N\n\n[[str:target]] and fn:plain\n"
       (should-not (vulpea-db-worker--session-abbrev-used-p path)))))
+
+(defun vulpea-db-worker-test--pct-fn (tag)
+  "Expand TAG for a %(...) link abbreviation."
+  (concat "id:" tag))
+(put 'vulpea-db-worker-test--pct-fn 'org-link-abbrev-safe t)
+
+(ert-deftest vulpea-db-worker-percent-function-abbreviations ()
+  "A %(fn) link abbreviation indexes the same through the worker."
+  (let ((org-link-abbrev-alist
+         '(("pf" . "%(vulpea-db-worker-test--pct-fn)"))))
+    (vulpea-db-worker-test--with-file
+        ":PROPERTIES:\n:ID: pct-src\n:END:\n#+title: S\n\n[[pf:pct-target]]\n"
+      (let ((dumps (let ((inhibit-message t))
+                     (vulpea-db-worker-test--dumps path))))
+        (should (equal (mapcar (lambda (row) (list (nth 1 row) (nth 2 row)))
+                               (plist-get (car dumps) :links))
+                       '(("pct-target" "id"))))
+        (should (equal (plist-get (car dumps) :links)
+                       (plist-get (cdr dumps) :links)))))))
+
+(ert-deftest vulpea-db-worker-percent-function-link-keywords ()
+  "A file whose own #+LINK: calls a function indexes the same.
+The worker parses it, finds the keyword needs a session function and
+hands the file back; a file with a plain #+LINK: stays in the worker."
+  (vulpea-db-worker-test--with-file
+      ":PROPERTIES:\n:ID: kw-src\n:END:\n#+title: K\n#+LINK: pk %(vulpea-db-worker-test--pct-fn)\n\n[[pk:kw-target]]\n"
+    (let ((dumps (let ((inhibit-message t))
+                   (vulpea-db-worker-test--dumps path))))
+      (should (equal (mapcar (lambda (row) (list (nth 1 row) (nth 2 row)))
+                             (plist-get (car dumps) :links))
+                     '(("kw-target" "id"))))
+      (should (equal (plist-get (car dumps) :links)
+                     (plist-get (cdr dumps) :links)))))
+  (vulpea-db-worker-test--with-file
+      ":PROPERTIES:\n:ID: kw-plain\n:END:\n#+title: K\n#+LINK: pk https://example.com/%s\n\n[[pk:x]]\n"
+    (vulpea-test--with-temp-db
+      (vulpea-db)
+      (let (statuses)
+        (let ((vulpea-db-worker-done-functions
+               (list (lambda (_p status _c) (push status statuses)))))
+          (vulpea-db-worker-request path)
+          (vulpea-db-worker-test--wait))
+        (should (equal statuses '(applied)))))))
 
 (ert-deftest vulpea-db-worker-link-abbreviation-functions ()
   "A function-valued link abbreviation is expanded by the session.

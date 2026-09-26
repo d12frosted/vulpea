@@ -297,11 +297,13 @@ worker extracts or writes.")
 (defun vulpea-db-worker--portable-link-abbrevs (abbrevs)
   "Return ABBREVS, an `org-link-abbrev-alist', ready for the worker.
 An abbreviation that expands through a function needs that function,
-which exists only in the session; it is sent by name, as
+which exists only in the session: a function value, or a string
+calling one with %(...).  It is sent by name, as
 `:vulpea-session-function', so the worker can hand the files using
 it back instead of expanding the link differently."
   (mapcar (lambda (entry)
-            (if (stringp (cdr entry))
+            (if (and (stringp (cdr entry))
+                     (not (string-search "%(" (cdr entry))))
                 entry
               (cons (car entry) :vulpea-session-function)))
           abbrevs))
@@ -1197,7 +1199,9 @@ in `vulpea-db-worker--session-abbrev-tags'."
                              (default-value 'org-link-abbrev-alist)))))
 
 (defun vulpea-db-worker--session-abbrev-used-p (path)
-  "Return non-nil when PATH links through a session-only abbreviation."
+  "Return non-nil when PATH links through a session-only abbreviation.
+See `vulpea-db-worker--session-abbrev-tags'.  Reads PATH only when
+there are such abbreviations."
   (when vulpea-db-worker--session-abbrev-tags
     (with-temp-buffer
       (insert-file-contents path)
@@ -1206,6 +1210,36 @@ in `vulpea-db-worker--session-abbrev-tags'."
          (concat "\\[\\[" (regexp-opt vulpea-db-worker--session-abbrev-tags)
                  "[]:]")
          nil t)))))
+
+(defun vulpea-db-worker--local-abbrevs-need-session-p (path)
+  "Return non-nil when PATH's own #+LINK: keywords call a function.
+Org expands a %(...) abbreviation by calling that function, which
+exists only in the session (and on failure org drops the
+abbreviation, so the parse leaves no trace of it).  Checked after
+parsing against the text still in the parse buffer, so no extra read
+is needed - except with the `find-file' parse method, whose buffer is
+gone by then."
+  (let ((case-fold-search t)
+        (regexp "^[ \t]*#\\+link:.*%("))
+    (if (and (not (eq vulpea-db-parse-method 'find-file))
+             (buffer-live-p vulpea-db--parse-buffer))
+        (with-current-buffer vulpea-db--parse-buffer
+          (save-excursion
+            (goto-char (point-min))
+            (re-search-forward regexp nil t)))
+      (with-temp-buffer
+        (insert-file-contents path)
+        (re-search-forward regexp nil t)))))
+
+(defun vulpea-db-worker--parse-file (path)
+  "Parse PATH in the worker, as `vulpea-db--parse-file' does.
+Signals an error when the result would differ from the session's
+because the file needs one of its functions; the error sends the
+file back to the main process, which indexes it synchronously."
+  (let ((ctx (vulpea-db--parse-file path)))
+    (when (vulpea-db-worker--local-abbrevs-need-session-p path)
+      (error "Its #+LINK: keywords expand with a function from your session"))
+    ctx))
 
 (defun vulpea-db-worker--apply-settings (vars link-types extractors
                                               &optional db-constants)
@@ -1366,7 +1400,7 @@ result is written even when the content hash matches."
       (progn
         (vulpea-db-worker--ensure-db db)
         (let* ((stored (vulpea-db--get-file-hash path))
-               (ctx (vulpea-db--parse-file path))
+               (ctx (vulpea-db-worker--parse-file path))
                (attrs (file-attributes path)))
           (cond
            ;; File changed or vanished while parsing: the result
@@ -1424,7 +1458,7 @@ result is written even when the content hash matches."
 (defun vulpea-db-worker--handle-parse (path)
   "Extract PATH and stream the results to stdout."
   (condition-case err
-      (let ((ctx (vulpea-db--parse-file path)))
+      (let ((ctx (vulpea-db-worker--parse-file path)))
         (vulpea-db-worker--reply `(begin ,path))
         (vulpea-db-worker--reply
          `(file-node ,(vulpea-parse-ctx-file-node ctx)))
