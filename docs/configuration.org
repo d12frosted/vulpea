@@ -432,6 +432,8 @@ The worker mirrors vulpea and org settings from an allowlist
 (link types and abbreviations, tag and property inheritance,
 org-attach configuration, local variables you approved, all
 =vulpea-db-*= extraction options) and does not run your mode hooks.
+It cannot ask about unsafe local variables, so it applies the ones it
+knows to be safe and skips the rest.
 It re-runs =org-mode= per file like the session does, so in-file
 keywords (=#+TODO:=, =#+CATEGORY:=) and dir-locals apply there too.
 Files it cannot handle faithfully are processed synchronously as
