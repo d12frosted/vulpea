@@ -844,5 +844,32 @@ keys the database, both outside the buffer a hook runs in."
       (should issue)
       (should (string-match-p "org-attach-id-to-path-function-list" issue)))))
 
+(ert-deftest vulpea-doctor-consistency-sample-checks-only-candidates ()
+  "Expensive per-file checks run on the files being picked, not all rows.
+`find-buffer-visiting' and friends touch the file system; on a
+database with 100k files they took seconds before sampling."
+  (vulpea-test--with-temp-db
+    (let* ((db (vulpea-db))
+           (paths (mapcar (lambda (i)
+                            (vulpea-test--create-temp-org-file
+                             (format ":PROPERTIES:\n:ID: cheap-%d\n:END:\n" i)))
+                          (number-sequence 1 50)))
+           (vulpea-doctor--consistency-sample-size 2)
+           (checks 0))
+      (unwind-protect
+          (progn
+            (cl-loop for path in paths
+                     for mtime from 1
+                     do (emacsql db [:insert :into files :values $v1]
+                                 (vector path "h" mtime 10)))
+            (cl-letf* ((visiting (symbol-function 'find-buffer-visiting))
+                       ((symbol-function 'find-buffer-visiting)
+                        (lambda (&rest args)
+                          (setq checks (1+ checks))
+                          (apply visiting args))))
+              (should (= 2 (length (vulpea-doctor--consistency-sample))))
+              (should (<= checks 4))))
+        (mapc #'delete-file paths)))))
+
 (provide 'vulpea-doctor-test)
 ;;; vulpea-doctor-test.el ends here
