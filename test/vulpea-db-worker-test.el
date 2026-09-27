@@ -2181,6 +2181,46 @@ would leave the file out of the database until its next change."
         (should (equal statuses '(applied)))
         (should (vulpea-db-get-by-id "locked-once"))))))
 
+(ert-deftest vulpea-db-worker-fallback-retry-keeps-one-timer ()
+  "A retry after a locked database never leaves two fallback timers.
+The reply handler can queue another file while the locked one is
+being parsed, which schedules a tick of its own; a second timer
+would run the retries twice as fast and halve their time budget."
+  (let* ((locked-path (vulpea-test--create-temp-org-file
+                       ":PROPERTIES:\n:ID: locked-retry\n:END:\n#+title: L\n"))
+         (other-path (vulpea-test--create-temp-org-file
+                      ":PROPERTIES:\n:ID: queued-meanwhile\n:END:\n#+title: Q\n"))
+         (fallback-timers
+          (lambda ()
+            (seq-count (lambda (timer)
+                         (eq (timer--function timer)
+                             #'vulpea-db-worker--run-fallback))
+                       timer-list))))
+    (unwind-protect
+        (vulpea-test--with-temp-db
+          (vulpea-db)
+          (let ((vulpea-db-worker--fallback-queue nil)
+                (vulpea-db-worker--fallback-timer nil)
+                (vulpea-db-worker--fallback-attempts (make-hash-table :test #'equal))
+                (before (funcall fallback-timers))
+                (queued nil))
+            (cl-letf (((symbol-function 'vulpea-db-update-file)
+                       (lambda (p)
+                         (when (and (equal p locked-path) (not queued))
+                           (setq queued t)
+                           (vulpea-db-worker--queue-fallback other-path))
+                         (signal 'sqlite-locked-error '("database is locked")))))
+              (let ((inhibit-message t))
+                (vulpea-db-worker--queue-fallback locked-path)
+                ;; Stand in for the tick queueing scheduled
+                (cancel-timer vulpea-db-worker--fallback-timer)
+                (vulpea-db-worker--run-fallback)))
+            (should (<= (- (funcall fallback-timers) before) 1))
+            (vulpea-db-worker-stop)
+            (should (= before (funcall fallback-timers)))))
+      (delete-file locked-path)
+      (delete-file other-path))))
+
 ;;; Session vs worker comparison
 
 (ert-deftest vulpea-db-worker-compare-files-sees-heading-only-drift ()

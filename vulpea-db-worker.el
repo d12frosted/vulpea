@@ -1116,8 +1116,8 @@ cost the files still waiting in the queue."
   "Index the next file the worker failed on, in this process.
 Further entries for the same file are served by the same parse, but
 each still gets its own completion, reported as unchanged.  The next
-tick is scheduled whatever happens here, a quit included, so the
-queue never strands."
+tick is scheduled whatever happens here, a signalling hook included,
+so the queue never strands."
   (setq vulpea-db-worker--fallback-timer nil)
   (unwind-protect
       (when-let* ((path (pop vulpea-db-worker--fallback-queue)))
@@ -1153,6 +1153,10 @@ queue never strands."
                 (setq vulpea-db-worker--fallback-queue
                       (append vulpea-db-worker--fallback-queue
                               (make-list (1+ extra) path)))
+                ;; A file queued during the parse scheduled a tick of
+                ;; its own; one timer at a time keeps the retries apart
+                (when (timerp vulpea-db-worker--fallback-timer)
+                  (cancel-timer vulpea-db-worker--fallback-timer))
                 (setq vulpea-db-worker--fallback-timer
                       (run-with-timer 0.25 nil #'vulpea-db-worker--run-fallback)))
             (remhash path vulpea-db-worker--fallback-attempts)
