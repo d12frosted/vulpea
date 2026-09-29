@@ -97,6 +97,8 @@
 
 *Fixes*
 
+- [[https://github.com/d12frosted/vulpea/issues/536][vulpea#536]] Files the extraction worker was working on when it died are no longer lost when it cannot be started again. Without =vulpea-db-autosync-mode=, they go back to the worker one by one; if it could not be spawned (its Emacs binary gone after an upgrade, say), the error stopped that loop after the first file and the rest were never indexed. Each file now falls back to indexing in your session.
+
 - [[https://github.com/d12frosted/vulpea/issues/541][vulpea#541]] Writes from your session no longer fail with "database is locked" while the extraction worker writes in =full= mode (or another Emacs writes to the same database). A write transaction read first and took the write lock only at its first write, and when the other side committed in between, SQLite refused that write at once instead of waiting: =vulpea-create=, move/split/merge or =vulpea-utils-with-note-sync= could fail at random. Write transactions now take the lock when they start, where the busy timeout applies, so they wait instead.
 
 - [[https://github.com/d12frosted/vulpea/issues/535][vulpea#535]] The =find-file= parse method no longer kills a buffer you have open. It visited the file with =find-file-noselect=, which hands back the existing buffer, indexed that buffer's unsaved contents and then killed it, throwing the edits away without a prompt. A file that is open is now parsed from disk the =temp-buffer= way (hooks and dir-locals still apply), and your buffer is left as it was.

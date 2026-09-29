@@ -2221,6 +2221,33 @@ would run the retries twice as fast and halve their time budget."
       (delete-file locked-path)
       (delete-file other-path))))
 
+(ert-deftest vulpea-db-worker-salvage-survives-failed-respawn ()
+  "Salvaged files are all indexed when the worker cannot respawn.
+Without autosync, salvage asks the worker for each file again; when
+the worker cannot start (its Emacs binary gone after an upgrade), the
+spawn error must not stop the loop and lose the files after the
+first.  They are indexed in the session instead."
+  (let* ((paths (mapcar (lambda (i)
+                          (vulpea-test--create-temp-org-file
+                           (format ":PROPERTIES:\n:ID: salvaged-%d\n:END:\n#+title: S%d\n"
+                                   i i)))
+                        '(1 2)))
+         (vulpea-db-autosync-mode nil)
+         (invocation-directory "/nonexistent/vulpea-test-emacs/")
+         (vulpea-db-worker--broken nil)
+         (vulpea-db-worker--crash-times nil))
+    (unwind-protect
+        (vulpea-test--with-temp-db
+          (vulpea-db)
+          (cl-letf (((symbol-function 'display-warning) #'ignore))
+            (let ((inhibit-message t))
+              (vulpea-db-worker--salvage-requeue
+               paths (make-hash-table :test #'equal))))
+          (should (vulpea-db-get-by-id "salvaged-1"))
+          (should (vulpea-db-get-by-id "salvaged-2")))
+      (vulpea-db-worker-stop)
+      (mapc #'delete-file paths))))
+
 ;;; Session vs worker comparison
 
 (ert-deftest vulpea-db-worker-compare-files-sees-heading-only-drift ()
