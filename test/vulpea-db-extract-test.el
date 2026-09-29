@@ -4886,5 +4886,44 @@ would inherit them."
       (delete-file open-path)
       (delete-file other-path))))
 
+;;; Concurrent writers
+
+(ert-deftest vulpea-db-extract-update-survives-a-concurrent-commit ()
+  "A write transaction survives another connection committing mid-way.
+In full-write mode the extraction worker commits through its own
+connection while the session writes through another.  A transaction
+opened with a plain BEGIN that has read and then tries to write after
+such a commit is refused at once, whatever the busy timeout, so the
+session's write failed with \"database is locked\".  Taking the write
+lock when the transaction starts makes the other side wait instead."
+  (vulpea-test--with-temp-db
+    (let* ((db (vulpea-db))
+           (path (vulpea-test--create-temp-org-file
+                  ":PROPERTIES:\n:ID: concurrent-commit\n:END:\n#+title: C\n"))
+           (other nil)
+           (interfered nil))
+      (sqlite-pragma (oref db handle) "journal_mode=WAL")
+      (setq other (sqlite-open vulpea-db-location))
+      (sqlite-pragma other "busy_timeout=0")
+      (unwind-protect
+          (cl-letf* ((get-ids (symbol-function 'vulpea-db--get-file-note-ids))
+                     ((symbol-function 'vulpea-db--get-file-note-ids)
+                      (lambda (&rest args)
+                        (prog1 (apply get-ids args)
+                          ;; The worker commits between the session's
+                          ;; read of the old ids and its first write
+                          (when (and (not interfered)
+                                     (> emacsql--transaction-level 0))
+                            (setq interfered t)
+                            (ignore-errors
+                              (sqlite-execute
+                               other
+                               "INSERT INTO files VALUES ('/elsewhere.org', 'h', 1, 1)")))))))
+            (vulpea-db-update-file path)
+            (should interfered)
+            (should (vulpea-db-get-by-id "concurrent-commit")))
+        (sqlite-close other)
+        (delete-file path)))))
+
 (provide 'vulpea-db-extract-test)
 ;;; vulpea-db-extract-test.el ends here

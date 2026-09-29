@@ -1605,7 +1605,7 @@ Also registers the schema version in schema-registry table."
                              :where (= name $s1)]
                             (symbol-name name)))))
         (unless (and existing-version (>= existing-version version))
-          (emacsql-with-transaction db
+          (vulpea-db--with-transaction db
             ;; Version increase: the declared tables are stale caches.
             ;; Drop them and force a full re-extraction, like a parser
             ;; epoch bump. See vulpea#390.
@@ -2065,7 +2065,7 @@ Returns number of notes written (file-level + headings)."
     (dolist (heading-data (vulpea-parse-ctx-heading-nodes ctx))
       (plist-put heading-data :path path))
 
-    (emacsql-with-transaction db
+    (vulpea-db--with-transaction db
       ;; Ids stored for this file before the rewrite: whatever the new
       ;; parse no longer contains is released to pending claimants
       ;; after the transaction.
