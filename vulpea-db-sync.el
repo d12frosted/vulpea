@@ -191,7 +191,11 @@ changes remain invisible until the files are touched again or
 
 Options:
 - `async': Scan asynchronously (may cause lag during processing)
-- `blocking': Scan synchronously (blocks Emacs until complete)
+- `blocking': Scan synchronously: the database is up to date when
+  `vulpea-db-autosync-mode' returns, re-indexing after a schema or
+  settings change included, so init code right after it can query
+  every note.  Files are indexed in the session, not by the
+  extraction worker.
 - nil: Skip initial scan (fast startup, manual sync when needed)
 
 Set to nil for very large repositories (10000+ notes) if startup
@@ -423,6 +427,12 @@ a manual `vulpea-db-sync-full-scan'."
      "Vulpea: database is empty, scanning all files...")
     'async)))
 
+(defvar vulpea-db-sync--blocking nil
+  "Non-nil while a blocking autosync start indexes its directories.
+`vulpea-db-sync-update-directory' then indexes in the session instead
+of queueing, since autosync is already on and would otherwise make
+the \"blocking\" scan a background one.")
+
 (defun vulpea-db-sync--start ()
   "Start file watching and async update.
 
@@ -545,8 +555,9 @@ a subprocess.  The `blocking' mode still scans synchronously."
               (message "Vulpea: dir-locals check failed: %s"
                        (error-message-string err))))
            (setq t-phase (current-time))
-           (dolist (dir vulpea-db-sync-directories)
-             (vulpea-db-sync-update-directory dir))
+           (let ((vulpea-db-sync--blocking t))
+             (dolist (dir vulpea-db-sync-directories)
+               (vulpea-db-sync-update-directory dir)))
            (when vulpea-db-sync-debug
              (message "[vulpea-sync] blocking-scan: %.0fms"
                       (* 1000 (float-time (time-subtract (current-time) t-phase)))))))
@@ -574,8 +585,11 @@ a subprocess.  The `blocking' mode still scans synchronously."
         (setq vulpea-db--parser-changed nil)
         (setq vulpea-db--plugin-schema-changed nil)
         (vulpea-db-sync--message "Vulpea: %s, re-indexing all files..." reason)
-        (dolist (dir vulpea-db-sync-directories)
-          (vulpea-db-sync-update-directory dir 'force))))
+        ;; A blocking start promises a current database on return,
+        ;; migrations included
+        (let ((vulpea-db-sync--blocking (eq scan-mode 'blocking)))
+          (dolist (dir vulpea-db-sync-directories)
+            (vulpea-db-sync-update-directory dir 'force)))))
 
     (when vulpea-db-sync-debug
       (message "[vulpea-sync] start complete: %.0fms total (sync portion)"
@@ -1966,6 +1980,7 @@ settings migrations from freezing the session."
     (vulpea-db-worker-refresh-settings))
   (let ((files (vulpea-db-sync--list-org-files dir)))
     (if (and vulpea-db-autosync-mode
+             (not vulpea-db-sync--blocking)
              (or (not force) vulpea-db-async-extraction))
         ;; Async mode: queue all files (smart detection in queue
         ;; processing; forced entries carry their mark)

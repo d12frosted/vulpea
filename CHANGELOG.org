@@ -97,6 +97,8 @@
 
 *Fixes*
 
+- [[https://github.com/d12frosted/vulpea/issues/531][vulpea#531]] =vulpea-db-sync-scan-on-enable= set to =blocking= blocks again. The scan runs while =vulpea-db-autosync-mode= is being enabled, when the mode already counts as on, and with the mode on every directory scan was queued instead of indexed: the "blocking" scan returned at once, like the default background one. It now indexes in your session before the mode returns, and so does the re-index after a schema or settings change, so code right after enabling the mode sees an up-to-date database.
+
 - [[https://github.com/d12frosted/vulpea/issues/536][vulpea#536]] Files the extraction worker was working on when it died are no longer lost when it cannot be started again. Without =vulpea-db-autosync-mode=, they go back to the worker one by one; if it could not be spawned (its Emacs binary gone after an upgrade, say), the error stopped that loop after the first file and the rest were never indexed. Each file now falls back to indexing in your session.
 
 - [[https://github.com/d12frosted/vulpea/issues/541][vulpea#541]] Writes from your session no longer fail with "database is locked" while the extraction worker writes in =full= mode (or another Emacs writes to the same database). A write transaction read first and took the write lock only at its first write, and when the other side committed in between, SQLite refused that write at once instead of waiting: =vulpea-create=, move/split/merge or =vulpea-utils-with-note-sync= could fail at random. Write transactions now take the lock when they start, where the busy timeout applies, so they wait instead.
