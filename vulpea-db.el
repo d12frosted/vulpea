@@ -390,6 +390,40 @@ Checked by `vulpea-db-sync--start' to trigger automatic re-index.")
 
 ;;; Core API
 
+(defmacro vulpea-db--with-transaction (db &rest body)
+  "Evaluate BODY in a write transaction on DB, or in the one already open.
+
+The outermost transaction starts with BEGIN IMMEDIATE, taking the
+write lock up front.  One opened with a plain BEGIN, as
+`emacsql-with-transaction' does, takes it only at its first write;
+when another connection (the full-write extraction worker, another
+Emacs) commits after the transaction has read, SQLite refuses that
+write at once instead of waiting for the busy timeout, and the
+update fails with \"database is locked\".  With the lock taken at
+BEGIN the busy timeout applies there, and the body never meets one.
+
+Inside an open transaction BODY just runs: nested
+`emacsql-with-transaction' calls see `emacsql--transaction-level'
+and do not begin their own.  Rolls back when BODY exits non-locally;
+returns the value of BODY."
+  (declare (indent 1) (debug t))
+  (let ((connection (make-symbol "connection"))
+        (done (make-symbol "done")))
+    `(let ((,connection ,db))
+       (if (> emacsql--transaction-level 0)
+           (progn ,@body)
+         (let ((emacsql--transaction-level 1)
+               (,done nil))
+           (sqlite-execute (oref ,connection handle) "BEGIN IMMEDIATE")
+           (unwind-protect
+               (prog1 (progn ,@body)
+                 (sqlite-execute (oref ,connection handle) "COMMIT")
+                 (setq ,done t))
+             (unless ,done
+               (ignore-errors
+                 (sqlite-execute (oref ,connection handle) "ROLLBACK")))))))))
+
+
 (defun vulpea-db ()
   "Return database connection, creating if necessary."
   (unless (and vulpea-db--connection
@@ -417,7 +451,7 @@ Use with caution!"
   (when (or (not (called-interactively-p 'any))
             (yes-or-no-p "Clear all data from database? "))
     (let ((db (vulpea-db)))
-      (emacsql-with-transaction db
+      (vulpea-db--with-transaction db
         (emacsql db [:delete :from notes])
         (emacsql db [:delete :from tags])
         (emacsql db [:delete :from links])
@@ -916,7 +950,7 @@ claims."
                                 norm-path (vulpea-db-normalize-path path)))
                         (plist-put (copy-sequence note) :path norm-path)))
                     notes)))
-      (emacsql-with-transaction db
+      (vulpea-db--with-transaction db
         (setq lost (vulpea-db--evict-stale-ids notes))
 
         ;; 1. Materialized notes table
@@ -1109,7 +1143,7 @@ note-data is written as an update afterwards."
   (when fields
     (let* ((db (vulpea-db))
            (handle (oref db handle)))
-      (emacsql-with-transaction db
+      (vulpea-db--with-transaction db
         (pcase-dolist (`(,field . ,value) fields)
           (when-let* ((column (cdr (assq field vulpea-db--note-field-columns))))
             (sqlite-execute
@@ -1299,7 +1333,7 @@ tracked announces nothing."
                       (vulpea-db--get-file-hash path)))
          (released (if (> emacsql--transaction-level 0)
                        (vulpea-db--forget-file-1 path)
-                     (emacsql-with-transaction (vulpea-db)
+                     (vulpea-db--with-transaction (vulpea-db)
                        (vulpea-db--forget-file-1 path)))))
     (when (and released (fboundp 'vulpea-db--unregister-id-locations))
       (vulpea-db--unregister-id-locations released path))

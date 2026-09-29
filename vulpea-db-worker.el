@@ -1528,7 +1528,7 @@ Returns the number of notes written, `conflict', or (error . MSG)
 for a deterministic failure - only lock contention retries; anything
 else must surface instead of looping through silent retries forever."
   (condition-case err
-      (emacsql-with-transaction (vulpea-db)
+      (vulpea-db--with-transaction (vulpea-db)
         (if (not (equal (vulpea-db--get-file-hash
                          (vulpea-parse-ctx-path ctx))
                         stored))

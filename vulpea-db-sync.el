@@ -840,7 +840,7 @@ all files under that directory are removed."
   (vulpea-db-sync--unwatch-file path)
   (let ((db (vulpea-db))
         (vulpea-db--pending-removal-announcements nil))
-    (emacsql-with-transaction db
+    (vulpea-db--with-transaction db
       ;; Try exact match first
       (vulpea-db--forget-file path)
       ;; Also handle directory removal - delete all files under this path
@@ -1144,7 +1144,7 @@ them."
               ;; Process the rest in a single transaction as before
               (when sync-paths
                 (vulpea-db-sync--flushing-deferred-claimants
-                  (emacsql-with-transaction db
+                  (vulpea-db--with-transaction db
                     (pcase-dolist (`(,path . ,force) (nreverse sync-paths))
                       (condition-case err
                           (when (file-exists-p path)
@@ -1367,7 +1367,7 @@ Returns number of purged paths."
                                                   :from notes])))
            (file-paths (mapcar #'car (emacsql db [:select path :from files])))
            (purged 0))
-      (emacsql-with-transaction db
+      (vulpea-db--with-transaction db
         (dolist (path (delete-dups (append note-paths file-paths)))
           (let ((canonical (vulpea-db-normalize-path path)))
             (unless (equal path canonical)
@@ -1417,7 +1417,7 @@ Returns count of removed files."
          (vulpea-db--pending-removal-announcements nil)
          (deleted 0))
     (vulpea-db-sync--flushing-deferred-claimants
-      (emacsql-with-transaction db
+      (vulpea-db--with-transaction db
         (dolist (path all-paths)
           (unless (file-exists-p path)
             (vulpea-db--forget-file path)
@@ -1455,7 +1455,7 @@ Returns count of removed files."
     (dolist (f existing-files)
       (puthash (vulpea-db-normalize-path f) t existing-set))
     (vulpea-db-sync--flushing-deferred-claimants
-      (emacsql-with-transaction db
+      (vulpea-db--with-transaction db
         (dolist (path all-paths)
           (unless (or (gethash path existing-set)
                       (and (vulpea-db-sync-tracked-file-p path)
@@ -1532,7 +1532,7 @@ Returns count of removed files."
            (all-paths (mapcar #'car (emacsql db [:select path :from files])))
            (vulpea-db--pending-removal-announcements nil)
            (removed 0))
-      (emacsql-with-transaction db
+      (vulpea-db--with-transaction db
         (dolist (path all-paths)
           (when (and (or (null prefixes)
                          (seq-some (lambda (prefix)
@@ -1987,7 +1987,7 @@ settings migrations from freezing the session."
                                           cache))
                                cache))))
           (vulpea-db-sync--flushing-deferred-claimants
-            (emacsql-with-transaction db
+            (vulpea-db--with-transaction db
               (dolist (file files)
                 (condition-case err
                     (if force
