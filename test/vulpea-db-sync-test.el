@@ -603,6 +603,77 @@ skipped files can put its id back."
             (vulpea-db-sync--stop)
             (delete-directory dir t)))))))
 
+(defun vulpea-db-sync-test--with-blocking-start (setup body)
+  "Call BODY after a blocking start of autosync over a fresh directory.
+SETUP is called with the directory before the start, to write files
+and set migration flags.  Autosync counts as on and async extraction
+is on, as in a default configuration; BODY checks the database right
+after the start returned."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((dir (make-temp-file "vulpea-blocking-test-" t))
+           (vulpea-db-sync-scan-on-enable 'blocking)
+           (vulpea-db-async-extraction t)
+           (vulpea-db-sync-external-method nil)
+           (vulpea-db-sync-directories (list dir))
+           (vulpea-db-sync--idle-timer nil)
+           (vulpea-db-sync--watchers nil)
+           (vulpea-db-sync--queue nil)
+           (vulpea-db-sync--queue-tail nil)
+           (vulpea-db-sync--queue-set (make-hash-table :test #'equal))
+           (vulpea-db-sync--processed-total 0)
+           (vulpea-db--schema-rebuilt nil)
+           (vulpea-db--settings-changed nil)
+           (vulpea-db--parser-changed nil)
+           (vulpea-db--plugin-schema-changed nil))
+      (unwind-protect
+          (progn
+            (funcall setup dir)
+            (let ((vulpea-db-autosync-mode t)
+                  (inhibit-message t))
+              (vulpea-db-sync--start))
+            (funcall body dir))
+        (vulpea-db-sync--stop)
+        (vulpea-db-worker-stop)
+        (delete-directory dir t)))))
+
+(ert-deftest vulpea-db-sync-blocking-start-indexes-before-returning ()
+  "A blocking start leaves the database complete when it returns.
+That is the reason to choose it over the background scan - init code
+right after enabling autosync can query every note - and it holds with
+autosync on and the extraction worker enabled."
+  (vulpea-db-sync-test--with-blocking-start
+   (lambda (dir)
+     (with-temp-file (expand-file-name "new.org" dir)
+       (insert ":PROPERTIES:\n:ID: blocking-new\n:END:\n#+TITLE: New\n")))
+   (lambda (_dir)
+     (should (vulpea-db-get-by-id "blocking-new"))
+     (should-not vulpea-db-sync--queue))))
+
+(ert-deftest vulpea-db-sync-blocking-start-reindexes-before-returning ()
+  "A migration re-index under a blocking start also finishes first.
+After a schema or settings change every file is re-indexed; queued,
+that would leave the database stale behind the returned start."
+  (vulpea-db-sync-test--with-blocking-start
+   (lambda (dir)
+     (let ((path (expand-file-name "old.org" dir)))
+       (with-temp-file path
+         (insert ":PROPERTIES:\n:ID: blocking-old\n:END:\n#+TITLE: Old\n"))
+       (vulpea-db-update-file path)
+       ;; Change the file behind the database's back, then pretend the
+       ;; settings changed: only the forced re-index picks it up
+       (with-temp-file path
+         (insert ":PROPERTIES:\n:ID: blocking-old\n:END:\n#+TITLE: Renamed\n"))
+       (let ((row (vulpea-db--get-file-hash path)))
+         (vulpea-db--update-file-hash path (plist-get row :hash)
+                                      (nth 5 (file-attributes path 'integer))
+                                      (file-attribute-size (file-attributes path))))
+       (setq vulpea-db--settings-changed t)))
+   (lambda (_dir)
+     (should (equal (vulpea-note-title (vulpea-db-get-by-id "blocking-old"))
+                    "Renamed"))
+     (should-not vulpea-db-sync--queue))))
+
 (ert-deftest vulpea-db-sync-queue-registers-unchanged-files-with-org-id ()
   "A queue batch registers the ids of files it skips as unchanged.
 The batch already queries the files table for those paths; one more
@@ -638,8 +709,7 @@ files it skips as unchanged, before it returns."
   (vulpea-db-sync-test--with-unchanged-indexed-file
    'blocking
    (lambda (path)
-     (let ((vulpea-db-autosync-mode nil))
-       (vulpea-db-sync--start))
+     (vulpea-db-sync--start)
      (should (equal (gethash "start-reg-id" org-id-locations)
                     (abbreviate-file-name path))))))
 

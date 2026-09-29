@@ -735,6 +735,13 @@ pulls, Dropbox sync, external edits) without blocking startup.  With
 =nil=, such changes stay invisible until the files are touched again
 or =M-x vulpea-db-sync-full-scan= is run manually.
 
+With ='blocking=, the database is up to date by the time
+=vulpea-db-autosync-mode= returns, including the re-index after an
+upgrade or a settings change, so code right after it in your init
+(an agenda built from vulpea queries, say) sees every note. The files
+are indexed in your session rather than by the extraction worker,
+since Emacs waits for them either way.
+
 Exception: when the database is empty (e.g. the very first
 activation), an async scan runs even with =nil= - otherwise the
 database would stay empty with no indication why.
