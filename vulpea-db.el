@@ -400,7 +400,11 @@ when another connection (the full-write extraction worker, another
 Emacs) commits after the transaction has read, SQLite refuses that
 write at once instead of waiting for the busy timeout, and the
 update fails with \"database is locked\".  With the lock taken at
-BEGIN the busy timeout applies there, and the body never meets one.
+BEGIN the busy timeout applies there instead.  In WAL mode (full-write
+extraction) the body then never meets a lock; with the default
+rollback journal, COMMIT still waits for readers on other connections
+and can fail after the busy timeout, which rolls the transaction back
+and signals.
 
 Inside an open transaction BODY just runs: nested
 `emacsql-with-transaction' calls see `emacsql--transaction-level'
