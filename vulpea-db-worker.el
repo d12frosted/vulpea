@@ -1176,21 +1176,29 @@ FORCE is carried along so a forced re-index cannot be lost to the
 unchanged-content shortcut on the retry.
 
 Without the sync queue, falls back to a direct worker request - or,
-when the worker cannot take it (crash-looped and marked broken), a
-synchronous `vulpea-db-update-file', so the file is never dropped."
-  (cond
-   ((and (bound-and-true-p vulpea-db-autosync-mode)
-         (fboundp 'vulpea-db-sync--enqueue))
-    (vulpea-db-sync--enqueue path force))
-   ((vulpea-db-worker-can-handle-p path)
-    (vulpea-db-worker-request path force))
-   (t
-    (condition-case err
-        (when (file-exists-p path)
-          (vulpea-db-update-file path))
-      (error
-       (message "Vulpea: failed to re-index %s: %s"
-                path (error-message-string err)))))))
+when the worker cannot take it (crash-looped and marked broken, or
+unable to start at all), a synchronous `vulpea-db-update-file', so the
+file is never dropped.  Salvage calls this once per file, so nothing
+here may signal: the files after this one depend on it."
+  (let ((reindex (lambda ()
+                   (condition-case err
+                       (when (file-exists-p path)
+                         (vulpea-db-update-file path))
+                     (error
+                      (message "Vulpea: failed to re-index %s: %s"
+                               path (error-message-string err)))))))
+    (cond
+     ((and (bound-and-true-p vulpea-db-autosync-mode)
+           (fboundp 'vulpea-db-sync--enqueue))
+      (vulpea-db-sync--enqueue path force))
+     ((vulpea-db-worker-can-handle-p path)
+      ;; A respawn that fails marks the worker broken and signals;
+      ;; the file then goes the synchronous way like any other
+      (condition-case nil
+          (vulpea-db-worker-request path force)
+        (error (funcall reindex))))
+     (t
+      (funcall reindex)))))
 
 (defun vulpea-db-worker--note-success ()
   "Record a successful completion: the worker is demonstrably alive."
