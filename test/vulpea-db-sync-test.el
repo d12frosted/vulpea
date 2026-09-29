@@ -209,6 +209,42 @@ No call is made for the directory itself."
             (should (= checks 1)))
         (delete-file path)))))
 
+(ert-deftest vulpea-db-sync-process-queue-requeues-batch-on-lock ()
+  "A batch that finds the database locked goes back to the queue.
+Its files are taken off the queue before the write transaction
+starts; when the transaction cannot get the lock within the busy
+timeout (another Emacs, or the full-write worker committing a large
+file), they must come back rather than be dropped."
+  (vulpea-test--with-temp-db
+    (let* ((db (vulpea-db))
+           (paths (mapcar (lambda (i)
+                            (vulpea-test--create-temp-org-file
+                             (format ":PROPERTIES:\n:ID: lock-batch-%d\n:END:\n#+TITLE: L%d\n" i i)))
+                          '(1 2)))
+           (vulpea-db-async-extraction nil)
+           (vulpea-db-sync--queue nil)
+           (vulpea-db-sync--queue-tail nil)
+           (vulpea-db-sync--queue-set (make-hash-table :test #'equal))
+           (vulpea-db-sync--processing nil)
+           (other (sqlite-open vulpea-db-location)))
+      (unwind-protect
+          (progn
+            (sqlite-pragma (oref db handle) "busy_timeout=100")
+            (sqlite-execute other "BEGIN IMMEDIATE")
+            (dolist (path paths) (vulpea-db-sync--enqueue path))
+            (let ((inhibit-message t))
+              (vulpea-db-sync--process-queue))
+            (should (= 2 (length vulpea-db-sync--queue)))
+            (should-not (vulpea-db-get-by-id "lock-batch-1"))
+            (sqlite-execute other "ROLLBACK")
+            (let ((inhibit-message t))
+              (vulpea-db-sync--process-queue))
+            (should (vulpea-db-get-by-id "lock-batch-1"))
+            (should (vulpea-db-get-by-id "lock-batch-2")))
+        (ignore-errors (sqlite-execute other "ROLLBACK"))
+        (sqlite-close other)
+        (mapc #'delete-file paths)))))
+
 (ert-deftest vulpea-db-sync-process-queue-batch-limit ()
   "Test queue respects batch size limit."
   (vulpea-test--with-temp-db

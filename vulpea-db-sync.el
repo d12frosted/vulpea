@@ -1141,25 +1141,41 @@ them."
                    (t
                     (push (cons path force) sync-paths)))))
 
-              ;; Process the rest in a single transaction as before
+              ;; Process the rest in a single transaction as before.
+              ;; If it cannot get the write lock within the busy timeout
+              ;; (another Emacs, or the full-write worker committing a
+              ;; large file), nothing was written: put the files back.
               (when sync-paths
-                (vulpea-db-sync--flushing-deferred-claimants
-                  (vulpea-db--with-transaction db
-                    (pcase-dolist (`(,path . ,force) (nreverse sync-paths))
-                      (condition-case err
-                          (when (file-exists-p path)
-                            (cond
-                             (force
-                              (vulpea-db-update-file path)
-                              (setq updated (1+ updated)))
-                             ((vulpea-db-sync--update-file-if-changed path hash-cache)
-                              (setq updated (1+ updated)))
-                             (t
-                              (setq unchanged (1+ unchanged))
-                              (push path unchanged-paths))))
-                        (error
-                         (message "Vulpea: Error updating %s: %s"
-                                  path (error-message-string err)))))))))
+                (let ((updated-before updated)
+                      (unchanged-before unchanged)
+                      (unchanged-paths-before unchanged-paths))
+                  (condition-case err
+                      (vulpea-db-sync--flushing-deferred-claimants
+                        (vulpea-db--with-transaction db
+                          (pcase-dolist (`(,path . ,force) (reverse sync-paths))
+                            (condition-case err
+                                (when (file-exists-p path)
+                                  (cond
+                                   (force
+                                    (vulpea-db-update-file path)
+                                    (setq updated (1+ updated)))
+                                   ((vulpea-db-sync--update-file-if-changed path hash-cache)
+                                    (setq updated (1+ updated)))
+                                   (t
+                                    (setq unchanged (1+ unchanged))
+                                    (push path unchanged-paths))))
+                              (error
+                               (message "Vulpea: Error updating %s: %s"
+                                        path (error-message-string err)))))))
+                    ((sqlite-locked-error emacsql-locked)
+                     (setq updated updated-before
+                           unchanged unchanged-before
+                           unchanged-paths unchanged-paths-before)
+                     (vulpea-db-sync--message
+                      "Vulpea: database busy (%s), will retry %d files"
+                      (error-message-string err) (length sync-paths))
+                     (pcase-dolist (`(,path . ,force) sync-paths)
+                       (vulpea-db-sync--enqueue path force 'no-count)))))))
 
             ;; Skipped files were not read, so nothing registered
             ;; their ids with org-id; put back what it is missing.
