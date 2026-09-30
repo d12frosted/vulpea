@@ -142,10 +142,10 @@ scan processes every file before the mode returns.
 
 *** Solutions
 
-1. *Use the async scan* (the default):
+1. *Use the background scan* (the default):
 
    #+begin_src emacs-lisp
-   (setq vulpea-db-sync-scan-on-enable 'async)
+   (setq vulpea-db-sync-scan-on-enable 'background)
    #+end_src
 
    Enabling the mode then returns in a few milliseconds (10ms

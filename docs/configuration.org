@@ -720,8 +720,8 @@ another file).
 Control what happens when =vulpea-db-autosync-mode= is enabled.
 
 #+begin_src emacs-lisp
-;; Scan asynchronously (default; non-blocking, uses fd/find subprocess)
-(setq vulpea-db-sync-scan-on-enable 'async)
+;; Scan in the background (default; returns at once, uses fd/find)
+(setq vulpea-db-sync-scan-on-enable 'background)
 
 ;; Scan synchronously (blocks until complete)
 (setq vulpea-db-sync-scan-on-enable 'blocking)
@@ -730,7 +730,7 @@ Control what happens when =vulpea-db-autosync-mode= is enabled.
 (setq vulpea-db-sync-scan-on-enable nil)
 #+end_src
 
-The default ='async= detects changes made while Emacs was closed (git
+The default ='background= detects changes made while Emacs was closed (git
 pulls, Dropbox sync, external edits) without blocking startup.  With
 =nil=, such changes stay invisible until the files are touched again
 or =M-x vulpea-db-sync-full-scan= is run manually.
@@ -743,8 +743,13 @@ are indexed in your session rather than by the extraction worker,
 since Emacs waits for them either way.
 
 Exception: when the database is empty (e.g. the very first
-activation), an async scan runs even with =nil= - otherwise the
+activation), a background scan runs even with =nil= - otherwise the
 database would stay empty with no indication why.
+
+This setting is about /when/ the startup scan runs. /Which process/
+parses the files is a separate choice, =vulpea-db-async-extraction=
+(see [[*Async Extraction][Async Extraction]]). The value ='async= from earlier versions still
+works and means ='background=.
 
 * Aliases
 

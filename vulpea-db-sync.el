@@ -181,7 +181,7 @@ For low-level timing diagnostics see `vulpea-db-sync-debug'."
   :type 'boolean
   :group 'vulpea-db-sync)
 
-(defcustom vulpea-db-sync-scan-on-enable 'async
+(defcustom vulpea-db-sync-scan-on-enable 'background
   "Whether to scan all files when enabling autosync mode.
 
 This initial scan detects changes made while Emacs was closed (e.g.,
@@ -190,7 +190,9 @@ changes remain invisible until the files are touched again or
 `vulpea-db-sync-full-scan' is run manually.
 
 Options:
-- `async': Scan asynchronously (may cause lag during processing)
+- `background': Scan in the background: files are listed by a
+  subprocess and indexed from the sync queue, so enabling the mode
+  returns at once.  The old name `async' means the same.
 - `blocking': Scan synchronously: the database is up to date when
   `vulpea-db-autosync-mode' returns, re-indexing after a schema or
   settings change included, so init code right after it can query
@@ -203,11 +205,15 @@ processing causes lag, then run `vulpea-db-sync-full-scan' manually
 after external changes.
 
 Exception: when the database is empty (e.g. the very first
-activation), an async scan is performed even when this is nil -
-otherwise the database would stay empty with no indication why."
-  :type '(choice (const :tag "Async scan (may lag)" async)
+activation), a background scan is performed even when this is nil -
+otherwise the database would stay empty with no indication why.
+
+This is about when the startup scan runs, not which process parses;
+that is `vulpea-db-async-extraction'."
+  :type '(choice (const :tag "Background scan" background)
           (const :tag "Blocking scan (wait for completion)" blocking)
-          (const :tag "Skip scan (fast startup)" nil))
+          (const :tag "Skip scan (fast startup)" nil)
+          (const :tag "Background scan (old name)" async))
   :group 'vulpea-db-sync)
 
 (defcustom vulpea-db-sync-reindex-on-dir-locals-change 'auto
@@ -416,16 +422,18 @@ symlink resolution - and case-insensitive on Windows, like
 (defun vulpea-db-sync--effective-scan-mode ()
   "Return scan mode to use during autosync activation.
 
-Returns `vulpea-db-sync-scan-on-enable', except when the database
-is empty: then `async' is returned regardless of the setting, so
-the very first activation populates the database without requiring
-a manual `vulpea-db-sync-full-scan'."
+Returns `vulpea-db-sync-scan-on-enable', with its old name `async'
+read as `background', except when the database is empty: then
+`background' is returned regardless of the setting, so the very
+first activation populates the database without requiring a manual
+`vulpea-db-sync-full-scan'."
   (cond
+   ((eq vulpea-db-sync-scan-on-enable 'async) 'background)
    (vulpea-db-sync-scan-on-enable)
    ((= (vulpea-db-count-notes) 0)
     (vulpea-db-sync--message
      "Vulpea: database is empty, scanning all files...")
-    'async)))
+    'background)))
 
 (defvar vulpea-db-sync--blocking nil
   "Non-nil while a blocking autosync start indexes its directories.
@@ -437,10 +445,10 @@ the \"blocking\" scan a background one.")
   "Start file watching and async update.
 
 Optionally performs initial scan based on
-`vulpea-db-sync-scan-on-enable' (an async scan is forced when the
+`vulpea-db-sync-scan-on-enable' (a background scan is forced when the
 database is empty, see `vulpea-db-sync--effective-scan-mode').
 
-When `vulpea-db-sync-scan-on-enable' is `async', this function
+When `vulpea-db-sync-scan-on-enable' is `background', this function
 returns immediately without blocking.  File listing, cleanup of
 deleted files, and enqueueing are all performed asynchronously via
 a subprocess.  The `blocking' mode still scans synchronously."
@@ -492,10 +500,10 @@ a subprocess.  The `blocking' mode still scans synchronously."
     ;; Initial scan and cleanup based on configuration
     (if (and scan-mode vulpea-db-sync-directories)
         (pcase scan-mode
-          ('async
+          ('background
            ;; Use subprocess to list files, then cleanup + enqueue
            (when vulpea-db-sync-debug
-             (message "[vulpea-sync] launching async scan subprocess..."))
+             (message "[vulpea-sync] launching background scan subprocess..."))
            (let ((scan-start (current-time)))
              (vulpea-db-sync--scan-files-async
               vulpea-db-sync-directories
@@ -504,7 +512,7 @@ a subprocess.  The `blocking' mode still scans synchronously."
                 ;; subprocess was running
                 (when vulpea-db-autosync-mode
                   (when vulpea-db-sync-debug
-                    (message "[vulpea-sync] async scan found %d files in %.0fms"
+                    (message "[vulpea-sync] background scan found %d files in %.0fms"
                              (length files)
                              (* 1000 (float-time (time-subtract (current-time) scan-start)))))
                   ;; Cleanup: remove DB entries not in the file list
@@ -604,7 +612,7 @@ a subprocess.  The `blocking' mode still scans synchronously."
     (ignore-errors (file-notify-rm-watch (cdr entry))))
   (setq vulpea-db-sync--watchers nil)
 
-  ;; Stop async scan subprocess if running
+  ;; Stop background scan subprocess if running
   (when-let* ((proc (get-process "vulpea-scan")))
     (delete-process proc))
 
