@@ -234,9 +234,9 @@ vulpea-db-autosync-mode +1
       ├─ Setup directory watchers (filenotify)
       │
       ├─ Resolve effective scan mode
-      │   └─ scan-on-enable, except: empty database forces 'async
+      │   └─ scan-on-enable, except: empty database forces 'background
       │
-      ├─ scan mode = 'async? (default)
+      ├─ scan mode = 'background? (default)
       │   └─ Launch fd/find SUBPROCESS        ← returns immediately
       │       └─ [sentinel callback when done]
       │           ├─ Guard: check autosync still active
@@ -253,7 +253,7 @@ vulpea-db-autosync-mode +1
           └─ Cleanup deleted files (sync)
 #+end_example
 
-*Key feature*: With ='async= and =fswatch=, enabling the mode returns
+*Key feature*: With ='background= and =fswatch=, enabling the mode returns
 in 10ms for 14k notes (=bench/README.md=).  File listing runs as an
 =fd= (or =find=) subprocess.  Cleanup uses set comparison against the
 subprocess output instead of per-file =file-exists-p= calls.  When
@@ -398,7 +398,7 @@ reports those, naming the id and every file involved.
 
 #+begin_src elisp
 ;; Both settings below are the defaults, shown for clarity
-(setq vulpea-db-sync-scan-on-enable 'async)
+(setq vulpea-db-sync-scan-on-enable 'background)
 (setq vulpea-db-sync-external-method 'auto)  ; fswatch or poll
 (vulpea-db-autosync-mode 1)
 ;; Everything automatic, hands-off

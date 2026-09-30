@@ -409,26 +409,35 @@ file), they must come back rather than be dropped."
 ;;; Scan-on-Enable Tests
 ;; https://github.com/d12frosted/vulpea/issues/277
 
-(ert-deftest vulpea-db-sync-scan-on-enable-default-async ()
-  "Default must be `async' so external changes are picked up on startup."
+(ert-deftest vulpea-db-sync-scan-on-enable-default-background ()
+  "Default must be `background' so external changes are picked up on startup."
   (should (eq (eval (car (get 'vulpea-db-sync-scan-on-enable
                               'standard-value)))
-              'async)))
+              'background)))
 
 (ert-deftest vulpea-db-sync-effective-scan-mode-respects-setting ()
   "Explicit scan mode is used as-is."
   (vulpea-test--with-temp-db
     (vulpea-db)
-    (dolist (mode '(async blocking))
+    (dolist (mode '(background blocking))
       (let ((vulpea-db-sync-scan-on-enable mode))
         (should (eq (vulpea-db-sync--effective-scan-mode) mode))))))
 
+(ert-deftest vulpea-db-sync-effective-scan-mode-accepts-old-async-name ()
+  "The old name `async' still means a background scan.
+It was renamed because it read like `vulpea-db-async-extraction',
+which is about a different thing: which process parses."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((vulpea-db-sync-scan-on-enable 'async))
+      (should (eq (vulpea-db-sync--effective-scan-mode) 'background)))))
+
 (ert-deftest vulpea-db-sync-effective-scan-mode-empty-db-fallback ()
-  "Empty database forces an async scan even when scanning is disabled."
+  "Empty database forces a background scan even when scanning is disabled."
   (vulpea-test--with-temp-db
     (vulpea-db)
     (let ((vulpea-db-sync-scan-on-enable nil))
-      (should (eq (vulpea-db-sync--effective-scan-mode) 'async)))))
+      (should (eq (vulpea-db-sync--effective-scan-mode) 'background)))))
 
 (ert-deftest vulpea-db-sync-effective-scan-mode-nil-with-notes ()
   "Explicit nil is honored once the database has content."
@@ -691,11 +700,11 @@ query fetches their ids, and only the ones org-id lacks are written."
        (vulpea-db-sync--process-queue)
        (should (equal org-id-files files))))))
 
-(ert-deftest vulpea-db-sync-start-registers-missing-org-ids-async ()
-  "An async initial scan enqueues every file; the batches that skip
+(ert-deftest vulpea-db-sync-start-registers-missing-org-ids-background ()
+  "A background initial scan enqueues every file; the batches that skip
 them as unchanged register what org-id is missing."
   (vulpea-db-sync-test--with-unchanged-indexed-file
-   'async
+   'background
    (lambda (path)
      (vulpea-db-sync--start)
      (should (null (gethash "start-reg-id" org-id-locations)))

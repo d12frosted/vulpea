@@ -22,6 +22,8 @@
 
 *Features*
 
+- The default value of =vulpea-db-sync-scan-on-enable= is now called =background= instead of =async=. The old name read like =vulpea-db-async-extraction=, which is about something else: the scan setting decides /when/ the startup scan runs (in the background, before the mode returns, or not at all), the extraction setting decides /which process/ parses the files. =async= keeps working and means =background=, so existing configurations need no change.
+
 - New =vulpea-db-query-by-meta-every= returns notes whose metadata key carries all of the given values, the all-of counterpart of =vulpea-db-query-by-meta-some=. Only values under that key count, so a note with =merlot= under =grape= and =cabernet= under =blend= does not match both grapes. A repeated value is counted once, and an empty list matches every note, the same as =vulpea-db-query-by-tags-every=.
 
 - [[https://github.com/d12frosted/vulpea/pull/511][vulpea#511]] New =vulpea-db-query-by-meta-some= returns notes whose metadata key carries any of the given values, in one query, the metadata counterpart of =vulpea-db-query-by-tags-some=. =vulpea-db-query-by-meta= stays a single-value match: a meta key can hold several values, so a list there could mean "any of these" as well as "all of these", and the name is what says which one you get. Thanks to =@velppa= for the implementation.

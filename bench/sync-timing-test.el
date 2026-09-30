@@ -25,7 +25,7 @@
          (vulpea-directory notes-dir)
          (vulpea-db-location db-file)
          (vulpea-db-sync-directories (list notes-dir))
-         (vulpea-db-sync-scan-on-enable 'async)
+         (vulpea-db-sync-scan-on-enable 'background)
          (vulpea-db-sync-external-method
           (if (executable-find "fswatch") 'fswatch nil))
          (vulpea-db-parse-method 'single-temp-buffer)
@@ -53,7 +53,7 @@
     (message "")
 
     ;; Phase 2: Warm start - autosync enable (the real startup path)
-    ;; With async scan, this should return almost instantly.
+    ;; With a background scan, this should return almost instantly.
     ;; The subprocess sentinel will populate the queue later.
     (message "--- Phase 2: Warm start (autosync enable) ---")
     (let ((start (current-time)))
@@ -63,7 +63,7 @@
 
     ;; Phase 3: Wait for async subprocess to finish and queue to populate
     (message "")
-    (message "--- Phase 3: Waiting for async scan subprocess ---")
+    (message "--- Phase 3: Waiting for background scan subprocess ---")
     (let ((start (current-time))
           (timeout 60))
       ;; Accept process output until the vulpea-scan process finishes
