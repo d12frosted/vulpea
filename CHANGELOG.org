@@ -22,6 +22,8 @@
 
 *Features*
 
+- =M-x vulpea-doctor= has an Effective Setup section in place of the Async Extraction one. Instead of repeating settings, it says what actually happens: how the startup scan runs, how changes made outside Emacs are noticed, which process parses changed files and which writes them, and why when that differs from your configuration (the worker refusing files because of an AST-reading extractor plugin, full-write mode falling back because of index filters or missing WAL support, a background scan forced by an empty database), plus the session vs worker comparison.
+
 - The default value of =vulpea-db-sync-scan-on-enable= is now called =background= instead of =async=. The old name read like =vulpea-db-async-extraction=, which is about something else: the scan setting decides /when/ the startup scan runs (in the background, before the mode returns, or not at all), the extraction setting decides /which process/ parses the files. =async= keeps working and means =background=, so existing configurations need no change.
 
 - New =vulpea-db-query-by-meta-every= returns notes whose metadata key carries all of the given values, the all-of counterpart of =vulpea-db-query-by-meta-some=. Only values under that key count, so a note with =merlot= under =grape= and =cabernet= under =blend= does not match both grapes. A repeated value is counted once, and an empty list matches every note, the same as =vulpea-db-query-by-tags-every=.

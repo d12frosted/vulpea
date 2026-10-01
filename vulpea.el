@@ -904,6 +904,74 @@ sample), `checked' (with :sampled and :diffs, see
                issues))))
     (nreverse issues)))
 
+(defconst vulpea-doctor--worker-rejection-descriptions
+  '((broken . "the worker keeps crashing (M-x vulpea-db-worker-reset to retry)")
+    (ast-extractors . "an extractor plugin reads the AST")
+    (heading-level-predicate
+     . "`vulpea-db-index-heading-level' is a function")
+    (attach-path-functions
+     . "`org-attach-id-to-path-function-list' holds functions of your own"))
+  "How the report explains why the worker does not parse .org files.
+Keys are reasons from `vulpea-db-worker-rejection-reasons'.")
+
+(defun vulpea-doctor--describe-startup-scan ()
+  "Describe the startup scan of autosync."
+  (pcase (if (eq vulpea-db-sync-scan-on-enable 'async)
+             'background
+           vulpea-db-sync-scan-on-enable)
+    ('background "background")
+    ('blocking "blocking, done before the mode returns")
+    ('nil (let ((notes (vulpea-doctor--note-count)))
+            (if (or (null notes) (zerop notes))
+                "background (the database is empty)"
+              "none")))
+    (other (format "%s" other))))
+
+(defun vulpea-doctor--describe-parsing ()
+  "Describe the process doing the parsing of changed files, and why."
+  (let ((reasons (and vulpea-db-async-extraction
+                      (vulpea-db-worker-rejection-reasons "probe.org"))))
+    (cond
+     ((not vulpea-db-async-extraction)
+      "your session (async extraction is off)")
+     (reasons
+      (concat "your session: "
+              (mapconcat
+               (lambda (reason)
+                 (or (alist-get reason vulpea-doctor--worker-rejection-descriptions)
+                     (symbol-name reason)))
+               reasons "; ")))
+     (vulpea-db-async-extraction-threshold
+      (format "extraction worker; files under %d bytes in your session"
+              vulpea-db-async-extraction-threshold))
+     (t "extraction worker"))))
+
+(defun vulpea-doctor--describe-writing ()
+  "Describe the process doing the database writes, and why."
+  (cond
+   ((not (eq vulpea-db-async-extraction 'full)) "your session")
+   ((vulpea-db-worker-rejection-reasons "probe.org") "your session")
+   ((vulpea-db-worker--full-write-p) "extraction worker (WAL)")
+   (t
+    (concat "your session: full-write is off because "
+            (cond
+             ((bound-and-true-p vulpea-db-worker--wal-failed)
+              "WAL journaling is unavailable")
+             ((not (seq-every-p #'vulpea-extractor-worker-safe
+                                vulpea-db--extractors))
+              "an extractor plugin is not worker-safe")
+             (t "note index filters are active"))))))
+
+(defun vulpea-doctor--describe-worker ()
+  "Describe the state of the extraction worker process."
+  (cond
+   ((or (not vulpea-db-async-extraction)
+        (vulpea-db-worker-rejection-reasons "probe.org"))
+    "n/a")
+   ((process-live-p (bound-and-true-p vulpea-db-worker--process))
+    (format "running (%d in flight)" (vulpea-db-worker-in-flight-count)))
+   (t "not running (spawns on first change)")))
+
 (defun vulpea-doctor--report ()
   "Build the doctor report as a string."
   (let* ((vulpea-doctor--consistency-result
@@ -949,30 +1017,18 @@ sample), `checked' (with :sampled and :diffs, see
        "Sync"
        (funcall line "autosync"
                 (if vulpea-db-autosync-mode "enabled" "disabled"))
-       (funcall line "external monitoring" (vulpea-doctor--monitoring-status))
        (funcall line "pending queue"
                 (format "%d" (length vulpea-db-sync--queue)))
        ""
-       "Async Extraction"
-       (funcall line "mode" (format "%s" vulpea-db-async-extraction))
-       (funcall line "worker"
-                (cond
-                 ((not vulpea-db-async-extraction) "n/a")
-                 ((bound-and-true-p vulpea-db-worker--broken)
-                  "BROKEN (crash loop; M-x vulpea-db-worker-reset)")
-                 ((process-live-p
-                   (bound-and-true-p vulpea-db-worker--process))
-                  (format "running (%d in flight)"
-                          (vulpea-db-worker-in-flight-count)))
-                 (t "not running (spawns on first change)")))
-       (funcall line "handles .org files"
-                (if vulpea-db-async-extraction
-                    (if-let* ((reasons (vulpea-db-worker-rejection-reasons
-                                        "probe.org")))
-                        (format "NO: %s"
-                                (mapconcat #'symbol-name reasons ", "))
-                      "yes")
-                  "n/a"))
+       ;; What actually happens, which settings alone do not show:
+       ;; empty-database rules, files the worker refuses, full-write
+       ;; falling back
+       "Effective Setup"
+       (funcall line "startup scan" (vulpea-doctor--describe-startup-scan))
+       (funcall line "external changes" (vulpea-doctor--monitoring-status))
+       (funcall line "parsing" (vulpea-doctor--describe-parsing))
+       (funcall line "writing" (vulpea-doctor--describe-writing))
+       (funcall line "worker" (vulpea-doctor--describe-worker))
        (funcall line "session vs worker"
                 (vulpea-doctor--consistency-summary))
        ""
