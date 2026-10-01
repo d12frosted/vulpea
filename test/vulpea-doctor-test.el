@@ -434,17 +434,95 @@ declare their intent; the doctor names the extractor and both options."
                    (lambda (i) (string-match-p "declare :requires-ast" i))
                    issues)))))
 
-(ert-deftest vulpea-doctor-reports-async-state ()
-  "The report carries an async extraction section."
+;;; Effective setup
+
+(defmacro vulpea-doctor-test--with-setup (bindings &rest body)
+  "Run BODY with an indexed note and a default setup, then BINDINGS.
+BODY gets the doctor report as `report'.  The setup is the shipped
+defaults with no plugins or filters, so each test only binds what it
+is about."
+  (declare (indent 1))
+  `(vulpea-test--with-temp-db-and-file "setup-file" "#+title: S\n"
+     (let* ((vulpea-db-async-extraction t)
+            (vulpea-db-async-extraction-threshold nil)
+            (vulpea-db-sync-scan-on-enable 'background)
+            (vulpea-db--extractors nil)
+            (vulpea-db-note-index-filter-functions nil)
+            (vulpea-db-index-heading-level t)
+            (vulpea-db-worker--broken nil)
+            (vulpea-db-worker--wal-failed nil)
+            ,@bindings
+            (report (cl-letf (((symbol-function 'vulpea-doctor--compute-consistency)
+                               (lambda () (list :status 'skipped))))
+                      (vulpea-doctor))))
+       ,@body)))
+
+(defun vulpea-doctor-test--setup-line (report label)
+  "Return the value shown for LABEL in the Effective Setup of REPORT."
+  (when (string-match (concat "^  " (regexp-quote label) " +\\(.*\\)$") report)
+    (match-string 1 report)))
+
+(ert-deftest vulpea-doctor-effective-setup-replaces-async-section ()
+  "The report says what happens, in one section, instead of the knobs."
+  (vulpea-doctor-test--with-setup ()
+    (should (string-match-p "^Effective Setup$" report))
+    (should-not (string-match-p "^Async Extraction$" report))
+    (should (equal (vulpea-doctor-test--setup-line report "startup scan")
+                   "background"))
+    (should (equal (vulpea-doctor-test--setup-line report "parsing")
+                   "extraction worker"))
+    (should (equal (vulpea-doctor-test--setup-line report "writing")
+                   "your session"))
+    (should (vulpea-doctor-test--setup-line report "external changes"))
+    (should (vulpea-doctor-test--setup-line report "session vs worker"))))
+
+(ert-deftest vulpea-doctor-effective-setup-startup-scan ()
+  "The startup scan line reflects the setting and the empty-database rule."
+  (vulpea-doctor-test--with-setup ((vulpea-db-sync-scan-on-enable 'blocking))
+    (should (equal (vulpea-doctor-test--setup-line report "startup scan")
+                   "blocking, done before the mode returns")))
+  (vulpea-doctor-test--with-setup ((vulpea-db-sync-scan-on-enable 'async))
+    (should (equal (vulpea-doctor-test--setup-line report "startup scan")
+                   "background")))
+  (vulpea-doctor-test--with-setup ((vulpea-db-sync-scan-on-enable nil))
+    (should (equal (vulpea-doctor-test--setup-line report "startup scan")
+                   "none")))
   (vulpea-test--with-temp-db
     (vulpea-db)
-    (let ((vulpea-db-async-extraction 'full)
-          (vulpea-db--extractors nil)
-          (vulpea-db-note-index-filter-functions nil))
-      (let ((report (vulpea-doctor)))
-        (should (string-match-p "Async Extraction" report))
-        (should (string-match-p "mode.*full" report))
-        (should (string-match-p "handles .org files.*yes" report))))))
+    (let ((vulpea-db-sync-scan-on-enable nil))
+      (should (equal (vulpea-doctor-test--setup-line (vulpea-doctor) "startup scan")
+                     "background (the database is empty)")))))
+
+(ert-deftest vulpea-doctor-effective-setup-parsing ()
+  "The parsing line names the process and why it is not the worker."
+  (vulpea-doctor-test--with-setup ((vulpea-db-async-extraction nil))
+    (should (equal (vulpea-doctor-test--setup-line report "parsing")
+                   "your session (async extraction is off)")))
+  (vulpea-doctor-test--with-setup
+      ((vulpea-db--extractors
+        (list (make-vulpea-extractor :name 'reader :requires-ast t
+                                     :extract-fn #'ignore))))
+    (should (equal (vulpea-doctor-test--setup-line report "parsing")
+                   "your session: an extractor plugin reads the AST")))
+  (vulpea-doctor-test--with-setup ((vulpea-db-async-extraction-threshold 102400))
+    (should (equal (vulpea-doctor-test--setup-line report "parsing")
+                   "extraction worker; files under 102400 bytes in your session"))))
+
+(ert-deftest vulpea-doctor-effective-setup-writing ()
+  "The writing line says who writes and why full-write fell back."
+  (vulpea-doctor-test--with-setup ((vulpea-db-async-extraction 'full))
+    (should (equal (vulpea-doctor-test--setup-line report "writing")
+                   "extraction worker (WAL)")))
+  (vulpea-doctor-test--with-setup
+      ((vulpea-db-async-extraction 'full)
+       (vulpea-db-note-index-filter-functions (list #'ignore)))
+    (should (equal (vulpea-doctor-test--setup-line report "writing")
+                   "your session: full-write is off because note index filters are active")))
+  (vulpea-doctor-test--with-setup
+      ((vulpea-db-async-extraction 'full)
+       (vulpea-db-worker--wal-failed t))
+    (should (equal (vulpea-doctor-test--setup-line report "writing")
+                   "your session: full-write is off because WAL journaling is unavailable"))))
 
 (ert-deftest vulpea-doctor-no-async-issues-when-disabled ()
   "With async off, no async issues appear no matter the extractors."
