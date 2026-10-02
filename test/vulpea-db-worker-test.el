@@ -157,6 +157,59 @@ is not \"org-attach\"; comparing base names would reject everyone."
       (should-not (vulpea-db-worker--org-attach-function-p
                    'vulpea-db-worker-test--attach-path)))))
 
+(ert-deftest vulpea-db-worker-attach-decision-computed-once ()
+  "The attach path check does not walk `load-history' per file.
+The sync queue asks about every file it dispatches; the answer only
+changes with the function list or with what is loaded."
+  (let ((vulpea-db--extractors nil)
+        (vulpea-db-index-heading-level t)
+        (vulpea-db-worker--broken nil)
+        (org-attach-id-to-path-function-list
+         (copy-sequence (default-value 'org-attach-id-to-path-function-list)))
+        (calls 0))
+    (cl-letf* ((orig (symbol-function 'symbol-file))
+               ((symbol-function 'symbol-file)
+                (lambda (&rest args)
+                  (setq calls (1+ calls))
+                  (apply orig args))))
+      (dotimes (_ 100)
+        (should-not (vulpea-db-worker-rejection-reasons "x.org"))))
+    (should (<= calls (* 2 (length org-attach-id-to-path-function-list))))))
+
+(ert-deftest vulpea-db-worker-attach-decision-follows-changes ()
+  "The attach path decision flips with the setting and with loads.
+Setting the list, editing it in place and loading a file that
+redefines a function in it must all be seen by the next check."
+  (let ((vulpea-db--extractors nil)
+        (vulpea-db-index-heading-level t)
+        (vulpea-db-worker--broken nil)
+        (org-attach-id-to-path-function-list
+         (copy-sequence (default-value 'org-attach-id-to-path-function-list))))
+    (should-not (vulpea-db-worker-rejection-reasons "x.org"))
+    ;; Set to a list holding a session function
+    (setq org-attach-id-to-path-function-list
+          (cons 'vulpea-db-worker-test--attach-path
+                org-attach-id-to-path-function-list))
+    (should (equal '(attach-path-functions)
+                   (vulpea-db-worker-rejection-reasons "x.org")))
+    ;; Edited in place back to org's own functions
+    (setcar org-attach-id-to-path-function-list
+            'org-attach-id-uuid-folder-format)
+    (should-not (vulpea-db-worker-rejection-reasons "x.org"))
+    ;; Same list, but a load redefined one of its functions elsewhere
+    (let ((foreign nil))
+      (cl-letf* ((orig (symbol-function 'symbol-file))
+                 ((symbol-function 'symbol-file)
+                  (lambda (sym &optional type native)
+                    (if (and foreign (eq sym 'org-attach-id-uuid-folder-format))
+                        "/home/me/init.el"
+                      (funcall orig sym type native)))))
+        (should-not (vulpea-db-worker-rejection-reasons "x.org"))
+        (setq foreign t)
+        (let ((load-history (cons (list "/home/me/init.el") load-history)))
+          (should (equal '(attach-path-functions)
+                         (vulpea-db-worker-rejection-reasons "x.org"))))))))
+
 ;;; Settings classification
 
 (defun vulpea-db-worker-test--worker-sources ()
