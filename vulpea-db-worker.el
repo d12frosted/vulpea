@@ -1233,13 +1233,19 @@ The worker answers in request order, so PATH is almost always the
 head; falling back to a full scan keeps this correct either way."
   (remhash path vulpea-db-worker--force)
   (if (equal (car vulpea-db-worker--in-flight) path)
-      (pop vulpea-db-worker--in-flight)
+      ;; Every reply lands here: no walk over the window
+      (progn
+        (pop vulpea-db-worker--in-flight)
+        (setq vulpea-db-worker--in-flight-count
+              (max 0 (1- vulpea-db-worker--in-flight-count)))
+        (unless vulpea-db-worker--in-flight
+          (setq vulpea-db-worker--in-flight-tail nil)))
     (setq vulpea-db-worker--in-flight
-          (delete path vulpea-db-worker--in-flight)))
-  (setq vulpea-db-worker--in-flight-tail
-        (last vulpea-db-worker--in-flight))
-  (setq vulpea-db-worker--in-flight-count
-        (length vulpea-db-worker--in-flight)))
+          (delete path vulpea-db-worker--in-flight))
+    (setq vulpea-db-worker--in-flight-tail
+          (last vulpea-db-worker--in-flight))
+    (setq vulpea-db-worker--in-flight-count
+          (length vulpea-db-worker--in-flight))))
 
 (defun vulpea-db-worker--complete (path hash mtime size current &optional force)
   "Apply a completed extraction of PATH to the database.
