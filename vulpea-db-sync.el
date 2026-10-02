@@ -274,6 +274,9 @@ content is identical but extraction output is not.")
 (defvar vulpea-db-sync--timer nil
   "Timer for processing batched updates.")
 
+(defvar vulpea-db-sync--last-enqueue 0
+  "When a file was last added to the queue, as a float time.")
+
 (defvar vulpea-db-sync--idle-timer nil
   "Idle timer for processing updates.")
 
@@ -946,6 +949,28 @@ all files under that directory are removed."
             (vulpea-db-sync--enqueue new-path)))))))
     nil))
 
+(defvar vulpea-db-sync--spelled-directories-cache nil
+  "Expanded `vulpea-db-sync-directories', as (DIRS DEFAULT-DIR . EXPANDED).
+DIRS is a copy of the list EXPANDED was made from and DEFAULT-DIR the
+`default-directory' it was made in.")
+
+(defun vulpea-db-sync--spelled-directories ()
+  "Return `vulpea-db-sync-directories' expanded, as directory names.
+Every enqueued path is checked against them; expanding each entry
+again for every file is wasted work when the list did not change."
+  (let ((cache vulpea-db-sync--spelled-directories-cache))
+    (if (and cache
+             (equal (car cache) vulpea-db-sync-directories)
+             (equal (cadr cache) default-directory))
+        (cddr cache)
+      (let ((expanded (mapcar (lambda (dir)
+                                (file-name-as-directory (expand-file-name dir)))
+                              vulpea-db-sync-directories)))
+        (setq vulpea-db-sync--spelled-directories-cache
+              (cons (copy-sequence vulpea-db-sync-directories)
+                    (cons default-directory expanded)))
+        expanded))))
+
 (defun vulpea-db-sync--configured-path (path)
   "Return PATH re-spelled under the configured directory name.
 
@@ -965,11 +990,10 @@ string comparison) is returned unchanged, as is a PATH under no
 configured directory at all."
   (if (or (null path)
           (null vulpea-db-sync-directories)
-          (seq-some (lambda (dir)
-                      (string-prefix-p
-                       (file-name-as-directory (expand-file-name dir))
-                       path))
-                    vulpea-db-sync-directories))
+          (let ((tail (vulpea-db-sync--spelled-directories)))
+            (while (and tail (not (string-prefix-p (car tail) path)))
+              (setq tail (cdr tail)))
+            tail))
       path
     (or (seq-some
          (lambda (dir)
@@ -1012,12 +1036,16 @@ the reported total on every retry."
           (setq vulpea-db-sync--queue node))
         (setq vulpea-db-sync--queue-tail node))
 
-      ;; Reset batch timer
-      (when vulpea-db-sync--timer
-        (cancel-timer vulpea-db-sync--timer))
-      (setq vulpea-db-sync--timer
-            (run-with-timer vulpea-db-sync-batch-delay nil
-                            #'vulpea-db-sync--process-queue))
+      ;; Push the batch back until enqueueing goes quiet.  A scan
+      ;; enqueues thousands of files in a row, so instead of re-arming
+      ;; the timer for each, the timer checks when it fires (see
+      ;; `vulpea-db-sync--batch-timer').
+      (setq vulpea-db-sync--last-enqueue timestamp)
+      (unless (and vulpea-db-sync--timer
+                   (memq vulpea-db-sync--timer timer-list))
+        (setq vulpea-db-sync--timer
+              (run-with-timer vulpea-db-sync-batch-delay nil
+                              #'vulpea-db-sync--batch-timer)))
 
       ;; When a sync is already in progress, account for newly discovered files
       (when (and (not no-count)
@@ -1049,6 +1077,17 @@ them."
      (dolist (claimant vulpea-db--deferred-claimants)
        (when (file-exists-p claimant)
          (vulpea-db-update-file claimant)))))
+
+(defun vulpea-db-sync--batch-timer ()
+  "Process the queue once `vulpea-db-sync-batch-delay' passed quietly.
+Armed by `vulpea-db-sync--enqueue'; while files keep arriving, waits
+for the rest of the delay after the last one."
+  (let ((wait (- (+ vulpea-db-sync--last-enqueue vulpea-db-sync-batch-delay)
+                 (float-time))))
+    (if (> wait 0)
+        (setq vulpea-db-sync--timer
+              (run-with-timer wait nil #'vulpea-db-sync--batch-timer))
+      (vulpea-db-sync--process-queue))))
 
 (defun vulpea-db-sync--process-queue ()
   "Process queued file update."
