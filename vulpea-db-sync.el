@@ -1788,17 +1788,28 @@ string on macOS still matches the NFC paths scans produce."
                           (file-name-as-directory (expand-file-name dir))))
                        vulpea-db-sync-directories))
         (seen (make-hash-table :test 'equal))
+        (seen-as-given (make-hash-table :test 'equal))
         result)
     (dolist (file files)
-      (let ((dir (vulpea-db-normalize-path
-                  (file-name-directory (expand-file-name file)))))
-        (while (and dir
-                    (not (gethash dir seen))
-                    (seq-some (lambda (root) (string-prefix-p root dir))
-                              roots))
-          (puthash dir t seen)
-          (push dir result)
-          (setq dir (file-name-directory (directory-file-name dir))))))
+      ;; Files of one directory share its spelling up to the last
+      ;; slash.  Only the first of them is expanded: the file name
+      ;; functions consult `file-name-handler-alist' on every call,
+      ;; which over a whole scan costs more than the rest of the walk.
+      (let ((end (length file)))
+        (while (and (> end 0) (/= (aref file (1- end)) ?/))
+          (setq end (1- end)))
+        (let ((as-given (substring file 0 end)))
+          (unless (gethash as-given seen-as-given)
+            (puthash as-given t seen-as-given)
+            (let ((dir (vulpea-db-normalize-path
+                        (file-name-directory (expand-file-name file)))))
+              (while (and dir
+                          (not (gethash dir seen))
+                          (seq-some (lambda (root) (string-prefix-p root dir))
+                                    roots))
+                (puthash dir t seen)
+                (push dir result)
+                (setq dir (file-name-directory (directory-file-name dir)))))))))
     result))
 
 (defun vulpea-db-sync--dir-locals-baseline-p ()
