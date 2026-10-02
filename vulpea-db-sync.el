@@ -1100,17 +1100,7 @@ them."
             (remhash path vulpea-db-sync--queue-set))
 
           ;; Fetch all file hashes in one query (huge speedup)
-          (let* ((hash-rows (emacsql db [:select [path hash mtime size] :from files
-                                         :where (in path $v1)]
-                                     (vconcat paths)))
-                 (hash-cache (make-hash-table :test 'equal)))
-            ;; Build hash table for O(1) lookups
-            (dolist (row hash-rows)
-              (puthash (elt row 0)
-                       (list :hash (elt row 1)
-                             :mtime (elt row 2)
-                             :size (elt row 3))
-                       hash-cache))
+          (let ((hash-cache (vulpea-db--get-file-hashes paths)))
 
             ;; Split off files the extraction worker will handle:
             ;; for those, only a cheap mtime/size comparison happens
@@ -1859,9 +1849,9 @@ batch its update."
   (when (and paths org-id-track-globally)
     (condition-case err
         (vulpea-db-sync--register-org-ids-from-rows
-         (emacsql (vulpea-db) [:select [id path] :from notes
-                               :where (in path $v1)]
-                  (vconcat paths)))
+         (vulpea-db--select
+          (concat "SELECT id, path FROM notes WHERE path IN "
+                  (vulpea-db--sql-list paths))))
       (error
        (message "Vulpea: org-id registration failed: %s"
                 (error-message-string err))))))
@@ -2012,19 +2002,8 @@ settings migrations from freezing the session."
           (vulpea-db-sync--message "Vulpea: Syncing %d file%s..." total (if (= total 1) "" "s")))
 
         ;; Fetch all file hashes in one query for smart detection (huge speedup)
-        (let* ((hash-rows (unless force
-                            (emacsql db [:select [path hash mtime size] :from files
-                                         :where (in path $v1)]
-                                     (vconcat files))))
-               (hash-cache (when hash-rows
-                             (let ((cache (make-hash-table :test 'equal)))
-                               (dolist (row hash-rows)
-                                 (puthash (elt row 0)
-                                          (list :hash (elt row 1)
-                                                :mtime (elt row 2)
-                                                :size (elt row 3))
-                                          cache))
-                               cache))))
+        (let ((hash-cache (unless force
+                            (vulpea-db--get-file-hashes files))))
           (vulpea-db-sync--flushing-deferred-claimants
             (vulpea-db--with-transaction db
               (dolist (file files)
