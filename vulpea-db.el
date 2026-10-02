@@ -1389,6 +1389,26 @@ Returns plist with :hash, :mtime, :size or nil if not tracked."
           :mtime (elt row 1)
           :size (elt row 2))))
 
+(defun vulpea-db--get-file-hashes (paths)
+  "Return a hash table mapping each tracked path in PATHS to its info.
+
+Values are plists like those of `vulpea-db--get-file-hash'; untracked
+paths have no entry.  PATHS are used as given, not normalized.  One
+query on the native read path: the sync queue runs it for every
+batch, and emacsql's quoting of each path costs more than SQLite
+does."
+  (let ((cache (make-hash-table :test 'equal :size (length paths))))
+    (when paths
+      (dolist (row (vulpea-db--select
+                    (concat "SELECT path, hash, mtime, size FROM files"
+                            " WHERE path IN " (vulpea-db--sql-list paths))))
+        (puthash (nth 0 row)
+                 (list :hash (nth 1 row)
+                       :mtime (nth 2 row)
+                       :size (nth 3 row))
+                 cache)))
+    cache))
+
 (defun vulpea-db--update-dir-locals-hash (path hash mtime size)
   "Update dir-locals tracking info for PATH.
 

@@ -307,5 +307,32 @@ A cell emacsql fails to read fails here too."
                              (vulpea-db-query-by-links-some (cons "note-3" ids)))
                      '("note-1" "note-2"))))))
 
+(ert-deftest vulpea-db-get-file-hashes-matches-emacsql ()
+  "Stored file stamps fetched natively equal what emacsql returns.
+The sync queue looks them up for every batch it processes."
+  (vulpea-test--with-temp-db
+    (let ((paths (list "/tmp/plain.org" "/tmp/with space/ünï.org"
+                       "/tmp/quote\"d.org" "/tmp/it's.org"
+                       "/tmp/back\\slash.org" "/tmp/日本語.org")))
+      (let ((i 0))
+        (dolist (path paths)
+          (setq i (1+ i))
+          (vulpea-db--update-file-hash path (format "hash-%d" i)
+                                       (+ 1000.25 i) (* 10 i))))
+      (should (= 0 (hash-table-count (vulpea-db--get-file-hashes nil))))
+      (let ((cache (vulpea-db--get-file-hashes
+                    (cons "/tmp/missing.org" paths)))
+            (rows (emacsql (vulpea-db)
+                           [:select [path hash mtime size] :from files
+                            :where (in path $v1)]
+                           (vconcat paths))))
+        (should (= (hash-table-count cache) (length paths)))
+        (should (= (length rows) (length paths)))
+        (dolist (row rows)
+          (should (equal (gethash (nth 0 row) cache)
+                         (list :hash (nth 1 row)
+                               :mtime (nth 2 row)
+                               :size (nth 3 row)))))))))
+
 (provide 'vulpea-db-native-read-test)
 ;;; vulpea-db-native-read-test.el ends here
