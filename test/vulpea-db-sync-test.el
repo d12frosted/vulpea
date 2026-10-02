@@ -2618,6 +2618,33 @@ redundant full pass on every fresh database."
         (should (= (length reactions) 1))
         (should (equal (caar reactions) root))))))
 
+(ert-deftest vulpea-db-sync-dir-locals-candidate-dirs-per-directory ()
+  "Candidate directories are worked out once per directory, not per file.
+The startup scan hands over every file it found, and expanding each
+of them again took over half a second at 100k files in a thousand
+directories."
+  (let* ((root (file-name-as-directory
+                (file-truename (make-temp-file "vulpea-test-" t))))
+         (vulpea-db-sync-directories (list root))
+         (files (cl-loop for dir in '("a/" "a/b/" "c/")
+                         append (cl-loop for i below 20
+                                         collect (format "%s%snote-%d.org"
+                                                         root dir i))))
+         (expansions 0))
+    (unwind-protect
+        (let ((dirs (cl-letf* ((orig (symbol-function 'expand-file-name))
+                               ((symbol-function 'expand-file-name)
+                                (lambda (&rest args)
+                                  (setq expansions (1+ expansions))
+                                  (apply orig args))))
+                      (vulpea-db-sync--dir-locals-candidate-dirs files))))
+          (should (equal (sort dirs #'string<)
+                         (mapcar (lambda (dir) (concat root dir))
+                                 '("" "a/" "a/b/" "c/"))))
+          ;; The root, then one per directory holding files
+          (should (<= expansions 4)))
+      (delete-directory root t))))
+
 (ert-deftest vulpea-db-sync-dir-locals-check-drops-untracked-rows ()
   "Rows outside `vulpea-db-sync-directories' are dropped silently."
   (vulpea-test--with-temp-notes-dir
