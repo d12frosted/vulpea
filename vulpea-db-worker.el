@@ -745,6 +745,31 @@ Compares with the file `org-attach' was loaded from, which may be
                                                  'defun)))
          (equal file org-attach-file))))
 
+(defvar vulpea-db-worker--attach-functions-cache nil
+  "Last attach path decision, as (FUNCTIONS LOAD-HISTORY . FOREIGN).
+FUNCTIONS is a copy of the `org-attach-id-to-path-function-list' it
+was made for, LOAD-HISTORY the `load-history' it was made under, and
+FOREIGN non-nil when some function was not org-attach's own.")
+
+(defun vulpea-db-worker--foreign-attach-functions-p ()
+  "Return non-nil when attach paths need functions only the session has.
+See `vulpea-db-worker--org-attach-function-p'.  Where a function comes
+from is looked up in `load-history', which takes a walk through
+everything loaded; the sync queue asks for every file, so the answer
+is kept until the function list or `load-history' changes (any load
+pushes a new entry to it)."
+  (let ((functions (bound-and-true-p org-attach-id-to-path-function-list))
+        (cache vulpea-db-worker--attach-functions-cache))
+    (if (and cache
+             (eq (cadr cache) load-history)
+             (equal (car cache) functions))
+        (cddr cache)
+      (let ((foreign (not (seq-every-p #'vulpea-db-worker--org-attach-function-p
+                                       functions))))
+        (setq vulpea-db-worker--attach-functions-cache
+              (cons (copy-sequence functions) (cons load-history foreign)))
+        foreign))))
+
 (defun vulpea-db-worker-rejection-reasons (path)
   "Return the reasons PATH cannot be extracted in the worker, if any.
 
@@ -768,9 +793,7 @@ A list of symbols, nil when the worker can handle PATH faithfully:
       (push 'ast-extractors reasons))
     (unless (booleanp vulpea-db-index-heading-level)
       (push 'heading-level-predicate reasons))
-    (unless (seq-every-p #'vulpea-db-worker--org-attach-function-p
-                         (bound-and-true-p
-                          org-attach-id-to-path-function-list))
+    (when (vulpea-db-worker--foreign-attach-functions-p)
       (push 'attach-path-functions reasons))
     (unless (string-suffix-p ".org" path)
       (push 'extension reasons))
