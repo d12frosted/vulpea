@@ -1089,15 +1089,24 @@ for the rest of the delay after the last one."
               (run-with-timer wait nil #'vulpea-db-sync--batch-timer))
       (vulpea-db-sync--process-queue))))
 
+(defun vulpea-db-sync--worker-low-water ()
+  "Return how many worker slots must be free before the next batch.
+Half the window, so a busy worker gets batches of a useful size
+instead of a file or two each time a reply frees a slot, while the
+other half keeps it busy."
+  (min vulpea-db-sync-batch-size
+       (max 1 (/ vulpea-db-worker-max-in-flight 2))))
+
 (defun vulpea-db-sync--process-queue ()
   "Process queued file update."
-  ;; When the worker request window is full, leave the queue alone
-  ;; and retry shortly - pulling a batch only to re-enqueue it would
-  ;; churn the main thread for nothing during bulk syncs
+  ;; Until the worker request window has room for a batch, leave the
+  ;; queue alone and retry shortly - pulling a batch only to put it
+  ;; back would churn the main thread for nothing during bulk syncs
   (if (and vulpea-db-sync--queue
            (not vulpea-db-sync--processing)
            vulpea-db-async-extraction
-           (vulpea-db-worker-saturated-p))
+           (< (vulpea-db-worker-free-slots)
+              (vulpea-db-sync--worker-low-water)))
       (progn
         (when vulpea-db-sync--timer
           (cancel-timer vulpea-db-sync--timer))
@@ -1108,9 +1117,15 @@ for the rest of the delay after the last one."
     (setq vulpea-db-sync--processing t)
     (unwind-protect
         (let* ((vulpea-db-sync--batch-start-time (current-time))
-               (batch-size (min (length vulpea-db-sync--queue)
-                                vulpea-db-sync-batch-size))
-               (batch (seq-take vulpea-db-sync--queue batch-size))
+               ;; Never more than the worker window has room for:
+               ;; every file in the batch may need a slot, and one
+               ;; that finds none would have to go back to the queue
+               (batch (seq-take vulpea-db-sync--queue
+                                (if vulpea-db-async-extraction
+                                    (min vulpea-db-sync-batch-size
+                                         (vulpea-db-worker-free-slots))
+                                  vulpea-db-sync-batch-size)))
+               (batch-size (length batch))
                (paths (mapcar #'car batch))
                (db (vulpea-db))
                (updated 0)
@@ -1155,20 +1170,15 @@ for the rest of the delay after the last one."
                 (let ((force (gethash path vulpea-db-sync--force-set)))
                   (remhash path vulpea-db-sync--force-set)
                   (cond
-                   ;; Worker window full: keep it queued, the timer
-                   ;; retries as completions free the window
-                   ((and vulpea-db-async-extraction
-                         (vulpea-db-worker-should-handle-p path)
-                         (vulpea-db-worker-saturated-p))
-                    ;; Already counted when first enqueued
-                    (vulpea-db-sync--enqueue path force 'no-count))
+                   ;; The batch fits the worker window (see above), so
+                   ;; every file sent here finds a slot
                    ((and vulpea-db-async-extraction
                          (vulpea-db-worker-should-handle-p path))
                       (condition-case err
-                          (when (file-exists-p path)
+                          (when-let* ((attrs (file-attributes path)))
                             (if (or force
                                     (vulpea-db-sync--changed-on-disk-p
-                                     path hash-cache))
+                                     path hash-cache attrs))
                                 (progn
                                   (when (zerop vulpea-db-sync--async-dispatched)
                                     (setq vulpea-db-sync--async-applied 0
@@ -1343,7 +1353,7 @@ database, not when it was dispatched."
               vulpea-db-sync--async-start-time nil
               vulpea-db-sync--announced nil)))))
 
-(defun vulpea-db-sync--changed-on-disk-p (path &optional hash-cache)
+(defun vulpea-db-sync--changed-on-disk-p (path &optional hash-cache attrs)
   "Return non-nil when PATH's stamp differs from the stored one.
 
 Compares mtime and size only - no content hashing, so this never
@@ -1353,8 +1363,9 @@ content hashes before rewriting anything.
 
 HASH-CACHE is an optional hash table mapping paths to stored info,
 as built by the queue processor; without it the database is queried
-directly."
-  (let ((attrs (file-attributes path)))
+directly.  ATTRS are PATH's `file-attributes' when the caller already
+has them."
+  (let ((attrs (or attrs (file-attributes path))))
     (and attrs
          (let ((stored (if hash-cache
                            (gethash path hash-cache)

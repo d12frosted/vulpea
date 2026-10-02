@@ -506,6 +506,10 @@ Callers should keep their files queued and retry later instead of
 requesting more (see `vulpea-db-worker-max-in-flight')."
   (>= vulpea-db-worker--in-flight-count vulpea-db-worker-max-in-flight))
 
+(defun vulpea-db-worker-free-slots ()
+  "Return how many more requests fit in the worker request window."
+  (max 0 (- vulpea-db-worker-max-in-flight vulpea-db-worker--in-flight-count)))
+
 (defvar vulpea-db-worker--current nil
   "Assembly state for the file currently streaming in.
 A plist with :path, :file-node and :heading-nodes (reversed).")
