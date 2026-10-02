@@ -214,16 +214,156 @@ In the example above, if the word "TODO" appears in the note title, the template
 - =%(elisp)= - Evaluate elisp (e.g., =%(user-full-name)=)
 - =%<format>= - Timestamp (e.g., =%<[%Y-%m-%d]>=)
 
-* Performance Settings
+* Sync
 
-In a large collection the cost is parsing: how much of org-mode runs
-for each file, and whether it runs on the main thread.
-=vulpea-db-parse-method= decides the first, =vulpea-db-async-extraction=
-the second, and the second is the one that stops saves and scans from
-freezing Emacs. It is on by default, so most files are parsed in a
-background worker and the parse method only applies to the rest.
-After changing either, run =M-x vulpea-doctor=: it flags setups that
-quietly fall back to a slower path.
+Five settings decide how the database follows your files. The
+defaults suit most setups, so this chapter is mostly about what they
+do and when to change one. Everything else that touches sync only
+tunes these behaviors and lives in [[*Advanced Sync Tuning][Advanced Sync Tuning]].
+
+| Decision                              | Option                           | Default                   |
+|---------------------------------------+----------------------------------+---------------------------|
+| Keep the database in sync on its own  | =vulpea-db-autosync-mode=        | off, enable it at startup |
+| When the startup scan runs            | =vulpea-db-sync-scan-on-enable=  | ='background=             |
+| How changes made outside Emacs arrive | =vulpea-db-sync-external-method= | ='auto=                   |
+| Which process parses changed files    | =vulpea-db-async-extraction=     | =t= (a background worker) |
+| How much of org-mode runs per file    | =vulpea-db-parse-method=         | ='temp-buffer=            |
+
+=M-x vulpea-doctor= shows what these add up to on your machine, in its
+Effective Setup section: how the startup scan runs, how external
+changes are detected, which process parses and which writes, and the
+reason whenever that differs from what you configured (see
+[[file:troubleshooting.org][Troubleshooting]]). Run it after changing any of them.
+
+** Autosync
+
+#+begin_src emacs-lisp
+(vulpea-db-autosync-mode +1)
+#+end_src
+
+The mode scans =vulpea-db-sync-directories= when it starts (see
+[[*Startup Scan][Startup Scan]]), then watches them and re-indexes files as they change.
+Without it the database changes only through vulpea's own commands
+(creating, moving, splitting or merging notes index synchronously) and
+=M-x vulpea-db-sync-full-scan=.
+
+** Startup Scan
+
+What happens when =vulpea-db-autosync-mode= is enabled:
+
+#+begin_src emacs-lisp
+;; Scan in the background (default; returns at once, uses fd/find)
+(setq vulpea-db-sync-scan-on-enable 'background)
+
+;; Scan synchronously (blocks until complete)
+(setq vulpea-db-sync-scan-on-enable 'blocking)
+
+;; Skip initial scan (fast startup, manual sync when needed)
+(setq vulpea-db-sync-scan-on-enable nil)
+#+end_src
+
+The default ='background= detects changes made while Emacs was closed (git
+pulls, Dropbox sync, external edits) without blocking startup.  With
+=nil=, such changes stay invisible until the files are touched again
+or =M-x vulpea-db-sync-full-scan= is run manually.
+
+With ='blocking=, the database is up to date by the time
+=vulpea-db-autosync-mode= returns, including the re-index after an
+upgrade or a settings change, so code right after it in your init
+(an agenda built from vulpea queries, say) sees every note. The files
+are indexed in your session rather than by the extraction worker,
+since Emacs waits for them either way.
+
+Exception: when the database is empty (e.g. the very first
+activation), a background scan runs even with =nil= - otherwise the
+database would stay empty with no indication why.
+
+This setting is about /when/ the startup scan runs. /Which process/
+parses the files is a separate choice, =vulpea-db-async-extraction=
+(see [[*Async Extraction][Async Extraction]]). The value ='async= from earlier versions still
+works and means ='background=.
+
+** External Changes
+
+How Vulpea notices files changed outside Emacs (git, Dropbox, another
+editor) while it runs:
+
+#+begin_src emacs-lisp
+;; Auto-detect best method (default): fswatch if installed, else polling
+(setq vulpea-db-sync-external-method 'auto)
+
+;; Use fswatch (requires fswatch binary)
+(setq vulpea-db-sync-external-method 'fswatch)
+
+;; Use polling (no dependencies, works everywhere)
+(setq vulpea-db-sync-external-method 'poll)
+
+;; Disable external detection (only detect Emacs changes)
+(setq vulpea-db-sync-external-method nil)
+#+end_src
+
+*Recommendation:* Install =fswatch= for instant, zero-overhead change detection. With =fswatch=, Vulpea is notified immediately when files change (git pull, Dropbox sync, etc.) without any directory scanning. Without it, =auto= polls every =vulpea-db-sync-poll-interval= seconds (see [[*Polling Interval][Polling Interval]]).
+
+** Async Extraction
+
+Whether changed files are parsed in a background Emacs process:
+
+#+begin_src emacs-lisp
+(setq vulpea-db-async-extraction t)     ; Default: extract in worker, write in main
+;; or
+(setq vulpea-db-async-extraction 'full) ; Extract AND write in worker
+;; or
+(setq vulpea-db-async-extraction nil)   ; Parse on the main thread
+#+end_src
+
+In a large collection the cost of indexing is parsing, and this is the
+setting that stops saves and scans from freezing Emacs. With autosync
+enabled and async extraction off, saving a file parses it on the main
+thread - the UI freezes for as long as the file takes to index. With
+async extraction (=t=, the default), reading, hashing, parsing, and
+extraction run in a persistent =emacs --batch= worker; the main thread
+only blocks for the database write of the results (a 1MB file: 43ms
+instead of 252ms; a 10MB file: 0.45s instead of 2.28s). The initial
+scan's parsing moves off the main thread too, and so does the
+"re-indexing all files" pass on the first activation after an upgrade.
+
+The trade-offs of the default:
+
+- *The worker does not run your mode hooks* (=org-mode-hook= and the
+  =text-mode-hook= / =outline-mode-hook= org runs first). Most hook
+  functions only affect display and do not matter. One that sets
+  something extraction reads, such as =org-category= or
+  =org-use-tag-inheritance=, makes files the worker handles index
+  differently from files indexed in your session. =M-x vulpea-doctor=
+  finds such functions by running each one in a scratch buffer, and
+  names them with the setting they change. Move the setting into your
+  global config or the files themselves (=#+CATEGORY:=, =#+TODO:=),
+  which the worker reads, or set =vulpea-db-async-extraction= to nil.
+  Hooks are only the most likely cause, so the doctor also parses a
+  sample of your indexed files both in your session and in a fresh
+  worker, and names the files and fields that come out differently,
+  whatever the reason.
+- *The database is updated a moment after a save.* Code that queries
+  right after saving should react on =vulpea-db-updated-functions=
+  instead (see [[*Reacting to Database Updates][Reacting to Database Updates]], or the threshold in
+  [[*Extraction Worker][Extraction Worker]]). Programmatic APIs (=vulpea-create=,
+  move/split/merge, =vulpea-utils-with-note-sync=) index synchronously
+  and are not affected.
+- *One more Emacs process* (about 70MB when idle), started lazily on the first
+  changed file. If it cannot start or keeps crashing, vulpea falls
+  back to the synchronous path with a warning.
+
+With ='full=, the worker also writes the results through its own
+database connection, and the main thread only registers note IDs
+with org-id - the freeze disappears at any file size. This switches
+the database to WAL journaling (persistent; =-wal=/=-shm= sidecar
+files appear next to it), which is not suitable for databases on
+network filesystems. While schemas are registered with a non-silent
+=vulpea-db-schema-validation-action=, ='full= behaves like =t= so
+validation keeps running in your session.
+
+Some files are always indexed in your session, and some setups keep
+every file there; [[*Extraction Worker][Extraction Worker]] lists them.
 
 ** Parse Method
 
@@ -276,181 +416,11 @@ With =find-file= and =temp-buffer=, extraction results can depend on
 variables); autosync re-indexes the affected subtree when such a
 file changes (see [[*Dir-Locals Changes][Dir-Locals Changes]]).
 
-The timings in this chapter come from [[file:../bench/README.md][bench/README.md]] (Reference Numbers), which names the benchmark behind each one.
+The timings in this guide come from [[file:../bench/README.md][bench/README.md]] (Reference Numbers), which names the benchmark behind each one.
 
-** Parse Granularity
+* What Gets Indexed
 
-How deep the org-element parse goes during extraction:
-
-#+begin_src emacs-lisp
-(setq vulpea-db-parse-granularity 'element)  ; Default, faster parse
-;; or
-(setq vulpea-db-parse-granularity 'object)   ; Full parse, historical behavior
-#+end_src
-
-At =element= granularity the parser skips inline objects (bold,
-timestamps, entities...) that extraction never reads; links are
-located afterwards with org's own link parser. Both modes are
-expected to produce identical results - =object= remains as an
-escape hatch, and if you ever observe a difference between the two,
-please report it. Known exception: radio links are only picked up in
-=object= mode. When extractor plugins are registered via
-=vulpea-db-register-extractor=, a full =object= parse is used
-regardless, since plugins may inspect inline objects.
-
-The parse step itself gets about 2.6x faster (2.4s to 0.9s for a 10MB
-file), and saving that file takes 2.3s instead of 3.6s.
-
-** Plain Link Indexing
-
-Whether unbracketed links in note bodies are indexed:
-
-#+begin_src emacs-lisp
-(setq vulpea-db-index-plain-links t)    ; Default: index every link org recognizes
-;; or
-(setq vulpea-db-index-plain-links nil)  ; Bracketed links only, much cheaper
-#+end_src
-
-Finding plain links (=https://...= or a bare =type:path= in running
-text) requires scanning all body text against a large regexp - the
-most expensive part of link extraction. Bracketed links
-(=[[id:...][desc]]=) are found with a cheap literal search. Since
-=id:= links - the ones that carry the note graph - are practically
-always bracketed, collections that do not query plain links can
-disable this for a slightly shorter save freeze on large files (a 10MB
-file re-indexes in 2.2s instead of 2.3s).
-
-After changing it, run =vulpea-db-sync-full-scan= with a prefix
-argument to re-index existing files.
-
-** Async Extraction
-
-Whether changed files are parsed in a background Emacs process:
-
-#+begin_src emacs-lisp
-(setq vulpea-db-async-extraction t)     ; Default: extract in worker, write in main
-;; or
-(setq vulpea-db-async-extraction 'full) ; Extract AND write in worker
-;; or
-(setq vulpea-db-async-extraction nil)   ; Parse on the main thread
-#+end_src
-
-With autosync enabled and async extraction off, saving a file parses
-it on the main thread - the UI freezes for as long as the file takes
-to index. With async extraction (=t=, the default), reading, hashing,
-parsing, and extraction run in a persistent =emacs --batch= worker;
-the main thread only blocks for the database write of the results (a
-1MB file: 43ms instead of 252ms; a 10MB file: 0.45s instead of
-2.28s). The initial scan's parsing moves off the main thread too.
-
-The trade-offs of the default:
-
-- *The worker does not run your mode hooks* (=org-mode-hook= and the
-  =text-mode-hook= / =outline-mode-hook= org runs first). Most hook
-  functions only affect display and do not matter. One that sets
-  something extraction reads, such as =org-category= or
-  =org-use-tag-inheritance=, makes files the worker handles index
-  differently from files indexed in your session. =M-x vulpea-doctor=
-  finds such functions by running each one in a scratch buffer, and
-  names them with the setting they change. Move the setting into your
-  global config or the files themselves (=#+CATEGORY:=, =#+TODO:=),
-  which the worker reads, or set =vulpea-db-async-extraction= to nil.
-  Hooks are only the most likely cause, so the doctor also parses a
-  sample of your indexed files both in your session and in a fresh
-  worker, and names the files and fields that come out differently,
-  whatever the reason.
-- *The database is updated a moment after a save.* Code that queries
-  right after saving should react on =vulpea-db-updated-functions=
-  instead (or see the threshold below). Programmatic APIs
-  (=vulpea-create=, move/split/merge, =vulpea-utils-with-note-sync=)
-  index synchronously and are not affected.
-- *One more Emacs process* (about 70MB when idle), started lazily on the first
-  changed file. If it cannot start or keeps crashing, vulpea falls
-  back to the synchronous path with a warning.
-
-With ='full=, the worker also writes the results through its own
-database connection, and the main thread only registers note IDs
-with org-id - the freeze disappears at any file size. This switches
-the database to WAL journaling (persistent; =-wal=/=-shm= sidecar
-files appear next to it), which is not suitable for databases on
-network filesystems. While schemas are registered with a non-silent
-=vulpea-db-schema-validation-action=, ='full= behaves like =t= so
-validation keeps running in your session.
-
-*Extractor plugins* interact with async extraction through two
-declarations on =make-vulpea-extractor=:
-
-- =:requires-ast t= states that the extract function reads the parse
-  context's AST. It is the only way to receive one - extractors
-  without the declaration always get a nil AST slot - and it
-  disables async extraction for every file /and/ forces the slower
-  =object= parse granularity, since the AST cannot cross the process
-  boundary. Extractors that work purely from note data (an
-  attachment scanner reading =:attach-dir=, for example) should
-  declare =:requires-ast nil=: extraction stays fast, files stay
-  worker-eligible, and the extractor runs in the main process when
-  worker results arrive.
-- =:worker-safe t= (plus =:worker-lib= naming a feature or file that
-  defines the function) additionally allows the extractor to run
-  /inside/ the worker in ='full= mode, writing its tables through the
-  worker's own database connection - keeping the zero-freeze write.
-  If the worker cannot resolve the function, it transparently falls
-  back to streaming results so the extractor runs in the main
-  process; nothing is lost.
-
-#+begin_src emacs-lisp
-(vulpea-db-register-extractor
- (make-vulpea-extractor
-  :name 'my-attachments
-  :requires-ast nil
-  :worker-safe t
-  :worker-lib 'my-library   ; feature that defines the fn
-  :schema '((attachments [(note-id :not-null) (file :not-null)]))
-  :extract-fn #'my-attachments-fn))
-#+end_src
-
-Run =M-x vulpea-db-worker-diagnose= to verify what your configuration
-actually gets: it reports whether production files use the worker and
-why not, journal mode, round-trip timing, and the worker's stderr.
-=vulpea-db-worker-debug= enables a protocol log in
-=*vulpea-worker-log*=.
-
-Force re-indexing also flows through the worker: parser-epoch and
-settings migrations (the "re-indexing all files" pass on the first
-activation after an upgrade) no longer block the session when async
-extraction is enabled.
-
-A companion knob, =vulpea-db-async-extraction-threshold=, keeps
-files below a size on the synchronous path (nil, the default, sends
-everything to the worker). Measurements do not demand a threshold -
-the worker blocks less at every size and bulk syncs complete faster
-through it - but synchronously indexed files are queryable the
-moment the queue runs, so set e.g. =102400= if code queries small
-notes right after saving them.
-
-The worker mirrors vulpea and org settings from an allowlist
-(link types and abbreviations, tag and property inheritance,
-org-attach configuration, local variables you approved, all
-=vulpea-db-*= extraction options) and does not run your mode hooks.
-It cannot ask about unsafe local variables, so it applies the ones it
-knows to be safe and skips the rest.
-It re-runs =org-mode= per file like the session does, so in-file
-keywords (=#+TODO:=, =#+CATEGORY:=) and dir-locals apply there too.
-Files it cannot handle faithfully are processed synchronously as
-before: extractor plugins declaring =:requires-ast t=,
-function-valued =vulpea-db-index-heading-level=, functions of your
-own in =org-attach-id-to-path-function-list=, and non-=.org= files
-(decryption may require interaction). A file linking through a link
-abbreviation that expands with a function of your session (a
-function value, or =%(...)= in =org-link-abbrev-alist=, the file's
-=#+LINK:= keywords or a setup file) is handed back and indexed in your session, and so is
-any file the worker fails on.
-
-The worker starts lazily on the first changed file, restarts
-automatically if it dies (re-queueing in-flight files), and stops
-with =vulpea-db-autosync-mode=. Results for files that changed again
-while being parsed are discarded and re-queued, so the database
-never lags behind saved content.
+These settings decide which notes and links reach the database.
 
 ** Heading-Level Indexing
 
@@ -532,6 +502,30 @@ Adding or changing a filter does not touch notes that are already indexed - file
 
 Or interactively with =C-u M-x vulpea-db-sync-full-scan=. The same applies in reverse: notes excluded by a filter you have since removed come back only after a forced scan.
 
+** Plain Link Indexing
+
+Whether unbracketed links in note bodies are indexed:
+
+#+begin_src emacs-lisp
+(setq vulpea-db-index-plain-links t)    ; Default: index every link org recognizes
+;; or
+(setq vulpea-db-index-plain-links nil)  ; Bracketed links only, much cheaper
+#+end_src
+
+Finding plain links (=https://...= or a bare =type:path= in running
+text) requires scanning all body text against a large regexp - the
+most expensive part of link extraction. Bracketed links
+(=[[id:...][desc]]=) are found with a cheap literal search. Since
+=id:= links - the ones that carry the note graph - are practically
+always bracketed, collections that do not query plain links can
+disable this for a slightly shorter save freeze on large files (a 10MB
+file re-indexes in 2.2s instead of 2.3s).
+
+After changing it, run =vulpea-db-sync-full-scan= with a prefix
+argument to re-index existing files.
+
+* Other Settings
+
 ** Selection Candidate Cache
 
 =vulpea-find= and =vulpea-insert= keep their completion candidates in
@@ -580,7 +574,131 @@ This is the signal to prefer over =after-save-hook= (which fires before the data
 
 Bulk operations (a directory scan, a full rebuild, a directory deleted with everything under it) run the hook once per file. A handler that triggers expensive work should debounce: set a pending flag and flush it from an idle timer or when the sync queue drains, instead of refreshing per file.
 
-Control how updates are batched (the values shown are the defaults):
+** Aliases
+
+Configure how note aliases are stored:
+
+#+begin_src emacs-lisp
+;; Property name for aliases (default is "ALIASES")
+;; Use "ROAM_ALIASES" for org-roam compatibility
+(setq vulpea-buffer-alias-property "ROAM_ALIASES")
+#+end_src
+
+* Advanced Sync Tuning
+
+The settings below tune the decisions in [[*Sync][Sync]]. The defaults are
+measured, so most setups never touch them; reach for one when the
+doctor or a benchmark points at it.
+
+** Extraction Worker
+
+What the [[*Async Extraction][async worker]] does and does not handle, and the knobs around it.
+
+The worker mirrors vulpea and org settings from an allowlist
+(link types and abbreviations, tag and property inheritance,
+org-attach configuration, local variables you approved, all
+=vulpea-db-*= extraction options) and does not run your mode hooks.
+It cannot ask about unsafe local variables, so it applies the ones it
+knows to be safe and skips the rest.
+It re-runs =org-mode= per file like the session does, so in-file
+keywords (=#+TODO:=, =#+CATEGORY:=) and dir-locals apply there too.
+Files it cannot handle faithfully are processed synchronously as
+before: extractor plugins declaring =:requires-ast t=,
+function-valued =vulpea-db-index-heading-level=, functions of your
+own in =org-attach-id-to-path-function-list=, and non-=.org= files
+(decryption may require interaction). A file linking through a link
+abbreviation that expands with a function of your session (a
+function value, or =%(...)= in =org-link-abbrev-alist=, the file's
+=#+LINK:= keywords or a setup file) is handed back and indexed in your session, and so is
+any file the worker fails on.
+
+The worker starts lazily on the first changed file, restarts
+automatically if it dies (re-queueing in-flight files), and stops
+with =vulpea-db-autosync-mode=. Results for files that changed again
+while being parsed are discarded and re-queued, so the database
+never lags behind saved content.
+
+*Extractor plugins* interact with async extraction through two
+declarations on =make-vulpea-extractor=:
+
+- =:requires-ast t= states that the extract function reads the parse
+  context's AST. It is the only way to receive one - extractors
+  without the declaration always get a nil AST slot - and it
+  disables async extraction for every file /and/ forces the slower
+  =object= parse granularity, since the AST cannot cross the process
+  boundary. Extractors that work purely from note data (an
+  attachment scanner reading =:attach-dir=, for example) should
+  declare =:requires-ast nil=: extraction stays fast, files stay
+  worker-eligible, and the extractor runs in the main process when
+  worker results arrive.
+- =:worker-safe t= (plus =:worker-lib= naming a feature or file that
+  defines the function) additionally allows the extractor to run
+  /inside/ the worker in ='full= mode, writing its tables through the
+  worker's own database connection - keeping the zero-freeze write.
+  If the worker cannot resolve the function, it transparently falls
+  back to streaming results so the extractor runs in the main
+  process; nothing is lost.
+
+#+begin_src emacs-lisp
+(vulpea-db-register-extractor
+ (make-vulpea-extractor
+  :name 'my-attachments
+  :requires-ast nil
+  :worker-safe t
+  :worker-lib 'my-library   ; feature that defines the fn
+  :schema '((attachments [(note-id :not-null) (file :not-null)]))
+  :extract-fn #'my-attachments-fn))
+#+end_src
+
+=vulpea-db-async-extraction-threshold= keeps files below a size on
+the synchronous path (nil, the default, sends everything to the
+worker). Measurements do not demand a threshold - the worker blocks
+less at every size and bulk syncs complete faster through it - but
+synchronously indexed files are queryable the moment the queue runs,
+so set e.g. =102400= if code queries small notes right after saving
+them.
+
+#+begin_src emacs-lisp
+;; Requests in flight to the worker at once (flow control for bulk syncs)
+(setq vulpea-db-worker-max-in-flight 128)
+
+;; Seconds of worker silence with work in flight before it is killed
+;; and its files re-queued; nil disables the watchdog
+(setq vulpea-db-worker-hang-timeout 300)
+#+end_src
+
+Run =M-x vulpea-db-worker-diagnose= to verify what your configuration
+actually gets: it reports whether production files use the worker and
+why not, journal mode, round-trip timing, and the worker's stderr.
+=vulpea-db-worker-debug= enables a protocol log in
+=*vulpea-worker-log*=.
+
+** Parse Granularity
+
+How deep the org-element parse goes during extraction:
+
+#+begin_src emacs-lisp
+(setq vulpea-db-parse-granularity 'element)  ; Default, faster parse
+;; or
+(setq vulpea-db-parse-granularity 'object)   ; Full parse, historical behavior
+#+end_src
+
+At =element= granularity the parser skips inline objects (bold,
+timestamps, entities...) that extraction never reads; links are
+located afterwards with org's own link parser. Both modes are
+expected to produce identical results - =object= remains as an
+escape hatch, and if you ever observe a difference between the two,
+please report it. Known exception: radio links are only picked up in
+=object= mode. When extractor plugins are registered via
+=vulpea-db-register-extractor=, a full =object= parse is used
+regardless, since plugins may inspect inline objects.
+
+The parse step itself gets about 2.6x faster (2.4s to 0.9s for a 10MB
+file), and saving that file takes 2.3s instead of 3.6s.
+
+** Batching
+
+How the sync queue groups changed files (the values shown are the defaults):
 
 #+begin_src emacs-lisp
 ;; Wait this long after last change before processing (seconds)
@@ -594,52 +712,6 @@ Control how updates are batched (the values shown are the defaults):
 #+end_src
 
 Larger batch sizes = fewer transactions = faster overall, but longer individual processing.
-
-** Progress Reporting
-
-#+begin_src emacs-lisp
-;; Report progress every N files during large syncs
-(setq vulpea-db-sync-progress-interval 100)
-
-;; Disable progress reporting
-(setq vulpea-db-sync-progress-interval nil)
-#+end_src
-
-** Status Messages
-
-By default, Vulpea reports routine sync activity in the echo area (e.g.
-=Vulpea: Syncing N files...=, =Vulpea: Sync complete=). With autosync
-enabled, this happens on every save, which some find distracting.
-
-#+begin_src emacs-lisp
-;; Silence routine sync status messages (errors and warnings still shown)
-(setq vulpea-db-sync-verbose nil)
-#+end_src
-
-This only affects user-facing status reporting. Low-level timing
-diagnostics are controlled separately by =vulpea-db-sync-debug=.
-
-* External Change Detection
-
-How Vulpea detects files changed outside Emacs (git, Dropbox, etc.).
-
-** Detection Method
-
-#+begin_src emacs-lisp
-;; Auto-detect best method (recommended)
-(setq vulpea-db-sync-external-method 'auto)
-
-;; Use fswatch (requires fswatch binary)
-(setq vulpea-db-sync-external-method 'fswatch)
-
-;; Use polling (no dependencies, works everywhere)
-(setq vulpea-db-sync-external-method 'poll)
-
-;; Disable external detection (only detect Emacs changes)
-(setq vulpea-db-sync-external-method nil)
-#+end_src
-
-*Recommendation:* Install =fswatch= for instant, zero-overhead change detection. With =fswatch=, Vulpea is notified immediately when files change (git pull, Dropbox sync, etc.) without any directory scanning.
 
 ** Polling Interval
 
@@ -671,7 +743,7 @@ The MSYS2/mingw and Cygwin builds of =fswatch= take different directory argument
 
 This has no effect off Windows.
 
-* Dir-Locals Changes
+** Dir-Locals Changes
 
 Extraction output can depend on directory-local variables: the
 =find-file= and =temp-buffer= parse methods apply =.dir-locals.el=
@@ -715,51 +787,29 @@ vulpea-db-sync-full-scan=. The same applies to variables that
 dir-locals files merely reference (e.g. an =eval= block reading
 another file).
 
-* Startup Behavior
-
-Control what happens when =vulpea-db-autosync-mode= is enabled.
+** Progress Reporting
 
 #+begin_src emacs-lisp
-;; Scan in the background (default; returns at once, uses fd/find)
-(setq vulpea-db-sync-scan-on-enable 'background)
+;; Report progress every N files during large syncs
+(setq vulpea-db-sync-progress-interval 100)
 
-;; Scan synchronously (blocks until complete)
-(setq vulpea-db-sync-scan-on-enable 'blocking)
-
-;; Skip initial scan (fast startup, manual sync when needed)
-(setq vulpea-db-sync-scan-on-enable nil)
+;; Disable progress reporting
+(setq vulpea-db-sync-progress-interval nil)
 #+end_src
 
-The default ='background= detects changes made while Emacs was closed (git
-pulls, Dropbox sync, external edits) without blocking startup.  With
-=nil=, such changes stay invisible until the files are touched again
-or =M-x vulpea-db-sync-full-scan= is run manually.
+** Status Messages
 
-With ='blocking=, the database is up to date by the time
-=vulpea-db-autosync-mode= returns, including the re-index after an
-upgrade or a settings change, so code right after it in your init
-(an agenda built from vulpea queries, say) sees every note. The files
-are indexed in your session rather than by the extraction worker,
-since Emacs waits for them either way.
-
-Exception: when the database is empty (e.g. the very first
-activation), a background scan runs even with =nil= - otherwise the
-database would stay empty with no indication why.
-
-This setting is about /when/ the startup scan runs. /Which process/
-parses the files is a separate choice, =vulpea-db-async-extraction=
-(see [[*Async Extraction][Async Extraction]]). The value ='async= from earlier versions still
-works and means ='background=.
-
-* Aliases
-
-Configure how note aliases are stored:
+By default, Vulpea reports routine sync activity in the echo area (e.g.
+=Vulpea: Syncing N files...=, =Vulpea: Sync complete=). With autosync
+enabled, this happens on every save, which some find distracting.
 
 #+begin_src emacs-lisp
-;; Property name for aliases (default is "ALIASES")
-;; Use "ROAM_ALIASES" for org-roam compatibility
-(setq vulpea-buffer-alias-property "ROAM_ALIASES")
+;; Silence routine sync status messages (errors and warnings still shown)
+(setq vulpea-db-sync-verbose nil)
 #+end_src
+
+This only affects user-facing status reporting. Low-level timing
+diagnostics are controlled separately by =vulpea-db-sync-debug=.
 
 * Example Configurations
 
