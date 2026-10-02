@@ -3423,5 +3423,55 @@ Removing the last directory stops polling entirely."
           (should (equal (vulpea-db-sync-directory-of) root)))
       (delete-directory root t))))
 
+;;; Queue cost per file
+
+(ert-deftest vulpea-db-sync-enqueue-arms-timer-once-per-burst ()
+  "Enqueueing a burst of files arms the batch timer once.
+A scan enqueues every file it finds in one go; cancelling and
+re-creating the timer for each of them is pure overhead."
+  (let ((vulpea-db-sync--queue nil)
+        (vulpea-db-sync--queue-tail nil)
+        (vulpea-db-sync--queue-set (make-hash-table :test 'equal))
+        (vulpea-db-sync--timer nil)
+        (arms 0))
+    (unwind-protect
+        (cl-letf* ((orig (symbol-function 'run-with-timer))
+                   ((symbol-function 'run-with-timer)
+                    (lambda (&rest args)
+                      (setq arms (1+ arms))
+                      (apply orig args))))
+          (dotimes (i 100)
+            (vulpea-db-sync--enqueue (format "/tmp/burst-%d.org" i)))
+          (should (= arms 1))
+          (should (= (length vulpea-db-sync--queue) 100))
+          ;; Once that timer is gone, the next file arms a new one
+          (cancel-timer vulpea-db-sync--timer)
+          (vulpea-db-sync--enqueue "/tmp/burst-late.org")
+          (should (= arms 2))
+          (should (memq vulpea-db-sync--timer timer-list)))
+      (when vulpea-db-sync--timer
+        (cancel-timer vulpea-db-sync--timer)))))
+
+(ert-deftest vulpea-db-sync-configured-path-follows-directory-changes ()
+  "Re-spelling sees changes to `vulpea-db-sync-directories'.
+Including a list edited in place, which fires no watcher."
+  (let* ((root (file-truename (make-temp-file "vulpea-test-" t)))
+         (real (expand-file-name "real" root))
+         (link (expand-file-name "link" root))
+         (file (expand-file-name "note.org" real)))
+    (make-directory real)
+    (make-symbolic-link real link)
+    (unwind-protect
+        (progn
+          (let ((vulpea-db-sync-directories (list link)))
+            (should (equal (vulpea-db-sync--configured-path file)
+                           (expand-file-name "note.org" link))))
+          (let ((vulpea-db-sync-directories (list real)))
+            (should (equal (vulpea-db-sync--configured-path file) file))
+            (setcar vulpea-db-sync-directories link)
+            (should (equal (vulpea-db-sync--configured-path file)
+                           (expand-file-name "note.org" link)))))
+      (delete-directory root t))))
+
 (provide 'vulpea-db-sync-test)
 ;;; vulpea-db-sync-test.el ends here
