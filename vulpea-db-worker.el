@@ -500,15 +500,39 @@ overflow queued and retries as completions free the window."
   "Return the number of requests currently in flight."
   vulpea-db-worker--in-flight-count)
 
+(defvar vulpea-db-worker--results-count 0
+  "Length of `vulpea-db-worker--results'.")
+
+(defun vulpea-db-worker--window-used ()
+  "Return how much of the request window is taken.
+That is the requests in flight, or the results waiting to be applied
+when there are more of those.  Results normally wait a moment and
+take no room, which keeps the worker fed; once a main thread applying
+more slowly than the worker parses has a full window of them waiting,
+no more requests go out, instead of parsed results piling up."
+  (max vulpea-db-worker--in-flight-count vulpea-db-worker--results-count))
+
 (defun vulpea-db-worker-saturated-p ()
   "Return non-nil when the worker request window is full.
 Callers should keep their files queued and retry later instead of
 requesting more (see `vulpea-db-worker-max-in-flight')."
-  (>= vulpea-db-worker--in-flight-count vulpea-db-worker-max-in-flight))
+  (>= (vulpea-db-worker--window-used) vulpea-db-worker-max-in-flight))
 
 (defun vulpea-db-worker-free-slots ()
   "Return how many more requests fit in the worker request window."
-  (max 0 (- vulpea-db-worker-max-in-flight vulpea-db-worker--in-flight-count)))
+  (max 0 (- vulpea-db-worker-max-in-flight (vulpea-db-worker--window-used))))
+
+(defvar vulpea-db-worker--results nil
+  "Worker results waiting to be applied, oldest first.
+Each is a list (PATH HASH MTIME SIZE FILE-NODE HEADING-NODES FORCE):
+the file as the worker read it, the nodes it extracted (headings in
+document order), and whether the request was forced.")
+
+(defvar vulpea-db-worker--results-tail nil
+  "Last cons of `vulpea-db-worker--results', for O(1) appends.")
+
+(defvar vulpea-db-worker--results-timer nil
+  "Timer to apply `vulpea-db-worker--results'.")
 
 (defvar vulpea-db-worker--current nil
   "Assembly state for the file currently streaming in.
@@ -725,6 +749,14 @@ to outlast a commit of the full-write worker.")
         vulpea-db-worker--in-flight-tail nil
         vulpea-db-worker--in-flight-count 0
         vulpea-db-worker--current nil)
+  ;; Results not applied yet are in-flight work too: applied later,
+  ;; they could land in whatever database is current by then
+  (when (timerp vulpea-db-worker--results-timer)
+    (cancel-timer vulpea-db-worker--results-timer))
+  (setq vulpea-db-worker--results-timer nil
+        vulpea-db-worker--results nil
+        vulpea-db-worker--results-tail nil
+        vulpea-db-worker--results-count 0)
   ;; Files waiting for the synchronous fallback are in-flight work too
   (when (timerp vulpea-db-worker--fallback-timer)
     (cancel-timer vulpea-db-worker--fallback-timer))
@@ -735,8 +767,12 @@ to outlast a commit of the full-write worker.")
 
 (defun vulpea-db-worker-busy-p ()
   "Return non-nil while the worker has unfinished requests.
-Files waiting for the synchronous fallback count too."
-  (and (or vulpea-db-worker--in-flight vulpea-db-worker--fallback-queue) t))
+Results waiting to be applied and files waiting for the synchronous
+fallback count too."
+  (and (or vulpea-db-worker--in-flight
+           vulpea-db-worker--results
+           vulpea-db-worker--fallback-queue)
+       t))
 
 (defun vulpea-db-worker--org-attach-function-p (fn)
   "Return non-nil when FN is defined by `org-attach' itself.
@@ -1011,15 +1047,15 @@ file behind it."
     (`(done ,path ,hash ,mtime ,size)
      (vulpea-db-worker--note-success)
      (let ((current vulpea-db-worker--current)
-           (force (gethash path vulpea-db-worker--force))
-           (t0 (current-time)))
+           (force (gethash path vulpea-db-worker--force)))
        (setq vulpea-db-worker--current nil)
        (vulpea-db-worker--forget path)
-       (vulpea-db-worker--complete path hash mtime size current force)
-       (vulpea-db-worker--log "done %s: applied in %.0fms (main)"
-                              path
-                              (* 1000 (float-time
-                                       (time-subtract (current-time) t0))))))
+       (vulpea-db-worker--log "done %s" path)
+       (vulpea-db-worker--queue-result
+        (list path hash mtime size
+              (plist-get current :file-node)
+              (nreverse (plist-get current :heading-nodes))
+              force))))
     ;; Full-write mode: the worker wrote the database itself; the
     ;; main process only maintains org-ids and re-checks freshness.
     ;; The trailing elements (claimants, then the ids the write
@@ -1252,52 +1288,250 @@ head; falling back to a full scan keeps this correct either way."
           (length vulpea-db-worker--in-flight))))
 
 (defun vulpea-db-worker--complete (path hash mtime size current &optional force)
-  "Apply a completed extraction of PATH to the database.
+  "Apply a completed extraction of PATH to the database right away.
 
 HASH, MTIME and SIZE describe the file as the worker read it;
-CURRENT carries the extracted nodes.  Stale results - the file
-changed or disappeared while the worker was parsing - are discarded,
-and changed files are re-enqueued with the sync queue.
+CURRENT carries the extracted nodes (see `vulpea-db-worker--current').
+With FORCE non-nil the unchanged-content shortcut is skipped.  The
+result is applied on its own, in a transaction of its own; see
+`vulpea-db-worker--apply-result' for what happens to it."
+  (vulpea-db-worker--apply-batch
+   (list (list path hash mtime size
+               (plist-get current :file-node)
+               (reverse (plist-get current :heading-nodes))
+               force))
+   nil))
 
-With FORCE non-nil the unchanged-content shortcut is skipped: the
-result is applied even when the content hash matches what is stored
-\(parser or settings changed, content did not)."
-  (let ((attrs (file-attributes path)))
+;;; Client: applying results
+;;
+;; Results are applied in batches, one transaction for as many files
+;; as fit in a short time slice: a transaction per file spends most
+;; of the main thread's indexing time committing.
+
+(defvar vulpea-db-worker--results-delay 0.05
+  "Seconds a result waits for others while more requests are in flight.
+Replies of a bulk sync arrive a few at a time; waiting a moment lets
+them share a transaction.  A result arriving when nothing else is in
+flight - the usual save - is applied at once.")
+
+(defvar vulpea-db-worker--results-budget 0.05
+  "Seconds of applying after which a batch commits and yields.
+The rest of a backlog is applied from a timer, so input is handled
+in between.  A batch always takes at least one file, however long
+that file takes.")
+
+(defvar vulpea-db-worker--applying nil
+  "Non-nil while results are being applied.
+Hooks run after a batch commits may let the filter run; results it
+queues then wait for the timer instead of starting a batch inside
+this one.")
+
+(defun vulpea-db-worker--queue-result (result)
+  "Queue RESULT for `vulpea-db-worker--apply-results'.
+Applies at once when no other request is in flight, otherwise within
+`vulpea-db-worker--results-delay'."
+  (let ((node (list result)))
+    (if vulpea-db-worker--results
+        (setcdr vulpea-db-worker--results-tail node)
+      (setq vulpea-db-worker--results node))
+    (setq vulpea-db-worker--results-tail node)
+    (setq vulpea-db-worker--results-count
+          (1+ vulpea-db-worker--results-count)))
+  (cond
+   ((null vulpea-db-worker--in-flight)
+    (vulpea-db-worker--apply-results))
+   ((not (timerp vulpea-db-worker--results-timer))
+    (vulpea-db-worker--schedule-results vulpea-db-worker--results-delay))))
+
+(defun vulpea-db-worker--schedule-results (delay)
+  "Apply waiting results in DELAY seconds, replacing any armed timer."
+  (when (timerp vulpea-db-worker--results-timer)
+    (cancel-timer vulpea-db-worker--results-timer))
+  (setq vulpea-db-worker--results-timer
+        (run-with-timer delay nil #'vulpea-db-worker--apply-results)))
+
+(defun vulpea-db-worker--apply-results ()
+  "Apply waiting worker results, one batch per time slice.
+
+Results that do not fit `vulpea-db-worker--results-budget' are left
+for a timer.  Nothing is applied while a transaction is open: the
+filter can run inside one (code holding it waited for input), and
+results applied there would be announced before their data is
+committed, or rolled back along with that transaction."
+  (when (timerp vulpea-db-worker--results-timer)
+    (cancel-timer vulpea-db-worker--results-timer))
+  (setq vulpea-db-worker--results-timer nil)
+  (when vulpea-db-worker--results
+    (if (or vulpea-db-worker--applying
+            (> emacsql--transaction-level 0))
+        (vulpea-db-worker--schedule-results vulpea-db-worker--results-delay)
+      (let ((batch vulpea-db-worker--results)
+            (t0 (float-time))
+            rest)
+        (setq vulpea-db-worker--results nil
+              vulpea-db-worker--results-tail nil
+              vulpea-db-worker--results-count 0)
+        (unwind-protect
+            (let ((vulpea-db-worker--applying t))
+              (setq rest (vulpea-db-worker--apply-batch
+                          batch vulpea-db-worker--results-budget)))
+          (when vulpea-db-worker-debug
+            (let ((applied (- (length batch) (length rest))))
+              (vulpea-db-worker--log "applied %d result%s in %.0fms (main)"
+                                     applied (if (= applied 1) "" "s")
+                                     (* 1000 (- (float-time) t0)))))
+          ;; Unapplied results go back ahead of those that arrived
+          ;; while hooks ran, so a file's results stay in order
+          (when rest
+            (setq vulpea-db-worker--results
+                  (nconc rest vulpea-db-worker--results)))
+          (setq vulpea-db-worker--results-tail (last vulpea-db-worker--results)
+                vulpea-db-worker--results-count
+                (length vulpea-db-worker--results))
+          (when vulpea-db-worker--results
+            (vulpea-db-worker--schedule-results 0)))))))
+
+(defun vulpea-db-worker--apply-batch (results budget)
+  "Apply RESULTS in one transaction, until BUDGET seconds have passed.
+
+Returns the results not attempted.  BUDGET nil applies them all; a
+batch always takes at least one.  Each result is applied as
+`vulpea-db-worker--apply-result' describes, and announced once the
+transaction has committed, in order: `vulpea-db-updated-functions'
+for a file whose notes were written, then
+`vulpea-db-worker-done-functions'.
+
+When the transaction itself fails - the write lock or the commit
+not obtained within the busy timeout - nothing was written, and the
+results are applied again one transaction per file, as each would
+have been on its own."
+  (let ((start (float-time))
+        (rest results)
+        taken outcomes claimants removals failure)
+    (condition-case err
+        (let ((vulpea-db--deferred-claimants nil)
+              (vulpea-db--pending-removal-announcements nil))
+          (vulpea-db--with-transaction (vulpea-db)
+            (while (and rest
+                        (or (null taken)
+                            (null budget)
+                            (< (- (float-time) start) budget)))
+              (let ((result (pop rest)))
+                (push result taken)
+                (push (vulpea-db-worker--apply-result result) outcomes))))
+          (setq claimants vulpea-db--deferred-claimants
+                removals vulpea-db--pending-removal-announcements))
+      (error (setq failure (error-message-string err))))
     (cond
-     ;; File vanished while parsing: the deletion event handles the
-     ;; database; nothing to apply.
-     ((null attrs)
-      (run-hook-with-args 'vulpea-db-worker-done-functions
-                          path 'missing nil))
-     ;; File changed while parsing: discard and re-parse.
-     ((or (not (equal (float-time (file-attribute-modification-time attrs))
-                      mtime))
-          (not (equal (file-attribute-size attrs) size)))
-      (vulpea-db-worker--reenqueue path force)
-      (run-hook-with-args 'vulpea-db-worker-done-functions
-                          path 'stale nil))
-     ;; Content identical to what is already indexed: refresh the
-     ;; stored stamp so the cheap mtime/size check passes next time.
-     ;; Skipped for forced results - extraction output changed even
-     ;; though content did not.
-     ((and (not force)
-           (equal (plist-get (vulpea-db--get-file-hash path) :hash) hash))
-      (vulpea-db--update-file-hash path hash mtime size)
-      (run-hook-with-args 'vulpea-db-worker-done-functions
-                          path 'unchanged nil))
+     ((null failure)
+      (vulpea-db-worker--announce (nreverse outcomes) removals claimants))
+     ((cdr taken)
+      (vulpea-db-worker--log "batch of %d failed (%s), applying one by one"
+                             (length taken) failure)
+      (dolist (result (nreverse taken))
+        (vulpea-db-worker--apply-batch (list result) nil)))
      (t
-      (let* ((ctx (make-vulpea-parse-ctx
-                   :path path
-                   :ast nil
-                   :file-node (plist-get current :file-node)
-                   :heading-nodes (nreverse
-                                   (plist-get current :heading-nodes))
-                   :hash hash
-                   :mtime mtime
-                   :size size))
-             (count (vulpea-db--apply-parse-ctx ctx)))
-        (run-hook-with-args 'vulpea-db-worker-done-functions
-                            path 'applied count))))))
+      ;; One file, or none taken because the transaction never began
+      (let ((path (car (or (car taken) (pop rest)))))
+        (message "Vulpea: failed to apply %s: %s" path failure)
+        (vulpea-db-worker--announce (list (list path 'error)) nil nil))))
+    rest))
+
+(defun vulpea-db-worker--apply-result (result)
+  "Apply RESULT inside the open transaction and return its outcome.
+
+RESULT is an entry of `vulpea-db-worker--results'.  A stale result -
+the file changed or disappeared since the worker read it - is not
+applied; a changed file is re-enqueued once the batch commits.  For
+content identical to what is indexed only the stored stamp is
+refreshed, so the cheap mtime/size check passes next time; a forced
+result skips that shortcut, since extraction output changed even
+though content did not.  Anything else is written through
+`vulpea-db--apply-parse-ctx'.
+
+The file's writes are undone if applying it fails, leaving the rest
+of the batch alone.  Returns (PATH STATUS COUNT FORCE UPDATES), where
+STATUS is one `vulpea-db-worker-done-functions' reports and UPDATES
+are the held announcements of `vulpea-db-updated-functions'."
+  (pcase-let ((`(,path ,hash ,mtime ,size ,file-node ,heading-nodes ,force)
+               result))
+    (let ((attrs (file-attributes path)))
+      (cond
+       ;; File vanished while parsing: the deletion event handles the
+       ;; database; nothing to apply
+       ((null attrs)
+        (list path 'missing))
+       ;; File changed while parsing: discard and re-parse
+       ((or (not (equal (float-time (file-attribute-modification-time attrs))
+                        mtime))
+            (not (equal (file-attribute-size attrs) size)))
+        (list path 'stale nil force))
+       (t
+        (let ((held (list 'held)))
+          (condition-case err
+              (vulpea-db--with-savepoint (vulpea-db)
+                (if (and (not force)
+                         (equal (plist-get (vulpea-db--get-file-hash path) :hash)
+                                hash))
+                    (progn
+                      (vulpea-db--update-file-hash path hash mtime size)
+                      (list path 'unchanged))
+                  (let ((count
+                         (let ((vulpea-db--held-updates held))
+                           (vulpea-db--apply-parse-ctx
+                            (make-vulpea-parse-ctx
+                             :path path
+                             :ast nil
+                             :file-node file-node
+                             :heading-nodes heading-nodes
+                             :hash hash
+                             :mtime mtime
+                             :size size)))))
+                    (list path 'applied count nil (reverse (cdr held))))))
+            (error
+             (message "Vulpea: failed to apply %s: %s"
+                      path (error-message-string err))
+             (list path 'error)))))))))
+
+(defun vulpea-db-worker--run-hook (hook &rest args)
+  "Run HOOK with ARGS, reporting an error instead of signalling it.
+One failing handler must not cost the files announced after it."
+  (condition-case err
+      (apply #'run-hook-with-args hook args)
+    (error
+     (message "Vulpea: error in %s: %s" hook (error-message-string err)))))
+
+(defun vulpea-db-worker--announce (outcomes removals claimants)
+  "Announce committed OUTCOMES of `vulpea-db-worker--apply-result'.
+
+REMOVALS are paths forgotten inside the transaction, announced
+first.  Stale files are re-enqueued with their force flag.
+CLAIMANTS are files whose pending claim the batch released and that
+could not be re-indexed inside the transaction (see
+`vulpea-db--deferred-claimants'); they are re-indexed last, as the
+same claim resolution outside a transaction would do."
+  (let ((vulpea-db--pending-removal-announcements removals))
+    (condition-case err
+        (vulpea-db--flush-removal-announcements)
+      (error
+       (message "Vulpea: error in vulpea-db-updated-functions: %s"
+                (error-message-string err)))))
+  (pcase-dolist (`(,path ,status ,count ,force ,updates) outcomes)
+    (when (eq status 'stale)
+      (vulpea-db-worker--reenqueue path force))
+    (pcase-dolist (`(,updated . ,notes) updates)
+      (vulpea-db-worker--run-hook 'vulpea-db-updated-functions updated notes))
+    (vulpea-db-worker--run-hook 'vulpea-db-worker-done-functions
+                                path status count))
+  (dolist (claimant (reverse claimants))
+    (when (file-exists-p claimant)
+      (condition-case err
+          (let ((vulpea-db--claims-resolving
+                 (cons claimant vulpea-db--claims-resolving)))
+            (vulpea-db-update-file claimant))
+        (error
+         (message "Vulpea: failed to re-index %s: %s"
+                  claimant (error-message-string err)))))))
 
 (defun vulpea-db-worker--crash-loop-p ()
   "Record the current death and detect a crash loop.
