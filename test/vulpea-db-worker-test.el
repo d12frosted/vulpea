@@ -64,7 +64,8 @@ busy again a moment later."
                         :order-by [(asc note-id) (asc key) (asc value)]])
      :properties (emacsql db [:select [note-id key value] :from properties
                               :order-by [(asc note-id) (asc key)]])
-     :files (emacsql db [:select [hash size] :from files]))))
+     :files (emacsql db [:select [hash size] :from files
+                         :order-by [(asc path)]]))))
 
 (defmacro vulpea-db-worker-test--with-file (content &rest body)
   "Run BODY with PATH bound to a temp org file holding CONTENT.
@@ -2300,6 +2301,500 @@ first.  They are indexed in the session instead."
           (should (vulpea-db-get-by-id "salvaged-2")))
       (vulpea-db-worker-stop)
       (mapc #'delete-file paths))))
+
+;;; Batched apply of worker results
+
+(defmacro vulpea-db-worker-test--with-reply-state (&rest body)
+  "Run BODY with fresh client state, fed replies by hand.
+`vulpea-db-worker--process' is the symbol `fake-worker': pass it to
+`vulpea-db-worker--filter' to feed protocol text as if the worker
+printed it.  Results still waiting to be applied when BODY exits are
+dropped."
+  (declare (indent 0))
+  `(let ((vulpea-db-worker--process 'fake-worker)
+         (vulpea-db-worker--in-flight nil)
+         (vulpea-db-worker--in-flight-tail nil)
+         (vulpea-db-worker--in-flight-count 0)
+         (vulpea-db-worker--output-pending nil)
+         (vulpea-db-worker--current nil)
+         (vulpea-db-worker--force (make-hash-table :test 'equal))
+         (vulpea-db-worker--results nil)
+         (vulpea-db-worker--results-tail nil)
+         (vulpea-db-worker--results-count 0)
+         (vulpea-db-worker--results-timer nil))
+     (unwind-protect
+         (progn ,@body)
+       (when (timerp vulpea-db-worker--results-timer)
+         (cancel-timer vulpea-db-worker--results-timer)))))
+
+(defun vulpea-db-worker-test--wait-results (&optional seconds)
+  "Wait up to SECONDS (default 10) until no result waits to be applied.
+For tests feeding replies by hand, where there is no process to wait
+on."
+  (let ((deadline (+ (float-time) (or seconds 10))))
+    (while (and vulpea-db-worker--results (< (float-time) deadline))
+      (accept-process-output nil 0.01)))
+  (should-not vulpea-db-worker--results))
+
+(defun vulpea-db-worker-test--track (paths)
+  "Record PATHS as in flight, as `vulpea-db-worker-request' would."
+  (setq vulpea-db-worker--in-flight (copy-sequence paths)
+        vulpea-db-worker--in-flight-tail (last vulpea-db-worker--in-flight)
+        vulpea-db-worker--in-flight-count (length paths)))
+
+(defun vulpea-db-worker-test--replies (paths)
+  "Return the protocol text the worker prints for PATHS.
+The worker side runs in this process, with this session's settings."
+  (with-output-to-string
+    (dolist (path paths)
+      (vulpea-db-worker--handle-parse path))))
+
+(defun vulpea-db-worker-test--write (dir name content)
+  "Write CONTENT to NAME in DIR and return the file's path."
+  (let ((path (expand-file-name name dir)))
+    (with-temp-file path
+      (insert content))
+    path))
+
+(defun vulpea-db-worker-test--batch-files (dir)
+  "Write a small set of related notes to DIR; return their paths.
+Covers the adversarial corpus, links between files and an id two
+files contain (the second insert loses and records a pending claim),
+so the order files are written in matters."
+  (list
+   (vulpea-db-worker-test--write
+    dir "corpus.org" vulpea-db-extract-test--granularity-corpus)
+   (vulpea-db-worker-test--write
+    dir "a.org"
+    (concat ":PROPERTIES:\n:ID: batch-a\n:END:\n#+title: A\n#+filetags: :fa:\n\n"
+            "Links to [[id:batch-b][B]].\n\n"
+            "* Shared\n:PROPERTIES:\n:ID: batch-shared\n:END:\n"
+            "* Task :ta:\n:PROPERTIES:\n:ID: batch-task\n:END:\n"
+            "- key :: value\n"))
+   (vulpea-db-worker-test--write
+    dir "b.org"
+    (concat ":PROPERTIES:\n:ID: batch-b\n:END:\n#+title: B\n\n"
+            "Back to [[id:batch-a][A]].\n\n"
+            "* Shared copy\n:PROPERTIES:\n:ID: batch-shared\n:END:\n"))))
+
+(defun vulpea-db-worker-test--claims ()
+  "Return the pending claims of the current database, ordered."
+  (emacsql (vulpea-db) [:select [id path] :from pending-claims
+                        :order-by [(asc id) (asc path)]]))
+
+(defun vulpea-db-worker-test--committed-notes (path)
+  "Count the committed notes of PATH, read through a second connection.
+A second connection sees only what was committed, never the rows of
+a transaction still open on the main one."
+  (let ((db (emacsql-sqlite-builtin vulpea-db-location)))
+    (unwind-protect
+        (caar (emacsql db [:select (funcall count *) :from notes
+                           :where (= path $s1)]
+                       (vulpea-db-normalize-path path)))
+      (emacsql-close db))))
+
+(defmacro vulpea-db-worker-test--counting-transactions (var &rest body)
+  "Run BODY, counting the write transactions it opens in VAR."
+  (declare (indent 1))
+  `(cl-letf* ((orig (symbol-function 'sqlite-execute))
+              ((symbol-function 'sqlite-execute)
+               (lambda (db query &rest args)
+                 (when (equal query "BEGIN IMMEDIATE")
+                   (setq ,var (1+ ,var)))
+                 (apply orig db query args))))
+     ,@body))
+
+(ert-deftest vulpea-db-worker-batched-replies-equal-sync ()
+  "Replies arriving together are applied in one transaction.
+The database ends up exactly as indexing the same files synchronously
+one by one leaves it, pending claims included.  Each file is still
+announced once, after the commit: a handler reading the database
+through another connection already sees its notes.  The data-changed
+announcement of a file comes before its worker completion, as it does
+when results are applied one at a time."
+  (let* ((dir (make-temp-file "vulpea-batch-" t))
+         (paths (vulpea-db-worker-test--batch-files dir))
+         (vulpea-db-index-heading-level t)
+         sync-dump sync-claims sync-counts batch-dump batch-claims)
+    (unwind-protect
+        (progn
+          (vulpea-test--with-temp-db
+            (vulpea-db)
+            (setq sync-counts (mapcar #'vulpea-db-update-file paths))
+            (setq sync-dump (vulpea-db-worker-test--db-dump)
+                  sync-claims (vulpea-db-worker-test--claims)))
+          (should (equal (vulpea-db-worker-test--claims-paths sync-claims)
+                         (list (vulpea-db-normalize-path (nth 2 paths)))))
+          (vulpea-test--with-temp-db
+            (vulpea-db)
+            (let ((replies (vulpea-db-worker-test--replies paths))
+                  (transactions 0)
+                  events)
+              (vulpea-db-worker-test--with-reply-state
+                (vulpea-db-worker-test--track paths)
+                (let ((vulpea-db-updated-functions
+                       (list (lambda (p count)
+                               (push (list 'updated p count
+                                           emacsql--transaction-level
+                                           (vulpea-db-worker-test--committed-notes p))
+                                     events))))
+                      (vulpea-db-worker-done-functions
+                       (list (lambda (p status count)
+                               (push (list 'done p status count) events)))))
+                  (vulpea-db-worker-test--counting-transactions transactions
+                    (vulpea-db-worker--filter 'fake-worker replies))))
+              (should (= transactions 1))
+              ;; Each handler already saw the file's rows committed
+              (should (equal (nreverse events)
+                             (cl-mapcan
+                              (lambda (p count)
+                                (list (list 'updated p count 0
+                                            (vulpea-db-worker-test--committed-notes p))
+                                      (list 'done p 'applied count)))
+                              paths sync-counts)))
+              (setq batch-dump (vulpea-db-worker-test--db-dump)
+                    batch-claims (vulpea-db-worker-test--claims))))
+          (should (equal sync-claims batch-claims))
+          (should (equal (plist-get sync-dump :files)
+                         (plist-get batch-dump :files)))
+          (dolist (table '(:notes :tags :links :meta :properties))
+            (should (equal (plist-get sync-dump table)
+                           (plist-get batch-dump table)))))
+      (delete-directory dir t))))
+
+(defun vulpea-db-worker-test--claims-paths (claims)
+  "Return the distinct paths of CLAIMS, rows of id and path."
+  (seq-uniq (mapcar #'cadr claims)))
+
+(ert-deftest vulpea-db-worker-batched-stale-result-requeued-alone ()
+  "A stale result inside a batch is discarded without costing the rest.
+The file changed after the worker read it: its result is dropped and
+the file re-enqueued, while the files around it land in the same
+transaction."
+  (let* ((dir (make-temp-file "vulpea-batch-stale-" t))
+         (a (vulpea-db-worker-test--write
+             dir "a.org" ":PROPERTIES:\n:ID: stale-batch-a\n:END:\n#+title: A\n"))
+         (b (vulpea-db-worker-test--write
+             dir "b.org" ":PROPERTIES:\n:ID: stale-batch-b\n:END:\n#+title: B\n"))
+         (c (vulpea-db-worker-test--write
+             dir "c.org" ":PROPERTIES:\n:ID: stale-batch-c\n:END:\n#+title: C\n")))
+    (unwind-protect
+        (vulpea-test--with-temp-db
+          (vulpea-db)
+          (let ((replies (vulpea-db-worker-test--replies (list a b c)))
+                (transactions 0)
+                statuses requeued)
+            ;; B changes after the worker read it
+            (vulpea-db-worker-test--write
+             dir "b.org" ":PROPERTIES:\n:ID: stale-batch-b\n:END:\n#+title: B, longer now\n")
+            (vulpea-db-worker-test--with-reply-state
+              (vulpea-db-worker-test--track (list a b c))
+              (puthash b t vulpea-db-worker--force)
+              (cl-letf (((symbol-function 'vulpea-db-worker--reenqueue)
+                         (lambda (path &optional force)
+                           (push (list path force) requeued))))
+                (let ((vulpea-db-worker-done-functions
+                       (list (lambda (p status _count)
+                               (push (cons p status) statuses)))))
+                  (vulpea-db-worker-test--counting-transactions transactions
+                    (vulpea-db-worker--filter 'fake-worker replies)))))
+            (should (= transactions 1))
+            (should (equal (nreverse statuses)
+                           (list (cons a 'applied) (cons b 'stale) (cons c 'applied))))
+            ;; The force flag travels with the retry
+            (should (equal requeued (list (list b t))))
+            (should (vulpea-db-get-by-id "stale-batch-a"))
+            (should-not (vulpea-db-get-by-id "stale-batch-b"))
+            (should-not (vulpea-db--get-file-hash b))
+            (should (vulpea-db-get-by-id "stale-batch-c"))))
+      (delete-directory dir t))))
+
+(ert-deftest vulpea-db-worker-batched-apply-error-spares-the-rest ()
+  "A file whose apply fails inside a batch does not cost the others.
+Its writes are undone - the notes it had before stay as they were -
+it is reported as `error' and never announced, and the other files
+of the batch are applied and announced as usual."
+  (let* ((dir (make-temp-file "vulpea-batch-error-" t))
+         (a (vulpea-db-worker-test--write
+             dir "a.org" ":PROPERTIES:\n:ID: error-batch-a\n:END:\n#+title: A\n"))
+         (b (vulpea-db-worker-test--write
+             dir "b.org" ":PROPERTIES:\n:ID: error-batch-b\n:END:\n#+title: B old\n"))
+         (c (vulpea-db-worker-test--write
+             dir "c.org" ":PROPERTIES:\n:ID: error-batch-c\n:END:\n#+title: C\n")))
+    (unwind-protect
+        (vulpea-test--with-temp-db
+          (vulpea-db)
+          (vulpea-db-update-file b)
+          (let ((old-hash (vulpea-db--get-file-hash b)))
+            (vulpea-db-worker-test--write
+             dir "b.org"
+             (concat ":PROPERTIES:\n:ID: error-batch-b\n:END:\n#+title: B new\n\n"
+                     "* Heading\n:PROPERTIES:\n:ID: error-batch-b-heading\n:END:\n"))
+            (let ((replies (vulpea-db-worker-test--replies (list a b c)))
+                  (transactions 0)
+                  (vulpea-db--extractors
+                   (list (make-vulpea-extractor
+                          :name 'boom
+                          :requires-ast nil
+                          :extract-fn (lambda (_ctx data)
+                                        (when (equal (plist-get data :id)
+                                                     "error-batch-b-heading")
+                                          (error "Boom"))
+                                        data))))
+                  statuses updated)
+              (vulpea-db-worker-test--with-reply-state
+                (vulpea-db-worker-test--track (list a b c))
+                (let ((vulpea-db-worker-done-functions
+                       (list (lambda (p status _count)
+                               (push (cons p status) statuses))))
+                      (vulpea-db-updated-functions
+                       (list (lambda (p _count) (push p updated))))
+                      (inhibit-message t))
+                  (vulpea-db-worker-test--counting-transactions transactions
+                    (vulpea-db-worker--filter 'fake-worker replies))))
+              (should (= transactions 1))
+              (should (equal (nreverse statuses)
+                             (list (cons a 'applied) (cons b 'error) (cons c 'applied))))
+              (should (equal (nreverse updated) (list a c)))
+              (should (vulpea-db-get-by-id "error-batch-a"))
+              (should (vulpea-db-get-by-id "error-batch-c"))
+              ;; B is exactly as before the failed apply
+              (should (equal (vulpea-note-title (vulpea-db-get-by-id "error-batch-b"))
+                             "B old"))
+              (should-not (vulpea-db-get-by-id "error-batch-b-heading"))
+              (should (equal (vulpea-db--get-file-hash b) old-hash)))))
+      (delete-directory dir t))))
+
+(ert-deftest vulpea-db-worker-batched-commit-failure-applies-one-by-one ()
+  "A batch that fails to commit is applied again file by file.
+A commit can fail - another connection holding a read lock past the
+busy timeout - and rolls everything back; each file then gets the
+transaction of its own it would have had without batching."
+  (let* ((dir (make-temp-file "vulpea-batch-commit-" t))
+         (paths (list
+                 (vulpea-db-worker-test--write
+                  dir "a.org" ":PROPERTIES:\n:ID: commit-a\n:END:\n#+title: A\n")
+                 (vulpea-db-worker-test--write
+                  dir "b.org" ":PROPERTIES:\n:ID: commit-b\n:END:\n#+title: B\n"))))
+    (unwind-protect
+        (vulpea-test--with-temp-db
+          (vulpea-db)
+          (let ((replies (vulpea-db-worker-test--replies paths))
+                (transactions 0)
+                (failed nil)
+                statuses updated)
+            (vulpea-db-worker-test--with-reply-state
+              (vulpea-db-worker-test--track paths)
+              (let ((vulpea-db-worker-done-functions
+                     (list (lambda (p status _count)
+                             (push (cons p status) statuses))))
+                    (vulpea-db-updated-functions
+                     (list (lambda (p _count) (push p updated))))
+                    (inhibit-message t))
+                (vulpea-db-worker-test--counting-transactions transactions
+                  (cl-letf* ((orig (symbol-function 'sqlite-execute))
+                             ((symbol-function 'sqlite-execute)
+                              (lambda (db query &rest args)
+                                (if (and (equal query "COMMIT") (not failed))
+                                    (progn
+                                      (setq failed t)
+                                      (signal 'sqlite-locked-error
+                                              '("database is locked")))
+                                  (apply orig db query args)))))
+                    (vulpea-db-worker--filter 'fake-worker replies)))))
+            (should failed)
+            (should (= transactions 3))
+            (should (equal (nreverse statuses)
+                           (mapcar (lambda (p) (cons p 'applied)) paths)))
+            (should (equal (nreverse updated) paths))
+            (should (vulpea-db-get-by-id "commit-a"))
+            (should (vulpea-db-get-by-id "commit-b"))))
+      (delete-directory dir t))))
+
+(ert-deftest vulpea-db-worker-batched-apply-yields-past-budget ()
+  "A batch stops at its time budget and the rest follows from a timer.
+So the main thread is never blocked for a whole backlog at once.
+Every file still lands, and the worker counts as busy until it has."
+  (let* ((dir (make-temp-file "vulpea-batch-budget-" t))
+         (paths (mapcar (lambda (i)
+                          (vulpea-db-worker-test--write
+                           dir (format "%d.org" i)
+                           (format ":PROPERTIES:\n:ID: budget-%d\n:END:\n#+title: N%d\n"
+                                   i i)))
+                        '(1 2 3))))
+    (unwind-protect
+        (vulpea-test--with-temp-db
+          (vulpea-db)
+          (let ((replies (vulpea-db-worker-test--replies paths))
+                (transactions 0)
+                (vulpea-db-worker--results-budget 0))
+            (vulpea-db-worker-test--with-reply-state
+              (vulpea-db-worker-test--track paths)
+              (vulpea-db-worker-test--counting-transactions transactions
+                (vulpea-db-worker--filter 'fake-worker replies)
+                ;; One file per transaction with no budget to spare
+                (should (= transactions 1))
+                (should (vulpea-db-get-by-id "budget-1"))
+                (should-not (vulpea-db-get-by-id "budget-2"))
+                (should (vulpea-db-worker-busy-p))
+                (vulpea-db-worker-test--wait-results)))
+            (should (= transactions 3))
+            (dolist (i '(1 2 3))
+              (should (vulpea-db-get-by-id (format "budget-%d" i))))))
+      (delete-directory dir t))))
+
+(ert-deftest vulpea-db-worker-results-wait-for-more-while-in-flight ()
+  "A result waits briefly while more are in flight, then lands.
+Waiting is what makes batches: the replies of a bulk sync arrive a
+few at a time.  The worker counts as busy while a result waits, even
+once nothing is in flight."
+  (let* ((dir (make-temp-file "vulpea-batch-wait-" t))
+         (a (vulpea-db-worker-test--write
+             dir "a.org" ":PROPERTIES:\n:ID: wait-a\n:END:\n#+title: A\n"))
+         (b (vulpea-db-worker-test--write
+             dir "b.org" ":PROPERTIES:\n:ID: wait-b\n:END:\n#+title: B\n")))
+    (unwind-protect
+        (vulpea-test--with-temp-db
+          (vulpea-db)
+          (vulpea-db-worker-test--with-reply-state
+            (vulpea-db-worker-test--track (list a b))
+            (vulpea-db-worker--filter 'fake-worker
+                                      (vulpea-db-worker-test--replies (list a)))
+            (should-not (vulpea-db-get-by-id "wait-a"))
+            ;; B's request is gone without a result (as after a stop
+            ;; of its own); A's result still has to land
+            (vulpea-db-worker--forget b)
+            (should (vulpea-db-worker-busy-p))
+            (vulpea-db-worker-test--wait-results)
+            (should (vulpea-db-get-by-id "wait-a"))))
+      (delete-directory dir t))))
+
+(ert-deftest vulpea-db-worker-waiting-results-fill-the-window ()
+  "A window's worth of results waiting to be applied stops new requests.
+A main thread applying more slowly than the worker parses must slow
+the requests down instead of piling up parsed results.  A few results
+waiting, the normal case, take no room."
+  (let* ((dir (make-temp-file "vulpea-batch-window-" t))
+         (paths (mapcar (lambda (i)
+                          (vulpea-db-worker-test--write
+                           dir (format "%d.org" i)
+                           (format ":PROPERTIES:\n:ID: window-%d\n:END:\n" i)))
+                        '(1 2 3)))
+         (vulpea-db-worker-max-in-flight 2))
+    (unwind-protect
+        (vulpea-test--with-temp-db
+          (vulpea-db)
+          (vulpea-db-worker-test--with-reply-state
+            ;; One more request than the replies, so results wait
+            (vulpea-db-worker-test--track paths)
+            (vulpea-db-worker--filter
+             'fake-worker (vulpea-db-worker-test--replies (list (car paths))))
+            (should (= vulpea-db-worker--results-count 1))
+            (should (= (vulpea-db-worker-free-slots) 0))
+            (vulpea-db-worker--filter
+             'fake-worker (vulpea-db-worker-test--replies (list (cadr paths))))
+            ;; One request in flight, two results waiting: full
+            (should (= vulpea-db-worker--results-count 2))
+            (should (vulpea-db-worker-saturated-p))
+            (should (= (vulpea-db-worker-free-slots) 0))
+            (vulpea-db-worker--forget (nth 2 paths))
+            (vulpea-db-worker-test--wait-results)
+            (should (= vulpea-db-worker--results-count 0))
+            (should (= (vulpea-db-worker-free-slots) 2))))
+      (delete-directory dir t))))
+
+(ert-deftest vulpea-db-worker-results-not-applied-inside-open-transaction ()
+  "Results reaching the filter during a transaction wait for it to end.
+A filter runs whenever Emacs waits, and code holding a transaction
+can wait (a passphrase prompt while parsing an encrypted file).
+Applying there would announce files before their data is committed,
+and a rollback of that transaction would take them along."
+  (let* ((dir (make-temp-file "vulpea-batch-nested-" t))
+         (a (vulpea-db-worker-test--write
+             dir "a.org" ":PROPERTIES:\n:ID: nested-a\n:END:\n#+title: A\n")))
+    (unwind-protect
+        (vulpea-test--with-temp-db
+          (vulpea-db)
+          (let ((replies (vulpea-db-worker-test--replies (list a)))
+                updated)
+            (vulpea-db-worker-test--with-reply-state
+              (vulpea-db-worker-test--track (list a))
+              (let ((vulpea-db-updated-functions
+                     (list (lambda (p _count) (push p updated)))))
+                (vulpea-db--with-transaction (vulpea-db)
+                  (vulpea-db-worker--filter 'fake-worker replies)
+                  (should-not updated))
+                (vulpea-db-worker-test--wait-results)
+                (should (equal updated (list a)))))))
+      (delete-directory dir t))))
+
+(ert-deftest vulpea-db-worker-stop-drops-waiting-results ()
+  "Stopping the worker drops results not applied yet.
+Like in-flight requests: an explicit stop means the caller does not
+want the work back, and a timer applying them later could write into
+whatever database is current by then."
+  (let* ((dir (make-temp-file "vulpea-batch-stop-" t))
+         (a (vulpea-db-worker-test--write
+             dir "a.org" ":PROPERTIES:\n:ID: stop-a\n:END:\n#+title: A\n"))
+         (b (vulpea-db-worker-test--write
+             dir "b.org" ":PROPERTIES:\n:ID: stop-b\n:END:\n#+title: B\n")))
+    (unwind-protect
+        (vulpea-test--with-temp-db
+          (vulpea-db)
+          (vulpea-db-worker-test--with-reply-state
+            (vulpea-db-worker-test--track (list a b))
+            (vulpea-db-worker--filter 'fake-worker
+                                      (vulpea-db-worker-test--replies (list a)))
+            (vulpea-db-worker-stop)
+            (should-not (vulpea-db-worker-busy-p))
+            (should-not vulpea-db-worker--results)
+            (sit-for 0.2)
+            (should-not (vulpea-db-get-by-id "stop-a"))))
+      (delete-directory dir t))))
+
+(ert-deftest vulpea-db-worker-async-database-equals-sync-many-files ()
+  "Many files sent to the worker at once land as indexing them one by one.
+Their results arrive close together and are applied in batches; the
+database must not tell."
+  (let* ((dir (make-temp-file "vulpea-worker-many-" t))
+         (paths (append
+                 (vulpea-db-worker-test--batch-files dir)
+                 (mapcar (lambda (i)
+                           (vulpea-db-worker-test--write
+                            dir (format "n%d.org" i)
+                            (format (concat ":PROPERTIES:\n:ID: many-%d\n:END:\n"
+                                            "#+title: Note %d\n\n"
+                                            "See [[id:many-%d][next]].\n\n"
+                                            "* Heading %d\n:PROPERTIES:\n"
+                                            ":ID: many-h-%d\n:END:\n")
+                                    i i (1+ i) i i)))
+                         (number-sequence 1 30))))
+         (vulpea-db-index-heading-level t)
+         (vulpea-db-worker--broken nil)
+         (vulpea-db-worker--crash-times nil)
+         sync-dump async-dump sync-claims async-claims)
+    (unwind-protect
+        (progn
+          (vulpea-test--with-temp-db
+            (vulpea-db)
+            (mapc #'vulpea-db-update-file paths)
+            (setq sync-dump (vulpea-db-worker-test--db-dump)
+                  sync-claims (vulpea-db-worker-test--claims)))
+          (vulpea-test--with-temp-db
+            (vulpea-db)
+            (dolist (path paths)
+              (vulpea-db-worker-request path))
+            (vulpea-db-worker-test--wait)
+            (setq async-dump (vulpea-db-worker-test--db-dump)
+                  async-claims (vulpea-db-worker-test--claims)))
+          (should (equal sync-claims async-claims))
+          (should (equal (plist-get sync-dump :files)
+                         (plist-get async-dump :files)))
+          (dolist (table '(:notes :tags :links :meta :properties))
+            (should (equal (plist-get sync-dump table)
+                           (plist-get async-dump table)))))
+      (vulpea-db-worker-stop)
+      (delete-directory dir t))))
 
 ;;; Session vs worker comparison
 
