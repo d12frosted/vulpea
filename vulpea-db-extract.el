@@ -2129,8 +2129,9 @@ Returns number of notes written (file-level + headings)."
     ;; reading the database see the new content.  In the extraction
     ;; worker's full-write mode this runs in the worker process, where
     ;; the hook is empty; the main process announces those results
-    ;; when the written reply lands.
-    (run-hook-with-args 'vulpea-db-updated-functions path count)
+    ;; when the written reply lands.  A batch of worker results holds
+    ;; the announcement until the batch commits.
+    (vulpea-db--announce-update path count)
 
     count))
 

@@ -427,6 +427,30 @@ returns the value of BODY."
                (ignore-errors
                  (sqlite-execute (oref ,connection handle) "ROLLBACK")))))))))
 
+(defmacro vulpea-db--with-savepoint (db &rest body)
+  "Evaluate BODY so that its writes on DB are undone if it exits non-locally.
+
+For use inside a transaction holding several independent units of
+work, such as the files of a batch: a unit that fails takes back
+only its own writes, and the transaction goes on to the next one.
+Uses an SQLite savepoint; outside a transaction the savepoint opens
+one of its own, which is not what this is for.  Returns the value of
+BODY."
+  (declare (indent 1) (debug t))
+  (let ((handle (make-symbol "handle"))
+        (done (make-symbol "done")))
+    `(let ((,handle (oref ,db handle))
+           (,done nil))
+       (sqlite-execute ,handle "SAVEPOINT vulpea_unit")
+       (unwind-protect
+           (prog1 (progn ,@body)
+             (sqlite-execute ,handle "RELEASE vulpea_unit")
+             (setq ,done t))
+         (unless ,done
+           (ignore-errors
+             (sqlite-execute ,handle "ROLLBACK TO vulpea_unit")
+             (sqlite-execute ,handle "RELEASE vulpea_unit")))))))
+
 
 (defun vulpea-db ()
   "Return database connection, creating if necessary."
@@ -1265,6 +1289,23 @@ expensive work (a UI refresh) is expected to debounce.
 
 This is an extension point, not a setting: attach to it with
 `add-hook', which is why it is deliberately not a `defcustom'.")
+
+(defvar vulpea-db--held-updates nil
+  "When non-nil, a box collecting update announcements instead of running them.
+
+A cons whose cdr gathers (PATH . COUNT) pairs, newest first.
+`vulpea-db--announce-update' pushes there while it is bound, so a
+caller applying several files in one transaction can hold each
+file's announcement until the commit - and drop it when that file's
+writes were undone.  Bound by whoever owns the transaction, never set
+globally.")
+
+(defun vulpea-db--announce-update (path count)
+  "Announce on `vulpea-db-updated-functions' that PATH now has COUNT notes.
+Held in `vulpea-db--held-updates' instead when that is bound."
+  (if vulpea-db--held-updates
+      (push (cons path count) (cdr vulpea-db--held-updates))
+    (run-hook-with-args 'vulpea-db-updated-functions path count)))
 
 (defvar vulpea-db--pending-removal-announcements nil
   "Removed paths whose announcement waits for a transaction to commit.
