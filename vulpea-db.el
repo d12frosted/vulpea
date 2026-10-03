@@ -883,6 +883,17 @@ instead.  Value lists for IN go into SQL through
         (setq tail (cdr tail))))
     rows))
 
+(defun vulpea-db--execute (sql &optional params)
+  "Run statement SQL, binding PARAMS like stored values.
+
+PARAMS are the values of the `?' placeholders in SQL, encoded through
+`vulpea-db--bind-scalar', so what a statement stores or matches is
+byte-identical to what emacsql would.  For the statements each
+indexed file runs: emacsql formats a statement on every call, and
+quoting each value goes through a temporary buffer."
+  (sqlite-execute (oref (vulpea-db) handle) sql
+                  (mapcar #'vulpea-db--bind-scalar params)))
+
 (defun vulpea-db--sql-list (values)
   "Return VALUES as a parenthesized SQL list of literals, for IN.
 
@@ -1035,10 +1046,9 @@ ids kept that way: the ids NOTES lose to other files.  See
         (puthash id (plist-get note :path) paths)))
     (when ids
       (pcase-dolist (`(,id ,existing-path)
-                     (emacsql (vulpea-db)
-                              [:select [id path] :from notes
-                               :where (in id $v1)]
-                              (vconcat ids)))
+                     (vulpea-db--select
+                      (concat "SELECT id, path FROM notes WHERE id IN "
+                              (vulpea-db--sql-list ids))))
         (unless (equal existing-path (gethash id paths))
           (if (file-exists-p existing-path)
               (push id lost)
@@ -1206,15 +1216,13 @@ note-data is written as an update afterwards."
   "Delete all notes from PATH.
 
 Cascades to normalized tables automatically via foreign keys."
-  (emacsql (vulpea-db)
-           [:delete :from notes :where (= path $s1)]
-           (vulpea-db-normalize-path path)))
+  (vulpea-db--execute "DELETE FROM notes WHERE path = ?"
+                      (list (vulpea-db-normalize-path path))))
 
 (defun vulpea-db--get-file-note-ids (path)
   "Return ids of the notes stored for PATH."
-  (mapcar #'car (emacsql (vulpea-db)
-                         [:select id :from notes :where (= path $s1)]
-                         (vulpea-db-normalize-path path))))
+  (mapcar #'car (vulpea-db--select "SELECT id FROM notes WHERE path = ?"
+                                   (list (vulpea-db-normalize-path path)))))
 
 (defun vulpea-db--get-pending-claims (&optional id)
   "Return pending id claims.
@@ -1223,15 +1231,12 @@ With ID, return the paths of the files claiming it.  Without ID,
 return every claim as a list of (ID . PATH) cells.  See the
 `pending-claims' table in `vulpea-db--schema' for what a claim is."
   (if id
-      (mapcar #'car (emacsql (vulpea-db)
-                             [:select path :from pending-claims
-                              :where (= id $s1)
-                              :order-by path]
-                             id))
+      (mapcar #'car (vulpea-db--select
+                     "SELECT path FROM pending_claims WHERE id = ? ORDER BY path"
+                     (list id)))
     (mapcar (lambda (row) (cons (car row) (cadr row)))
-            (emacsql (vulpea-db)
-                     [:select [id path] :from pending-claims
-                      :order-by [id path]]))))
+            (vulpea-db--select
+             "SELECT id, path FROM pending_claims ORDER BY id, path"))))
 
 (defun vulpea-db--record-pending-claims (path ids)
   "Replace the claims made by PATH with claims for IDS.
@@ -1240,28 +1245,23 @@ Claims by a path always reflect its latest parse: previous claims
 are withdrawn, so an id no longer present in the file cannot be
 resurrected when its owner releases it."
   (setq path (vulpea-db-normalize-path path))
-  (emacsql (vulpea-db)
-           [:delete :from pending-claims :where (= path $s1)]
-           path)
-  (dolist (id ids)
-    (emacsql (vulpea-db)
-             [:insert :or :ignore :into pending-claims :values $v1]
-             (vector id path))))
+  (vulpea-db--execute "DELETE FROM pending_claims WHERE path = ?" (list path))
+  (vulpea-db--insert-rows (oref (vulpea-db) handle)
+                          "INSERT OR IGNORE INTO pending_claims (id, path)" 2
+                          (mapcar (lambda (id) (list id path)) ids)))
 
 (defun vulpea-db--delete-pending-claims (path)
   "Withdraw every claim made by PATH."
-  (emacsql (vulpea-db)
-           [:delete :from pending-claims :where (= path $s1)]
-           (vulpea-db-normalize-path path)))
+  (vulpea-db--execute "DELETE FROM pending_claims WHERE path = ?"
+                      (list (vulpea-db-normalize-path path))))
 
 (defun vulpea-db--delete-file-hash (path)
   "Remove PATH's change-detection row.
 
 Without the row every change-detection path treats PATH as changed,
 so its next visit re-reads the file regardless of mtime or hash."
-  (emacsql (vulpea-db)
-           [:delete :from files :where (= path $s1)]
-           (vulpea-db-normalize-path path)))
+  (vulpea-db--execute "DELETE FROM files WHERE path = ?"
+                      (list (vulpea-db-normalize-path path))))
 
 (defvar vulpea-db-updated-functions nil
   "Abnormal hook run after database content for a file has changed.
@@ -1406,26 +1406,23 @@ hold a transaction.  Returns the ids PATH held."
   "Delete note with ID.
 
 Cascades to normalized tables automatically via foreign keys."
-  (emacsql (vulpea-db)
-           [:delete :from notes :where (= id $s1)]
-           id))
+  (vulpea-db--execute "DELETE FROM notes WHERE id = ?" (list id)))
 
 (defun vulpea-db--update-file-hash (path hash mtime size)
   "Update file tracking info for PATH.
 
 HASH, MTIME and SIZE as inserted as values."
-  (emacsql (vulpea-db)
-           [:insert :or :replace :into files :values $v1]
-           (list (vector (vulpea-db-normalize-path path) hash mtime size))))
+  (vulpea-db--execute
+   "INSERT OR REPLACE INTO files (path, hash, mtime, size) VALUES (?, ?, ?, ?)"
+   (list (vulpea-db-normalize-path path) hash mtime size)))
 
 (defun vulpea-db--get-file-hash (path)
   "Get stored hash for PATH.
 
 Returns plist with :hash, :mtime, :size or nil if not tracked."
-  (when-let* ((row (car (emacsql (vulpea-db)
-                                [:select [hash mtime size] :from files
-                                 :where (= path $s1)]
-                                (vulpea-db-normalize-path path)))))
+  (when-let* ((row (car (vulpea-db--select
+                         "SELECT hash, mtime, size FROM files WHERE path = ?"
+                         (list (vulpea-db-normalize-path path))))))
     (list :hash (elt row 0)
           :mtime (elt row 1)
           :size (elt row 2))))
