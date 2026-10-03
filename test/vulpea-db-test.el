@@ -486,6 +486,99 @@ written before and after any insert-path change are interchangeable."
         ;; nil is stored as NULL
         (should (null (elt row 2)))))))
 
+;;; Per-file statements
+
+(defmacro vulpea-db-test--counting-emacsql (var &rest body)
+  "Run BODY, counting its calls to `emacsql' in VAR."
+  (declare (indent 1))
+  `(cl-letf* ((orig (symbol-function 'emacsql))
+              ((symbol-function 'emacsql)
+               (lambda (&rest args)
+                 (setq ,var (1+ ,var))
+                 (apply orig args))))
+     ,@body))
+
+(defun vulpea-db-test--raw-rows (table)
+  "Return every row of TABLE as stored, in rowid order."
+  (sqlite-select (oref (vulpea-db) handle)
+                 (format "SELECT rowid, * FROM %s ORDER BY rowid" table)))
+
+(ert-deftest vulpea-db-reindex-makes-no-emacsql-calls ()
+  "Re-indexing a file runs no statement through emacsql.
+emacsql formats every statement on each call, quoting values through
+a temporary buffer, and the per-file statements of a re-index paid
+that for every file of a bulk sync.  Covers a stale row whose file is
+gone (evicted), an id another existing file holds (a pending claim)
+and ids the new parse drops (released)."
+  (vulpea-test--with-temp-notes-dir
+    (let ((a (expand-file-name "a.org" root))
+          (b (expand-file-name "b.org" root))
+          (calls 0))
+      (with-temp-file a
+        (insert ":PROPERTIES:\n:ID: per-file-a\n:END:\n#+title: A\n\n"
+                "* Shared\n:PROPERTIES:\n:ID: per-file-shared\n:END:\n"
+                "* Dropped\n:PROPERTIES:\n:ID: per-file-dropped\n:END:\n"))
+      (vulpea-db-update-file a)
+      ;; A row left behind by a file that no longer exists
+      (vulpea-test--insert-test-note
+       "per-file-ghost" "Ghost"
+       :path (vulpea-db-normalize-path (expand-file-name "gone.org" root)))
+      (with-temp-file b
+        (insert ":PROPERTIES:\n:ID: per-file-b\n:END:\n#+title: B\n\n"
+                "* Ghost\n:PROPERTIES:\n:ID: per-file-ghost\n:END:\n"
+                "* Shared\n:PROPERTIES:\n:ID: per-file-shared\n:END:\n"))
+      (with-temp-file a
+        (insert ":PROPERTIES:\n:ID: per-file-a\n:END:\n#+title: A again\n\n"
+                "* Shared\n:PROPERTIES:\n:ID: per-file-shared\n:END:\n"))
+      (vulpea-db-test--counting-emacsql calls
+        (vulpea-db-update-file b)
+        (vulpea-db-update-file a)
+        (vulpea-db--get-file-hash a)
+        (vulpea-db--delete-pending-claims b)
+        (vulpea-db--delete-file-hash a))
+      (should (= calls 0))
+      ;; And the statements still did their work
+      (should (equal (vulpea-note-path (vulpea-db-get-by-id "per-file-ghost"))
+                     (vulpea-db-normalize-path b)))
+      (should-not (vulpea-db-get-by-id "per-file-dropped"))
+      (should-not (vulpea-db--get-pending-claims))
+      (should-not (vulpea-db--get-file-hash a)))))
+
+(ert-deftest vulpea-db-file-rows-stored-as-emacsql-writes-them ()
+  "Stamps and claims are stored byte for byte as emacsql stores them.
+Databases written before and after the per-file statements left
+emacsql must stay interchangeable, and readers compare stamps with
+`equal'."
+  (let* ((path "/tmp/vulpea dir/ünïcödé \"quoted\".org")
+         (hash "8f3c0a1b")
+         (mtime 1759500000.123456)
+         (size 4096)
+         (ids '("claim-1" "claim \"2\"" "claim-ü"))
+         reference stored)
+    (vulpea-test--with-temp-db
+      (vulpea-db)
+      (emacsql (vulpea-db) [:insert :or :replace :into files :values $v1]
+               (list (vector (vulpea-db-normalize-path path) hash mtime size)))
+      (dolist (id ids)
+        (emacsql (vulpea-db) [:insert :or :ignore :into pending-claims :values $v1]
+                 (vector id (vulpea-db-normalize-path path))))
+      (setq reference (list (vulpea-db-test--raw-rows "files")
+                            (vulpea-db-test--raw-rows "pending_claims"))))
+    (vulpea-test--with-temp-db
+      (vulpea-db)
+      (vulpea-db--update-file-hash path hash mtime size)
+      (vulpea-db--record-pending-claims path ids)
+      (setq stored (list (vulpea-db-test--raw-rows "files")
+                         (vulpea-db-test--raw-rows "pending_claims")))
+      (should (equal (vulpea-db--get-file-hash path)
+                     (list :hash hash :mtime mtime :size size)))
+      ;; Replacing the stamp keeps one row per path
+      (vulpea-db--update-file-hash path "other" 1.5 1)
+      (should (equal (vulpea-db--get-file-hash path)
+                     (list :hash "other" :mtime 1.5 :size 1)))
+      (should (= 1 (length (vulpea-db-test--raw-rows "files")))))
+    (should (equal stored reference))))
+
 ;;; Batched Inserts
 
 (defun vulpea-db-test--raw-dump ()
