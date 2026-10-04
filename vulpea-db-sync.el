@@ -283,10 +283,10 @@ content is identical but extraction output is not.")
 
 `vulpea-db-sync--after-save' queues a saved note right away; the
 watchers report the same save later (fswatch only after its latency,
-about a second).  An event for a file whose stamp still equals the
-recorded one describes content that is already queued or indexed, so
-`vulpea-db-sync--enqueue-change' drops it instead of having the
-worker parse the file again.")
+see `vulpea-db-sync--fswatch-latency-args').  An event for a file
+whose stamp still equals the recorded one describes content that is
+already queued or indexed, so `vulpea-db-sync--enqueue-change' drops
+it instead of having the worker parse the file again.")
 
 (defvar vulpea-db-sync--timer nil
   "Timer for processing batched updates.")
@@ -1109,7 +1109,8 @@ the reported total on every retry."
 
 Runs on `after-save-hook' while autosync is enabled.  The watchers
 would report the save too, but fswatch only does so after its
-latency (a second by default), and polling after its interval;
+latency (see `vulpea-db-sync--fswatch-latency-args'), and polling
+after its interval;
 queueing here lets the index catch up with the save right away.
 The save's stamp is recorded so the watcher event for it can be told
 apart from a later change (see `vulpea-db-sync--saved-stamps').
@@ -2425,6 +2426,20 @@ Returns the normalized directory, or nil when it was not present."
   ;; Clear file attributes cache
   (clrhash vulpea-db-sync--file-attributes))
 
+(defun vulpea-db-sync--fswatch-latency-args ()
+  "Return the `fswatch' arguments that set its latency, or nil.
+
+fswatch reports a change only after its latency, a second by default,
+which delays every change made outside Emacs by up to that long.  At
+0.1s its default monitors on macOS (FSEvents) and Linux (inotify)
+still use no measurable CPU with 100k files watched, and the Windows
+monitor only loops over the root directories.  The kqueue monitor, the
+default on the BSDs, re-registers every watched file on each turn
+of its loop, so turning ten times as often costs real CPU on a large
+collection; there fswatch keeps its default."
+  (when (memq system-type '(darwin gnu/linux windows-nt cygwin))
+    '("--latency" "0.1")))
+
 (defun vulpea-db-sync--setup-fswatch ()
   "Setup file monitoring using fswatch process.
 
@@ -2467,6 +2482,7 @@ restarts are unaffected."
                  :buffer (get-buffer-create "*vulpea-fswatch-debug*")
                  :command `("fswatch"
                             "--recursive"
+                            ,@(vulpea-db-sync--fswatch-latency-args)
                             "--event=Updated"
                             "--event=Created"
                             "--event=Removed"
