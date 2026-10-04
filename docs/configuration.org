@@ -302,7 +302,9 @@ editor) while it runs:
 (setq vulpea-db-sync-external-method nil)
 #+end_src
 
-*Recommendation:* Install =fswatch= for instant, zero-overhead change detection. With =fswatch=, Vulpea is notified immediately when files change (git pull, Dropbox sync, etc.) without any directory scanning. Without it, =auto= polls every =vulpea-db-sync-poll-interval= seconds (see [[*Polling Interval][Polling Interval]]).
+*Recommendation:* Install =fswatch= for zero-overhead change detection. With =fswatch=, Vulpea is notified within about a second when files change (git pull, Dropbox sync, etc.) without any directory scanning. Without it, =auto= polls every =vulpea-db-sync-poll-interval= seconds (see [[*Polling Interval][Polling Interval]]).
+
+Saves made in Emacs do not wait for either: while autosync is on, a save of a note under =vulpea-db-sync-directories= is queued from =after-save-hook=, and the watcher's own report of that save is dropped when it arrives.
 
 ** Async Extraction
 

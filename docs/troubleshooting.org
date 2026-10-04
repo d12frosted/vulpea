@@ -298,7 +298,7 @@ Polling gets expensive with large collections: each poll checks every file from 
 
 *** Watcher started before a directory change
 
-If you changed =vulpea-db-sync-directories= while =vulpea-db-autosync-mode= was on, the running watcher does not know about it: the variable is read when the mode starts (=fswatch= receives the directories as command-line arguments; the same applies to the built-in filenotify watchers). Files under a newly added directory are then never synced on save, while manual commands like =M-x vulpea-db-sync-full-scan= read the current value and work - which makes the problem look like anything but configuration.
+If you changed =vulpea-db-sync-directories= while =vulpea-db-autosync-mode= was on, the running watcher does not know about it: the variable is read when the mode starts (=fswatch= receives the directories as command-line arguments; the same applies to the built-in filenotify watchers). Files under a newly added directory are then synced when you save them in this Emacs (the save hook reads the current value), but changes made to them anywhere else are never noticed, while manual commands like =M-x vulpea-db-sync-full-scan= read the current value and work - which makes the problem look like anything but configuration.
 
 *Check:* =M-x vulpea-doctor= compares what the watcher was started with against the current value and reports a mismatch.
 

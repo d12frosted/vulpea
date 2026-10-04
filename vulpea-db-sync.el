@@ -278,6 +278,16 @@ Forced entries bypass change detection and the unchanged-content
 shortcuts: they exist for parser or settings changes, where file
 content is identical but extraction output is not.")
 
+(defvar vulpea-db-sync--saved-stamps (make-hash-table :test 'equal)
+  "Stamps of notes queued by a save in this Emacs, PATH to (MTIME . SIZE).
+
+`vulpea-db-sync--after-save' queues a saved note right away; the
+watchers report the same save later (fswatch only after its latency,
+about a second).  An event for a file whose stamp still equals the
+recorded one describes content that is already queued or indexed, so
+`vulpea-db-sync--enqueue-change' drops it instead of having the
+worker parse the file again.")
+
 (defvar vulpea-db-sync--timer nil
   "Timer for processing batched updates.")
 
@@ -501,6 +511,10 @@ a subprocess.  The `blocking' mode still scans synchronously."
     (add-hook 'vulpea-db-worker-done-functions
               #'vulpea-db-sync--worker-done)
 
+    ;; Saves made in this Emacs are queued as they happen instead of
+    ;; when a watcher reports them
+    (add-hook 'after-save-hook #'vulpea-db-sync--after-save)
+
     ;; Start external monitoring (fswatch is async, no blocking)
     (setq t-phase (current-time))
     (vulpea-db-sync--setup-external-monitoring)
@@ -510,8 +524,9 @@ a subprocess.  The `blocking' mode still scans synchronously."
 
     ;; Start watching directories via filenotify unless fswatch is
     ;; active.  When fswatch is running it already monitors the
-    ;; filesystem for all changes (including in-Emacs saves), making
-    ;; filenotify redundant.  Programmatic changes (vulpea-create,
+    ;; filesystem for all changes, making filenotify redundant.
+    ;; In-Emacs saves are queued by the save hook above, without
+    ;; waiting for either.  Programmatic changes (vulpea-create,
     ;; vulpea-utils-with-note-sync) call vulpea-db-update-file
     ;; directly and never rely on filenotify.
     (setq t-phase (current-time))
@@ -636,6 +651,9 @@ a subprocess.  The `blocking' mode still scans synchronously."
 
 (defun vulpea-db-sync--stop ()
   "Stop file watching and clear queue."
+  (remove-hook 'after-save-hook #'vulpea-db-sync--after-save)
+  (clrhash vulpea-db-sync--saved-stamps)
+
   ;; Remove all watchers.  A watch whose directory was deleted or
   ;; unmounted has a dead descriptor and removal can signal; one
   ;; stale watch must not abort the rest.
@@ -937,7 +955,7 @@ all files under that directory are removed."
         ((vulpea-db-sync--dir-locals-file-p file)
          (vulpea-db-sync--handle-dir-locals-event file))
         ((vulpea-db-sync--org-file-p file)
-         (vulpea-db-sync--enqueue file))))
+         (vulpea-db-sync--enqueue-change file))))
       ('deleted
        (cond
         ((vulpea-db-sync--dir-locals-file-p file)
@@ -1080,6 +1098,54 @@ the reported total on every retry."
                  (> vulpea-db-sync--queue-total 0))
         (setq vulpea-db-sync--queue-total
               (1+ vulpea-db-sync--queue-total))))))
+
+(defun vulpea-db-sync--file-stamp (attrs)
+  "Return the (MTIME . SIZE) stamp of file attributes ATTRS."
+  (cons (float-time (file-attribute-modification-time attrs))
+        (file-attribute-size attrs)))
+
+(defun vulpea-db-sync--after-save ()
+  "Queue the note the current buffer was just saved to.
+
+Runs on `after-save-hook' while autosync is enabled.  The watchers
+would report the save too, but fswatch only does so after its
+latency (a second by default), and polling after its interval;
+queueing here lets the index catch up with the save right away.
+The save's stamp is recorded so the watcher event for it can be told
+apart from a later change (see `vulpea-db-sync--saved-stamps').
+
+Only notes under `vulpea-db-sync-directories' as spelled (or under a
+root's truename, which is re-spelled) are queued here; a file reached
+through some other symlink is left to the watchers, which resolve it
+the usual way."
+  (when-let* ((file buffer-file-name)
+              ((vulpea-db-sync--org-file-p file))
+              (path (vulpea-db-sync--configured-path
+                     (vulpea-db-normalize-path file)))
+              ((seq-some (lambda (dir)
+                           (vulpea-db-sync--under-directory-p path dir))
+                         (vulpea-db-sync--spelled-directories)))
+              (attrs (file-attributes path)))
+    (puthash path (vulpea-db-sync--file-stamp attrs)
+             vulpea-db-sync--saved-stamps)
+    (vulpea-db-sync--enqueue path)))
+
+(defun vulpea-db-sync--enqueue-change (path &optional attrs)
+  "Queue PATH, reported changed by a watcher, unless a save queued it.
+
+A save in this Emacs queued the file already when its stamp still
+matches the one `vulpea-db-sync--after-save' recorded; the event is
+the watcher catching up.  Otherwise the record is stale and dropped.
+ATTRS are PATH's `file-attributes' when the caller already has them."
+  (setq path (vulpea-db-sync--configured-path
+              (vulpea-db-normalize-path path)))
+  (let ((saved (gethash path vulpea-db-sync--saved-stamps)))
+    (unless (and saved
+                 (when-let* ((attrs (or attrs (file-attributes path))))
+                   (equal saved (vulpea-db-sync--file-stamp attrs))))
+      (when saved
+        (remhash path vulpea-db-sync--saved-stamps))
+      (vulpea-db-sync--enqueue path))))
 
 (defmacro vulpea-db-sync--flushing-deferred-claimants (&rest body)
   "Execute BODY, then re-index claimants it could not resolve in place.
@@ -2597,7 +2663,7 @@ Handles partial lines by buffering incomplete output."
                 (vulpea-db-sync--enqueue org-file)))
              ;; Regular file change
              ((vulpea-db-sync--org-file-p file)
-              (vulpea-db-sync--enqueue file)))))))))
+              (vulpea-db-sync--enqueue-change file)))))))))
 
 (defun vulpea-db-sync--fswatch-sentinel (proc event)
   "Handle fswatch PROC sentinel EVENT."
@@ -2744,7 +2810,7 @@ just the files modified since polling started are queued."
                  ((not cached))
                  ;; Modified file - mtime changed
                  (t (not (equal mtime cached))))
-            (vulpea-db-sync--enqueue file)))))
+            (vulpea-db-sync--enqueue-change file attrs)))))
     ;; Detect deletions - files in cache but not seen on disk
     (let (removed)
       (maphash (lambda (path _)
