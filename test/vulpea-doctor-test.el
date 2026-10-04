@@ -493,6 +493,22 @@ is about."
       (should (equal (vulpea-doctor-test--setup-line (vulpea-doctor) "startup scan")
                      "background (the database is empty)")))))
 
+(ert-deftest vulpea-doctor-effective-setup-polling ()
+  "The external changes line shows when polling was slowed down."
+  (vulpea-doctor-test--with-setup ((vulpea-db-sync--fswatch-process nil)
+                                   (vulpea-db-sync--poll-timer t)
+                                   (vulpea-db-sync-poll-interval 2)
+                                   (vulpea-db-sync--poll-cost 0.05))
+    (should (equal (vulpea-doctor-test--setup-line report "external changes")
+                   "polling (every 2s)")))
+  (vulpea-doctor-test--with-setup ((vulpea-db-sync--fswatch-process nil)
+                                   (vulpea-db-sync--poll-timer t)
+                                   (vulpea-db-sync-poll-interval 2)
+                                   (vulpea-db-sync--poll-cost 0.6))
+    (should (equal (vulpea-doctor-test--setup-line report "external changes")
+                   (concat "polling (every 6s: a poll takes 600ms here;"
+                           " install fswatch)")))))
+
 (ert-deftest vulpea-doctor-effective-setup-parsing ()
   "The parsing line names the process and why it is not the worker."
   (vulpea-doctor-test--with-setup ((vulpea-db-async-extraction nil))

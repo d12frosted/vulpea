@@ -90,7 +90,7 @@ Add to your Emacs configuration:
 
 =fswatch= reports external changes (git pull, Dropbox sync, etc.) as they happen. Without it, Vulpea falls back to polling: every few seconds it lists your directories and checks what changed. =fd= makes each listing faster than =find= (29ms vs 72ms for 14k notes, see [[file:../bench/README.md][bench/README.md]]).
 
-If you sync notes via git or cloud tools, install =fswatch=; =fd= helps with the startup scan and with polling when =fswatch= is missing.
+If you sync notes via git or cloud tools, or have a large collection, install =fswatch=. Linux distributions do not install it by default, and polling checks every file from Emacs, which gets expensive at tens of thousands of notes (see [[file:configuration.org::*Polling Interval][Polling Interval]]). =fd= helps with the startup scan and with polling when =fswatch= is missing.
 
 * First-Time Setup
 
