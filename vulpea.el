@@ -230,7 +230,11 @@ Returns nil when the database file is absent; does not create it."
          (process-live-p vulpea-db-sync--fswatch-process))
     "fswatch (process running)")
    (vulpea-db-sync--poll-timer
-    (format "polling (every %ss)" vulpea-db-sync-poll-interval))
+    (let ((interval (vulpea-db-sync--poll-effective-interval)))
+      (if (> interval vulpea-db-sync-poll-interval)
+          (format "polling (every %.0fs: a poll takes %.0fms here; install fswatch)"
+                  interval (* 1000 vulpea-db-sync--poll-cost))
+        (format "polling (every %ss)" vulpea-db-sync-poll-interval))))
    (t "none")))
 
 (defun vulpea-doctor--dir-key (dir)

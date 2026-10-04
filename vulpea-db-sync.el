@@ -154,7 +154,14 @@ Has no effect off Windows, where fswatch always receives native paths."
   "Interval in seconds for polling external changes.
 
 Only used when `vulpea-db-sync-external-method' is `poll' or
-`auto' (when fswatch is not available)."
+`auto' (when fswatch is not available).
+
+Each poll checks the modification time of every tracked file in
+Emacs, which takes about half a second at 100k files.  Polls are skipped
+while a sync is in progress, and after an expensive poll the next
+one waits until ten times its cost has passed, so with a large
+collection polls run less often than this.  Install fswatch for
+large collections."
   :type 'number
   :group 'vulpea-db-sync)
 
@@ -313,8 +320,29 @@ switched to a different path style by a stray error.")
 (defvar vulpea-db-sync--poll-scan-in-progress nil
   "Non-nil when an async poll scan subprocess is running.")
 
+(defconst vulpea-db-sync--poll-max-share 0.1
+  "Largest share of the main thread's time polling may take.
+A poll stats every tracked file on the main thread, half a second
+at 100k files; the next poll waits until the last one's cost is
+this share of the time since it started.")
+
+(defvar vulpea-db-sync--poll-not-before 0
+  "Time (as `float-time') before which poll ticks are skipped.
+Set from the cost of the last poll, see
+`vulpea-db-sync--poll-max-share'.")
+
+(defvar vulpea-db-sync--poll-cost nil
+  "Seconds the last poll spent comparing files, or nil.")
+
+(defvar vulpea-db-sync--poll-baseline nil
+  "Non-nil until the first poll after polling started has run.
+Holds the `float-time' polling started at.  That poll records the
+state of the collection instead of diffing it, and only queues the
+files modified since then.")
+
 (defvar vulpea-db-sync--file-attributes (make-hash-table :test 'equal)
-  "Cache of file attributes for external change detection.")
+  "Modification times of tracked files, for external change detection.
+Keyed by path; filled and compared by the polling backend.")
 
 (defvar vulpea-db-sync--queue-total 0
   "Total number of files queued for async processing.
@@ -2320,6 +2348,13 @@ Returns the normalized directory, or nil when it was not present."
   (when vulpea-db-sync--poll-timer
     (cancel-timer vulpea-db-sync--poll-timer)
     (setq vulpea-db-sync--poll-timer nil))
+  ;; A listing still running is dropped when it lands (it checks the
+  ;; timer it was started by), so its flag must not block the polls
+  ;; of a later start
+  (setq vulpea-db-sync--poll-scan-in-progress nil
+        vulpea-db-sync--poll-baseline nil
+        vulpea-db-sync--poll-cost nil
+        vulpea-db-sync--poll-not-before 0)
 
   ;; Clear file attributes cache
   (clrhash vulpea-db-sync--file-attributes))
@@ -2594,8 +2629,13 @@ leak orphaned polling timers."
 
       ;; Only setup polling if there are valid directories
       (when valid-dirs
-        ;; Initialize file attributes cache
-        (vulpea-db-sync--update-file-attributes-cache)
+        ;; The first poll records the baseline from its own listing:
+        ;; statting the collection here would block activation (about
+        ;; 1.5s at 100k files)
+        (clrhash vulpea-db-sync--file-attributes)
+        (setq vulpea-db-sync--poll-baseline (float-time)
+              vulpea-db-sync--poll-not-before 0
+              vulpea-db-sync--poll-cost nil)
         ;; Start polling timer
         (setq vulpea-db-sync--poll-timer
               (run-with-timer vulpea-db-sync-poll-interval
@@ -2613,48 +2653,98 @@ everything.  Defaults to `vulpea-db-sync-directories'."
   (dolist (dir (or dirs vulpea-db-sync-directories))
     (when (file-directory-p dir)
       (dolist (file (vulpea-db-sync--list-org-files dir))
-        (when (file-exists-p file)
-          (puthash file (file-attributes file) vulpea-db-sync--file-attributes))))))
+        (when-let* ((attrs (file-attributes file)))
+          (puthash file (file-attribute-modification-time attrs)
+                   vulpea-db-sync--file-attributes))))))
+
+(defun vulpea-db-sync--busy-p ()
+  "Return non-nil while autosync has indexing work under way.
+Files waiting in the queue, requests in the worker, or a directory
+listing still running."
+  (or vulpea-db-sync--queue
+      (vulpea-db-worker-busy-p)
+      (process-live-p (get-process "vulpea-scan"))))
+
+(defun vulpea-db-sync--poll-effective-interval ()
+  "Return how often polls actually run, in seconds.
+`vulpea-db-sync-poll-interval', stretched when the last poll was
+expensive (see `vulpea-db-sync--poll-max-share')."
+  (max vulpea-db-sync-poll-interval
+       (/ (or vulpea-db-sync--poll-cost 0)
+          vulpea-db-sync--poll-max-share)))
 
 (defun vulpea-db-sync--check-external-changes ()
   "Check for externally modified files by comparing mtimes.
 
 Uses fd (or find) subprocess to list files asynchronously, then
-compares modification times in the callback.  Skips if a previous
-scan is still in progress.
+compares modification times in the callback.  Skips the tick while
+a previous poll is still listing, while a sync is in progress (the
+first poll after it catches up), and until the last poll's cost
+allows another (see `vulpea-db-sync--poll-max-share').
 
 Detects three types of changes:
 - New files: files not previously in the cache
 - Modified files: files with changed modification time
 - Deleted files: files in cache but no longer on disk"
-  (unless vulpea-db-sync--poll-scan-in-progress
+  (unless (or vulpea-db-sync--poll-scan-in-progress
+              (< (float-time) vulpea-db-sync--poll-not-before)
+              (vulpea-db-sync--busy-p))
     (setq vulpea-db-sync--poll-scan-in-progress t)
-    (vulpea-db-sync--scan-files-async
-     vulpea-db-sync-directories
-     (lambda (files)
-       (unwind-protect
-           (vulpea-db-sync--check-external-changes-with-files files)
-         (setq vulpea-db-sync--poll-scan-in-progress nil))))))
+    (let ((timer vulpea-db-sync--poll-timer))
+      (vulpea-db-sync--scan-files-async
+       vulpea-db-sync-directories
+       (lambda (files)
+         ;; Polling was stopped, and maybe started again, while the
+         ;; listing ran: the result belongs to nobody
+         (when (eq timer vulpea-db-sync--poll-timer)
+           (let ((start (float-time)))
+             (unwind-protect
+                 (vulpea-db-sync--check-external-changes-with-files files)
+               (setq vulpea-db-sync--poll-scan-in-progress nil
+                     vulpea-db-sync--poll-cost (- (float-time) start)
+                     vulpea-db-sync--poll-not-before
+                     (+ start (/ vulpea-db-sync--poll-cost
+                                 vulpea-db-sync--poll-max-share)))))))))))
 
 (defun vulpea-db-sync--check-external-changes-with-files (files)
-  "Compare FILES against cached attributes and enqueue modified ones.
+  "Compare FILES against cached mtimes and enqueue modified ones.
 
-FILES is a list of org file paths from async directory scan."
-  (let ((seen (make-hash-table :test 'equal)))
+FILES is a list of org file paths from async directory scan.  On
+the first poll after polling started (see
+`vulpea-db-sync--poll-baseline') the mtimes are only recorded, and
+just the files modified since polling started are queued."
+  (let ((seen (make-hash-table :test 'equal :size (length files)))
+        ;; A margin for file systems with coarse mtimes (FAT has 2s)
+        (since (and vulpea-db-sync--poll-baseline
+                    (- vulpea-db-sync--poll-baseline 2)))
+        ;; Matching every path against `file-name-handler-alist' is
+        ;; about half the cost of a stat.  Under roots without a
+        ;; handler (not remote, not quoted) the handlers that can
+        ;; match a note (epa-file, jka-compr) leave `file-attributes'
+        ;; alone anyway
+        (handlers (and (seq-some
+                        (lambda (dir)
+                          (find-file-name-handler (expand-file-name dir)
+                                                  'file-attributes))
+                        vulpea-db-sync-directories)
+                       file-name-handler-alist)))
+    (setq vulpea-db-sync--poll-baseline nil)
     (dolist (file files)
-      (when (file-exists-p file)
-        (let ((curr-attr (file-attributes file))
-              (cached-attr (gethash file vulpea-db-sync--file-attributes)))
-          (puthash file curr-attr vulpea-db-sync--file-attributes)
+      ;; One stat per file; a file gone since the listing has no
+      ;; attributes and is handled as deleted below
+      (when-let* ((attrs (let ((file-name-handler-alist handlers))
+                           (file-attributes file))))
+        (let ((mtime (file-attribute-modification-time attrs))
+              (cached (gethash file vulpea-db-sync--file-attributes)))
+          (puthash file mtime vulpea-db-sync--file-attributes)
           (puthash file t seen)
-          (cond
-           ;; New file - not in cache before
-           ((not cached-attr)
-            (vulpea-db-sync--enqueue file))
-           ;; Modified file - mtime changed
-           ((not (equal (file-attribute-modification-time curr-attr)
-                        (file-attribute-modification-time cached-attr)))
-            (vulpea-db-sync--enqueue file))))))
+          (when (cond
+                 (since (time-less-p since mtime))
+                 ;; New file - not in cache before
+                 ((not cached))
+                 ;; Modified file - mtime changed
+                 (t (not (equal mtime cached))))
+            (vulpea-db-sync--enqueue file)))))
     ;; Detect deletions - files in cache but not seen on disk
     (let (removed)
       (maphash (lambda (path _)

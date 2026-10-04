@@ -816,8 +816,8 @@ repair, and `vulpea-db-register-org-ids' remains for by-hand use."
           (vulpea-db-sync--setup-external-monitoring)
           ;; Should have polling timer
           (should vulpea-db-sync--poll-timer)
-          ;; Should have file attributes cache
-          (should (> (hash-table-count vulpea-db-sync--file-attributes) 0)))
+          ;; The first poll records the baseline
+          (should vulpea-db-sync--poll-baseline))
       (vulpea-db-sync--stop-external-monitoring)
       (when (file-directory-p test-dir)
         (delete-directory test-dir t)))))
@@ -924,6 +924,220 @@ before the timer fires.  The timer must not survive the stop."
       (vulpea-db-sync--stop-external-monitoring)
       (when (file-directory-p test-dir)
         (delete-directory test-dir t)))))
+
+;;; Polling cost
+;;
+;; Every poll stats each tracked file on the main thread, about 1s
+;; at 100k files.  A bulk sync must not pay for that every tick, and
+;; an idle session must not spend most of its time polling.
+
+(defmacro vulpea-db-sync-test--with-poll-stub (&rest body)
+  "Run BODY with the poll listing stubbed out.
+`vulpea-db-sync--scan-files-async' returns the files of the sync
+directories at once; `launches' counts its calls and `callbacks'
+collects the callbacks it was given (when `deliver' is nil they are
+not called)."
+  (declare (indent 0))
+  `(let ((launches 0)
+         (callbacks nil)
+         (deliver t)
+         (vulpea-db-sync--poll-scan-in-progress nil)
+         (vulpea-db-sync--poll-not-before 0)
+         (vulpea-db-sync--poll-baseline nil)
+         (vulpea-db-sync--file-attributes (make-hash-table :test 'equal))
+         (vulpea-db-sync--queue nil)
+         (vulpea-db-sync--queue-tail nil)
+         (vulpea-db-sync--queue-set (make-hash-table :test 'equal)))
+     (ignore launches callbacks deliver)
+     (cl-letf (((symbol-function 'vulpea-db-sync--scan-files-async)
+                (lambda (dirs callback)
+                  (setq launches (1+ launches))
+                  (push callback callbacks)
+                  (when deliver
+                    (funcall callback
+                             (mapcan #'vulpea-db-sync--list-org-files dirs))))))
+       ,@body)))
+
+(ert-deftest vulpea-db-sync-polling-skips-while-syncing ()
+  "A poll tick does nothing while files wait in the sync queue.
+Files a poll would find changed are picked up by the first poll
+after the sync drains, so a bulk sync does not pay for a full
+comparison every tick."
+  (let* ((dir (make-temp-file "vulpea-poll-busy-" t))
+         (vulpea-db-sync-directories (list dir)))
+    (unwind-protect
+        (vulpea-db-sync-test--with-poll-stub
+          (setq vulpea-db-sync--queue (list (cons "/elsewhere.org" 0)))
+          (vulpea-db-sync--check-external-changes)
+          (should (= 0 launches))
+          (setq vulpea-db-sync--queue nil)
+          (vulpea-db-sync--check-external-changes)
+          (should (= 1 launches)))
+      (delete-directory dir t))))
+
+(ert-deftest vulpea-db-sync-polling-skips-while-worker-busy ()
+  "A poll tick does nothing while the worker has files in flight."
+  (let* ((dir (make-temp-file "vulpea-poll-worker-" t))
+         (vulpea-db-sync-directories (list dir)))
+    (unwind-protect
+        (vulpea-db-sync-test--with-poll-stub
+          (cl-letf (((symbol-function 'vulpea-db-worker-busy-p)
+                     (lambda () t)))
+            (vulpea-db-sync--check-external-changes))
+          (should (= 0 launches)))
+      (delete-directory dir t))))
+
+(ert-deftest vulpea-db-sync-polling-paces-by-cost ()
+  "A poll that takes long pushes the next one back.
+Polling may take at most `vulpea-db-sync--poll-max-share' of the
+time, so ticks inside that window are skipped."
+  (let* ((dir (make-temp-file "vulpea-poll-pace-" t))
+         (vulpea-db-sync-directories (list dir))
+         (vulpea-db-sync-poll-interval 0.01))
+    (unwind-protect
+        (vulpea-db-sync-test--with-poll-stub
+          (cl-letf (((symbol-function
+                      'vulpea-db-sync--check-external-changes-with-files)
+                     (lambda (_files) (sleep-for 0.05))))
+            (vulpea-db-sync--check-external-changes)
+            (should (= 1 launches))
+            ;; 50ms of comparison buys at least 0.5s of quiet
+            (should (> vulpea-db-sync--poll-not-before
+                       (+ (float-time) 0.3)))
+            (vulpea-db-sync--check-external-changes)
+            (should (= 1 launches))
+            (should-not vulpea-db-sync--poll-scan-in-progress)))
+      (delete-directory dir t))))
+
+(ert-deftest vulpea-db-sync-polling-paced-interval-for-doctor ()
+  "The effective poll interval reflects the cost of the last poll."
+  (let ((vulpea-db-sync-poll-interval 2)
+        (vulpea-db-sync--poll-cost 0.05))
+    (should (= 2 (vulpea-db-sync--poll-effective-interval)))
+    (setq vulpea-db-sync--poll-cost 0.6)
+    (should (< 5.9 (vulpea-db-sync--poll-effective-interval) 6.1))))
+
+(ert-deftest vulpea-db-sync-polling-setup-does-not-list-synchronously ()
+  "Starting the polling backend does not stat the collection.
+The baseline comes from the first poll's own listing instead."
+  (let* ((dir (make-temp-file "vulpea-poll-lazy-" t))
+         (vulpea-db-sync-directories (list dir))
+         (vulpea-db-sync--poll-timer nil)
+         (vulpea-db-sync--poll-baseline nil)
+         (vulpea-db-sync--file-attributes (make-hash-table :test 'equal)))
+    (unwind-protect
+        (progn
+          (with-temp-file (expand-file-name "a.org" dir)
+            (insert "#+title: A\n"))
+          (cl-letf (((symbol-function 'vulpea-db-sync--list-org-files)
+                     (lambda (&rest _) (error "Listed synchronously"))))
+            (vulpea-db-sync--setup-polling))
+          (should vulpea-db-sync--poll-timer)
+          (should vulpea-db-sync--poll-baseline)
+          (should (= 0 (hash-table-count vulpea-db-sync--file-attributes))))
+      (vulpea-db-sync--stop-external-monitoring)
+      (delete-directory dir t))))
+
+(ert-deftest vulpea-db-sync-polling-baseline-pass ()
+  "The first poll records the collection without enqueueing it.
+Only files modified after polling started are queued; later polls
+compare against the recorded state as usual."
+  (let* ((dir (make-temp-file "vulpea-poll-baseline-" t))
+         (old (expand-file-name "old.org" dir))
+         (fresh (expand-file-name "fresh.org" dir))
+         (vulpea-db-sync-directories (list dir)))
+    (unwind-protect
+        (vulpea-db-sync-test--with-poll-stub
+          (with-temp-file old (insert "#+title: Old\n"))
+          (with-temp-file fresh (insert "#+title: Fresh\n"))
+          (set-file-times old (time-subtract nil 3600))
+          (setq vulpea-db-sync--poll-baseline (float-time))
+          (set-file-times fresh (time-add nil 10))
+          (vulpea-db-sync--check-external-changes)
+          (should-not vulpea-db-sync--poll-baseline)
+          (should (gethash old vulpea-db-sync--file-attributes))
+          (should (gethash fresh vulpea-db-sync--file-attributes))
+          (should-not (assoc old vulpea-db-sync--queue))
+          (should (assoc fresh vulpea-db-sync--queue))
+          ;; A later poll diffs against the baseline
+          (setq vulpea-db-sync--queue nil
+                vulpea-db-sync--queue-tail nil)
+          (clrhash vulpea-db-sync--queue-set)
+          (setq vulpea-db-sync--poll-not-before 0)
+          (set-file-times old (time-subtract nil 60))
+          (vulpea-db-sync--check-external-changes)
+          (should (assoc old vulpea-db-sync--queue))
+          (should-not (assoc fresh vulpea-db-sync--queue)))
+      (delete-directory dir t))))
+
+(ert-deftest vulpea-db-sync-polling-stat-skips-handler-lookup ()
+  "Under local roots, polling stats files without file name handlers.
+Matching every path against `file-name-handler-alist' is about half
+the cost of a stat; a root that has a handler keeps it."
+  (let* ((dir (make-temp-file "vulpea-poll-handler-" t))
+         (file (expand-file-name "a.org" dir))
+         (calls 0)
+         (handler (lambda (operation &rest args)
+                    (when (eq operation 'file-attributes)
+                      (setq calls (1+ calls)))
+                    (let ((inhibit-file-name-handlers
+                           (cons 'vulpea-db-sync-test--handler
+                                 inhibit-file-name-handlers))
+                          (inhibit-file-name-operation operation))
+                      (apply operation args))))
+         (vulpea-db-sync-directories (list dir)))
+    (unwind-protect
+        (progn
+          (with-temp-file file (insert "#+title: A\n"))
+          (fset 'vulpea-db-sync-test--handler handler)
+          ;; A handler for the files only: the root has none, skipped
+          (let ((file-name-handler-alist
+                 (cons (cons "\\.org\\'" 'vulpea-db-sync-test--handler)
+                       file-name-handler-alist))
+                (vulpea-db-sync--file-attributes
+                 (make-hash-table :test 'equal)))
+            (vulpea-db-sync--check-external-changes-with-files (list file))
+            (should (= 0 calls))
+            (should (gethash file vulpea-db-sync--file-attributes)))
+          ;; A handler for the root: every stat goes through it
+          (let ((file-name-handler-alist
+                 (cons (cons (concat "\\`" (regexp-quote dir))
+                             'vulpea-db-sync-test--handler)
+                       file-name-handler-alist))
+                (vulpea-db-sync--file-attributes
+                 (make-hash-table :test 'equal)))
+            (vulpea-db-sync--check-external-changes-with-files (list file))
+            (should (> calls 0))
+            (should (gethash file vulpea-db-sync--file-attributes))))
+      (fmakunbound 'vulpea-db-sync-test--handler)
+      (delete-directory dir t))))
+
+(ert-deftest vulpea-db-sync-polling-drops-stale-listing ()
+  "A listing that lands after polling stopped is ignored.
+It also must not clear the in-progress flag of a newer poll."
+  (let* ((dir (make-temp-file "vulpea-poll-stale-" t))
+         (file (expand-file-name "a.org" dir))
+         (vulpea-db-sync-directories (list dir))
+         (vulpea-db-sync--poll-timer nil))
+    (unwind-protect
+        (vulpea-db-sync-test--with-poll-stub
+          (with-temp-file file (insert "#+title: A\n"))
+          (setq deliver nil)
+          (vulpea-db-sync--setup-polling)
+          (vulpea-db-sync--check-external-changes)
+          (should vulpea-db-sync--poll-scan-in-progress)
+          (vulpea-db-sync--stop-external-monitoring)
+          (should-not vulpea-db-sync--poll-scan-in-progress)
+          (vulpea-db-sync--setup-polling)
+          (vulpea-db-sync--check-external-changes)
+          (should (= 2 launches))
+          ;; The first poll's listing lands now
+          (funcall (cadr callbacks) (list file))
+          (should (= 0 (hash-table-count vulpea-db-sync--file-attributes)))
+          (should-not vulpea-db-sync--queue)
+          (should vulpea-db-sync--poll-scan-in-progress))
+      (vulpea-db-sync--stop-external-monitoring)
+      (delete-directory dir t))))
 
 (ert-deftest vulpea-db-sync-polling-detects-changes ()
   "Test polling detects file modifications."
@@ -1691,7 +1905,8 @@ watches still have to be removed."
             (vulpea-db)
             (vulpea-db-update-file file)
             (should (vulpea-db-get-by-id "poll-delete"))
-            (puthash file (file-attributes file) vulpea-db-sync--file-attributes)
+            (puthash file (file-attribute-modification-time (file-attributes file))
+                     vulpea-db-sync--file-attributes)
             (delete-file file)
             (vulpea-db-sync--check-external-changes-with-files
              (vulpea-db-sync--list-org-files dir))
@@ -3374,6 +3589,9 @@ Removing the last directory stops polling entirely."
             (with-temp-file file2
               (insert ":PROPERTIES:\n:ID: poll-drop\n:END:\n#+TITLE: Drop\n"))
             (vulpea-db-sync--setup-polling)
+            ;; The first poll records the baseline
+            (vulpea-db-sync--check-external-changes-with-files
+             (list file1 file2))
             (should (gethash file2 vulpea-db-sync--file-attributes))
             (vulpea-db-sync-remove-directory dir2)
             ;; The next tick must not report DIR2's files as deletions

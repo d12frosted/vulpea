@@ -146,20 +146,31 @@ git pull / Dropbox sync / external edit
 Timer fires every N seconds
   │
   └─ vulpea-db-sync--check-external-changes
-      ├─ Guard: skip if scan already in progress
+      ├─ Guard: skip if a poll is still listing
+      ├─ Guard: skip while a sync is in progress
+      ├─ Guard: skip until the last poll's cost allows another
       ├─ Launch fd/find SUBPROCESS (async file listing)
       └─ [callback with file list]
           └─ vulpea-db-sync--check-external-changes-with-files
-              ├─ Check mtime for all files
+              ├─ Check mtime for all files (the first poll only
+              │  records them)
               ├─ Detect new/deleted/modified files
               └─ vulpea-db-sync--enqueue(path)  ← ALWAYS ASYNC
 #+end_example
 
 *Performance*: File listing runs as a subprocess; reading the list
-back and comparing it with the database happens in Emacs.  For 14k
+back and checking the mtime of every file happens in Emacs.  For 14k
 notes the listing takes 29ms with =fd= and 72ms with =find=, measured
-until vulpea has the list (=bench/README.md=).  Install =fd= if using
-polling mode.
+until vulpea has the list (=bench/README.md=).  The mtime check is
+the bigger part and grows with the collection: about half a second
+at 100k notes.  To keep that from taking over the main
+thread, a poll is skipped while a sync is in progress (the queue,
+the worker or a directory listing has work), and after each poll
+the next one waits until ten times its cost has passed
+(=vulpea-db-sync--poll-max-share=).  Polling starts without a
+synchronous listing: the first poll records the mtimes and only
+queues files modified since polling started.  Install =fswatch= for
+large collections, and =fd= if using polling mode.
 
 *** D. Dir-locals changes (all watchers)
 

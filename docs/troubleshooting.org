@@ -294,6 +294,8 @@ If fswatch isn't available:
 (setq vulpea-db-sync-poll-interval 2)  ; seconds
 #+end_src
 
+Polling gets expensive with large collections: each poll checks every file from Emacs, about half a second at 100k notes. Vulpea then polls less often than the interval asks, so polls take at most a tenth of Emacs's time, and the "external changes" line of =M-x vulpea-doctor= says how often they actually run. If it shows a stretched interval, install =fswatch=.
+
 *** Watcher started before a directory change
 
 If you changed =vulpea-db-sync-directories= while =vulpea-db-autosync-mode= was on, the running watcher does not know about it: the variable is read when the mode starts (=fswatch= receives the directories as command-line arguments; the same applies to the built-in filenotify watchers). Files under a newly added directory are then never synced on save, while manual commands like =M-x vulpea-db-sync-full-scan= read the current value and work - which makes the problem look like anything but configuration.

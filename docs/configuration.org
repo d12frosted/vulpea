@@ -715,11 +715,15 @@ Larger batch sizes = fewer transactions = faster overall, but longer individual 
 
 ** Polling Interval
 
-When =fswatch= is not available, Vulpea falls back to polling — periodically scanning directories for changes. Polling runs file listing as an asynchronous subprocess (=fd= or =find=); only reading the finished list back happens in Emacs.
+When =fswatch= is not available, Vulpea falls back to polling: periodically scanning directories for changes. Polling runs file listing as an asynchronous subprocess (=fd= or =find=), but reading the list back and checking the modification time of every file happens in Emacs, on the main thread.
 
 #+begin_src emacs-lisp
 (setq vulpea-db-sync-poll-interval 2)  ; Check every 2 seconds
 #+end_src
+
+That check grows with the collection: tens of milliseconds per poll at 10k notes, around half a second at 100k. So that polls never take more than a tenth of Emacs's time, the next poll waits until ten times the last one's cost has passed: at 100k notes polls run every several seconds, whatever the interval says. No poll runs while a sync is in progress either; the first one after it catches up. =M-x vulpea-doctor= shows how often polls actually run.
+
+With a large collection, install =fswatch= instead: it reports changes as they happen and nothing is polled. Linux distributions do not install it by default, so Linux is where the fallback happens most (=apt install fswatch=, =pacman -S fswatch=).
 
 If you use polling, install =fd=: each poll lists every file, and =fd=
 lists faster than =find=. On a tree of 14k notes a listing takes 29ms
