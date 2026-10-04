@@ -515,6 +515,10 @@ a subprocess.  The `blocking' mode still scans synchronously."
     ;; when a watcher reports them
     (add-hook 'after-save-hook #'vulpea-db-sync--after-save)
 
+    ;; Start the worker once Emacs is idle, so the first change of the
+    ;; session does not wait for it to start
+    (vulpea-db-worker-schedule-prestart)
+
     ;; Start external monitoring (fswatch is async, no blocking)
     (setq t-phase (current-time))
     (vulpea-db-sync--setup-external-monitoring)

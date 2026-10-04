@@ -614,7 +614,11 @@ function value, or =%(...)= in =org-link-abbrev-alist=, the file's
 =#+LINK:= keywords or a setup file) is handed back and indexed in your session, and so is
 any file the worker fails on.
 
-The worker starts lazily on the first changed file, restarts
+The worker starts once Emacs has been idle for a moment after
+=vulpea-db-autosync-mode= is enabled, so the first save of a session
+does not wait for it to start; set =vulpea-db-worker-prestart= to nil
+to start it on the first changed file instead, which saves an idle
+process (around 70MB) in sessions that change nothing. It restarts
 automatically if it dies (re-queueing in-flight files), and stops
 with =vulpea-db-autosync-mode=. Results for files that changed again
 while being parsed are discarded and re-queued, so the database
@@ -667,6 +671,10 @@ them.
 ;; Seconds of worker silence with work in flight before it is killed
 ;; and its files re-queued; nil disables the watchdog
 (setq vulpea-db-worker-hang-timeout 300)
+
+;; Start the worker when Emacs is idle after autosync is enabled
+;; instead of on the first changed file
+(setq vulpea-db-worker-prestart t)
 #+end_src
 
 Run =M-x vulpea-db-worker-diagnose= to verify what your configuration

@@ -2878,5 +2878,140 @@ agree; the comparison counts it among the files the session indexes."
       (should (equal (mapcar #'car result) (list missing)))
       (should (stringp (cdar result))))))
 
+;;; Prestart
+
+(defmacro vulpea-db-worker-test--with-autosync (&rest body)
+  "Run BODY with autosync enabled on a temp database.
+No directories, watchers or startup scan: the only thing enabling the
+mode can start is the worker.  Disables the mode afterwards."
+  (declare (indent 0))
+  `(vulpea-test--with-temp-db
+     (vulpea-db)
+     (let ((vulpea-db-sync-directories nil)
+           (vulpea-db-sync-external-method nil)
+           (vulpea-db-sync-scan-on-enable nil)
+           (vulpea-db-sync-verbose nil)
+           (vulpea-db-worker--broken nil)
+           (vulpea-db-worker--crash-times nil))
+       (unwind-protect
+           (progn
+             (vulpea-db-autosync-mode 1)
+             ,@body)
+         (vulpea-db-autosync-mode -1)))))
+
+(defmacro vulpea-db-worker-test--counting-spawns (var &rest body)
+  "Run BODY counting worker spawns in VAR."
+  (declare (indent 1))
+  (let ((orig (make-symbol "orig")))
+    `(let ((,orig (symbol-function 'make-process)))
+       (cl-letf (((symbol-function 'make-process)
+                  (lambda (&rest args)
+                    (when (equal (plist-get args :name) "vulpea-worker")
+                      (setq ,var (1+ ,var)))
+                    (apply ,orig args))))
+         ,@body))))
+
+(ert-deftest vulpea-db-worker-prestart-after-autosync ()
+  "Enabling autosync starts the worker in idle time, before any change."
+  (let ((vulpea-db-async-extraction t)
+        (vulpea-db-worker-prestart t))
+    (vulpea-db-worker-test--with-autosync
+      ;; Enabling the mode itself spawns nothing
+      (should-not (process-live-p vulpea-db-worker--process))
+      (let ((timer vulpea-db-worker--prestart-timer))
+        (should (memq timer timer-idle-list))
+        (timer-event-handler timer))
+      (should (process-live-p vulpea-db-worker--process))
+      (should-not vulpea-db-worker--prestart-timer))
+    (should-not (process-live-p vulpea-db-worker--process))))
+
+(ert-deftest vulpea-db-worker-prestarted-worker-serves-first-request ()
+  "The first request after a prestart goes to the running worker."
+  (let ((vulpea-db-async-extraction t)
+        (vulpea-db-worker-prestart t)
+        (spawns 0))
+    (vulpea-db-worker-test--with-file
+        ":PROPERTIES:\n:ID: prestarted\n:END:\n#+title: P\n"
+      (vulpea-db-worker-test--with-autosync
+        (vulpea-db-worker-test--counting-spawns spawns
+          (timer-event-handler vulpea-db-worker--prestart-timer)
+          (vulpea-db-worker-request path)
+          (vulpea-db-worker-test--wait))
+        (should (= spawns 1))
+        (should (vulpea-db-get-by-id "prestarted"))))))
+
+(ert-deftest vulpea-db-worker-no-prestart-when-async-off ()
+  "Without async extraction, enabling autosync starts no worker."
+  (let ((vulpea-db-async-extraction nil)
+        (vulpea-db-worker-prestart t))
+    (vulpea-db-worker-test--with-autosync
+      (should-not vulpea-db-worker--prestart-timer)
+      (should-not (process-live-p vulpea-db-worker--process)))))
+
+(ert-deftest vulpea-db-worker-no-prestart-when-opted-out ()
+  "With `vulpea-db-worker-prestart' nil the worker spawns on demand."
+  (let ((vulpea-db-async-extraction t)
+        (vulpea-db-worker-prestart nil))
+    (vulpea-db-worker-test--with-autosync
+      (should-not vulpea-db-worker--prestart-timer)
+      (should-not (process-live-p vulpea-db-worker--process)))))
+
+(ert-deftest vulpea-db-worker-prestart-after-request-no-double-spawn ()
+  "A request that beats the idle start keeps its worker."
+  (let ((vulpea-db-async-extraction t)
+        (vulpea-db-worker-prestart t)
+        (spawns 0))
+    (vulpea-db-worker-test--with-autosync
+      (let ((timer vulpea-db-worker--prestart-timer))
+        (vulpea-db-worker-test--counting-spawns spawns
+          (vulpea-db-worker--ensure)
+          (let ((proc vulpea-db-worker--process))
+            ;; The spawn withdrew the pending start...
+            (should-not (memq timer timer-idle-list))
+            ;; ...and a start that fires anyway leaves the worker be
+            (timer-event-handler timer)
+            (should (eq proc vulpea-db-worker--process))
+            (should (process-live-p proc))))
+        (should (= spawns 1))))))
+
+(ert-deftest vulpea-db-worker-prestart-cancelled-by-stop ()
+  "Disabling autosync before the idle start cancels it."
+  (let ((vulpea-db-async-extraction t)
+        (vulpea-db-worker-prestart t))
+    (vulpea-db-worker-test--with-autosync
+      (let ((timer vulpea-db-worker--prestart-timer))
+        (should (timerp timer))
+        (vulpea-db-autosync-mode -1)
+        (should-not (memq timer timer-idle-list))
+        (should-not vulpea-db-worker--prestart-timer)
+        (should-not (process-live-p vulpea-db-worker--process))))))
+
+(ert-deftest vulpea-db-worker-prestart-skips-rejecting-worker ()
+  "No worker starts ahead of time when it would refuse .org files.
+The reasons are checked when the timer fires: init code may register
+an extractor or break the worker after enabling the mode."
+  (let ((vulpea-db-async-extraction t)
+        (vulpea-db-worker-prestart t))
+    (dolist (setup (list (lambda () (setq vulpea-db-worker--broken t))
+                         (lambda () (setq vulpea-db-index-heading-level
+                                          (lambda (_) t)))))
+      (let ((vulpea-db-index-heading-level t))
+        (vulpea-db-worker-test--with-autosync
+          (let ((timer vulpea-db-worker--prestart-timer))
+            (should (timerp timer))
+            (funcall setup)
+            (timer-event-handler timer)
+            (should-not (process-live-p vulpea-db-worker--process))))))))
+
+(ert-deftest vulpea-db-worker-diagnose-schedules-prestart ()
+  "Diagnosis stops the worker; under autosync it starts again when idle."
+  (let ((vulpea-db-async-extraction t)
+        (vulpea-db-worker-prestart t))
+    (vulpea-db-worker-test--with-autosync
+      (cl-letf (((symbol-function 'pop-to-buffer) #'ignore))
+        (vulpea-db-worker-diagnose))
+      (should-not (process-live-p vulpea-db-worker--process))
+      (should (memq vulpea-db-worker--prestart-timer timer-idle-list)))))
+
 (provide 'vulpea-db-worker-test)
 ;;; vulpea-db-worker-test.el ends here
