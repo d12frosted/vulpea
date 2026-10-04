@@ -133,7 +133,8 @@ save-buffer
 #+end_example
 
 The watchers below report the same save later: =fswatch= only after
-its latency, about a second, and polling after its interval.  Each of
+its latency (0.1s, a second on the BSDs), and polling after its
+interval.  Each of
 them goes through =vulpea-db-sync--enqueue-change=, which drops an
 event for a file whose stamp still equals the one the save recorded:
 that content is queued or indexed already, and queueing it again

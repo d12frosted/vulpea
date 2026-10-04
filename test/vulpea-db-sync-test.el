@@ -872,6 +872,35 @@ repair, and `vulpea-db-register-org-ids' remains for by-hand use."
             (should (process-live-p proc))))
       (vulpea-db-sync--stop-external-monitoring))))
 
+(defun vulpea-db-sync-test--fswatch-command (system)
+  "Return the fswatch command `vulpea-db-sync--setup-fswatch' runs on SYSTEM."
+  (let ((system-type system)
+        (vulpea-db-sync--fswatch-process nil)
+        (vulpea-db-sync-directories (list temporary-file-directory))
+        (vulpea-db-sync-fswatch-path-style 'native)
+        command)
+    (cl-letf (((symbol-function 'make-process)
+               (lambda (&rest args)
+                 (setq command (plist-get args :command))
+                 'fake-process)))
+      (let ((inhibit-message t))
+        (vulpea-db-sync--setup-fswatch)))
+    command))
+
+(ert-deftest vulpea-db-sync-setup-fswatch-short-latency ()
+  "fswatch runs with a short latency where its default monitor allows it.
+
+The default latency of a second delays every change made outside
+Emacs by up to that long.  On FSEvents (macOS), inotify (Linux) and
+the Windows monitor a short latency costs nothing measurable; the
+kqueue monitor, the default on the BSDs, re-registers every watched
+file on each turn, so there fswatch keeps its default."
+  (dolist (system '(darwin gnu/linux windows-nt cygwin))
+    (let ((command (vulpea-db-sync-test--fswatch-command system)))
+      (should (equal (cadr (member "--latency" command)) "0.1"))))
+  (should-not (member "--latency"
+                      (vulpea-db-sync-test--fswatch-command 'berkeley-unix))))
+
 (ert-deftest vulpea-db-sync-stop-detaches-fswatch-sentinel ()
   "Stopping detaches the auto-restart sentinel before killing fswatch.
 
