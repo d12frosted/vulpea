@@ -66,10 +66,38 @@ save, which is the freeze you feel:
 | 10MB  | 3.7k   | 2.28s       | 0.45s     | 1.1ms        |
 | 100MB | 36.7k  | 25.9s       | 6.0s      | 1.3ms        |
 
-The first request of a session also spawns the worker, which is most
-of the 1MB async figures. In `full` mode the database is written by the
+These runs call the worker directly, so the first request of each run
+also spawns it, which is most of the 1MB async figures. Under
+`vulpea-db-autosync-mode` the worker is usually running by the first
+save (see below). In `full` mode the database is written by the
 worker, so the data becomes queryable later: 1.4s, 3.4s and 25s after
 the save for the three sizes.
+
+### First save of a session
+
+Measured with the shared org-notes-bench harness rather than the
+benchmarks here: a session enables autosync on an indexed collection of
+1,000 notes plus the large file, adds a heading with a new ID to it,
+saves, and waits until the note can be looked up. Default settings
+(async `t`, fswatch). On an EC2 `c7gd.2xlarge` (Graviton, local NVMe),
+Emacs 30.2, median of 5:
+
+| file | worker started | until findable | save | longest block |
+|------|----------------|----------------|------|---------------|
+| 1MB  | on the save    | 1.01s          | 2ms  | 163ms         |
+| 1MB  | when idle      | 0.76s          | 2ms  | 161ms         |
+| 10MB | on the save    | 6.17s          | 13ms | 1.64s         |
+| 10MB | when idle      | 5.94s          | 13ms | 1.66s         |
+
+"On the save" is the worker spawning on the first request, as it did
+before `vulpea-db-worker-prestart`; "when idle" is the default now,
+where it starts after 2s of idle time once autosync is on. Starting it
+blocks the main thread for 0.8ms (a subprocess start; loading vulpea
+and Org happens in the worker), and the idle worker takes about 64MB.
+The save is queued from `after-save-hook`, so what remains of the 1MB
+figure is mostly the worker parsing the file and the main thread
+writing the result. Enabling the mode itself is unchanged: 0.8ms, and
+7ms until a note can be looked up.
 
 ### What the indexing options change
 

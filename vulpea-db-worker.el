@@ -136,6 +136,20 @@ after saving them, a threshold like 102400 keeps those synchronous."
           (integer :tag "Minimum size in bytes"))
   :group 'vulpea-db-sync)
 
+(defcustom vulpea-db-worker-prestart t
+  "Whether to start the worker before the first change of a session.
+
+When non-nil (the default), enabling `vulpea-db-autosync-mode' with
+`vulpea-db-async-extraction' on starts the worker once Emacs has been
+idle for a moment, so the first save of a session is not held up by
+the worker starting (an `emacs --batch' that loads vulpea and Org,
+about a second).  The cost is an idle worker process, around 70MB,
+from the start of the session instead of from the first change.
+
+When nil, the worker starts on the first file it has to extract."
+  :type 'boolean
+  :group 'vulpea-db-sync)
+
 (defcustom vulpea-db-worker-debug nil
   "When non-nil, log worker lifecycle and protocol to a buffer.
 
@@ -273,6 +287,7 @@ them so none is dropped by accident.")
     (vulpea-db-worker-debug . "worker control, main process")
     (vulpea-db-worker-hang-timeout . "worker control, main process")
     (vulpea-db-worker-max-in-flight . "worker control, main process")
+    (vulpea-db-worker-prestart . "worker control, main process")
     (vulpea-db-autosync-mode . "sync scheduling, main process")
     (vulpea-db-autosync-mode-hook . "sync scheduling, main process")
     (vulpea-db-sync-batch-delay . "sync scheduling, main process")
@@ -668,6 +683,8 @@ lands here.  Idempotent: the second caller finds no pending work."
     ;; A dead-but-not-yet-sentineled worker still owns in-flight work;
     ;; salvage it instead of silently discarding it
     (vulpea-db-worker--salvage)
+    ;; This spawn is the one an idle start ahead of time would make
+    (vulpea-db-worker--cancel-prestart)
     (setq vulpea-db-worker--spawn-time (float-time))
     (setq vulpea-db-worker--last-activity (float-time))
     (vulpea-db-worker--install-watchers)
@@ -711,6 +728,52 @@ lands here.  Idempotent: the second caller finds no pending work."
                              (length (nth 2 settings)))))
   vulpea-db-worker--process)
 
+(defvar vulpea-db-worker--prestart-timer nil
+  "Idle timer that starts the worker ahead of the first request.")
+
+(defconst vulpea-db-worker--prestart-delay 2
+  "Seconds of idle time before the worker is started ahead of time.
+Long enough for init code to finish, so the worker starts with the
+settings of the session.")
+
+(defun vulpea-db-worker--cancel-prestart ()
+  "Cancel a pending start of the worker ahead of time."
+  (when (timerp vulpea-db-worker--prestart-timer)
+    (cancel-timer vulpea-db-worker--prestart-timer))
+  (setq vulpea-db-worker--prestart-timer nil))
+
+(defun vulpea-db-worker-schedule-prestart ()
+  "Start the worker in idle time, ahead of the first request.
+Does nothing unless both `vulpea-db-async-extraction' and
+`vulpea-db-worker-prestart' are non-nil.  Called when autosync is
+enabled; `vulpea-db-worker-stop' cancels a start still pending."
+  (vulpea-db-worker--cancel-prestart)
+  (when (and vulpea-db-async-extraction vulpea-db-worker-prestart)
+    (setq vulpea-db-worker--prestart-timer
+          (run-with-idle-timer vulpea-db-worker--prestart-delay nil
+                               #'vulpea-db-worker--prestart))))
+
+(defun vulpea-db-worker--prestart ()
+  "Start the worker if it is not running and would accept .org files.
+A worker that would refuse every .org file (see
+`vulpea-db-worker-rejection-reasons') is not started: it would sit
+idle all session.  A failure to start is reported by
+`vulpea-db-worker--ensure' and not raised from the timer."
+  (setq vulpea-db-worker--prestart-timer nil)
+  (when (and vulpea-db-async-extraction
+             vulpea-db-worker-prestart
+             (not (process-live-p vulpea-db-worker--process))
+             (not (vulpea-db-worker-rejection-reasons "probe.org")))
+    (let ((t0 (float-time)))
+      (condition-case err
+          (progn
+            (vulpea-db-worker--ensure)
+            (vulpea-db-worker--log "prestart: spawned in %.1fms"
+                                   (* 1000 (- (float-time) t0))))
+        (error
+         (vulpea-db-worker--log "prestart failed: %s"
+                                (error-message-string err)))))))
+
 (defun vulpea-db-worker--send (form)
   "Send FORM to the worker as one line."
   (process-send-string vulpea-db-worker--process
@@ -739,6 +802,7 @@ to outlast a commit of the full-write worker.")
     ;; means the caller does not want the work back.
     (set-process-sentinel vulpea-db-worker--process #'ignore)
     (delete-process vulpea-db-worker--process))
+  (vulpea-db-worker--cancel-prestart)
   (when vulpea-db-worker--watchdog-timer
     (cancel-timer vulpea-db-worker--watchdog-timer)
     (setq vulpea-db-worker--watchdog-timer nil))
@@ -2196,7 +2260,10 @@ database afterwards."
         ;; Cleanup: temp note out of the database, worker down
         (ignore-errors (vulpea-db--forget-file path))
         (delete-file path)
-        (vulpea-db-worker-stop)))
+        (vulpea-db-worker-stop)
+        ;; The worker was stopped for the check, not for good
+        (when (bound-and-true-p vulpea-db-autosync-mode)
+          (vulpea-db-worker-schedule-prestart))))
     (pop-to-buffer report)))
 
 (provide 'vulpea-db-worker)

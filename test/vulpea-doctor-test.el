@@ -1127,5 +1127,21 @@ nothing was compared for them."
           (vulpea-doctor--compute-consistency))
         (should (null last))))))
 
+(ert-deftest vulpea-doctor-describes-pending-worker-start ()
+  "A worker waiting to start in idle time is reported as such."
+  (let ((vulpea-db-async-extraction t)
+        (vulpea-db-worker--broken nil)
+        (vulpea-db-worker--process nil)
+        (vulpea-db-worker--prestart-timer nil)
+        (vulpea-db-worker-prestart t))
+    (should (equal (vulpea-doctor--describe-worker)
+                   "not running (spawns on first change)"))
+    (unwind-protect
+        (progn
+          (vulpea-db-worker-schedule-prestart)
+          (should (equal (vulpea-doctor--describe-worker)
+                         "not running (starts once Emacs is idle)")))
+      (vulpea-db-worker--cancel-prestart))))
+
 (provide 'vulpea-doctor-test)
 ;;; vulpea-doctor-test.el ends here

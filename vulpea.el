@@ -974,6 +974,8 @@ Keys are reasons from `vulpea-db-worker-rejection-reasons'.")
     "n/a")
    ((process-live-p (bound-and-true-p vulpea-db-worker--process))
     (format "running (%d in flight)" (vulpea-db-worker-in-flight-count)))
+   ((timerp (bound-and-true-p vulpea-db-worker--prestart-timer))
+    "not running (starts once Emacs is idle)")
    (t "not running (spawns on first change)")))
 
 (defun vulpea-doctor--report ()
