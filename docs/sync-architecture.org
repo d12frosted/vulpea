@@ -43,9 +43,10 @@ outcome, including ones that changed nothing.
 ** Mode Control
 
 ~vulpea-db-autosync-mode~ decides whether anything happens on its own.
-When enabled, file watchers feed the queue, which is how saves and
-external changes reach the database. When disabled there are no
-watchers: saving a buffer updates nothing, and only manual commands and
+When enabled, saves made in Emacs and file watchers feed the queue,
+which is how saves and external changes reach the database. When
+disabled there are no watchers and no save hook: saving a buffer
+updates nothing, and only manual commands and
 programmatic APIs write, immediately.
 
 * Flow Diagrams
@@ -116,31 +117,52 @@ vulpea-db-sync-update-directory(dir, force)
 
 ** 4. File Watchers (External Changes)
 
-Three types of file watchers:
+Saves made in Emacs are queued by a hook, and three types of file
+watchers report everything else.
 
-*** A. Emacs-internal changes (filenotify)
+*** A. Saves in Emacs (after-save-hook)
 
 #+begin_example
 save-buffer
   │
-  └─ file-notify event
-      └─ vulpea-db-sync--handle-file-notify
-          ├─ Parse event (changed/deleted/renamed)
+  └─ after-save-hook
+      └─ vulpea-db-sync--after-save
+          ├─ Note under a sync directory?
+          ├─ Record its stamp (mtime, size)
           └─ vulpea-db-sync--enqueue(path)  ← ALWAYS ASYNC
 #+end_example
 
-*** B. External changes (fswatch process)
+The watchers below report the same save later: =fswatch= only after
+its latency, about a second, and polling after its interval.  Each of
+them goes through =vulpea-db-sync--enqueue-change=, which drops an
+event for a file whose stamp still equals the one the save recorded:
+that content is queued or indexed already, and queueing it again
+would have the worker parse a big file twice whenever the event
+arrives while the first parse is still running.
+
+*** B. File changes (filenotify, when fswatch is not running)
+
+#+begin_example
+file written (by Emacs or anything else)
+  │
+  └─ file-notify event
+      └─ vulpea-db-sync--file-notify-callback
+          ├─ Parse event (changed/deleted/renamed)
+          └─ vulpea-db-sync--enqueue-change(path)  ← ALWAYS ASYNC
+#+end_example
+
+*** C. External changes (fswatch process)
 
 #+begin_example
 git pull / Dropbox sync / external edit
   │
   └─ fswatch detects change
-      └─ vulpea-db-sync--handle-fswatch-output
+      └─ vulpea-db-sync--fswatch-filter
           ├─ Parse fswatch events
-          └─ vulpea-db-sync--enqueue(path)  ← ALWAYS ASYNC
+          └─ vulpea-db-sync--enqueue-change(path)  ← ALWAYS ASYNC
 #+end_example
 
-*** C. External changes (polling)
+*** D. External changes (polling)
 
 #+begin_example
 Timer fires every N seconds
@@ -155,7 +177,7 @@ Timer fires every N seconds
               ├─ Check mtime for all files (the first poll only
               │  records them)
               ├─ Detect new/deleted/modified files
-              └─ vulpea-db-sync--enqueue(path)  ← ALWAYS ASYNC
+              └─ vulpea-db-sync--enqueue-change(path)  ← ALWAYS ASYNC
 #+end_example
 
 *Performance*: File listing runs as a subprocess; reading the list
@@ -269,7 +291,8 @@ in 10ms for 14k notes (=bench/README.md=).  File listing runs as an
 =fd= (or =find=) subprocess.  Cleanup uses set comparison against the
 subprocess output instead of per-file =file-exists-p= calls.  When
 =fswatch= is active, filenotify watchers are skipped entirely since
-=fswatch= already monitors all filesystem changes.  Programmatic
+=fswatch= already monitors all filesystem changes, and saves made in
+Emacs are queued by the save hook without waiting for it.  Programmatic
 changes (=vulpea-create=, =vulpea-utils-with-note-sync=) call
 =vulpea-db-update-file= directly and never rely on filenotify.
 
@@ -324,7 +347,8 @@ Timer fires after 0.01s of quiet
 | Directory sync          | ON            | OFF   | Async (queued)                    |
 | Directory sync          | ON            | ON    | Queued with async extraction,     |
 |                         |               |       | otherwise immediate + force       |
-| Save or external change | ON            | n/a   | Async (queued) via file watchers  |
+| Save in Emacs           | ON            | n/a   | Async (queued) by the save hook   |
+| External change         | ON            | n/a   | Async (queued) via file watchers  |
 | Save or external change | OFF           | n/a   | Nothing (no watchers)             |
 
 
@@ -466,7 +490,7 @@ vulpea-create               (creates file)
 
 save-buffer                 (modifies file)
     │                             │
-    └────> filenotify ────────────┴──> enqueue ──> queue ──> batch
+    └────> after-save-hook ───────┴──> enqueue ──> queue ──> batch
                                                         └─> vulpea-db-update-file
 
 

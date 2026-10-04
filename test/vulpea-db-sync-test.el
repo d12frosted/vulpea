@@ -3888,5 +3888,171 @@ batches do not shrink to a file or two."
           (cancel-timer vulpea-db-sync--timer))
         (delete-directory dir t)))))
 
+;;; In-Emacs save tests
+
+(defmacro vulpea-db-sync-test--with-saved-note (bindings &rest body)
+  "Run BODY with a sync root and a buffer visiting a note in it.
+BINDINGS names the root, the note path and its buffer, as
+\(ROOT PATH BUFFER).  The queue, its timer and the save stamps are
+fresh for BODY."
+  (declare (indent 1))
+  (pcase-let ((`(,root ,path ,buffer) bindings))
+    `(let* ((,root (file-name-as-directory
+                    (make-temp-file "vulpea-save-" t)))
+            (,path (expand-file-name "note.org" ,root))
+            (vulpea-db-sync-directories (list ,root))
+            (vulpea-db-sync--queue nil)
+            (vulpea-db-sync--queue-tail nil)
+            (vulpea-db-sync--queue-set (make-hash-table :test 'equal))
+            (vulpea-db-sync--saved-stamps (make-hash-table :test 'equal))
+            (vulpea-db-sync--timer nil)
+            (vulpea-db-sync--file-attributes (make-hash-table :test 'equal))
+            (,buffer nil))
+       (unwind-protect
+           (progn
+             (with-temp-file ,path
+               (insert ":PROPERTIES:\n:ID: saved-note\n:END:\n#+TITLE: Saved\n"))
+             (setq ,buffer (find-file-noselect ,path))
+             ,@body)
+         (when vulpea-db-sync--timer
+           (cancel-timer vulpea-db-sync--timer))
+         (when (buffer-live-p ,buffer)
+           (with-current-buffer ,buffer
+             (set-buffer-modified-p nil))
+           (kill-buffer ,buffer))
+         (delete-directory ,root t)))))
+
+(defun vulpea-db-sync-test--save (buffer text)
+  "Append TEXT to BUFFER and save it with the save hook in place."
+  (with-current-buffer buffer
+    (goto-char (point-max))
+    (insert text)
+    (let ((after-save-hook (list #'vulpea-db-sync--after-save)))
+      (save-buffer))))
+
+(ert-deftest vulpea-db-sync-after-save-enqueues-tracked-file ()
+  "Saving a note in Emacs queues it without waiting for a watcher."
+  (vulpea-db-sync-test--with-saved-note (_root path buffer)
+    (vulpea-db-sync-test--save buffer "\nMore.\n")
+    (should (equal (mapcar #'car vulpea-db-sync--queue) (list path)))
+    (should vulpea-db-sync--timer)))
+
+(ert-deftest vulpea-db-sync-after-save-ignores-untracked-files ()
+  "Saves outside the sync roots, and of non-note files, queue nothing."
+  (vulpea-db-sync-test--with-saved-note (root _path _buffer)
+    (let* ((outside (make-temp-file "vulpea-save-outside-" t))
+           (foreign (expand-file-name "note.org" outside))
+           (text (expand-file-name "notes.txt" root))
+           (hidden (expand-file-name ".hidden/note.org" root))
+           buffers)
+      (unwind-protect
+          (progn
+            (make-directory (file-name-directory hidden))
+            (dolist (file (list foreign text hidden))
+              (with-temp-file file (insert "x\n"))
+              (let ((buffer (find-file-noselect file)))
+                (push buffer buffers)
+                (vulpea-db-sync-test--save buffer "y\n")))
+            (should-not vulpea-db-sync--queue)
+            (should (hash-table-empty-p vulpea-db-sync--saved-stamps)))
+        (dolist (buffer buffers)
+          (kill-buffer buffer))
+        (delete-directory outside t)))))
+
+(ert-deftest vulpea-db-sync-after-save-respells-truename-buffers ()
+  "A buffer visiting a note through a root's truename queues the configured path."
+  (let* ((base (make-temp-file "vulpea-save-symroot-" t))
+         (real (expand-file-name "real" base))
+         (link (expand-file-name "link" base))
+         (vulpea-db-sync-directories (list link))
+         (vulpea-db-sync--queue nil)
+         (vulpea-db-sync--queue-tail nil)
+         (vulpea-db-sync--queue-set (make-hash-table :test 'equal))
+         (vulpea-db-sync--saved-stamps (make-hash-table :test 'equal))
+         (vulpea-db-sync--timer nil)
+         buffer)
+    (unwind-protect
+        (progn
+          (make-directory real)
+          (make-symbolic-link real link)
+          (with-temp-file (expand-file-name "note.org" real)
+            (insert "#+TITLE: Note\n"))
+          (setq buffer (find-file-noselect
+                        (expand-file-name "note.org" (file-truename link))))
+          (vulpea-db-sync-test--save buffer "More.\n")
+          (should (equal (mapcar #'car vulpea-db-sync--queue)
+                         (list (expand-file-name "note.org" link)))))
+      (when vulpea-db-sync--timer
+        (cancel-timer vulpea-db-sync--timer))
+      (when buffer (kill-buffer buffer))
+      (delete-directory base t))))
+
+(ert-deftest vulpea-db-sync-fswatch-skips-echo-of-save ()
+  "The fswatch event for a save that was already queued is dropped.
+
+Without this the worker would parse the file a second time whenever
+the event arrives while the first parse is still in flight."
+  (vulpea-db-sync-test--with-saved-note (_root path buffer)
+    (vulpea-db-sync-test--save buffer "\nMore.\n")
+    ;; The save's entry was taken by the queue processor
+    (vulpea-db-sync--drop-from-queue path)
+    (vulpea-db-sync--fswatch-filter nil (format "%s|||Updated\n" path))
+    (vulpea-db-sync--fswatch-filter nil (format "%s|||Updated\n" path))
+    (should-not vulpea-db-sync--queue)))
+
+(ert-deftest vulpea-db-sync-fswatch-queues-change-after-save ()
+  "A change made after the save, outside Emacs, is still queued."
+  (vulpea-db-sync-test--with-saved-note (_root path buffer)
+    (vulpea-db-sync-test--save buffer "\nMore.\n")
+    (vulpea-db-sync--drop-from-queue path)
+    ;; Size changes, so the stamp differs whatever the mtime resolution
+    (write-region "Appended elsewhere.\n" nil path 'append)
+    (vulpea-db-sync--fswatch-filter nil (format "%s|||Updated\n" path))
+    (should (equal (mapcar #'car vulpea-db-sync--queue) (list path)))
+    (should-not (gethash path vulpea-db-sync--saved-stamps))))
+
+(ert-deftest vulpea-db-sync-file-notify-skips-echo-of-save ()
+  "The filenotify event for a save that was already queued is dropped."
+  (vulpea-db-sync-test--with-saved-note (_root path buffer)
+    (vulpea-db-sync-test--save buffer "\nMore.\n")
+    (vulpea-db-sync--drop-from-queue path)
+    (vulpea-db-sync--file-notify-callback (list nil 'changed path))
+    (should-not vulpea-db-sync--queue)))
+
+(ert-deftest vulpea-db-sync-polling-skips-echo-of-save ()
+  "The polling pass that sees a save that was already queued drops it."
+  (vulpea-db-sync-test--with-saved-note (root path buffer)
+    (vulpea-db-sync--update-file-attributes-cache)
+    (sleep-for 0.1)
+    (vulpea-db-sync-test--save buffer "\nMore.\n")
+    (vulpea-db-sync--drop-from-queue path)
+    (vulpea-db-sync--check-external-changes-with-files
+     (vulpea-db-sync--list-org-files root))
+    (should-not vulpea-db-sync--queue)))
+
+(ert-deftest vulpea-db-sync-stop-removes-save-hook ()
+  "Autosync installs the save hook and removes it, with the stamps, on stop."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "save-hook-note" "Note")
+    (let* ((dir (make-temp-file "vulpea-save-hook-" t))
+           (vulpea-db-sync-scan-on-enable nil)
+           (vulpea-db-sync-external-method nil)
+           (vulpea-db-sync-directories (list dir))
+           (vulpea-db-sync--idle-timer nil)
+           (vulpea-db-sync--watchers nil)
+           (vulpea-db-sync--saved-stamps (make-hash-table :test 'equal))
+           (after-save-hook nil))
+      (unwind-protect
+          (progn
+            (vulpea-db-sync--start)
+            (should (memq #'vulpea-db-sync--after-save after-save-hook))
+            (puthash "/x.org" '(0 . 0) vulpea-db-sync--saved-stamps)
+            (vulpea-db-sync--stop)
+            (should-not (memq #'vulpea-db-sync--after-save after-save-hook))
+            (should (hash-table-empty-p vulpea-db-sync--saved-stamps)))
+        (vulpea-db-sync--stop)
+        (delete-directory dir t)))))
+
 (provide 'vulpea-db-sync-test)
 ;;; vulpea-db-sync-test.el ends here
