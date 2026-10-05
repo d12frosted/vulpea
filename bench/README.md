@@ -173,6 +173,20 @@ building note structs, the rest garbage collection. The backlink query
 mostly gained from no longer asking SQLite for distinct whole note
 rows.
 
+The same backlink query in the shared org-notes-bench harness
+(`backlinks`: a fresh session with autosync on, then five calls for the
+hub), on an EC2 `c7gd.2xlarge` (Graviton, local NVMe), Emacs 30.2,
+median of 3 runs:
+
+| notes | sources | first call | median of 5 |
+|-------|---------|------------|-------------|
+| 10k   | 3,476   | 72ms       | 73ms        |
+| 100k  | 34,961  | 0.76s      | 0.76s       |
+
+Before string cells skipped the reader (vulpea at cebd9e8) the 100k
+row was 1.10s and 0.83s; 10k did not change. Nearly all of the time is
+building 35k full notes: the link lookup alone is about 40ms.
+
 With the candidate cache (`vulpea-select-cache`), same database with a
 stamp in `files` for each of its files, same machine, median of 7
 runs:

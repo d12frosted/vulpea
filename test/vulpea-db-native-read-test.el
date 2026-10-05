@@ -113,6 +113,41 @@ A cell emacsql fails to read fails here too."
       ;; Both outcomes are covered
       (should (< 0 failures (length vulpea-db-native-read-test--raw-cells))))))
 
+(ert-deftest vulpea-db-select-decodes-odd-text-like-emacsql ()
+  "Quoted cells that are not plain printed strings decode like in emacsql.
+Invalid UTF-8 comes back as raw bytes and a blob as a unibyte
+string; the reader makes unibyte strings of both."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-db-native-read-test--make-table)
+    (let ((handle (oref (vulpea-db) handle)))
+      (dolist (expr '("CAST(X'22618022' AS TEXT)"   ; "a<80>"
+                      "CAST(X'22C3BC80FF22' AS TEXT)" ; "ü<80><ff>"
+                      "X'226162632022'"              ; blob "abc "
+                      "X'2261FF22'"                  ; blob "a<ff>"
+                      "'\"日本\"'" "'\"tab\there\"'" "'\"a\"\"b\"'"))
+        (sqlite-execute handle (format "INSERT INTO scratch (a, b, c) VALUES (%s, %s, 1)"
+                                       expr expr)))
+      (should (equal (vulpea-db--select "SELECT * FROM scratch")
+                     (emacsql (vulpea-db) [:select * :from scratch]))))))
+
+(ert-deftest vulpea-db-decode-row-plain-strings ()
+  "Cells holding one printed string decode to what the reader returns.
+Covers the shortcut for strings the printer leaves alone, next to
+the cells that must go through the reader: escapes and raw bytes.
+Text from `sqlite-select' is multibyte, blobs are unibyte."
+  (dolist (cell (append
+                 (mapcar #'string-to-multibyte
+                         (list "\"\"" "\"plain\"" "\"日本語\"" "\"emoji 🦊\""
+                               "\"tab\there\"" "\"\\\"\"" "\"back\\\\slash\""
+                               "\"new\\nline\"" "\"a\\200b\""
+                               (string-to-unibyte "\"a\200\"")
+                               (string ?\" ?ü (unibyte-char-to-multibyte #xff) ?\")))
+                 (list (string-to-unibyte "\"a\377\"")
+                       (string-to-unibyte "\"abc\""))))
+    (should (equal (vulpea-db--decode-row (list cell 1))
+                   (list (car (read-from-string cell)) 1)))))
+
 (ert-deftest vulpea-db-select-binds-parameters-like-emacsql ()
   "Parameters bind in the storage format, so lookups by value match."
   (vulpea-test--with-temp-db
