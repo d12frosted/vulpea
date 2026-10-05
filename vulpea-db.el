@@ -809,6 +809,30 @@ several values; text that does not read signals as it does there."
         (setq beg (cdr read))))
     (nreverse values)))
 
+(defconst vulpea-db--raw-byte-re
+  (concat "[" (string #x3fff80) "-" (string #x3fffff) "]")
+  "Raw bytes in a multibyte string, as invalid UTF-8 decodes to.")
+
+(defsubst vulpea-db--plain-string-cell (cell)
+  "Return the string in CELL when the reader would return it verbatim.
+That is CELL, text as `sqlite-select' returns it, is one string
+between double quotes with no backslash and no other double quote
+in it.  The reader returns everything between the quotes then,
+except for raw bytes, which make it return a unibyte string; those
+cells return nil and so do all others.
+
+Most stored strings are such cells (see `vulpea-db--verbatim-string-p'),
+and copying them out costs a fraction of reading them."
+  (let ((n (length cell)))
+    (and (> n 1)
+         (multibyte-string-p cell)
+         (eq (aref cell 0) ?\")
+         (eq (string-search "\"" cell 1) (1- n))
+         (not (string-search "\\" cell))
+         (or (= n (string-bytes cell))
+             (not (string-match-p vulpea-db--raw-byte-re cell)))
+         (substring cell 1 -1))))
+
 (defun vulpea-db--decode-row (row)
   "Decode ROW returned by `sqlite-select' the way emacsql does.
 
@@ -825,24 +849,26 @@ different cons only when the first cell reads to no value."
     (while tail
       (let ((cell (car tail)))
         (when (and (stringp cell) (> (length cell) 0))
-          (let ((read (read-from-string cell)))
-            (if (= (cdr read) (length cell))
-                (setcar tail (car read))
-              ;; Rare: nothing or more than one value in the cell
-              (let ((values (vulpea-db--read-cell cell)))
-                (cond
-                 ((null values)
-                  (if prev
-                      (setcdr prev (cdr tail))
-                    (setq row (cdr row)))
-                  (setq tail prev))
-                 (t
-                  (setcar tail (car values))
-                  (when-let* ((rest (cdr values)))
-                    (let ((rest-last (last rest)))
-                      (setcdr rest-last (cdr tail))
-                      (setcdr tail rest)
-                      (setq tail rest-last))))))))))
+          (if-let* ((plain (vulpea-db--plain-string-cell cell)))
+              (setcar tail plain)
+            (let ((read (read-from-string cell)))
+              (if (= (cdr read) (length cell))
+                  (setcar tail (car read))
+                ;; Rare: nothing or more than one value in the cell
+                (let ((values (vulpea-db--read-cell cell)))
+                  (cond
+                   ((null values)
+                    (if prev
+                        (setcdr prev (cdr tail))
+                      (setq row (cdr row)))
+                    (setq tail prev))
+                   (t
+                    (setcar tail (car values))
+                    (when-let* ((rest (cdr values)))
+                      (let ((rest-last (last rest)))
+                        (setcdr rest-last (cdr tail))
+                        (setcdr tail rest)
+                        (setq tail rest-last)))))))))))
       (if tail
           (setq prev tail
                 tail (cdr tail))
