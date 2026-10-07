@@ -364,6 +364,17 @@ network filesystems. While schemas are registered with a non-silent
 =vulpea-db-schema-validation-action=, ='full= behaves like =t= so
 validation keeps running in your session.
 
+='full= buys a responsive Emacs, not a faster index. With =t= the
+main thread writes one batch of results while the worker parses the
+next, so a bulk index (the first one, or a rebuild) uses two cores;
+with ='full= one process parses and writes. On a generated corpus,
+with the other settings from the README's "Best performance" in both
+cases, a first index of 10k files takes 18.7s with ='full= and 14.5s
+with =t=, but Emacs is blocked for 0.5s in total instead of 7.4s. At
+100k files: 3.5 minutes instead of 2.5, blocked for 5s instead of
+83s. Saves are not affected: a single file is written as soon as the
+worker has parsed it.
+
 Some files are always indexed in your session, and some setups keep
 every file there; [[*Extraction Worker][Extraction Worker]] lists them.
 
