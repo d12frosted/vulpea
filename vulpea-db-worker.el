@@ -359,7 +359,10 @@ cases."
     `(settings ,(nreverse vars) ,(org-link-types)
                ,(vulpea-db-worker--extractor-specs)
                (:db-version ,vulpea-db-version
-                :parser-epoch ,vulpea-db-parser-epoch))))
+                :parser-epoch ,vulpea-db-parser-epoch
+                ;; Full-write requests are followed by (flush); see
+                ;; `vulpea-db-worker--grouped-writes'
+                :grouped-writes t))))
 
 (defun vulpea-db-worker--extractor-specs ()
   "Build wire specs for worker-safe extractors.
@@ -997,6 +1000,40 @@ shared-memory support) marks `vulpea-db-worker--wal-failed'."
            :warning))
         nil))))
 
+(defvar vulpea-db-worker--grouping nil
+  "Non-nil while worker requests are sent as one group.
+See `vulpea-db-worker-with-grouped-requests'.")
+
+(defvar vulpea-db-worker--flush-owed nil
+  "Non-nil when a full-write request was sent since the last flush.")
+
+(defun vulpea-db-worker--send-flush ()
+  "Tell the worker to write its pending results, if there are any.
+A worker that knows flushes will come (see
+`vulpea-db-worker--grouped-writes') keeps full-write results until
+the flush, or until its write budget runs out, and writes them in
+one transaction."
+  (when vulpea-db-worker--flush-owed
+    (setq vulpea-db-worker--flush-owed nil)
+    (when (process-live-p vulpea-db-worker--process)
+      ;; A worker dying here is salvaged like any other death: its
+      ;; in-flight requests are re-queued
+      (ignore-errors (vulpea-db-worker--send '(flush))))))
+
+(defmacro vulpea-db-worker-with-grouped-requests (&rest body)
+  "Evaluate BODY, sending the worker requests in it as one group.
+
+In full-write mode the worker writes the results of a group in as
+few transactions as its write budget allows, instead of one per
+file: a transaction per file spends much of a bulk sync committing.
+The group ends with BODY.  A request made outside of a group is
+written as soon as it is parsed."
+  (declare (indent 0) (debug t))
+  `(let ((vulpea-db-worker--grouping t))
+     (unwind-protect
+         (progn ,@body)
+       (vulpea-db-worker--send-flush))))
+
 (defun vulpea-db-worker-request (path &optional force)
   "Ask the worker to extract PATH.
 
@@ -1007,7 +1044,10 @@ The result is applied to the database when it arrives; see
 With FORCE non-nil the unchanged-content shortcut is skipped and the
 result is applied even when the content hash matches - required when
 extraction output changed while content did not (parser epoch or
-settings changes)."
+settings changes).
+
+Requests made inside `vulpea-db-worker-with-grouped-requests' may
+share a write transaction in full-write mode."
   (vulpea-db-worker--ensure)
   ;; A package that registered a link type since the last settings
   ;; message would otherwise have its links indexed as fuzzy ones
@@ -1036,7 +1076,12 @@ settings changes)."
                                    (if force " (force)" "") path)
             (vulpea-db-worker--send
              `(parse-and-write ,path ,(expand-file-name vulpea-db-location)
-                               ,(and force t))))
+                               ,(and force t)))
+            ;; The worker holds the result until a flush; outside a
+            ;; group this request is a group of its own
+            (setq vulpea-db-worker--flush-owed t)
+            (unless vulpea-db-worker--grouping
+              (vulpea-db-worker--send-flush)))
         (vulpea-db-worker--log "request parse%s: %s"
                                (if force " (force)" "") path)
         (vulpea-db-worker--send `(parse ,path)))
@@ -1663,6 +1708,13 @@ processing."
 Non-nil makes `parse-and-write' requests fall back to streaming, so
 those extractors run in the main process instead.")
 
+(defvar vulpea-db-worker--grouped-writes nil
+  "Non-nil when the main process follows its requests with a flush.
+Worker side, set from the settings message.  Without it every
+parse-and-write result is written and answered on its own: a main
+process that never sends (flush) - one running older code - would
+otherwise wait for results forever.")
+
 (defvar vulpea-db-worker--version-mismatch nil
   "Non-nil when this worker's vulpea differs from the main process's.
 
@@ -1774,6 +1826,8 @@ this worker."
   ;; rest is the closest the worker can get
   (when (eq enable-local-variables t)
     (setq-default enable-local-variables :safe))
+  (setq vulpea-db-worker--grouped-writes
+        (plist-get db-constants :grouped-writes))
   ;; A code-version mismatch (main upgraded vulpea while running, or
   ;; stale byte-code) forbids opening the database from this worker:
   ;; vulpea-db--init would delete and rebuild it on a schema mismatch
@@ -1863,25 +1917,162 @@ not clobber the newer data.  A transaction that fails to commit
 under write contention counts as a conflict too - retrying via the
 queue is always safe.
 
+Inside a transaction that is already open (a group of results, see
+`vulpea-db-worker--write-pending') the write runs in a savepoint, so
+a failure takes back only this file's writes.
+
 Returns the number of notes written, `conflict', or (error . MSG)
 for a deterministic failure - only lock contention retries; anything
 else must surface instead of looping through silent retries forever."
   (condition-case err
-      (vulpea-db--with-transaction (vulpea-db)
-        (if (not (equal (vulpea-db--get-file-hash
-                         (vulpea-parse-ctx-path ctx))
-                        stored))
-            'conflict
-          (vulpea-db--apply-parse-ctx ctx 'skip-org-id)))
+      (let ((grouped (> emacsql--transaction-level 0)))
+        (vulpea-db--with-transaction (vulpea-db)
+          (vulpea-db-worker--as-unit grouped
+            (lambda ()
+              (if (not (equal (vulpea-db--get-file-hash
+                               (vulpea-parse-ctx-path ctx))
+                              stored))
+                  'conflict
+                (vulpea-db--apply-parse-ctx ctx 'skip-org-id))))))
     ((emacsql-locked sqlite-locked-error) 'conflict)
     (sqlite-error
      ;; SQLITE_BUSY surfaces as a generic sqlite-error whose message
      ;; mentions locking; treat those as contention, the rest as real
-     (if (string-match-p "locked\\|busy"
-                         (downcase (error-message-string err)))
+     (if (vulpea-db-worker--busy-error-p err)
          'conflict
        (cons 'error (error-message-string err))))
     (error (cons 'error (error-message-string err)))))
+
+(defun vulpea-db-worker--as-unit (grouped fn)
+  "Call FN, in a savepoint of its own when GROUPED is non-nil.
+A file written in a group's transaction needs the savepoint so that
+a failure takes back only its own writes.  A file written alone
+does not - its transaction rolls back on failure - and the savepoint
+is not free: SQLite journals every page the write touches to be able
+to roll back to it, which shows on a big file."
+  (declare (indent 1))
+  (if grouped
+      (vulpea-db--with-savepoint (vulpea-db)
+        (funcall fn))
+    (funcall fn)))
+
+(defun vulpea-db-worker--busy-error-p (err)
+  "Return non-nil when the sqlite-error ERR reports lock contention."
+  (string-match-p "locked\\|busy" (downcase (error-message-string err))))
+
+;;; Worker: grouped writes
+;;
+;; A transaction per file spends a large part of a bulk sync in
+;; COMMIT: every commit appends each index page the file touched to
+;; the WAL, and neighbouring files touch the same pages.  So results
+;; wait in `vulpea-db-worker--pending' and are written together - when
+;; the main process ends its run of requests with (flush), when
+;; another message arrives, or when they took the write budget to
+;; parse.  The write lock is only taken for the write itself, never
+;; while parsing.
+
+(defvar vulpea-db-worker--write-budget 0.05
+  "Seconds of parsing after which pending results are written.
+Worker side.  Bounds how long the main process waits for the answer
+to a request in the middle of a long run of them.")
+
+(defvar vulpea-db-worker--pending nil
+  "Parse-and-write results waiting to be written, newest first.
+Worker side.  Each entry is (stale PATH), (stamp PATH CTX) or
+\(write PATH CTX STORED); see `vulpea-db-worker--write-item'.")
+
+(defvar vulpea-db-worker--pending-since nil
+  "When the parse of the oldest pending result started, or nil.")
+
+(defun vulpea-db-worker--queue-write (item start)
+  "Add ITEM to the pending results; its parse started at START.
+Writes the pending results when nothing groups them or the write
+budget is spent."
+  (push item vulpea-db-worker--pending)
+  (unless vulpea-db-worker--pending-since
+    (setq vulpea-db-worker--pending-since start))
+  (when (or (not vulpea-db-worker--grouped-writes)
+            (>= (- (float-time) vulpea-db-worker--pending-since)
+                vulpea-db-worker--write-budget))
+    (vulpea-db-worker--write-pending)))
+
+(defun vulpea-db-worker--write-item (item)
+  "Write the pending result ITEM and return the reply for it.
+Runs inside the group's transaction, if there is one."
+  (pcase item
+    (`(stale ,path) `(stale ,path))
+    (`(stamp ,path ,ctx)
+     ;; Content identical to what is indexed: refresh the stamp.
+     ;; Carry the note IDs: if a previous written reply was lost
+     ;; (worker crash after commit), the retry lands here and the main
+     ;; process can still register org-ids
+     (condition-case err
+         (vulpea-db-worker--as-unit (> emacsql--transaction-level 0)
+           (lambda ()
+             (vulpea-db--update-file-hash path
+                                          (vulpea-parse-ctx-hash ctx)
+                                          (vulpea-parse-ctx-mtime ctx)
+                                          (vulpea-parse-ctx-size ctx))
+             `(stamped ,path ,(vulpea-db-worker--ctx-ids ctx))))
+       (error `(error ,path ,(error-message-string err)))))
+    (`(write ,path ,ctx ,stored)
+     ;; Claim resolution inside the write transaction cannot re-index
+     ;; another file from this process; collect the deferred claimants
+     ;; and let the main process queue them.
+     (let* ((vulpea-db--deferred-claimants nil)
+            (vulpea-db--released-ids nil)
+            (count (vulpea-db-worker--apply-guarded ctx stored)))
+       (cond
+        ((eq count 'conflict) `(stale ,path))
+        ((eq (car-safe count) 'error) `(error ,path ,(cdr count)))
+        (t
+         `(written ,path
+                   ,(vulpea-parse-ctx-hash ctx)
+                   ,(vulpea-parse-ctx-mtime ctx)
+                   ,(vulpea-parse-ctx-size ctx)
+                   ,count
+                   ,(vulpea-db-worker--ctx-ids ctx)
+                   ,vulpea-db--deferred-claimants
+                   ,vulpea-db--released-ids)))))))
+
+(defun vulpea-db-worker--write-pending ()
+  "Write the pending results in one transaction, then answer for them.
+
+Replies go out in request order, and only after the commit: the main
+process acts on a `written' reply as on data it can read.  When the
+transaction itself fails, nothing was written; lock contention
+answers every result `stale' (re-queued, as a retry is always safe),
+anything else answers them with the error."
+  (when vulpea-db-worker--pending
+    (let ((items (nreverse vulpea-db-worker--pending))
+          replies)
+      (setq vulpea-db-worker--pending nil
+            vulpea-db-worker--pending-since nil)
+      (cl-flet ((fail-all (make-reply)
+                  (mapcar (lambda (item) (funcall make-reply (cadr item)))
+                          items)))
+        (setq replies
+              (condition-case err
+                  (if (or (null (cdr items))
+                          (seq-every-p (lambda (item) (eq (car item) 'stale))
+                                       items))
+                      ;; A lone result is written in a transaction of
+                      ;; its own, and with nothing to write there is no
+                      ;; reason to take the lock
+                      (mapcar #'vulpea-db-worker--write-item items)
+                    (vulpea-db--with-transaction (vulpea-db)
+                      (mapcar #'vulpea-db-worker--write-item items)))
+                ((emacsql-locked sqlite-locked-error)
+                 (fail-all (lambda (path) `(stale ,path))))
+                (sqlite-error
+                 (if (vulpea-db-worker--busy-error-p err)
+                     (fail-all (lambda (path) `(stale ,path)))
+                   (let ((message (error-message-string err)))
+                     (fail-all (lambda (path) `(error ,path ,message))))))
+                (error
+                 (let ((message (error-message-string err)))
+                   (fail-all (lambda (path) `(error ,path ,message))))))))
+      (mapc #'vulpea-db-worker--reply replies))))
 
 (defun vulpea-db-worker--handle-parse-and-write (path db &optional force)
   "Extract PATH and write the results to the database at DB.
@@ -1894,6 +2085,9 @@ result became outdated (`stale') - because the file changed
 mid-parse, or because the main process indexed newer content
 concurrently (see `vulpea-db-worker--apply-guarded').
 
+The write and the reply may wait for other results to share a
+transaction with; see `vulpea-db-worker--queue-write'.
+
 With FORCE non-nil the unchanged-content shortcut is skipped and the
 result is written even when the content hash matches."
   (if (or vulpea-db-worker--unresolved-extractors
@@ -1901,65 +2095,43 @@ result is written even when the content hash matches."
           ;; it (vulpea-db--init rebuilds on schema mismatch)
           vulpea-db-worker--version-mismatch)
       ;; Stream the results instead; the main process applies them
-      (vulpea-db-worker--handle-parse path)
-    (condition-case err
       (progn
-        (vulpea-db-worker--ensure-db db)
-        (let* ((stored (vulpea-db--get-file-hash path))
-               (ctx (vulpea-db-worker--parse-file path))
-               (attrs (file-attributes path)))
-          (cond
-           ;; File changed or vanished while parsing: the result
-           ;; does not represent the file anymore
-           ((or (null attrs)
-                (not (equal (float-time
-                             (file-attribute-modification-time attrs))
-                            (vulpea-parse-ctx-mtime ctx)))
-                (not (equal (file-attribute-size attrs)
-                            (vulpea-parse-ctx-size ctx))))
-            (vulpea-db-worker--reply `(stale ,path)))
-           ;; Content identical to what is indexed: refresh the stamp.
-           ;; Skipped when forced - extraction output changed even
-           ;; though content did not.
-           ((and (not force)
-                 (equal (plist-get stored :hash)
-                        (vulpea-parse-ctx-hash ctx)))
-            (vulpea-db--update-file-hash path
-                                         (vulpea-parse-ctx-hash ctx)
-                                         (vulpea-parse-ctx-mtime ctx)
-                                         (vulpea-parse-ctx-size ctx))
-            ;; Carry the note IDs: if a previous written reply was
-            ;; lost (worker crash after commit), the retry lands here
-            ;; and the main process can still register org-ids
-            (vulpea-db-worker--reply
-             `(stamped ,path ,(vulpea-db-worker--ctx-ids ctx))))
-           (t
-            ;; Claim resolution inside the write transaction cannot
-            ;; re-index another file from this process; collect the
-            ;; deferred claimants and let the main process queue them.
-            (let* ((vulpea-db--deferred-claimants nil)
-                   (vulpea-db--released-ids nil)
-                   (count (vulpea-db-worker--apply-guarded ctx stored))
-                   (claimants vulpea-db--deferred-claimants)
-                   (released vulpea-db--released-ids))
-              (cond
-               ((eq count 'conflict)
-                (vulpea-db-worker--reply `(stale ,path)))
-               ((eq (car-safe count) 'error)
-                (vulpea-db-worker--reply `(error ,path ,(cdr count))))
-               (t
-                (vulpea-db-worker--reply
-                 `(written ,path
-                           ,(vulpea-parse-ctx-hash ctx)
-                           ,(vulpea-parse-ctx-mtime ctx)
-                           ,(vulpea-parse-ctx-size ctx)
-                           ,count
-                           ,(vulpea-db-worker--ctx-ids ctx)
-                           ,claimants
-                           ,released)))))))))
+        (vulpea-db-worker--write-pending)
+        (vulpea-db-worker--handle-parse path))
+    (condition-case err
+        (let ((start (float-time)))
+          (unless (equal db vulpea-db-worker--db-location)
+            ;; Pending results belong to the database open now
+            (vulpea-db-worker--write-pending))
+          (vulpea-db-worker--ensure-db db)
+          (let* ((stored (vulpea-db--get-file-hash path))
+                 (ctx (vulpea-db-worker--parse-file path))
+                 (attrs (file-attributes path)))
+            (vulpea-db-worker--queue-write
+             (cond
+              ;; File changed or vanished while parsing: the result
+              ;; does not represent the file anymore
+              ((or (null attrs)
+                   (not (equal (float-time
+                                (file-attribute-modification-time attrs))
+                               (vulpea-parse-ctx-mtime ctx)))
+                   (not (equal (file-attribute-size attrs)
+                               (vulpea-parse-ctx-size ctx))))
+               `(stale ,path))
+              ;; Content identical to what is indexed.  Skipped when
+              ;; forced - extraction output changed even though content
+              ;; did not.
+              ((and (not force)
+                    (equal (plist-get stored :hash)
+                           (vulpea-parse-ctx-hash ctx)))
+               `(stamp ,path ,ctx))
+              (t `(write ,path ,ctx ,stored)))
+             start)))
       (vulpea-db-worker-handback
+       (vulpea-db-worker--write-pending)
        (vulpea-db-worker--reply `(handback ,path ,(cadr err))))
       (error
+       (vulpea-db-worker--write-pending)
        (vulpea-db-worker--reply
         `(error ,path ,(error-message-string err)))))))
 
@@ -1983,6 +2155,38 @@ result is written even when the content hash matches."
      (vulpea-db-worker--reply
       `(error ,path ,(error-message-string err))))))
 
+(defun vulpea-db-worker--handle-message (msg)
+  "Handle one protocol MSG from the main process, worker side.
+Pending results are written before anything but another
+parse-and-write request is handled, so replies keep request order."
+  (pcase msg
+    (`(parse-and-write ,_path ,_db ,_force) nil)
+    (_ (vulpea-db-worker--write-pending)))
+  (pcase msg
+    (`(settings ,vars ,link-types ,extractors ,db-constants)
+     (vulpea-db-worker--apply-settings vars link-types extractors
+                                       db-constants))
+    ;; A file linking through a session-only abbreviation goes
+    ;; back to the main process, which indexes it synchronously
+    ((and `(,(or 'parse 'parse-and-write) ,path . ,_)
+          (guard (ignore-errors
+                   (vulpea-db-worker--session-abbrev-used-p path))))
+     (vulpea-db-worker--write-pending)
+     (vulpea-db-worker--reply
+      `(handback ,path
+                 ,(format "it links through %s, which expands with a function from your session"
+                          (string-join
+                           (mapcar (lambda (tag) (format "[[%s:...]]" tag))
+                                   vulpea-db-worker--session-abbrev-tags)
+                           ", ")))))
+    (`(parse ,path)
+     (vulpea-db-worker--handle-parse path))
+    (`(parse-and-write ,path ,db ,force)
+     (vulpea-db-worker--handle-parse-and-write path db force))
+    ;; Pending results were written above
+    ('(flush) nil)
+    (_ nil)))
+
 (defun vulpea-db-worker-batch-main ()
   "Protocol loop for the extraction worker.
 
@@ -1994,31 +2198,15 @@ writes protocol lines to stdout.  Exits when stdin closes."
   (while t
     (let* ((line (condition-case nil
                      (read-from-minibuffer "")
-                   (error (kill-emacs 0))))
+                   (error
+                    ;; Results parsed before the main process went
+                    ;; away are still worth keeping
+                    (ignore-errors (vulpea-db-worker--write-pending))
+                    (kill-emacs 0))))
            (msg (condition-case nil
                     (car (read-from-string line))
                   (error nil))))
-      (pcase msg
-        (`(settings ,vars ,link-types ,extractors ,db-constants)
-         (vulpea-db-worker--apply-settings vars link-types extractors
-                                           db-constants))
-        ;; A file linking through a session-only abbreviation goes
-        ;; back to the main process, which indexes it synchronously
-        ((and `(,(or 'parse 'parse-and-write) ,path . ,_)
-              (guard (ignore-errors
-                       (vulpea-db-worker--session-abbrev-used-p path))))
-         (vulpea-db-worker--reply
-          `(handback ,path
-                  ,(format "it links through %s, which expands with a function from your session"
-                           (string-join
-                            (mapcar (lambda (tag) (format "[[%s:...]]" tag))
-                                    vulpea-db-worker--session-abbrev-tags)
-                            ", ")))))
-        (`(parse ,path)
-         (vulpea-db-worker--handle-parse path))
-        (`(parse-and-write ,path ,db ,force)
-         (vulpea-db-worker--handle-parse-and-write path db force))
-        (_ nil)))))
+      (vulpea-db-worker--handle-message msg))))
 
 ;;; Session vs worker comparison
 

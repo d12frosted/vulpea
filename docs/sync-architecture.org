@@ -552,7 +552,15 @@ subprocess.
    in between.  Each file gets a savepoint, so one that fails to
    apply is rolled back alone, and =vulpea-db-updated-functions= and
    =vulpea-db-worker-done-functions= run for each file after the
-   commit.
+   commit.  In mode ='full= the worker groups its writes the same
+   way: the queue ends each batch of requests with a flush, and the
+   worker writes what it parsed since in one transaction, a
+   savepoint per file, answering for the files only after the
+   commit.  It writes early once the results waiting took 50ms to
+   parse, so replies keep coming and the queue can refill the
+   window.  The write lock is only held for the write, never while
+   parsing.  A request made outside a batch, such as a save, is
+   written as soon as it is parsed.
 4. Every result carries the file stamp as the worker read it. A file
    that changed mid-parse is stale: discarded and re-queued. In
    ='full= mode a compare-and-swap inside the write transaction also
