@@ -7,7 +7,7 @@ This document compares Vulpea with other Org-mode note management libraries: [[h
 
 I have not used org-node or Supertag myself; what I say about them comes from their READMEs, documentation and source code. If you notice any inaccuracies, please open an issue or pull request.
 
-Last updated: 2026-09-24, against org-roam 2.3.1, org-node 3.18 with org-mem 0.34, and Supertag V2 (package version 6.0.0).
+Last updated: 2026-10-07, against org-roam 2.3.1, org-node 3.18 with org-mem 0.34, and Supertag V2 (commit ab53f23, package version 0.1.1).
 
 * Overview
 
@@ -268,18 +268,22 @@ All four keep their own index and read the same kind of files, so they can index
 
 * Performance Notes
 
-I have not benchmarked org-roam, org-node or Supertag myself, so the numbers here are vulpea's own, from [[file:../bench/README.md][bench/README.md]]; org-node's figures above are from its README.
+[[https://github.com/d12frosted/org-notes-bench][org-notes-bench]] runs all four on the same generated notes, each in a fresh =emacs -Q= on an EC2 instance and only through the tool's own commands. Its README explains what each number measures, and the raw results are in the repository. I maintain vulpea; the other maintainers have been asked to check how their tools are measured there.
 
-A full sync of 100k generated notes takes 2.0 minutes with =single-temp-buffer= parsing and 3.3 with =temp-buffer=, both parsing in the Emacs session, at a steady rate from the first file to the last. With autosync on, it runs in the background.
+From its 2026-10-05 run with every tool on default settings and vulpea at master =47512ef= (100k files hold 145k notes; the save is measured on a 1k-note corpus):
 
-The freeze you actually feel is the save of a large file:
+| 100k files                               | org-roam    | org-node | Supertag | vulpea  |
+|------------------------------------------+-------------+----------+----------+---------|
+| Index from scratch                       | 82 min      | 15s      | 51 min   | 4.3 min |
+| First run: longest freeze while indexing | whole index | 2.8s     | -        | 0.25s   |
+| Start of a new session                   | 16s         | 15s      | 8.9s     | 7ms     |
+| Open the find command                    | 7.5s        | 18ms     | 0.64s    | 21ms    |
+| Backlinks of a note with 35k of them     | 14s         | 17ms     | 0.59s    | 0.77s   |
+| Save a 10MB file: longest freeze         | 35s         | 0.39s    | 13s      | 1.7s    |
 
-| Save-path freeze  | sync path | worker (=t=) | worker (=full=) |
-|-------------------+-----------+--------------+-----------------|
-| 1MB file          | 252ms     | 43ms         | 12ms            |
-| 10MB file         | 2.28s     | 0.45s        | 1.1ms           |
+Some of these are not like for like. org-roam's first run is its full index with Emacs blocked throughout, since enabling its autosync mode syncs synchronously; Supertag's first run on 100k files did not finish within 3.5 hours. org-node keeps nothing on disk, so every session starts with a full index (15s, thanks to org-mem's own parser running in parallel subprocesses). For backlinks, org-node returns link records, while org-roam and vulpea return the full notes with all their data.
 
-In =full= mode the worker writes the database itself, so the freeze stays flat (1.3ms at 100MB); the 1MB figures are mostly the first request of a session spawning the worker.
+With the settings vulpea's README recommends for speed (=vulpea-db-async-extraction= set to ='full= among them), the 10MB save blocks for 14ms and a first run never blocks for more than 0.25s, with the main thread busy for only a few seconds of it.
 
 * Summary
 

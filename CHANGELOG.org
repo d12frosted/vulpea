@@ -191,6 +191,8 @@
 
 *Documentation*
 
+- The comparison guide's performance section now quotes [[https://github.com/d12frosted/org-notes-bench][org-notes-bench]], a shared benchmark that runs org-roam, org-node, Supertag and vulpea on the same generated notes, instead of vulpea's own numbers only.
+
 - The configuration guide opens its sync part with the five settings that actually decide how the database follows your files: autosync, the startup scan, external change detection, which process parses, and the parse method, with their defaults in one table. Options that only tune those (batching, polling interval, worker flow control and watchdog, parse granularity, the dir-locals reaction, progress and status messages) moved to an Advanced Sync Tuning chapter, and indexing scope (heading-level notes, archives, index filters, plain links) has a chapter of its own. Nothing was removed.
 
 - The comparison guide covers Supertag, which released V2 (formerly org-supertag) in September 2026: write with plain =org-capture=, organize later with inline and nested tags, promotion into notes, review views, a query language and automation rules, backed by an in-memory index saved to a single Elisp file. org-node's section is refreshed against org-mem 0.34 and no longer claims it is not meant to be built on or that it only has standard properties. The overview table names mechanisms (how each tool notices changes, what other Emacs sessions see) instead of "designed for it", and vulpea is described as a tool and a library rather than a foundation. The performance section keeps measured numbers only.
