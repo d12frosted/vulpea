@@ -62,6 +62,9 @@ Optional, but recommended once the basics work:
 ;; Parsing already runs in a background process by default; 'full
 ;; moves the database write there too, so saving a note - even a
 ;; 100MB one - blocks Emacs for about a millisecond (bench/README.md).
+;; Bulk indexing (first run, rebuild) then uses one core instead of
+;; two: it takes about as long as with the defaults, longer than with
+;; t and the two settings below, but Emacs stays responsive throughout.
 (setq vulpea-db-async-extraction 'full)
 
 ;; Skip org-mode-hook during indexing (fine unless you rely on
