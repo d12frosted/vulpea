@@ -209,6 +209,40 @@ No call is made for the directory itself."
             (should (= checks 1)))
         (delete-file path)))))
 
+(ert-deftest vulpea-db-sync-process-queue-groups-worker-requests ()
+  "A batch's worker requests go out as one group, flushed once.
+In full-write mode the worker then writes the batch in a few
+transactions instead of one per file."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((dir (make-temp-file "vulpea-group-" t))
+           (paths (vulpea-db-sync-test--make-org-files dir 3))
+           (vulpea-db-sync--queue (mapcar (lambda (p) (cons p (float-time)))
+                                          paths))
+           (vulpea-db-sync--queue-tail (last vulpea-db-sync--queue))
+           (vulpea-db-sync--processing nil)
+           (vulpea-db-sync-verbose nil)
+           (vulpea-db-async-extraction 'full)
+           (events nil))
+      (unwind-protect
+          (cl-letf (((symbol-function 'vulpea-db-worker-refresh-if-changed)
+                     #'ignore)
+                    ((symbol-function 'vulpea-db-worker-free-slots)
+                     (lambda () 100))
+                    ((symbol-function 'vulpea-db-worker-should-handle-p)
+                     (lambda (_) t))
+                    ((symbol-function 'vulpea-db-worker-request)
+                     (lambda (&rest _)
+                       (push (if vulpea-db-worker--grouping 'grouped 'alone)
+                             events)
+                       (setq vulpea-db-worker--flush-owed t)))
+                    ((symbol-function 'vulpea-db-worker--send-flush)
+                     (lambda () (push 'flush events))))
+            (vulpea-db-sync--process-queue)
+            (should (equal (nreverse events)
+                           '(grouped grouped grouped flush))))
+        (delete-directory dir t)))))
+
 (ert-deftest vulpea-db-sync-process-queue-requeues-batch-on-lock ()
   "A batch that finds the database locked goes back to the queue.
 Its files are taken off the queue before the write transaction

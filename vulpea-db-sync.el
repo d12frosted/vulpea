@@ -1265,14 +1265,20 @@ other half keeps it busy."
             (when vulpea-db-async-extraction
               (vulpea-db-worker-refresh-if-changed))
             (let (sync-paths)
-              (dolist (path paths)
-                (let ((force (gethash path vulpea-db-sync--force-set)))
-                  (remhash path vulpea-db-sync--force-set)
-                  (cond
-                   ;; The batch fits the worker window (see above), so
-                   ;; every file sent here finds a slot
-                   ((and vulpea-db-async-extraction
-                         (vulpea-db-worker-should-handle-p path))
+              ;; One group: in full-write mode the worker then writes
+              ;; the batch together instead of a transaction per file.
+              ;; It ends before this process writes anything itself,
+              ;; so the worker never holds results this process waits
+              ;; on.
+              (vulpea-db-worker-with-grouped-requests
+                (dolist (path paths)
+                  (let ((force (gethash path vulpea-db-sync--force-set)))
+                    (remhash path vulpea-db-sync--force-set)
+                    (cond
+                     ;; The batch fits the worker window (see above), so
+                     ;; every file sent here finds a slot
+                     ((and vulpea-db-async-extraction
+                           (vulpea-db-worker-should-handle-p path))
                       (condition-case err
                           (when-let* ((attrs (file-attributes path)))
                             (if (or force
@@ -1298,8 +1304,8 @@ other half keeps it busy."
                          (message "Vulpea: Error dispatching %s (falling back to sync): %s"
                                   path (error-message-string err))
                          (push (cons path force) sync-paths))))
-                   (t
-                    (push (cons path force) sync-paths)))))
+                     (t
+                      (push (cons path force) sync-paths))))))
 
               ;; Process the rest in a single transaction as before.
               ;; If it cannot get the write lock within the busy timeout

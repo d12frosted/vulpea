@@ -1158,6 +1158,267 @@ and the main process re-requests the destination, which wins the id."
           (vulpea-db-worker-test--wait))
         (should (equal statuses '(unchanged)))))))
 
+;;; Grouped writes in full-write mode
+
+(defmacro vulpea-db-worker-test--with-notes (paths ids &rest body)
+  "Run BODY with PATHS bound to temp notes, one per id in IDS.
+Each note is a file-level note titled after its id.  The files and
+the worker are cleaned up afterwards."
+  (declare (indent 2))
+  `(let ((,paths (mapcar (lambda (id)
+                           (vulpea-test--create-temp-org-file
+                            (format (concat ":PROPERTIES:\n:ID: %s\n:END:\n"
+                                            "#+TITLE: %s\n")
+                                    id id)))
+                         ,ids))
+         (vulpea-db-worker--broken nil)
+         (vulpea-db-worker--crash-times nil))
+     (unwind-protect
+         (progn ,@body)
+       (vulpea-db-worker-stop)
+       (dolist (path ,paths)
+         (when (file-exists-p path)
+           (delete-file path))))))
+
+(defmacro vulpea-db-worker-test--as-worker (&rest body)
+  "Run BODY as the worker side, in this process, against a temp db.
+Requests go through `vulpea-db-worker--handle-message' as the worker
+loop would pass them.  REPLIES holds the reply forms in the order
+they were sent; COMMITS counts the transactions committed.  Writes
+are grouped, with a budget no test reaches.  SAVEPOINTS counts the
+savepoints opened."
+  (declare (indent 0))
+  `(vulpea-test--with-temp-db
+     (vulpea-db)
+     (let ((vulpea-db-worker--db-location vulpea-db-location)
+           (vulpea-db-worker--wal-connection nil)
+           (vulpea-db-worker--wal-failed nil)
+           (vulpea-db-worker--version-mismatch nil)
+           (vulpea-db-worker--unresolved-extractors nil)
+           (vulpea-db-worker--session-abbrev-tags nil)
+           (vulpea-db-worker--pending nil)
+           (vulpea-db-worker--pending-since nil)
+           (vulpea-db-worker--grouped-writes t)
+           (vulpea-db-worker--write-budget 600)
+           (replies nil)
+           (commits 0)
+           (savepoints 0))
+       (cl-letf* ((orig-execute (symbol-function 'sqlite-execute))
+                  ((symbol-function 'vulpea-db-worker--reply)
+                   (lambda (form)
+                     (setq replies (append replies (list form)))))
+                  ((symbol-function 'sqlite-execute)
+                   (lambda (db statement &rest args)
+                     (when (equal statement "COMMIT")
+                       (setq commits (1+ commits)))
+                     (when (string-prefix-p "SAVEPOINT" statement)
+                       (setq savepoints (1+ savepoints)))
+                     (apply orig-execute db statement args))))
+         ,@body))))
+
+(defun vulpea-db-worker-test--request (path)
+  "Hand the worker side a parse-and-write request for PATH."
+  (vulpea-db-worker--handle-message
+   `(parse-and-write ,path ,vulpea-db-location nil)))
+
+(ert-deftest vulpea-db-worker-grouped-writes-wait-for-flush ()
+  "Grouped results are written together once the main process flushes.
+Until the flush nothing is written or answered; then every result
+lands in one transaction and is answered in request order."
+  (vulpea-db-worker-test--with-notes paths '("group-a" "group-b" "group-c")
+    (vulpea-db-worker-test--as-worker
+      (mapc #'vulpea-db-worker-test--request paths)
+      (should-not replies)
+      (should (= commits 0))
+      (should-not (vulpea-db-get-by-id "group-a"))
+      (vulpea-db-worker--handle-message '(flush))
+      (should (equal (mapcar #'car replies) '(written written written)))
+      (should (equal (mapcar #'cadr replies) paths))
+      (should (= commits 1))
+      (should (equal (mapcar (lambda (id)
+                               (vulpea-note-title (vulpea-db-get-by-id id)))
+                             '("group-a" "group-b" "group-c"))
+                     '("group-a" "group-b" "group-c")))
+      ;; A flush with nothing pending is a no-op
+      (vulpea-db-worker--handle-message '(flush))
+      (should (= (length replies) 3))
+      (should (= commits 1)))))
+
+(ert-deftest vulpea-db-worker-ungrouped-writes-answer-at-once ()
+  "Without grouped writes every request is written and answered alone.
+A main process that never sends flush (one running older code) must
+not leave results waiting."
+  (vulpea-db-worker-test--with-notes paths '("alone-a" "alone-b")
+    (vulpea-db-worker-test--as-worker
+      (let ((vulpea-db-worker--grouped-writes nil))
+        (vulpea-db-worker-test--request (car paths))
+        (should (equal (mapcar #'car replies) '(written)))
+        (should (= commits 1))
+        (vulpea-db-worker-test--request (cadr paths))
+        (should (equal (mapcar #'car replies) '(written written)))
+        (should (= commits 2))))))
+
+(ert-deftest vulpea-db-worker-lone-write-skips-savepoint ()
+  "A result written on its own pays for no savepoint.
+Its transaction already rolls back on failure, and a savepoint
+journals every page the write touches, which is costly for a big
+file.  A group of several results takes one savepoint per file."
+  (vulpea-db-worker-test--with-notes paths '("lone-a" "lone-b" "lone-c")
+    (vulpea-db-worker-test--as-worker
+      (vulpea-db-worker-test--request (car paths))
+      (vulpea-db-worker--handle-message '(flush))
+      (should (equal (mapcar #'car replies) '(written)))
+      (should (= savepoints 0))
+      (mapc #'vulpea-db-worker-test--request (cdr paths))
+      (vulpea-db-worker--handle-message '(flush))
+      (should (equal (mapcar #'car replies) '(written written written)))
+      (should (= savepoints 2)))))
+
+(ert-deftest vulpea-db-worker-grouped-writes-respect-budget ()
+  "A group is written once its results took the write budget to parse.
+The write lock is not held while parsing, so a long run of requests
+commits along the way instead of waiting for the flush."
+  (vulpea-db-worker-test--with-notes paths '("budget-a" "budget-b")
+    (vulpea-db-worker-test--as-worker
+      (let ((vulpea-db-worker--write-budget 0))
+        (vulpea-db-worker-test--request (car paths))
+        (should (equal (mapcar #'car replies) '(written)))
+        (vulpea-db-worker-test--request (cadr paths))
+        (should (equal (mapcar #'car replies) '(written written)))
+        (should (= commits 2))))))
+
+(ert-deftest vulpea-db-worker-grouped-write-failure-is-isolated ()
+  "A file whose write fails takes back only its own writes.
+The others in the group are still written and committed."
+  (vulpea-db-worker-test--with-notes paths '("iso-a" "iso-b" "iso-c")
+    (vulpea-db-worker-test--as-worker
+      (let ((bad (nth 1 paths)))
+        (cl-letf* ((orig (symbol-function 'vulpea-db--apply-parse-ctx))
+                   ((symbol-function 'vulpea-db--apply-parse-ctx)
+                    (lambda (ctx &rest args)
+                      (prog1 (apply orig ctx args)
+                        (when (equal (vulpea-parse-ctx-path ctx) bad)
+                          (error "Simulated failure"))))))
+          (mapc #'vulpea-db-worker-test--request paths)
+          (vulpea-db-worker--handle-message '(flush)))
+        (should (equal (mapcar #'car replies) '(written error written)))
+        (should (vulpea-db-get-by-id "iso-a"))
+        (should-not (vulpea-db-get-by-id "iso-b"))
+        (should-not (vulpea-db--get-file-hash bad))
+        (should (vulpea-db-get-by-id "iso-c"))))))
+
+(ert-deftest vulpea-db-worker-grouped-write-detects-conflict ()
+  "A grouped result loses against a re-index that landed before the flush.
+The file whose stored stamp moved is answered `stale' and keeps the
+newer data; the rest of the group is written."
+  (vulpea-db-worker-test--with-notes paths '("cas-a" "cas-b")
+    (vulpea-db-worker-test--as-worker
+      (let ((moved (cadr paths)))
+        (mapc #'vulpea-db-worker-test--request paths)
+        (with-temp-file moved
+          (insert ":PROPERTIES:\n:ID: cas-b\n:END:\n#+TITLE: Newer\n"))
+        (vulpea-db-update-file moved)
+        (vulpea-db-worker--handle-message '(flush))
+        (should (equal (mapcar #'car replies) '(written stale)))
+        (should (vulpea-db-get-by-id "cas-a"))
+        (should (equal (vulpea-note-title (vulpea-db-get-by-id "cas-b"))
+                       "Newer"))))))
+
+(ert-deftest vulpea-db-worker-other-message-flushes-group ()
+  "Any other message writes and answers the pending group first.
+Replies keep request order, and a streamed result never interleaves
+with the group's answers."
+  (vulpea-db-worker-test--with-notes paths '("order-a" "order-b")
+    (vulpea-db-worker-test--as-worker
+      (vulpea-db-worker-test--request (car paths))
+      (should-not replies)
+      (vulpea-db-worker--handle-message `(parse ,(cadr paths)))
+      (should (equal (mapcar #'car replies)
+                     '(written begin file-node done)))
+      (should (vulpea-db-get-by-id "order-a")))))
+
+(ert-deftest vulpea-db-worker-settings-announce-grouped-writes ()
+  "The settings message tells the worker that flushes will come.
+A worker only groups when told: one started by a main process that
+never sends flush answers every request at once."
+  (should (plist-get (nth 4 (vulpea-db-worker--settings-form))
+                     :grouped-writes))
+  (let ((vulpea-db-worker--grouped-writes nil)
+        (vulpea-db-worker--version-mismatch nil))
+    (cl-letf (((symbol-function 'vulpea-db-worker--reply) #'ignore))
+      (vulpea-db-worker--apply-settings
+       nil (org-link-types) nil
+       (list :db-version vulpea-db-version
+             :parser-epoch vulpea-db-parser-epoch
+             :grouped-writes t))
+      (should vulpea-db-worker--grouped-writes)
+      (vulpea-db-worker--apply-settings
+       nil (org-link-types) nil
+       (list :db-version vulpea-db-version
+             :parser-epoch vulpea-db-parser-epoch))
+      (should-not vulpea-db-worker--grouped-writes))))
+
+(ert-deftest vulpea-db-worker-request-flushes-outside-group ()
+  "A full-write request is flushed at once unless it is part of a group.
+Inside `vulpea-db-worker-with-grouped-requests' one flush follows the
+last request."
+  (let ((vulpea-db-async-extraction 'full)
+        (vulpea-db-note-index-filter-functions nil)
+        (vulpea-db-worker--in-flight nil)
+        (vulpea-db-worker--in-flight-tail nil)
+        (vulpea-db-worker--in-flight-count 0)
+        (vulpea-db-worker--sent-link-types (org-link-types))
+        (sent nil))
+    (cl-letf (((symbol-function 'vulpea-db-worker--ensure) #'ignore)
+              ((symbol-function 'vulpea-db-worker--wal-ready-p) (lambda () t))
+              ((symbol-function 'process-live-p) (lambda (_) t))
+              ((symbol-function 'vulpea-db-worker--send)
+               (lambda (form) (setq sent (append sent (list (car form)))))))
+      (vulpea-db-worker-request "/tmp/one.org")
+      (should (equal sent '(parse-and-write flush)))
+      (setq sent nil)
+      (vulpea-db-worker-with-grouped-requests
+        (vulpea-db-worker-request "/tmp/a.org")
+        (vulpea-db-worker-request "/tmp/b.org")
+        (should (equal sent '(parse-and-write parse-and-write))))
+      (should (equal sent '(parse-and-write parse-and-write flush)))
+      ;; A group that sent nothing owes no flush
+      (setq sent nil)
+      (vulpea-db-worker-with-grouped-requests nil)
+      (should-not sent))))
+
+(ert-deftest vulpea-db-worker-full-write-group-end-to-end ()
+  "A group of requests through a live worker lands like single ones.
+Every file is applied, the tables match synchronous indexing, and
+the note ids are registered with org-id."
+  (vulpea-db-worker-test--with-notes paths '("e2e-a" "e2e-b" "e2e-c")
+    (let ((org-id-track-globally t)
+          (org-id-locations (make-hash-table :test #'equal))
+          (org-id-files nil)
+          sync-dump full-dump)
+      (vulpea-test--with-temp-db
+        (vulpea-db)
+        (mapc #'vulpea-db-update-file paths)
+        (setq sync-dump (vulpea-db-worker-test--db-dump)))
+      (vulpea-test--with-temp-db
+        (vulpea-db)
+        (let ((vulpea-db-async-extraction 'full)
+              (vulpea-db-note-index-filter-functions nil)
+              statuses)
+          (let ((vulpea-db-worker-done-functions
+                 (list (lambda (_path status _count)
+                         (push status statuses)))))
+            (vulpea-db-worker-with-grouped-requests
+              (mapc #'vulpea-db-worker-request paths))
+            (vulpea-db-worker-test--wait))
+          (should (equal statuses '(applied applied applied)))
+          (setq full-dump (vulpea-db-worker-test--db-dump))
+          (should (equal (gethash "e2e-b" org-id-locations)
+                         (abbreviate-file-name (nth 1 paths))))))
+      (dolist (table '(:notes :tags :links :meta :properties :files))
+        (should (equal (plist-get sync-dump table)
+                       (plist-get full-dump table)))))))
+
 (ert-deftest vulpea-db-worker-filters-inert-logic ()
   "Full-write activates when index filters provably cannot matter.
 The schema-validation filter is installed unconditionally at load;
