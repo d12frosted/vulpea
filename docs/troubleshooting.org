@@ -620,6 +620,21 @@ as headings ([[https://github.com/d12frosted/vulpea/issues/530][vulpea#530]]). F
 
 Then re-index with =C-u M-x vulpea-db-sync-full-scan=.
 
+** Errors about org-element functions that do not exist
+
+Errors like =Symbol's function definition is void:
+org-element--property= while indexing mean two Org versions are
+mixed: vulpea was compiled against one and runs on top of the other.
+The usual cause is an older Org on =load-path= ahead of the one
+bundled with Emacs (an old ELPA =org= package, a leftover checkout),
+while the bundled one is loaded early in init. =M-x org-version= then
+reports the older version even though the session runs the newer one.
+
+=M-x vulpea-doctor= reports this as a possible mixed Org install and
+names both directories. =M-x list-load-path-shadows= shows every
+shadowed library. Remove the copy you do not use, then reinstall
+vulpea so it is compiled against the Org that stays.
+
 ** WAL sidecar files appeared next to my database
 
 Expected in ='full= mode: SQLite's write-ahead log creates =-wal=

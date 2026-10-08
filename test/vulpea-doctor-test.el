@@ -128,6 +128,27 @@ creating it as a side effect."
     (let ((issues (vulpea-doctor--issues)))
       (should (seq-some (lambda (i) (string-match-p "\\bfd\\b" i)) issues)))))
 
+(ert-deftest vulpea-doctor-issue-shadowed-org ()
+  "An Org copy shadowing the loaded one on `load-path' is reported."
+  (let ((stale (make-temp-file "vulpea-doctor-stale-org-" t)))
+    (unwind-protect
+        (progn
+          (with-temp-file (expand-file-name "org-element.el" stale)
+            (insert "(error \"Stale org-element loaded\")\n"))
+          (let* ((load-path (cons stale load-path))
+                 (issues (vulpea-doctor--issues)))
+            (should (seq-some
+                     (lambda (i)
+                       (and (string-match-p "mixed Org install" i)
+                            (string-match-p (regexp-quote stale) i)))
+                     issues))))
+      (delete-directory stale t))))
+
+(ert-deftest vulpea-doctor-no-shadowed-org-issue ()
+  "A single Org install yields no mixed-install issue."
+  (should-not (seq-some (lambda (i) (string-match-p "mixed Org install" i))
+                        (vulpea-doctor--issues))))
+
 (ert-deftest vulpea-doctor-issue-missing-directory ()
   "A non-existent sync directory yields an issue naming it."
   (let* ((vulpea-db-sync-directories '("/nonexistent/vulpea-doctor-test/"))

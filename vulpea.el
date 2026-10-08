@@ -697,6 +697,21 @@ sample), `checked' (with :sampled and :diffs, see
                     " collections. Install fd, or fix Emacs's PATH if it"
                     " is already installed (Doom users: re-run 'doom env').")
             issues))
+    ;; Mixed Org install (vulpea#550): the Org the session runs is not
+    ;; the one `load-path' resolves to, so anything loading Org afresh
+    ;; gets the other copy
+    (when-let* ((loaded (vulpea-db-worker--org-directory))
+                (found (locate-library "org-element"))
+                (found (file-name-directory found))
+                ((not (equal (file-truename loaded) (file-truename found)))))
+      (push (format
+             (concat "Possible mixed Org install: Org is loaded from %s,"
+                     " but `load-path' resolves it to %s. Org libraries"
+                     " loaded later (and `org-version') come from the"
+                     " second copy, which can break in odd ways. Remove"
+                     " the Org copy you do not use.")
+             loaded found)
+            issues))
     ;; Sync state
     (unless vulpea-db-autosync-mode
       (push (concat "`vulpea-db-autosync-mode' is disabled - the database"

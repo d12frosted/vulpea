@@ -353,6 +353,50 @@ extractor observes behavior the stale bytecode predates."
     (should (< (seq-position cmd "(setq load-prefer-newer t)")
                (seq-position cmd "-l")))))
 
+(defmacro vulpea-db-worker-test--with-stale-org (&rest body)
+  "Run BODY with a stale Org copy shadowing the loaded one on `load-path'.
+The copy's libraries signal when loaded, so any process that picks
+them up instead of the Org the session runs fails loudly."
+  (declare (indent 0))
+  `(let ((stale (make-temp-file "vulpea-stale-org-" t)))
+     (unwind-protect
+         (progn
+           (dolist (lib '("org" "org-element" "org-attach" "org-id"))
+             (with-temp-file (expand-file-name (concat lib ".el") stale)
+               (insert (format "(error \"Stale %s loaded\")\n" lib))))
+           (let ((load-path (cons stale load-path)))
+             ,@body))
+       (delete-directory stale t))))
+
+(ert-deftest vulpea-db-worker-command-pins-session-org ()
+  "The worker loads Org from where the session loaded it.
+
+With a mixed Org install (an old Org ahead of the bundled one on
+`load-path', but the bundled one loaded early), the worker would
+otherwise resolve Org from `load-path' afresh and run vulpea code
+compiled against one Org on top of another (#550)."
+  (vulpea-db-worker-test--with-stale-org
+    (let* ((cmd (vulpea-db-worker--command))
+           (first-dir (nth (1+ (seq-position cmd "-L")) cmd)))
+      (should (equal (file-truename (file-name-as-directory first-dir))
+                     (file-truename
+                      (file-name-directory
+                       (symbol-file 'org-element 'provide))))))))
+
+(ert-deftest vulpea-db-worker-ignores-shadowing-org ()
+  "A stale Org ahead on `load-path' does not reach the worker (#550)."
+  (vulpea-db-worker-test--with-file
+      ":PROPERTIES:\n:ID: stale-org-note\n:END:\n#+title: Stale Org\n"
+    (vulpea-db-worker-test--with-stale-org
+      (let ((dumps (vulpea-db-worker-test--dumps path)))
+        ;; A worker that dies on the stale Org still gets the file
+        ;; indexed by the session's fallback, so the dumps alone
+        ;; would match either way
+        (should-not vulpea-db-worker--crash-times)
+        (should (plist-get (cdr dumps) :notes))
+        (should (equal (plist-get (car dumps) :notes)
+                       (plist-get (cdr dumps) :notes)))))))
+
 (ert-deftest vulpea-db-worker-async-database-equals-sync ()
   "Worker-extracted data lands in the database byte-identically.
 Indexes the adversarial corpus twice - synchronously in one database,
