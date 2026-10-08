@@ -598,13 +598,24 @@ Forced results skip the unchanged-content shortcut: force exists for
 parser or settings changes, where content is identical but extraction
 output is not.")
 
+(defun vulpea-db-worker--org-directory ()
+  "Return the directory the session loaded Org from, or nil."
+  (when-let* ((file (symbol-file 'org-element 'provide)))
+    (file-name-directory file)))
+
 (defun vulpea-db-worker--command ()
   "Build the worker process command line."
   (let ((emacs (expand-file-name invocation-name invocation-directory))
-        (lib (locate-library "vulpea-db-worker")))
+        (lib (locate-library "vulpea-db-worker"))
+        (org-dir (vulpea-db-worker--org-directory)))
     (unless lib
       (error "Cannot locate vulpea-db-worker library for the worker process"))
     (append (list emacs "--batch" "-Q")
+            ;; With a mixed Org install the session may run one Org
+            ;; while `load-path' resolves to another, and vulpea is
+            ;; compiled against the one the session runs.  Load that
+            ;; one in the worker too, ahead of whatever shadows it.
+            (when org-dir (list "-L" org-dir))
             (mapcan (lambda (dir) (list "-L" dir))
                     (seq-filter #'stringp load-path))
             ;; -Q leaves `load-prefer-newer' nil, so a stale .elc next

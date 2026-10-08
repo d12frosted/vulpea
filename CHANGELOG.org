@@ -113,6 +113,8 @@
 
 *Fixes*
 
+- [[https://github.com/d12frosted/vulpea/issues/550][vulpea#550]] The extraction worker loads the same Org as your session. It used to resolve Org from =load-path= on its own, so with a mixed Org install (an older Org ahead of the bundled one on =load-path=, while the bundled one is loaded early in init) the worker ran vulpea, compiled against one Org, on top of the other, and every file failed with errors like =Symbol's function definition is void: org-element--property=. The session never noticed, so this only showed up once async extraction became the default. =M-x vulpea-doctor= now reports a mixed Org install, since the stale copy still serves =org-version= and any Org library loaded later. Thanks to =@vonHabsi= for the report.
+
 - Polling for external changes keeps working after =vulpea-db-autosync-mode= is turned off and on while a poll is listing files. Turning the mode off killed the listing, so the poll never finished and its "in progress" flag stayed set, and every poll after the mode came back was skipped for the rest of the session. Stopping now clears the flag, and a listing that lands after polling stopped is dropped.
 
 - [[https://github.com/d12frosted/vulpea/issues/531][vulpea#531]] =vulpea-db-sync-scan-on-enable= set to =blocking= blocks again. The scan runs while =vulpea-db-autosync-mode= is being enabled, when the mode already counts as on, and with the mode on every directory scan was queued instead of indexed: the "blocking" scan returned at once, like the default background one. It now indexes in your session before the mode returns, and so does the re-index after a schema or settings change, so code right after enabling the mode sees an up-to-date database.
