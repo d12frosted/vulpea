@@ -7,19 +7,19 @@ This document compares Vulpea with other Org-mode note management libraries: [[h
 
 I have not used org-node or Supertag myself; what I say about them comes from their READMEs, documentation and source code. If you notice any inaccuracies, please open an issue or pull request.
 
-Last updated: 2026-10-08, against org-roam 2.3.1, org-node 3.18 with org-mem 0.34, and Supertag V2 (commit 1903115, package version 0.2.0).
+Last updated: 2026-10-09, against org-roam 2.3.1, org-node 3.18 with org-mem 0.34, and Supertag v0.3.0 (commit dcd3dc2).
 
 * Overview
 
 All four index Org files and use =org-id= to identify notes: a file or a heading with an =ID= property is something you can find, link to and see backlinks for. They differ in what they optimize for and in how they keep their index in step with your files.
 
-| Aspect      | org-roam               | org-node                         | Supertag                            | vulpea                                 |
-|-------------+------------------------+----------------------------------+-------------------------------------+----------------------------------------|
-| Built for   | Roam Research in Emacs | Fast org-id notes, org-roam data | Write first, organize later         | Notes as queryable data, with an API   |
-| Storage     | SQLite                 | In-memory, rebuilt each session  | In-memory, saved to one Elisp file  | SQLite                                 |
-| Parser      | org-element            | Custom regexp parser (org-mem)   | org-element                         | org-element                            |
-| Updates on  | Save hook              | Save hook, periodic full reset   | Save queue, periodic scan (15 min)  | File watchers, background worker       |
-| Other Emacs | Shared DB              | Each session builds its own      | Reloads a newer DB file when idle   | Shared DB, each session watches files  |
+| Aspect      | org-roam               | org-node                         | Supertag                                              | vulpea                                |
+|-------------+------------------------+----------------------------------+-------------------------------------------------------+---------------------------------------|
+| Built for   | Roam Research in Emacs | Fast org-id notes, org-roam data | Write first, organize later                           | Notes as queryable data, with an API  |
+| Storage     | SQLite                 | In-memory, rebuilt each session  | In-memory, saved to one Elisp file                    | SQLite                                |
+| Parser      | org-element            | Custom regexp parser (org-mem)   | org-element                                           | org-element                           |
+| Updates on  | Save hook              | Save hook, periodic full reset   | Save queue, background parser, periodic scan (15 min) | File watchers, background worker      |
+| Other Emacs | Shared DB              | Each session builds its own      | Reloads a newer DB file when idle                     | Shared DB, each session watches files |
 
 * Design Philosophy
 
@@ -81,7 +81,7 @@ Hash tables rebuilt in every session, fast lookups by ID. Full rebuild is fast: 
 
 *** Supertag: in-memory, saved as Elisp
 
-The index lives in hash tables and is saved as one serialized Elisp file (=supertag-db.el=), with daily backups. Some things exist only in that file and not in your Org text, such as automation rules. Another Emacs session that saves a newer revision is picked up when the local copy has no unsaved changes; across machines, Supertag recommends syncing the Org text with Git and letting each machine rebuild its own index.
+The index lives in hash tables and is saved as one serialized Elisp file (=supertag-db.el=), written a piece at a time while Emacs is idle, with daily backups. Automation rules are stored in that file too, but they can have other homes: a rule written as =(supertag-automation-create ...)= in your init file is created again on every start, so the init file is its source, and with Git sync on, rules are also written to =.supertag-metadata.eld= in the sync directory and travel with the Org text. Only a rule made from a template (=supertag-automation-insert-template=) without Git sync lives in the database file alone. Another Emacs session that saves a newer revision is picked up when the local copy has no unsaved changes; across machines, Supertag recommends syncing the Org text with Git and letting each machine rebuild its own index.
 
 *** vulpea: SQLite behind an API
 
@@ -117,7 +117,7 @@ Updates the in-memory tables on save, and an idle timer triggers a full reset ev
 
 *** Supertag
 
-Saving a file queues it, a periodic scan (every 15 minutes by default) queues files changed since the last sync, and the queue is processed while Emacs is idle. Unchanged files are skipped by content hash. After changing directories or moving machines, a full rescan rebuilds the index.
+Saving a file queues it, and a periodic scan (every 15 minutes by default) queues files changed since the last sync. By default the queued files are parsed in a background =emacs --batch= process (=supertag-sync-parse-in-subprocess=), and Emacs only applies the results, in short slices while it is idle. Once Emacs is idle, that process also reads the large files that changed last ahead of time, so that their next save sends back only the headings that changed. Unchanged files are skipped by content hash. After changing directories or moving machines, a full rescan rebuilds the index; it parses in the session.
 
 *** vulpea
 
@@ -270,18 +270,18 @@ All four keep their own index and read the same kind of files, so they can index
 
 [[https://github.com/d12frosted/org-notes-bench][org-notes-bench]] runs all four on the same generated notes, each in a fresh =emacs -Q= on an EC2 instance and only through the tool's own commands. Its README explains what each number measures, and the raw results are in the repository. I maintain vulpea; the other maintainers have been asked to check how their tools are measured there.
 
-From its 2026-10-08 run with every tool on default settings and vulpea at master =d9be363= (100k files hold 145k notes; the save is measured on a 1k-note corpus):
+From its 2026-10-08 run with every tool on default settings and vulpea at master =d9be363=, and its 2026-10-09 run of Supertag v0.3.0 (100k files hold 145k notes; the save is measured on a 1k-note corpus):
 
 | 100k files                               | org-roam    | org-node | Supertag | vulpea  |
 |------------------------------------------+-------------+----------+----------+---------|
-| Index from scratch                       | 74 min      | 15s      | 2.7 min  | 4.9 min |
-| First run: longest freeze while indexing | whole index | 3.4s     | 1.6s     | 0.26s   |
-| Start of a new session                   | 16s         | 15s      | 5.4s     | 9ms     |
-| Open the find command                    | 7.8s        | 19ms     | 0.71s    | 25ms    |
-| Backlinks of a note with 35k of them     | 14s         | 26ms     | 0.45s    | 0.98s   |
-| Save a 10MB file: longest freeze         | 36s         | 0.39s    | 6.7s     | 1.8s    |
+| Index from scratch                       | 74 min      | 15s      | 2.3 min  | 4.9 min |
+| First run: longest freeze while indexing | whole index | 3.4s     | 0.60s    | 0.26s   |
+| Start of a new session                   | 16s         | 15s      | 3.5s     | 9ms     |
+| Open the find command                    | 7.8s        | 19ms     | 37ms     | 25ms    |
+| Backlinks of a note with 35k of them     | 14s         | 26ms     | 0.41s    | 0.98s   |
+| Save a 10MB file: longest freeze         | 36s         | 0.39s    | 18ms     | 1.8s    |
 
-The runs behind this table used several cloud machines of the same type, and those can differ by about 15% (org-node and vulpea shared one, org-roam and Supertag another), so read the large gaps rather than the small ones. Some of these are not like for like. org-roam's first run is its full index with Emacs blocked throughout, since enabling its autosync mode syncs synchronously. org-node keeps nothing on disk, so every session starts with a full index (15s, thanks to org-mem's own parser running in parallel subprocesses). For backlinks, org-node returns link records, Supertag one aggregated item per source, and org-roam and vulpea the full notes with all their data.
+The runs behind this table used several cloud machines of the same type, and those can differ by about 15% (org-node and vulpea shared one, org-roam another, and Supertag a third, where org-node ran in the same run and indexed about 15% faster than on the machine it shared with vulpea), so read the large gaps rather than the small ones. Supertag's parser process reads the large files that changed last ahead of time once Emacs is idle, and the benchmark saves a few idle seconds after startup, when that read-ahead has already been asked for; a large file that was not read ahead pays a full parse in that process on its first save, which takes longer to become findable. Some of these are not like for like. org-roam's first run is its full index with Emacs blocked throughout, since enabling its autosync mode syncs synchronously. org-node keeps nothing on disk, so every session starts with a full index (15s, thanks to org-mem's own parser running in parallel subprocesses). For backlinks, org-node returns link records, Supertag one aggregated item per source, and org-roam and vulpea the full notes with all their data.
 
 With the settings vulpea's README recommends for speed (=vulpea-db-async-extraction= set to ='full= among them), the index from scratch takes 3.2 min, the 10MB save blocks for 15ms, and a first run never blocks for more than 0.25s, with the main thread busy for about 5s of its 3.3 min.
 
