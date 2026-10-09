@@ -281,7 +281,7 @@ From its 2026-10-08 run with every tool on default settings and vulpea at master
 | Backlinks of a note with 35k of them     | 14s         | 26ms     | 0.45s    | 0.98s   |
 | Save a 10MB file: longest freeze         | 36s         | 0.39s    | 6.7s     | 1.8s    |
 
-Some of these are not like for like. org-roam's first run is its full index with Emacs blocked throughout, since enabling its autosync mode syncs synchronously. org-node keeps nothing on disk, so every session starts with a full index (15s, thanks to org-mem's own parser running in parallel subprocesses). For backlinks, org-node returns link records, Supertag one aggregated item per source, and org-roam and vulpea the full notes with all their data.
+The runs behind this table used several cloud machines of the same type, and those can differ by about 15% (org-node and vulpea shared one, org-roam and Supertag another), so read the large gaps rather than the small ones. Some of these are not like for like. org-roam's first run is its full index with Emacs blocked throughout, since enabling its autosync mode syncs synchronously. org-node keeps nothing on disk, so every session starts with a full index (15s, thanks to org-mem's own parser running in parallel subprocesses). For backlinks, org-node returns link records, Supertag one aggregated item per source, and org-roam and vulpea the full notes with all their data.
 
 With the settings vulpea's README recommends for speed (=vulpea-db-async-extraction= set to ='full= among them), the index from scratch takes 3.2 min, the 10MB save blocks for 15ms, and a first run never blocks for more than 0.25s, with the main thread busy for about 5s of its 3.3 min.
 
