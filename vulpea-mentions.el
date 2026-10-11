@@ -278,18 +278,40 @@ its edge character."
    (vulpea-mentions--rg-quote term)
    (or (vulpea-mentions--edge-boundary (aref term (1- (length term)))) "")))
 
+(defun vulpea-mentions--rg-link-pattern (terms)
+  "Return the ripgrep regex for an Org bracket link holding one of TERMS.
+
+The link may cross line boundaries: filling a paragraph breaks a link's
+description (or a path with spaces in it) like any other text.  Each
+term is compiled by `vulpea-mentions--rg-pattern'.  Stricter than
+`org-link-bracket-re': a link with a bracket inside its path or
+description, or one continued by an empty line, is not matched."
+  (let ((inner "(?:[^\\[\\]\\n]|\\]\\[|\\n(?:[^\\[\\]\\n]|\\]\\[))"))
+    (concat "\\[\\[" inner "*?\\n?"
+            "(?:" (mapconcat #'vulpea-mentions--rg-pattern terms "|") ")"
+            inner "*\\]\\]")))
+
 (defun vulpea-mentions--rg-command (rg terms dirs)
   "Build the ripgrep command, run as RG, for TERMS over DIRS.
 
 Produces a JSON stream of case-insensitive matches restricted to Org
 files.  Each term is compiled to a regex by
 `vulpea-mentions--rg-pattern', which applies script-aware word
-boundaries."
+boundaries.
+
+ripgrep searches line by line, so on its own it reports each line of a
+link that wraps across lines separately, and none of them reads as a
+link.  Multiline mode with `vulpea-mentions--rg-link-pattern' makes a
+link holding a term a match of its own: the term inside it is no longer
+matched, and the link arrives whole for `vulpea-mentions--parse-rg-json'
+to tell which columns of each line it covers.  Links without a term
+stay out of the output."
   (append
-   (list rg "--json" "--ignore-case" "--glob" "*.org")
+   (list rg "--json" "--ignore-case" "--glob" "*.org" "--multiline")
    (mapcan (lambda (term)
              (list "-e" (vulpea-mentions--rg-pattern term)))
            terms)
+   (list "-e" (vulpea-mentions--rg-link-pattern terms))
    dirs))
 
 (defvar vulpea-mentions--fold-table nil
@@ -366,15 +388,68 @@ buffer, so they are fed to ripgrep over a pipe instead."
     (or (null file)
         (string-suffix-p ".org" file))))
 
+(defun vulpea-mentions--clip-spans (spans beg end)
+  "Return the parts of SPANS that fall between BEG and END.
+
+SPANS is a list of (BEG . END) pairs.  The result is relative to BEG,
+so for a line that starts at BEG it holds columns on that line."
+  (let ((result nil))
+    (dolist (span spans)
+      (when (and (< (car span) end) (> (cdr span) beg))
+        (push (cons (- (max (car span) beg) beg)
+                    (- (min (cdr span) end) beg))
+              result)))
+    (nreverse result)))
+
+(defun vulpea-mentions--split-hit (path line-no text matched)
+  "Split a ripgrep match over several lines into one hit per line.
+
+In multiline mode a match event carries every line its matches touch:
+a link wrapped across lines (see `vulpea-mentions--rg-link-pattern')
+comes with all of its lines, and matches on adjacent lines are merged
+into one event.  TEXT is that block, starting at line LINE-NO of PATH,
+and MATCHED the substrings matched in it.
+
+A substring holding a newline is a wrapped link.  Each line becomes a
+hit like the one a single-line match produces, with :matched listing
+the other substrings of the whole block and :link-spans the
+\(BEG . END) columns the wrapped links cover on that line."
+  (let ((spans nil)
+        (others nil)
+        (start 0)
+        (result nil))
+    (dolist (match matched)
+      (if (not (string-search "\n" match))
+          (push match others)
+        ;; Matches come in order and do not overlap, so each link is the
+        ;; first occurrence of its text past the previous one.
+        (when-let* ((beg (string-search match text start)))
+          (setq start (+ beg (length match)))
+          (push (cons beg start) spans))))
+    (setq others (nreverse others)
+          start 0)
+    (dolist (line (split-string text "\n"))
+      (let ((end (+ start (length line))))
+        (push (list :path path
+                    :line line-no
+                    :line-text (string-trim-right line "\r+")
+                    :matched others
+                    :link-spans (vulpea-mentions--clip-spans spans start end))
+              result)
+        (setq start (1+ end)
+              line-no (1+ line-no))))
+    (nreverse result)))
+
 (defun vulpea-mentions--parse-rg-json (output)
   "Parse ripgrep --json OUTPUT into a list of raw hit plists.
 
 Each hit is a plist with :path, :line, :line-text, and :matched (the
-list of matched substrings on the line).  Non-match events and
-unparseable lines are ignored, as are hits whose path or line content
-ripgrep encodes as base64 bytes rather than text (the value was not
-valid UTF-8, e.g. a mis-encoded file name); one such file must not
-take down the rest of the scan."
+list of matched substrings on the line).  A match over several lines
+yields one hit per line, see `vulpea-mentions--split-hit'.  Non-match
+events and unparseable lines are ignored, as are hits whose path or
+line content ripgrep encodes as base64 bytes rather than text (the
+value was not valid UTF-8, e.g. a mis-encoded file name); one such
+file must not take down the rest of the scan."
   (let ((result nil))
     (dolist (line (split-string output "\n" t))
       (let ((obj (ignore-errors (json-parse-string line :object-type 'alist))))
@@ -396,11 +471,16 @@ take down the rest of the scan."
             ;; file name from raw bytes means guessing its encoding),
             ;; so the hit is dropped rather than decoded.
             (when (and path text)
-              (push (list :path path
-                          :line line-no
-                          :line-text (string-trim-right text "[\n\r]+")
-                          :matched matched)
-                    result))))))
+              (let ((text (string-trim-right text "[\n\r]+")))
+                (if (string-search "\n" text)
+                    (dolist (hit (vulpea-mentions--split-hit
+                                  path line-no text matched))
+                      (push hit result))
+                  (push (list :path path
+                              :line line-no
+                              :line-text text
+                              :matched matched)
+                        result))))))))
     (nreverse result)))
 
 (defun vulpea-mentions--link-spans (line)
@@ -439,15 +519,19 @@ have no word separators to respect."
        (string-match-p "[[:alnum:]]" (char-to-string edge))
        (string-match-p "[[:alnum:]]" (char-to-string neighbor))))
 
-(defun vulpea-mentions--occurrences (line term)
+(defun vulpea-mentions--occurrences (line term &optional link-spans)
   "Return the occurrences of TERM in LINE.
 
 Each one is a list (BEG END GLUED LINKED).  BEG and END delimit it in
 LINE.  GLUED is non-nil when it is part of a longer word rather than a
 word of its own: one of its edges touches spaced-script text (see
 `vulpea-mentions--glued-p').  LINKED is non-nil when it starts inside
-an Org link.  Matching is case-insensitive."
-  (let ((spans (vulpea-mentions--link-spans line))
+an Org link.  Matching is case-insensitive.
+
+A link that crosses a line boundary cannot be recognized from LINE
+alone.  LINK-SPANS is the list of (BEG . END) columns such links cover
+on LINE; an occurrence that starts inside one is LINKED as well."
+  (let ((spans (append (vulpea-mentions--link-spans line) link-spans))
         (case-fold-search t)
         (len (length line))
         (re (regexp-quote term))
@@ -473,16 +557,17 @@ an Org link.  Matching is case-insensitive."
 OCCURRENCE is an element of `vulpea-mentions--occurrences'."
   (not (or (nth 2 occurrence) (nth 3 occurrence))))
 
-(defun vulpea-mentions--line-unlinked-p (line terms)
+(defun vulpea-mentions--line-unlinked-p (line terms &optional link-spans)
   "Return non-nil when some term in TERMS occurs in LINE outside any link.
 
 Matching is case-insensitive.  A match must stand on its own where its
 edges touch spaced-script text (see `vulpea-mentions--glued-p'), while
 spaceless scripts match as substrings; occurrences inside an Org link
-are not counted."
+are not counted.  LINK-SPANS, the columns that links wrapped across
+lines cover on LINE, is passed on to `vulpea-mentions--occurrences'."
   (seq-some (lambda (term)
               (seq-some #'vulpea-mentions--mention-p
-                        (vulpea-mentions--occurrences line term)))
+                        (vulpea-mentions--occurrences line term link-spans)))
             terms))
 
 (defun vulpea-mentions--boundary-p (line pos)
@@ -710,7 +795,8 @@ was written there does not matter.  Returns a list of plists with
                    (not (and vulpea-mentions-exclude-linked
                              (gethash expanded-path paths-link-to-note)))
                    (not (vulpea-mentions--metadata-line-p line-text))
-                   (vulpea-mentions--line-unlinked-p line-text terms))
+                   (vulpea-mentions--line-unlinked-p
+                    line-text terms (plist-get hit :link-spans)))
           (let ((mentioning (vulpea-mentions--file-note path path->notes)))
             (when (and mentioning
                        (not (vulpea-mentions--shares-name-p mentioning terms))
@@ -782,6 +868,44 @@ search for \"[[\" is also much cheaper than the plain-link regexp."
          (puthash (plist-get link :dest) t result))))
     result))
 
+(defun vulpea-mentions--buffer-wrapped-link-spans ()
+  "Return a hash table of the links wrapped across lines in the current buffer.
+
+Maps a line number to the list of (BEG . END) columns that bracket
+links crossing a line boundary cover on that line, the shape
+`vulpea-mentions--occurrences' takes.  Links that fit on one line are
+left out: they are recognized from the line itself.  Lines are numbered
+from the start of the accessible portion, which is the text ripgrep is
+handed."
+  (let ((result (make-hash-table :test 'eql))
+        (line 1)
+        (line-start (point-min)))
+    (save-excursion
+      (goto-char (point-min))
+      (while (re-search-forward org-link-bracket-re nil t)
+        (let ((beg (match-beginning 0))
+              (end (match-end 0)))
+          (goto-char beg)
+          (when (< (line-end-position) end)
+            ;; Count from the previous wrapped link, not from the top:
+            ;; the buffer may hold thousands of them.
+            (setq line (+ line (count-lines line-start (line-beginning-position)))
+                  line-start (line-beginning-position))
+            (while (< (point) end)
+              (let ((bol (line-beginning-position)))
+                (puthash line
+                         (nconc (gethash line result)
+                                (vulpea-mentions--clip-spans
+                                 (list (cons beg end))
+                                 bol (line-end-position)))
+                         result))
+              (forward-line 1)
+              (when (< (point) end)
+                (setq line (1+ line)
+                      line-start (point)))))
+          (goto-char end))))
+    result))
+
 (defun vulpea-mentions--ignored-by-note-p (ids note)
   "Return non-nil if at least one of IDS is ignored by NOTE."
   (let ((ignore-mentions-id (vulpea-mentions--ignore-mention-ids-table note)))
@@ -807,7 +931,8 @@ TEXT."
       (when pos
         (substring text pos (string-search "\n" text pos))))))
 
-(defun vulpea-mentions--collect-outgoing (output text dict self-ids linked-ids)
+(defun vulpea-mentions--collect-outgoing (output text dict self-ids linked-ids
+                                                &optional wrapped-links)
   "Collect outgoing unlinked mentions from ripgrep OUTPUT over one buffer.
 
 TEXT is the text of the buffer.  OUTPUT comes from searching the
@@ -823,7 +948,10 @@ explicitly ignored by the mentioned note, then the mention will be
 dropped (see `vulpea-mentions-per-note-ignore-property-key').
 LINKED-IDS is a hash table keyed by the note ids the buffer already
 links to (see `vulpea-mentions--buffer-link-ids'); candidates found in
-it are dropped.  Pass an empty table to keep them all.
+it are dropped.  Pass an empty table to keep them all.  WRAPPED-LINKS
+is a hash table of the buffer's links that cross a line boundary (see
+`vulpea-mentions--buffer-wrapped-link-spans'); an occurrence inside one
+is dropped like one inside a link that fits its line.
 
 Ripgrep matches plain strings, so it also reports \"red wine\" inside
 \"red wines\".  Such a glued match is dropped here.  But ripgrep's
@@ -862,11 +990,13 @@ Returns a list of plists with :note (a candidate note to link to),
       (dolist (hit (vulpea-mentions--parse-rg-json output))
         (let* ((line-no (plist-get hit :line))
                (folded (plist-get hit :line-text))
-               (line (funcall line-at line-no)))
+               (line (funcall line-at line-no))
+               (link-spans (and wrapped-links
+                                (gethash line-no wrapped-links))))
           (unless (vulpea-mentions--metadata-line-p line)
             (let* ((occurrences (lambda (term)
                                   (cons term (vulpea-mentions--occurrences
-                                              folded term))))
+                                              folded term link-spans))))
                    (found (mapcar occurrences
                                   (seq-uniq (plist-get hit :matched)))))
               (when (seq-some (pcase-lambda (`(,term . ,spans))
@@ -1035,9 +1165,11 @@ target a specific buffer."
           ;; serves both the sentinel and a setup that fails part way.
           ;;
           ;; Ripgrep reads the folded text; the text as written stays
-          ;; here, for the sentinel to quote mentions from.
+          ;; here, for the sentinel to quote mentions from, along with
+          ;; the links in it that ripgrep cannot see whole.
           (let ((snapshot (vulpea-mentions--snapshot-buffer-p))
                 (text (buffer-substring-no-properties (point-min) (point-max)))
+                (wrapped-links (vulpea-mentions--buffer-wrapped-link-spans))
                 folded patterns-file input-file output-buffer proc)
             (cl-flet ((cleanup ()
                         (when patterns-file
@@ -1091,7 +1223,8 @@ target a specific buffer."
                                      (condition-case err
                                          (funcall resolve
                                                   (vulpea-mentions--collect-outgoing
-                                                   output text dict self-ids linked-ids))
+                                                   output text dict self-ids linked-ids
+                                                   wrapped-links))
                                        (error
                                         (funcall reject (error-message-string err)))))
                                     ((eq status 'exit)

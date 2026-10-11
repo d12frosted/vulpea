@@ -447,7 +447,8 @@ which keeps heading-level notes - often dates or common single words -
 from producing noisy suggestions. Both directions share the same
 exclusions (an occurrence inside an Org link or on an Org metadata line
 is never a mention) and both return the ripgrep process, so a caller can
-wait on or cancel the scan.
+wait on or cancel the scan. A link counts whether it fits on one line or
+wraps across several, as it does after filling a paragraph.
 
 Incoming mentions can be silenced per note. The property named by
 =vulpea-mentions-per-note-ignore-property-key= holds a whitespace
