@@ -418,6 +418,14 @@ to a temporary file for ripgrep, so the call returns at once; a buffer
 visiting an encrypted note (any extension other than =.org=) goes over
 a pipe instead and the call blocks while the text is sent.
 
+This search looks for every title and alias of the collection at once,
+so its cost is set by their number. Case is erased in Emacs on both
+sides and ripgrep is handed plain strings, the one thing it matches
+quickly in bulk: about 0.07s with 10,000 titles and 0.8s with 100,000
+(ripgrep 15.1 on an M1 Pro), whatever the size of the buffer. When one
+title starts another (=Wine= and =Wine Tasting=), the longest one that
+fits is the mention.
+
 #+begin_src emacs-lisp
 (vulpea-buffer-unlinked-mentions-async
  ;; resolve: list of plists, each with :note (a note this buffer could
@@ -469,17 +477,19 @@ separators (Han, Kana, Thai, ...) match as substrings: =金阁寺= is
 found inside =又名金阁寺=, since there is no word boundary between two
 Han characters to respect. A mixed title like =Emacs入门= keeps the
 boundary only on its Latin edge, and a Latin title glued into CJK
-prose counts too: =Emacs= is found inside =我爱用Emacs写作=. The
-pre-filter strategy is controlled by
+prose counts too: =Emacs= is found inside =我爱用Emacs写作=. These
+rules are enforced in Emacs; ripgrep only pre-filters. For the
+incoming search the pre-filter strategy is controlled by
 =vulpea-mentions-word-boundaries=: =auto= (the default) decides per
 term edge, =t= demands strict boundaries everywhere (the historical
-behavior - also markedly slower on large title dictionaries, since a
-Unicode =\b= over non-ASCII text forces ripgrep off its fast literal
-path), and =nil= drops boundaries from the ripgrep pre-filter
-entirely - over =auto= this only adds matches next to an
-underscore (=foo= inside =foo_bar=, ripgrep counts =_= as a word
-character), and its cost is that every glued occurrence of every
-Latin title travels to the Emacs re-check just to be rejected there.
+behavior - it can also be slower, since a Unicode =\b= over non-ASCII
+text forces ripgrep off its fast literal path), and =nil= drops boundaries
+from the ripgrep pre-filter entirely - over =auto= this only adds
+matches next to an underscore (=foo= inside =foo_bar=, ripgrep counts
+=_= as a word character), and its cost is that every glued occurrence
+of every Latin title travels to the Emacs re-check just to be rejected
+there. The outgoing search does not read the option: its pre-filter
+never carries boundaries, so it finds what =nil= finds.
 Which scripts count as spaceless lives in
 =vulpea-mentions-spaceless-scripts=. The minimum
 searchable length (=vulpea-mentions-min-term-length=, default 3)
