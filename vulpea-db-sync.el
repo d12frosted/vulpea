@@ -2446,9 +2446,13 @@ still use no measurable CPU with 100k files watched, and the Windows
 monitor only loops over the root directories.  The kqueue monitor, the
 default on the BSDs, re-registers every watched file on each turn
 of its loop, so turning ten times as often costs real CPU on a large
-collection; there fswatch keeps its default."
+collection; there fswatch keeps its default.
+
+The value is spelled without a decimal separator: an fswatch built
+with NLS reads it in the user's locale, and where the separator is a
+comma (sv_SE, de_DE, fr_FR) it rejects \"0.1\" and exits at once."
   (when (memq system-type '(darwin gnu/linux windows-nt cygwin))
-    '("--latency" "0.1")))
+    '("--latency" "1e-1")))
 
 (defun vulpea-db-sync--setup-fswatch ()
   "Setup file monitoring using fswatch process.

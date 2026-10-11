@@ -931,9 +931,22 @@ kqueue monitor, the default on the BSDs, re-registers every watched
 file on each turn, so there fswatch keeps its default."
   (dolist (system '(darwin gnu/linux windows-nt cygwin))
     (let ((command (vulpea-db-sync-test--fswatch-command system)))
-      (should (equal (cadr (member "--latency" command)) "0.1"))))
+      (should (= (string-to-number (cadr (member "--latency" command)))
+                 0.1))))
   (should-not (member "--latency"
                       (vulpea-db-sync-test--fswatch-command 'berkeley-unix))))
+
+(ert-deftest vulpea-db-sync-setup-fswatch-latency-locale-independent ()
+  "The fswatch latency is written without a decimal separator.
+
+An fswatch built with NLS reads the latency in the user's locale, so
+where the decimal separator is a comma (sv_SE, de_DE, fr_FR) it
+rejects \"0.1\" and exits at once.  Digits with an exponent read the
+same in every locale."
+  (dolist (system '(darwin gnu/linux windows-nt cygwin))
+    (let* ((command (vulpea-db-sync-test--fswatch-command system))
+           (latency (cadr (member "--latency" command))))
+      (should (string-match-p "\\`[0-9]+\\(?:e[-+]?[0-9]+\\)?\\'" latency)))))
 
 (ert-deftest vulpea-db-sync-stop-detaches-fswatch-sentinel ()
   "Stopping detaches the auto-restart sentinel before killing fswatch.
