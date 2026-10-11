@@ -39,36 +39,17 @@
     mentions))
 
 (defun vulpea-mentions-test--collect-outgoing-mentions-for-note (note)
-  "Returns outgoing mentions for NOTE.
+  "Return outgoing mentions for NOTE, searched in a buffer visiting its file.
 
 NOTE can be either an ID or a `vulpea-note' object."
-  (let* ((terms-dict (vulpea-mentions--title-dictionary))
-         (terms (cdr terms-dict))
-         (dict (car terms-dict))
-         (patterns (make-temp-file "vmp-")))
-    (unwind-protect
-        (progn
-          (unless (vulpea-note-p note)
-            (setq note (vulpea-db-get-by-id note)))
-          (with-temp-file patterns
-            (insert (mapconcat #'vulpea-mentions--rg-pattern terms "\n") "\n"))
-          (let* ((note-path (expand-file-name (vulpea-note-path note)))
-                 (cmd (vulpea-mentions--rg-file-command
-                       (executable-find "rg") patterns note-path))
-                 (linked-ids (with-temp-buffer
-                               (insert-file-contents note-path)
-                               (vulpea-mentions--buffer-link-ids)))
-                 (output (with-temp-buffer
-                           (apply #'call-process (car cmd) nil t nil (cdr cmd))
-                           (buffer-string)))
-                 (self-ids (mapcar #'vulpea-note-id
-                                   (vulpea-db-query-by-file-path note-path))))
-            (vulpea-mentions--collect-outgoing
-             output
-             dict
-             self-ids
-             linked-ids)))
-      (delete-file patterns))))
+  (unless (vulpea-note-p note)
+    (setq note (vulpea-db-get-by-id note)))
+  (let ((path (expand-file-name (vulpea-note-path note))))
+    (vulpea-mentions-test--outgoing
+     (with-temp-buffer
+       (insert-file-contents path)
+       (buffer-string))
+     nil path)))
 
 (defun vulpea-mentions-test--await (state-fn &optional timeout)
   "Pump process output until STATE-FN returns non-nil.
@@ -79,6 +60,29 @@ then see whatever state the search reached."
     (while (and (not (funcall state-fn))
                 (< (float-time) deadline))
       (accept-process-output nil 0.05))))
+
+(defun vulpea-mentions-test--outgoing (content &optional timeout file)
+  "Return the outgoing mentions of a buffer holding CONTENT.
+
+Runs `vulpea-buffer-unlinked-mentions-async' to completion, waiting up
+to TIMEOUT seconds, and fails the calling test unless it resolved.
+FILE, when given, is the file the buffer claims to visit."
+  (with-temp-buffer
+    (insert content)
+    (let ((state nil)
+          (result nil))
+      (unwind-protect
+          (progn
+            (when file
+              (setq buffer-file-name file)
+              (set-buffer-modified-p nil))
+            (vulpea-buffer-unlinked-mentions-async
+             (lambda (ms) (setq state 'resolved result ms))
+             (lambda (err) (setq state (list 'rejected err))))
+            (vulpea-mentions-test--await (lambda () state) timeout))
+        (setq buffer-file-name nil))
+      (should (eq state 'resolved))
+      result)))
 
 (ert-deftest vulpea-mentions--note-terms-title-and-aliases ()
   "Terms are the title and aliases, trimmed and de-duplicated."
@@ -224,15 +228,34 @@ a bytes submatch is dropped from :matched while text ones survive."
     (should (member "金阁寺" cmd))))
 
 (ert-deftest vulpea-mentions--rg-file-command-shape ()
-  "The single-file ripgrep command reads patterns and input from files."
+  "The single-file ripgrep command reads literal patterns and input from files."
   (let ((cmd (vulpea-mentions--rg-file-command "rg" "/tmp/patterns" "/tmp/input")))
     (should (equal (car cmd) "rg"))
     (should (member "--json" cmd))
-    (should (member "--ignore-case" cmd))
-    (should-not (member "--fixed-strings" cmd))
+    ;; Titles are literals, and case is folded in Emacs before ripgrep
+    ;; sees either side: both keep it on its literal matcher.  A
+    ;; --smart-case from the user's ripgrep config must not undo that.
+    (should (member "--fixed-strings" cmd))
+    (should (member "--case-sensitive" cmd))
+    (should-not (member "--ignore-case" cmd))
     (should-not (member "--word-regexp" cmd))
     (should-not (member "-" cmd))
     (should (equal (last cmd 3) '("-f" "/tmp/patterns" "/tmp/input")))))
+
+(ert-deftest vulpea-mentions--fold ()
+  "Folding erases case one character at a time, so positions survive it."
+  (should (equal (vulpea-mentions--fold "Cabernet SAUVIGNON") "cabernet sauvignon"))
+  (should (equal (vulpea-mentions--fold "КИЇВ 金阁寺")
+                 "київ 金阁寺"))
+  ;; the three sigmas are one letter to a case-insensitive search
+  (should (equal (vulpea-mentions--fold "ΟΔΟΣ")
+                 (vulpea-mentions--fold "οδος")))
+  ;; `downcase' turns a dotted capital I into two characters, which
+  ;; would shift every position after it
+  (let ((text "İstanbul\nWine\n"))
+    (should (= (length (vulpea-mentions--fold text)) (length text)))
+    (should (string-suffix-p "\nwine\n" (vulpea-mentions--fold text))))
+  (should (equal (vulpea-mentions--fold "") "")))
 
 (ert-deftest vulpea-mentions--rg-quote-escapes-metacharacters ()
   "Rust regex metacharacters are escaped; plain text is untouched."
@@ -887,7 +910,7 @@ coming back."
 ;;; Outgoing (what a buffer mentions)
 
 (ert-deftest vulpea-mentions--title-dictionary ()
-  "The dictionary maps downcased names to ids (collisions kept) and lists terms."
+  "The dictionary maps case-folded names to ids (collisions kept) and lists them."
   (vulpea-test--with-temp-db
     (vulpea-db)
     (vulpea-test--insert-test-note "a" "Cabernet Sauvignon" :aliases '("Cab Sauv"))
@@ -899,9 +922,9 @@ coming back."
       (should (equal (sort (gethash "cabernet sauvignon" dict) #'string<) '("a" "c")))
       (should (equal (gethash "cab sauv" dict) '("a")))
       (should (equal (gethash "merlot" dict) '("b")))
-      (should (member "Cabernet Sauvignon" terms))
-      (should (member "Cab Sauv" terms))
-      (should (member "Merlot" terms)))))
+      ;; One term per name however many notes bear it, longest first:
+      ;; ripgrep reports the first pattern that fits at a position.
+      (should (equal terms '("cabernet sauvignon" "cab sauv" "merlot"))))))
 
 (ert-deftest vulpea-mentions--title-dictionary-respects-filter ()
   "The candidate dictionary honors `vulpea-mentions-note-filter'."
@@ -931,7 +954,7 @@ coming back."
    (let* ((dt (vulpea-mentions--title-dictionary))
           (dict (car dt))
           (terms (cdr dt)))
-     (should (equal terms '("Merlot")))))
+     (should (equal terms '("merlot")))))
   (vulpea-test--with-temp-db
    (vulpea-db)
    (vulpea-test--insert-test-note "c1" "Cabernet"
@@ -945,6 +968,17 @@ coming back."
           (terms (cdr dt)))
      (should (equal (gethash "cabernet" dict) '("c2"))))))
 
+(defun vulpea-mentions-test--rg-match (text line-no term)
+  "Return the ripgrep JSON event for TERM matching on line LINE-NO of TEXT.
+
+Ripgrep reads the case-folded text, so that is what the event quotes."
+  (format (concat "{\"type\":\"match\",\"data\":{\"path\":{\"text\":\"<stdin>\"},"
+                  "\"lines\":{\"text\":%S},\"line_number\":%d,"
+                  "\"submatches\":[{\"match\":{\"text\":%S},\"start\":0,\"end\":1}]}}\n")
+          (vulpea-mentions--fold (nth (1- line-no) (split-string text "\n")))
+          line-no
+          (vulpea-mentions--fold term)))
+
 (ert-deftest vulpea-mentions--collect-outgoing ()
   "Outgoing collect maps matched terms to candidate notes and applies filters."
   (vulpea-test--with-temp-db
@@ -954,33 +988,34 @@ coming back."
     (vulpea-test--insert-test-note "self" "Diary" :path "/n/diary.org")
     (let* ((dict (car (vulpea-mentions--title-dictionary)))
            (self-ids '("self"))
-           (mk (lambda (line n term)
-                 (format (concat "{\"type\":\"match\",\"data\":{\"path\":{\"text\":\"<stdin>\"},"
-                                 "\"lines\":{\"text\":%S},\"line_number\":%d,"
-                                 "\"submatches\":[{\"match\":{\"text\":%S},\"start\":0,\"end\":1}]}}\n")
-                         line n term)))
+           (text (concat "#+title: Merlot\n"
+                         "had some Cabernet\n"
+                         "see [[id:cab][Cabernet]]\n"
+                         "my Diary entry\n"))
            (output (concat
                     ;; bare mention -> candidate cab
-                    (funcall mk "had some Cabernet" 2 "Cabernet")
+                    (vulpea-mentions-test--rg-match text 2 "Cabernet")
                     ;; already linked -> excluded
-                    (funcall mk "see [[id:cab][Cabernet]]" 3 "Cabernet")
+                    (vulpea-mentions-test--rg-match text 3 "Cabernet")
                     ;; metadata line -> excluded
-                    (funcall mk "#+title: Merlot" 1 "Merlot")
+                    (vulpea-mentions-test--rg-match text 1 "Merlot")
                     ;; mention of the buffer's own note -> excluded via self-ids
-                    (funcall mk "my Diary entry" 4 "Diary")))
+                    (vulpea-mentions-test--rg-match text 4 "Diary")))
            (build-linked-ids (lambda ()
                                (let ((result (make-hash-table :test 'equal)))
                                  (puthash "cab" t result)
                                  result)))
            (linked-ids (funcall build-linked-ids)))
       (let ((mentions (vulpea-mentions--collect-outgoing
-                       output dict self-ids linked-ids)))
+                       output text dict self-ids linked-ids)))
         (should (= (length mentions) 0)))
       (let ((mentions (vulpea-mentions--collect-outgoing
-                       output dict self-ids (make-hash-table :test 'equal))))
+                       output text dict self-ids (make-hash-table :test 'equal))))
         (should (= (length mentions) 1))
         (should (equal (vulpea-note-id (plist-get (car mentions) :note)) "cab"))
+        ;; quoted from the text, not from ripgrep's folded copy of it
         (should (equal (plist-get (car mentions) :matched) "Cabernet"))
+        (should (equal (plist-get (car mentions) :context) "had some Cabernet"))
         (should (equal (plist-get (car mentions) :line) 2))))))
 
 (ert-deftest vulpea-mentions--collect-outgoing-decides-ignore-once-per-candidate ()
@@ -998,15 +1033,13 @@ process sentinel, after the search itself had finished in 0.1 s."
     (let* ((dict (car (vulpea-mentions--title-dictionary)))
            (self-ids (mapcar (lambda (i) (format "self-%d" i))
                              (number-sequence 1 50)))
-           (mk (lambda (line n term)
-                 (format (concat "{\"type\":\"match\",\"data\":{\"path\":{\"text\":\"<stdin>\"},"
-                                 "\"lines\":{\"text\":%S},\"line_number\":%d,"
-                                 "\"submatches\":[{\"match\":{\"text\":%S},\"start\":0,\"end\":1}]}}\n")
-                         line n term)))
+           (text (mapconcat (lambda (_) "had some Cabernet\nand Merlot\n")
+                            (number-sequence 1 100)
+                            ""))
            (output (mapconcat
                     (lambda (n)
-                      (concat (funcall mk "had some Cabernet" n "Cabernet")
-                              (funcall mk "and Merlot" (1+ n) "Merlot")))
+                      (concat (vulpea-mentions-test--rg-match text n "Cabernet")
+                              (vulpea-mentions-test--rg-match text (1+ n) "Merlot")))
                     (number-sequence 1 200 2)
                     ""))
            (calls 0))
@@ -1016,9 +1049,38 @@ process sentinel, after the search itself had finished in 0.1 s."
                     (cl-incf calls)
                     (apply orig args))))
         (let ((mentions (vulpea-mentions--collect-outgoing
-                         output dict self-ids (make-hash-table :test 'equal))))
+                         output text dict self-ids (make-hash-table :test 'equal))))
           (should (= (length mentions) 200))
           (should (= calls 2)))))))
+
+(ert-deftest vulpea-mentions--compound-p ()
+  "A term is compound when a word boundary falls inside it."
+  (should (vulpea-mentions--compound-p "red wine"))
+  (should (vulpea-mentions--compound-p "C++"))
+  (should (vulpea-mentions--compound-p "Emacs入门"))
+  (should-not (vulpea-mentions--compound-p "wine"))
+  (should-not (vulpea-mentions--compound-p "Київ")))
+
+(ert-deftest vulpea-mentions--line-terms ()
+  "A line is read against the dictionary the way ripgrep reads it, minding words."
+  (let ((dict (make-hash-table :test 'equal)))
+    (dolist (term '("red" "red wine" "wine" "wines of" "of note" "ed" "金阁寺"))
+      (puthash term '("id") dict))
+    ;; "red wine" is no word of its own in "red wines", so "red" is
+    ;; taken there.  "wines of" comes next, and "of note", which
+    ;; starts inside it, is passed over.
+    (should (equal (vulpea-mentions--line-terms "two red wines of note" dict 8)
+                   '("red" "wines of")))
+    ;; the longest term at a position wins
+    (should (equal (vulpea-mentions--line-terms "a red wine, red wine" dict 8)
+                   '("red wine")))
+    ;; nothing longer than the longest term is tried
+    (should (equal (vulpea-mentions--line-terms "a red wine" dict 4)
+                   '("red" "wine")))
+    ;; a spaceless script has a boundary at every character
+    (should (equal (vulpea-mentions--line-terms "又名金阁寺red" dict 8)
+                   '("金阁寺" "red")))
+    (should-not (vulpea-mentions--line-terms "reddish wined" dict 8))))
 
 (ert-deftest vulpea-mentions-outgoing-with-real-rg ()
   "Real ripgrep over a snapshot of buffer content yields candidate notes; links excluded."
@@ -1033,58 +1095,96 @@ process sentinel, after the search itself had finished in 0.1 s."
                                    `((,vulpea-mentions-ignore-property-key
                                       .
                                       ,vulpea-mentions-ignore-property-value)))
-    (let* ((terms (cdr (vulpea-mentions--title-dictionary)))
-           (dict (car (vulpea-mentions--title-dictionary)))
-           (patterns (make-temp-file "vmp-"))
-           (input (make-temp-file "vmi-"))
-           (content (concat "We had Cabernet Sauvignon and [[id:merlot][Merlot]].\n"
-                            "More Merlot and Syrah later.\n")))
-      (unwind-protect
-          (progn
-            (with-temp-file patterns
-              (insert (mapconcat #'vulpea-mentions--rg-pattern terms "\n") "\n"))
-            (with-temp-file input (insert content))
-            (let* (linked-ids-exclude-linked
-                   (linked-ids-no-exclude-linked (make-hash-table :test 'equal))
-                   (cmd (vulpea-mentions--rg-file-command
-                         (executable-find "rg") patterns input))
-                   (output (with-temp-buffer
-                             (insert content)
-                             (setq linked-ids-exclude-linked
-                                   (vulpea-mentions--buffer-link-ids))
-                             (erase-buffer)
-                             (apply #'call-process (car cmd) nil t nil (cdr cmd))
-                             (buffer-string))))
-              ;; when `vulpea-mentions-exclude-linked' is non-nil
-              (let ((mentions
-                     (vulpea-mentions--collect-outgoing
-                      output
-                      dict
-                      nil
-                      linked-ids-exclude-linked)))
-                (should (= (length mentions) 1))
-                (should (equal (plist-get (car mentions) :matched) "Cabernet Sauvignon")))
-              ;; when `vulpea-mentions-exclude-linked' is nil
-              (let* ((mentions
-                      (vulpea-mentions--collect-outgoing
-                       output
-                       dict
-                       nil
-                       linked-ids-no-exclude-linked))
-                     (ids (sort (mapcar (lambda (m) (vulpea-note-id (plist-get m :note)))
-                                        mentions)
-                                #'string<)))
-                ;; "Cabernet Sauvignon" (bare) -> cab; "Merlot" bare on line 2 -> merlot;
-                ;; the linked Merlot on line 1 is excluded.
-                (should (equal ids '("cab" "merlot")))
-                (let ((merlot (seq-find
-                               (lambda (m) (equal (vulpea-note-id (plist-get m :note)) "merlot"))
-                               mentions)))
-                  (should (equal (plist-get merlot :line) 2))
-                  (should (equal (plist-get merlot :matched) "Merlot"))
-                  (should (equal (plist-get merlot :context) "More Merlot and Syrah later."))))))
-        (delete-file patterns)
-        (delete-file input)))))
+    (let ((content (concat "We had Cabernet Sauvignon and [[id:merlot][Merlot]].\n"
+                           "More Merlot and Syrah later.\n")))
+      ;; when `vulpea-mentions-exclude-linked' is non-nil
+      (let ((mentions (vulpea-mentions-test--outgoing content)))
+        (should (= (length mentions) 1))
+        (should (equal (plist-get (car mentions) :matched) "Cabernet Sauvignon")))
+      ;; when `vulpea-mentions-exclude-linked' is nil
+      (let* ((vulpea-mentions-exclude-linked nil)
+             (mentions (vulpea-mentions-test--outgoing content))
+             (ids (sort (mapcar (lambda (m) (vulpea-note-id (plist-get m :note)))
+                                mentions)
+                        #'string<)))
+        ;; "Cabernet Sauvignon" (bare) -> cab; "Merlot" bare on line 2 -> merlot;
+        ;; the linked Merlot on line 1 is excluded.
+        (should (equal ids '("cab" "merlot")))
+        (let ((merlot (seq-find
+                       (lambda (m) (equal (vulpea-note-id (plist-get m :note)) "merlot"))
+                       mentions)))
+          (should (equal (plist-get merlot :line) 2))
+          (should (equal (plist-get merlot :matched) "Merlot"))
+          (should (equal (plist-get merlot :context) "More Merlot and Syrah later.")))))))
+
+(ert-deftest vulpea-mentions-outgoing-quotes-the-buffer-as-written ()
+  "Case is ignored when matching, but the result quotes the buffer as written.
+
+Ripgrep searches a case-folded copy of the buffer, so :matched and
+:context have to be read back from the buffer's own text.  The dotted
+capital I is there because `downcase' makes two characters of it: a
+fold that changed the length of a line would quote the wrong span."
+  (vulpea-test--require-rg)
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "cab" "Cabernet Sauvignon" :path "/n/cab.org")
+    (vulpea-test--insert-test-note "kyiv" "Київ" :path "/n/kyiv.org")
+    (let ((mentions (vulpea-mentions-test--outgoing
+                     (concat "İstanbul, then a CABERNET sauvignon.\n"
+                             "  Їдемо в КИЇВ.\n"))))
+      (should (equal (mapcar (lambda (m)
+                               (list (plist-get m :line)
+                                     (plist-get m :matched)
+                                     (plist-get m :context)))
+                             mentions)
+                     '((1 "CABERNET sauvignon" "İstanbul, then a CABERNET sauvignon.")
+                       (2 "КИЇВ" "Їдемо в КИЇВ.")))))))
+
+(ert-deftest vulpea-mentions-outgoing-prefers-the-longest-title ()
+  "When titles nest, the longest one standing at a position is the mention.
+
+Ripgrep reports one match per position, the first pattern that fits.
+Listed in collection order, \"Wine\" could come ahead of \"Wine Tasting\"
+and a tasting was then reported as a mention of Wine.  And since the
+patterns carry no word boundaries, \"Java\" would claim the start of
+JavaScript and hide it."
+  (vulpea-test--require-rg)
+  (dolist (titles '(("Wine" "Wine Tasting" "Java" "JavaScript")
+                    ("JavaScript" "Java" "Wine Tasting" "Wine")))
+    (vulpea-test--with-temp-db
+      (vulpea-db)
+      (dolist (title titles)
+        (vulpea-test--insert-test-note title title))
+      (should (equal (mapcar (lambda (m) (plist-get m :matched))
+                             (vulpea-mentions-test--outgoing
+                              "A wine tasting, some JavaScript, then Java and wine.\n"))
+                     '("wine tasting" "JavaScript" "Java" "wine"))))))
+
+(ert-deftest vulpea-mentions-outgoing-finds-mentions-behind-a-glued-match ()
+  "A title glued into a longer word does not hide a real mention next to it.
+
+Ripgrep's matches never overlap, and it knows nothing of words.  It
+reports \"red wine\" inside \"red wines\", which is not a mention of Red
+Wine, and so says nothing of the \"red\" starting at the same place, nor
+of the \"barn\" that \"foo bar\" ran into.  And once \"est qui\" has taken
+the start of \"quis\", it goes on from the middle of that word and pairs
+up the rest of the line differently."
+  (vulpea-test--require-rg)
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (dolist (title '("Red Wine" "Red" "Foo Bar" "Barn"
+                     "Est Qui" "Quis Qui" "Qui Culpa" "Culpa Incididunt"))
+      (vulpea-test--insert-test-note title title))
+    (should (equal (mapcar (lambda (m)
+                             (list (plist-get m :line) (plist-get m :matched)))
+                           (vulpea-mentions-test--outgoing
+                            (concat "Two red wines.\n"
+                                    "A foo barn.\n"
+                                    "Reddish barns.\n"
+                                    "Est quis qui culpa incididunt.\n")))
+                   '((1 "red")
+                     (2 "barn")
+                     (4 "quis qui") (4 "culpa incididunt"))))))
 
 (ert-deftest vulpea-mentions-outgoing-cjk-with-real-rg ()
   "The outgoing scan finds CJK candidates mentioned inline in prose.
@@ -1140,6 +1240,36 @@ must stay UTF-8 even when `coding-system-for-write' and
                              #'string<)
                        '("Київ" "金阁寺")))))))
 
+(ert-deftest vulpea-mentions-outgoing-survives-a-large-collection ()
+  "The outgoing scan still answers when the collection has 60,000 titles.
+
+Each title used to become a case-insensitive regex, and ripgrep compiles
+those to about 2 KB apiece: past some 53,000 ordinary titles the set
+crossed its 100 MB regex size limit, ripgrep exited with 2, and the scan
+rejected instead of returning mentions.
+
+The candidates come from a stubbed `vulpea-db-query', because inserting
+60,000 rows takes longer than the rest of the test put together."
+  (vulpea-test--require-rg)
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "cab" "Cabernet Sauvignon" :path "/n/cab.org")
+    (let ((notes (cons (vulpea-db-get-by-id "cab")
+                       (mapcar (lambda (i)
+                                 (make-vulpea-note
+                                  :id (format "n%d" i)
+                                  :level 0
+                                  :title (format "Nisi Duis Pariatur Excepteur %d" i)))
+                               (number-sequence 1 60000)))))
+      (cl-letf (((symbol-function 'vulpea-db-query)
+                 (lambda (&optional predicate)
+                   (if predicate (seq-filter predicate notes) notes))))
+        (let ((mentions (vulpea-mentions-test--outgoing
+                         "We opened a Cabernet Sauvignon.\n" 60)))
+          (should (= (length mentions) 1))
+          (should (equal (vulpea-note-id (plist-get (car mentions) :note))
+                         "cab")))))))
+
 (defun vulpea-mentions-test--outgoing-temp-files (proc)
   "Return the temporary files PROC's ripgrep command reads, patterns first."
   (let ((cmd (process-command proc)))
@@ -1168,11 +1298,12 @@ temporary files are gone once the search has settled."
              (files (vulpea-mentions-test--outgoing-temp-files proc)))
         (should (processp proc))
         ;; Nothing has been pumped yet, so the sentinel has not run and
-        ;; the snapshot is still on disk: it must be the buffer's text.
+        ;; the snapshot is still on disk: it must be the buffer's text,
+        ;; case-folded for the search.
         (should (equal (with-temp-buffer
                          (insert-file-contents (cadr files))
                          (buffer-string))
-                       "Unsaved prose about Cabernet Sauvignon.\n"))
+                       "unsaved prose about cabernet sauvignon.\n"))
         (vulpea-mentions-test--await (lambda () state))
         (should (eq state 'resolved))
         (should (equal (mapcar (lambda (m) (plist-get m :matched)) result)
@@ -1383,7 +1514,7 @@ waiting on stdin, and the patterns file on disk."
                       (let ((proc (apply orig-make-process args)))
                         (push proc procs)
                         proc)))
-                   ((symbol-function 'process-send-region)
+                   ((symbol-function 'process-send-string)
                     (lambda (&rest _) (signal 'quit nil))))
           ;; `should-error' catches `error' conditions only.
           (should (eq 'quit

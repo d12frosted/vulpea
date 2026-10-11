@@ -41,6 +41,12 @@
 ;; inside an Org link are dropped, the note's own file is skipped, and
 ;; each hit is mapped back to the mentioning note.
 ;;
+;; The "outgoing" question is the dual: which notes does this buffer
+;; mention without linking?  There ripgrep searches one buffer for the
+;; titles of the whole collection, so it is given the cheapest thing it
+;; can match, plain strings with case already erased on both sides,
+;; and everything else is decided in Emacs.
+;;
 ;; Word boundaries are script-aware.  Scripts that separate words with
 ;; spaces (Latin, Cyrillic, ...) require a match to stand on its own:
 ;; "art" does not match inside "smart".  Scripts without word
@@ -89,13 +95,19 @@ Japanese."
   :group 'vulpea-mentions)
 
 (defcustom vulpea-mentions-word-boundaries 'auto
-  "How word boundaries apply in the ripgrep pre-filter.
+  "How word boundaries apply in the ripgrep pre-filter of the incoming scan.
 
-This tunes recall and speed of the ripgrep pass only.  The exact
-matching semantics - \"Wine\" counts only as a standalone word, 金阁寺
-counts anywhere inside CJK text - are enforced in Emacs on every
-candidate line either way (see `vulpea-mentions--line-unlinked-p' and
+This tunes recall and speed of the ripgrep pass of
+`vulpea-note-unlinked-mentions-async' only.  The exact matching
+semantics - \"Wine\" counts only as a standalone word, 金阁寺 counts
+anywhere inside CJK text - are enforced in Emacs on every candidate
+line either way (see `vulpea-mentions--line-unlinked-p' and
 `vulpea-mentions-spaceless-scripts').
+
+The outgoing scan (`vulpea-buffer-unlinked-mentions-async') does not
+read this option.  It looks for the titles of a whole collection at
+once, which ripgrep can only do quickly for plain strings, so its
+pre-filter carries no boundaries and finds what nil finds here.
 
 - `auto': each term edge gets a boundary assertion only when it can
   glue to neighboring text at all (see
@@ -108,10 +120,9 @@ candidate line either way (see `vulpea-mentions--line-unlinked-p' and
   prose (\"Emacs\" inside 我爱用Emacs写作) is found as well.
 
 - t: a strict Unicode \\=\\b on both sides of every term, the old
-  behavior.  It misses mentions embedded in CJK prose, and on large
-  title dictionaries it is also an order of magnitude slower than
-  `auto', because a Unicode \\=\\b over non-ASCII text forces the
-  regex engine off its fast literal path.
+  behavior.  It misses mentions embedded in CJK prose, and it can
+  be slower than `auto', because a Unicode \\=\\b over non-ASCII
+  text forces the regex engine off its fast literal path.
 
 - nil: no boundaries in the pre-filter at all.  Over `auto' this
   only adds matches next to an underscore (\"foo\" inside
@@ -242,11 +253,10 @@ Unicode one.  It matches everywhere the Unicode assertion does (ASCII
 word characters are a subset of Unicode word characters, so the
 negated neighbor test is weaker), and it keeps ripgrep on its fast
 literal engine: a Unicode \\=\\b over a non-ASCII haystack forces a
-slow fallback, an order of magnitude on a large title dictionary.
-Non-ASCII spaced edges (Cyrillic, Greek, ...) get no pre-filter
-assertion for the same reason.  Either way the pre-filter only
-over-approximates; `vulpea-mentions--line-unlinked-p' enforces the
-exact boundary rules on every candidate line."
+slow fallback.  Non-ASCII spaced edges (Cyrillic, Greek, ...) get no
+pre-filter assertion for the same reason.  Either way the pre-filter
+only over-approximates; `vulpea-mentions--line-unlinked-p' enforces
+the exact boundary rules on every candidate line."
   (pcase vulpea-mentions-word-boundaries
     ('auto (cond
             ((vulpea-mentions--spaceless-char-p edge-char) nil)
@@ -282,14 +292,66 @@ boundaries."
            terms)
    dirs))
 
+(defvar vulpea-mentions--fold-table nil
+  "Translation table erasing case, built by `vulpea-mentions--fold-table'.")
+
+(defun vulpea-mentions--fold-table ()
+  "Return the translation table that erases case.
+
+It maps each character to the one a case-insensitive Emacs search
+takes it for, as the standard case table has it."
+  (or vulpea-mentions--fold-table
+      (let ((table (make-char-table 'translation-table)))
+        (map-char-table
+         (lambda (key value)
+           (when (characterp value)
+             (if (consp key)
+                 (cl-loop for char from (car key) to (cdr key)
+                          unless (eq char value)
+                          do (aset table char value))
+               (unless (eq key value)
+                 (aset table key value)))))
+         (case-table-get-table (standard-case-table) 'canon))
+        (setq vulpea-mentions--fold-table table))))
+
+(defun vulpea-mentions--fold (string)
+  "Return STRING with case erased, character for character.
+
+Two strings fold to the same text exactly when a case-insensitive
+Emacs search takes one for the other.  No character is added or
+dropped on the way, which `downcase' does not promise (it writes a
+dotted capital I as two characters), so a position in the folded text
+is the same position in STRING."
+  (with-temp-buffer
+    (insert string)
+    ;; Every changed character would announce itself to the change
+    ;; hooks otherwise, which makes folding a megabyte of titles
+    ;; several times slower.
+    (let ((inhibit-modification-hooks t))
+      (translate-region (point-min) (point-max) (vulpea-mentions--fold-table)))
+    (buffer-substring-no-properties (point-min) (point-max))))
+
 (defun vulpea-mentions--rg-file-command (rg patterns-file input-file)
   "Build the ripgrep command, run as RG, over the single INPUT-FILE.
 
-PATTERNS-FILE holds one regex per line (see
-`vulpea-mentions--rg-pattern').  INPUT-FILE is given as an explicit
-path, which ripgrep searches whatever its extension and regardless of
-any ignore rules; \"-\" makes it read standard input instead."
-  (list rg "--json" "--ignore-case" "-f" patterns-file input-file))
+PATTERNS-FILE holds one literal per line.  Both files are expected
+case-folded (see `vulpea-mentions--fold'), which leaves ripgrep a
+case-sensitive search for fixed strings: the one shape it hands to
+its literal multi-pattern matcher, whose cost barely depends on how
+many patterns there are or how long the input is.  Anything else is
+compiled into one automaton that grows with every pattern, a
+case-insensitive one fastest of all: seconds per search at ten
+thousand titles, and past fifty thousand it overflows ripgrep's size
+limit and the search fails.
+
+--case-sensitive is spelled out because the user's ripgrep
+configuration file may say --smart-case or --ignore-case.
+
+INPUT-FILE is given as an explicit path, which ripgrep searches
+whatever its extension and regardless of any ignore rules; \"-\" makes
+it read standard input instead."
+  (list rg "--json" "--fixed-strings" "--case-sensitive"
+        "-f" patterns-file input-file))
 
 (defun vulpea-mentions--snapshot-buffer-p ()
   "Return non-nil when the current buffer may be written to a temporary file.
@@ -377,6 +439,40 @@ have no word separators to respect."
        (string-match-p "[[:alnum:]]" (char-to-string edge))
        (string-match-p "[[:alnum:]]" (char-to-string neighbor))))
 
+(defun vulpea-mentions--occurrences (line term)
+  "Return the occurrences of TERM in LINE.
+
+Each one is a list (BEG END GLUED LINKED).  BEG and END delimit it in
+LINE.  GLUED is non-nil when it is part of a longer word rather than a
+word of its own: one of its edges touches spaced-script text (see
+`vulpea-mentions--glued-p').  LINKED is non-nil when it starts inside
+an Org link.  Matching is case-insensitive."
+  (let ((spans (vulpea-mentions--link-spans line))
+        (case-fold-search t)
+        (len (length line))
+        (re (regexp-quote term))
+        (start 0)
+        (result nil))
+    (unless (string-empty-p term)
+      (while (and (<= start len) (string-match re line start))
+        (let* ((beg (match-beginning 0))
+               (end (match-end 0))
+               (before (and (> beg 0) (aref line (1- beg))))
+               (after (and (< end len) (aref line end))))
+          (setq start (1+ beg))
+          (push (list beg end
+                      (and (or (vulpea-mentions--glued-p (aref line beg) before)
+                               (vulpea-mentions--glued-p (aref line (1- end)) after))
+                           t)
+                      (and (vulpea-mentions--in-link-p beg spans) t))
+                result))))
+    (nreverse result)))
+
+(defun vulpea-mentions--mention-p (occurrence)
+  "Return non-nil when OCCURRENCE is neither glued nor linked.
+OCCURRENCE is an element of `vulpea-mentions--occurrences'."
+  (not (or (nth 2 occurrence) (nth 3 occurrence))))
+
 (defun vulpea-mentions--line-unlinked-p (line terms)
   "Return non-nil when some term in TERMS occurs in LINE outside any link.
 
@@ -384,25 +480,55 @@ Matching is case-insensitive.  A match must stand on its own where its
 edges touch spaced-script text (see `vulpea-mentions--glued-p'), while
 spaceless scripts match as substrings; occurrences inside an Org link
 are not counted."
-  (let ((spans (vulpea-mentions--link-spans line))
-        (case-fold-search t)
-        (len (length line)))
-    (catch 'found
-      (dolist (term terms)
-        (unless (string-empty-p term)
-          (let ((re (regexp-quote term))
-                (start 0))
-            (while (and (<= start len) (string-match re line start))
-              (let* ((beg (match-beginning 0))
-                     (end (match-end 0))
-                     (before (and (> beg 0) (aref line (1- beg))))
-                     (after (and (< end len) (aref line end))))
-                (setq start (1+ beg))
-                (unless (or (vulpea-mentions--in-link-p beg spans)
-                            (vulpea-mentions--glued-p (aref line beg) before)
-                            (vulpea-mentions--glued-p (aref line (1- end)) after))
-                  (throw 'found t)))))))
-      nil)))
+  (seq-some (lambda (term)
+              (seq-some #'vulpea-mentions--mention-p
+                        (vulpea-mentions--occurrences line term)))
+            terms))
+
+(defun vulpea-mentions--boundary-p (line pos)
+  "Return non-nil when a word of its own may start or end at POS in LINE."
+  (or (= pos 0)
+      (= pos (length line))
+      (not (vulpea-mentions--glued-p (aref line pos) (aref line (1- pos))))))
+
+(defun vulpea-mentions--compound-p (term)
+  "Return non-nil when a word boundary falls inside TERM."
+  (cl-loop for pos from 1 below (length term)
+           thereis (vulpea-mentions--boundary-p term pos)))
+
+(defun vulpea-mentions--line-terms (line dict max-length)
+  "Return the terms of DICT that stand in LINE as words of their own.
+
+LINE is read from left to right.  At each word boundary the longest
+stretch that ends on another boundary and is a key of DICT is taken,
+MAX-LENGTH characters at most, and reading goes on after it.  These
+are the matches ripgrep would report if it knew what a word is, given
+the patterns longest first."
+  (let* ((len (length line))
+         ;; A term starts and ends on a word boundary and never with
+         ;; whitespace, which leaves few stretches worth looking up.
+         (opens (make-bool-vector (1+ len) nil))
+         (closes (make-bool-vector (1+ len) nil))
+         (pos 0)
+         (result nil))
+    (dotimes (i (1+ len))
+      (when (vulpea-mentions--boundary-p line i)
+        (aset opens i (and (< i len)
+                           (not (memq (aref line i) '(?\s ?\t)))))
+        (aset closes i (and (> i 0)
+                            (not (memq (aref line (1- i)) '(?\s ?\t)))))))
+    (while (< pos len)
+      (let ((end (and (aref opens pos)
+                      (cl-loop for end downfrom (min len (+ pos max-length))
+                               above pos
+                               when (and (aref closes end)
+                                         (gethash (substring line pos end) dict))
+                               return end))))
+        (if (not end)
+            (setq pos (1+ pos))
+          (push (substring line pos end) result)
+          (setq pos end))))
+    (delete-dups (nreverse result))))
 
 (defun vulpea-mentions--file-notes (path cache)
   "Return the notes of file PATH, memoized in the CACHE hash table.
@@ -604,27 +730,40 @@ was written there does not matter.  Returns a list of plists with
 
 Candidates are the notes kept by `vulpea-mentions-note-filter', minus
 those opting out via `vulpea-mentions--ignore-note-p'.  DICT is a hash
-table
-mapping a downcased title or alias to the list of note ids that bear it.
-TERMS is the de-duplicated list of the original title and alias strings
-to search for."
+table mapping a case-folded title or alias (see `vulpea-mentions--fold')
+to the list of note ids that bear it.  TERMS lists its keys, which are
+the terms to search for, longest first: ripgrep reports the first
+pattern that fits at a position, and a title must not lose its place
+to a shorter one it starts with."
   (let ((dict (make-hash-table :test 'equal))
-        (terms nil)
+        (names nil)
+        (ids nil)
         (filter (lambda (note)
                   (and (not (vulpea-mentions--ignore-note-p note))
                        (funcall vulpea-mentions-note-filter note)))))
     (dolist (note (vulpea-db-query filter))
-      (let ((id (vulpea-note-id note))
-            (names (cons (vulpea-note-title note) (vulpea-note-aliases note))))
-        (dolist (name names)
+      (let ((id (vulpea-note-id note)))
+        (dolist (name (cons (vulpea-note-title note) (vulpea-note-aliases note)))
           (when (stringp name)
             (let ((trimmed (string-trim name)))
+              ;; The names are folded together, one per line, so a
+              ;; name spanning lines stays out.  It could not be
+              ;; found anyway: the search goes line by line.
               (when (and (> (length trimmed) 0)
                          (>= (string-width trimmed)
-                             vulpea-mentions-min-term-length))
-                (push trimmed terms)
-                (push id (gethash (downcase trimmed) dict))))))))
-    (cons dict (delete-dups terms))))
+                             vulpea-mentions-min-term-length)
+                         (not (string-search "\n" trimmed)))
+                (push trimmed names)
+                (push id ids)))))))
+    (setq names (nreverse names)
+          ids (nreverse ids))
+    (cl-loop for term in (split-string
+                          (vulpea-mentions--fold (string-join names "\n"))
+                          "\n")
+             for id in ids
+             do (push id (gethash term dict)))
+    (cons dict (sort (hash-table-keys dict)
+                     (lambda (a b) (> (length a) (length b)))))))
 
 (defun vulpea-mentions--buffer-link-ids ()
   "Return a hash table keyed by the ids of `id:' links in the current buffer.
@@ -648,10 +787,36 @@ search for \"[[\" is also much cheaper than the plain-link regexp."
   (let ((ignore-mentions-id (vulpea-mentions--ignore-mention-ids-table note)))
     (seq-some (lambda (id) (gethash id ignore-mentions-id)) ids)))
 
-(defun vulpea-mentions--collect-outgoing (output dict self-ids linked-ids)
+(defun vulpea-mentions--line-reader (text)
+  "Return a function mapping a line number to that line of TEXT.
+
+Lines are numbered from 1, and the function returns nil past the last
+one.  It remembers where it stopped, so reading lines in increasing
+order, which is how ripgrep reports them, costs a single pass over
+TEXT."
+  (let ((line 1)
+        (pos 0))
+    (lambda (n)
+      (when (or (null pos) (< n line))
+        (setq line 1
+              pos 0))
+      (while (and pos (< line n))
+        (setq pos (when-let* ((eol (string-search "\n" text pos)))
+                    (1+ eol))
+              line (1+ line)))
+      (when pos
+        (substring text pos (string-search "\n" text pos))))))
+
+(defun vulpea-mentions--collect-outgoing (output text dict self-ids linked-ids)
   "Collect outgoing unlinked mentions from ripgrep OUTPUT over one buffer.
 
-DICT maps a downcased title/alias to candidate note ids (see
+TEXT is the text of the buffer.  OUTPUT comes from searching the
+case-folded copy of it (see `vulpea-mentions--fold') for case-folded
+terms, so the lines and matches it quotes are folded as well.  What a
+mention quotes is read back from TEXT, where a line keeps its number
+and a match its position.
+
+DICT maps a case-folded title/alias to candidate note ids (see
 `vulpea-mentions--title-dictionary').  SELF-IDS are the note ids in the
 buffer's own file, excluded as candidates.  If one of SELF-IDS are
 explicitly ignored by the mentioned note, then the mention will be
@@ -660,12 +825,22 @@ LINKED-IDS is a hash table keyed by the note ids the buffer already
 links to (see `vulpea-mentions--buffer-link-ids'); candidates found in
 it are dropped.  Pass an empty table to keep them all.
 
+Ripgrep matches plain strings, so it also reports \"red wine\" inside
+\"red wines\".  Such a glued match is dropped here.  But ripgrep's
+matches never overlap: the glued one has already used up the text of
+anything starting inside it (\"red\", a mention in its own right), and
+the search went on from the middle of a word.  Only a match of several
+words can do that, and a line holding one is read again by
+`vulpea-mentions--line-terms'.
+
 Returns a list of plists with :note (a candidate note to link to),
 :line, :context, and :matched (the text that matched)."
   (let ((id->note (make-hash-table :test 'equal))
         ;; The ignore check walks every one of SELF-IDS, and a candidate
         ;; can be hit on hundreds of lines: decide it once per candidate.
         (id->ignored (make-hash-table :test 'equal))
+        (line-at (vulpea-mentions--line-reader text))
+        (longest nil)
         (result nil))
     (cl-flet ((resolve-note (id)
                 (let ((cached (gethash id id->note 'miss)))
@@ -675,24 +850,45 @@ Returns a list of plists with :note (a candidate note to link to),
                 (let ((cached (gethash id id->ignored 'miss)))
                   (if (not (eq cached 'miss)) cached
                     (puthash id (vulpea-mentions--ignored-by-note-p self-ids cand)
-                             id->ignored)))))
-      (let ((hits (vulpea-mentions--parse-rg-json output)))
-        (dolist (hit hits)
-          (let ((line-text (plist-get hit :line-text))
-                (line-no (plist-get hit :line)))
-            (unless (vulpea-mentions--metadata-line-p line-text)
-              (dolist (term (seq-uniq (plist-get hit :matched)))
-                (when (vulpea-mentions--line-unlinked-p line-text (list term))
-                  (dolist (id (gethash (downcase term) dict))
+                             id->ignored))))
+              (max-length ()
+                (or longest
+                    (progn
+                      (setq longest 0)
+                      (maphash (lambda (term _)
+                                 (setq longest (max longest (length term))))
+                               dict)
+                      longest))))
+      (dolist (hit (vulpea-mentions--parse-rg-json output))
+        (let* ((line-no (plist-get hit :line))
+               (folded (plist-get hit :line-text))
+               (line (funcall line-at line-no)))
+          (unless (vulpea-mentions--metadata-line-p line)
+            (let* ((occurrences (lambda (term)
+                                  (cons term (vulpea-mentions--occurrences
+                                              folded term))))
+                   (found (mapcar occurrences
+                                  (seq-uniq (plist-get hit :matched)))))
+              (when (seq-some (pcase-lambda (`(,term . ,spans))
+                                (and (seq-some #'cl-third spans)
+                                     (vulpea-mentions--compound-p term)))
+                              found)
+                (setq found (mapcar occurrences
+                                    (vulpea-mentions--line-terms
+                                     folded dict (max-length)))))
+              (pcase-dolist (`(,term . ,spans) found)
+                (when-let* ((span (seq-find #'vulpea-mentions--mention-p spans))
+                            (matched (substring line (car span) (cadr span))))
+                  (dolist (id (gethash term dict))
                     (unless (or (member id self-ids)
                                 (gethash id linked-ids))
                       (when-let* ((cand (resolve-note id)))
                         (unless (ignored-p id cand)
                           (push (list :note cand :line line-no
-                                    :context (string-trim line-text)
-                                    :matched term)
-                                result)))))))))))
-      (nreverse result))))
+                                      :context (string-trim line)
+                                      :matched matched)
+                                result))))))))))))
+    (nreverse result)))
 
 ;;; Async entry point
 
@@ -800,6 +996,11 @@ ripgrep over a pipe instead, so its decrypted content never touches
 the disk; for such a buffer the call blocks until ripgrep has
 consumed the text.
 
+Case is erased from that copy and from the names before ripgrep sees
+them (see `vulpea-mentions--fold'), so it only has plain strings to
+match.  That keeps the search fast with tens of thousands of names,
+and its time hardly depends on the size of the buffer.
+
 Asynchronous and promise-style: exactly one of RESOLVE or REJECT is
 called.  RESOLVE receives a list of plists with :note (a candidate note
 to link to), :line, :context, and :matched (the text that matched).
@@ -832,8 +1033,12 @@ target a specific buffer."
           ;; output (concatenating each chunk onto a string copied
           ;; everything received so far on every chunk).  One cleanup
           ;; serves both the sentinel and a setup that fails part way.
+          ;;
+          ;; Ripgrep reads the folded text; the text as written stays
+          ;; here, for the sentinel to quote mentions from.
           (let ((snapshot (vulpea-mentions--snapshot-buffer-p))
-                patterns-file input-file output-buffer proc)
+                (text (buffer-substring-no-properties (point-min) (point-max)))
+                folded patterns-file input-file output-buffer proc)
             (cl-flet ((cleanup ()
                         (when patterns-file
                           (ignore-errors (delete-file patterns-file)))
@@ -843,7 +1048,8 @@ target a specific buffer."
                           (kill-buffer output-buffer))))
               (condition-case err
                   (progn
-                    (setq patterns-file (make-temp-file "vulpea-mentions-pat-")
+                    (setq folded (vulpea-mentions--fold text)
+                          patterns-file (make-temp-file "vulpea-mentions-pat-")
                           input-file (when snapshot
                                        (make-temp-file "vulpea-mentions-in-"))
                           output-buffer (generate-new-buffer
@@ -854,10 +1060,9 @@ target a specific buffer."
                     ;; `coding-system-for-write' must not leak in.
                     (let ((coding-system-for-write 'utf-8))
                       (with-temp-file patterns-file
-                        (insert (mapconcat #'vulpea-mentions--rg-pattern terms "\n")
-                                "\n"))
+                        (insert (string-join terms "\n") "\n"))
                       (when input-file
-                        (write-region (point-min) (point-max) input-file nil 'silent)))
+                        (write-region folded nil input-file nil 'silent)))
                     (setq proc
                           (make-process
                            :name "vulpea-mentions-out"
@@ -886,7 +1091,7 @@ target a specific buffer."
                                      (condition-case err
                                          (funcall resolve
                                                   (vulpea-mentions--collect-outgoing
-                                                   output dict self-ids linked-ids))
+                                                   output text dict self-ids linked-ids))
                                        (error
                                         (funcall reject (error-message-string err)))))
                                     ((eq status 'exit)
@@ -907,7 +1112,7 @@ target a specific buffer."
                         (unwind-protect
                             (condition-case nil
                                 (progn
-                                  (process-send-region proc (point-min) (point-max))
+                                  (process-send-string proc folded)
                                   (process-send-eof proc)
                                   (setq sent t))
                               (error nil))
