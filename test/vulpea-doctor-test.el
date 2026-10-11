@@ -122,6 +122,42 @@ creating it as a side effect."
            (issues (vulpea-doctor--issues)))
       (should-not (seq-some (lambda (i) (string-match-p "fswatch" i)) issues)))))
 
+(ert-deftest vulpea-doctor-issue-fswatch-given-up ()
+  "An fswatch that was given up on yields an issue saying why."
+  (vulpea-doctor-test--with-tools '(("fd" . "/usr/bin/fd")
+                                    ("fswatch" . "/usr/bin/fswatch"))
+    (let* ((vulpea-db-sync-external-method 'auto)
+           (vulpea-db-sync--poll-timer 'polling-instead)
+           (vulpea-db-sync--fswatch-failure
+            "exited abnormally with code 3: Invalid value: 0.1")
+           (issues (vulpea-doctor--issues)))
+      (should (seq-some (lambda (i)
+                          (and (string-match-p "Invalid value: 0\\.1" i)
+                               (string-match-p "polling" i)))
+                        issues)))))
+
+(ert-deftest vulpea-doctor-issue-fswatch-given-up-explicit ()
+  "With the `fswatch' method a given-up fswatch is the one monitoring issue.
+
+Nothing monitors external changes then, but the generic \"not
+active\" issue would only repeat it without the reason."
+  (vulpea-doctor-test--with-tools '(("fd" . "/usr/bin/fd")
+                                    ("fswatch" . "/usr/bin/fswatch"))
+    (let* ((vulpea-db-autosync-mode t)
+           (vulpea-db-sync-external-method 'fswatch)
+           (vulpea-db-sync--fswatch-process nil)
+           (vulpea-db-sync--poll-timer nil)
+           (vulpea-db-sync--fswatch-failure
+            "exited abnormally with code 3: Invalid value: 0.1")
+           (issues (vulpea-doctor--issues)))
+      (should (seq-some (lambda (i)
+                          (and (string-match-p "Invalid value: 0\\.1" i)
+                               (string-match-p "not picked up" i)))
+                        issues))
+      (should-not (seq-some (lambda (i)
+                              (string-match-p "configured but not active" i))
+                            issues)))))
+
 (ert-deftest vulpea-doctor-issue-fd-missing ()
   "Missing fd yields a performance warning."
   (vulpea-doctor-test--with-tools '(("fswatch" . "/usr/bin/fswatch"))

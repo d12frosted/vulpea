@@ -718,13 +718,24 @@ sample), `checked' (with :sampled and :diffs, see
                     " will not stay up to date as notes change. Enable it"
                     " with (vulpea-db-autosync-mode +1).")
             issues))
-    (when (and vulpea-db-autosync-mode
-               (memq vulpea-db-sync-external-method '(auto fswatch poll))
-               (string= "none" (vulpea-doctor--monitoring-status)))
-      (push (concat "External monitoring is configured but not active -"
-                    " changes made outside Emacs will not be picked up."
-                    " Try toggling `vulpea-db-autosync-mode'.")
-            issues))
+    (if vulpea-db-sync--fswatch-failure
+        ;; fswatch was given up on; the reason is its own words
+        (push (format
+               (concat "fswatch keeps exiting right after it starts (%s) - %s"
+                       " Once fswatch runs, toggle `vulpea-db-autosync-mode'"
+                       " to go back to it.")
+               vulpea-db-sync--fswatch-failure
+               (if vulpea-db-sync--poll-timer
+                   "external changes are detected via slower polling."
+                 "changes made outside Emacs are not picked up."))
+              issues)
+      (when (and vulpea-db-autosync-mode
+                 (memq vulpea-db-sync-external-method '(auto fswatch poll))
+                 (string= "none" (vulpea-doctor--monitoring-status)))
+        (push (concat "External monitoring is configured but not active -"
+                      " changes made outside Emacs will not be picked up."
+                      " Try toggling `vulpea-db-autosync-mode'.")
+              issues)))
     ;; Watchers running on an outdated directory list (vulpea#427)
     (when-let* ((divergence (vulpea-doctor--watch-divergence)))
       (pcase-let ((`(,monitor ,missing ,stale) divergence))

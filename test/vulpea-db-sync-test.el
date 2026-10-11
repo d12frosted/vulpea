@@ -981,6 +981,240 @@ before the timer fires.  The timer must not survive the stop."
     (should-not vulpea-db-sync--fswatch-restart-timer)
     (should-not (memq timer timer-list))))
 
+;;; fswatch that does not stay up
+;;
+;; An fswatch that exits right after it starts (an argument it
+;; rejects, a broken install) dies the same way on every restart.
+;; Restarting it forever fills *Messages* and leaves changes made
+;; outside Emacs undetected, so after a few failed starts in a row
+;; vulpea stops, says what fswatch complained about, and with the
+;; `auto' method polls instead.
+
+(defmacro vulpea-db-sync-test--with-dying-fswatch (&rest body)
+  "Run BODY with fswatch state isolated and its fallbacks recorded.
+Nothing is spawned or watched: `polling' is set when polling would
+start, `watched' collects the directories that would get filenotify
+watchers, and `warnings' collects the warnings displayed."
+  (declare (indent 0))
+  `(let ((polling nil)
+         (watched nil)
+         (warnings nil)
+         (inhibit-message t)
+         (vulpea-db-sync-directories (list temporary-file-directory))
+         (vulpea-db-sync-external-method 'auto)
+         (vulpea-db-sync--fswatch-process nil)
+         (vulpea-db-sync--fswatch-restart-timer nil)
+         (vulpea-db-sync--fswatch-buffer "")
+         (vulpea-db-sync--fswatch-started-at (float-time))
+         (vulpea-db-sync--fswatch-failed-starts 0)
+         (vulpea-db-sync--fswatch-complaint nil)
+         (vulpea-db-sync--fswatch-failure nil))
+     (ignore polling watched warnings)
+     (cl-letf (((symbol-function 'vulpea-db-sync--setup-polling)
+                (lambda () (setq polling t)))
+               ((symbol-function 'vulpea-db-sync--watch-directory)
+                (lambda (dir &rest _) (push dir watched)))
+               ((symbol-function 'display-warning)
+                (lambda (_type message &rest _) (push message warnings))))
+       (unwind-protect
+           (progn ,@body)
+         (when vulpea-db-sync--fswatch-restart-timer
+           (cancel-timer vulpea-db-sync--fswatch-restart-timer))))))
+
+(defun vulpea-db-sync-test--fswatch-dies (&optional event)
+  "Report the death of an fswatch that has just been started.
+EVENT is the sentinel event, an exit with code 3 by default.  A
+restart the sentinel schedules is cancelled, as if it had fired and
+spawned the next process."
+  (when vulpea-db-sync--fswatch-restart-timer
+    (cancel-timer vulpea-db-sync--fswatch-restart-timer)
+    (setq vulpea-db-sync--fswatch-restart-timer nil))
+  (setq vulpea-db-sync--fswatch-started-at (float-time))
+  (vulpea-db-sync--fswatch-sentinel
+   'dead-process (or event "exited abnormally with code 3\n")))
+
+(ert-deftest vulpea-db-sync-fswatch-sentinel-restarts-dead-process ()
+  "A dead fswatch is restarted after a delay."
+  (vulpea-db-sync-test--with-dying-fswatch
+    (setq vulpea-db-sync--fswatch-process 'dead-process)
+    (vulpea-db-sync-test--fswatch-dies)
+    (should-not vulpea-db-sync--fswatch-process)
+    (should (memq vulpea-db-sync--fswatch-restart-timer timer-list))
+    (should-not vulpea-db-sync--fswatch-failure)
+    (should-not polling)
+    (should-not warnings)))
+
+(ert-deftest vulpea-db-sync-fswatch-gives-up-after-failed-starts ()
+  "An fswatch that keeps exiting right after it starts is not restarted.
+
+After `vulpea-db-sync--fswatch-max-failed-starts' such deaths in a
+row the `auto' method does what it does without fswatch: it polls
+and watches the sync directories with filenotify."
+  (vulpea-db-sync-test--with-dying-fswatch
+    (dotimes (_ (1- vulpea-db-sync--fswatch-max-failed-starts))
+      (vulpea-db-sync-test--fswatch-dies)
+      (should vulpea-db-sync--fswatch-restart-timer))
+    (should-not polling)
+    (vulpea-db-sync-test--fswatch-dies)
+    (should-not vulpea-db-sync--fswatch-restart-timer)
+    (should vulpea-db-sync--fswatch-failure)
+    (should polling)
+    (should (equal watched vulpea-db-sync-directories))
+    (should (= 1 (length warnings)))
+    (should (string-match-p "polling" (car warnings)))))
+
+(ert-deftest vulpea-db-sync-fswatch-give-up-says-why ()
+  "The warning carries what fswatch printed and how it exited.
+
+fswatch explains itself on its output (\"Invalid value: 0.1\"), which
+is all there is to go on: the exit code alone says nothing."
+  (vulpea-db-sync-test--with-dying-fswatch
+    (dotimes (_ vulpea-db-sync--fswatch-max-failed-starts)
+      (setq vulpea-db-sync--fswatch-complaint nil)
+      (vulpea-db-sync--fswatch-filter nil "Invalid value: 0.1\n")
+      (vulpea-db-sync-test--fswatch-dies))
+    (should (string-match-p "exited abnormally with code 3"
+                            vulpea-db-sync--fswatch-failure))
+    (should (string-match-p "Invalid value: 0\\.1"
+                            vulpea-db-sync--fswatch-failure))
+    (should (string-match-p "Invalid value: 0\\.1" (car warnings)))))
+
+(ert-deftest vulpea-db-sync-fswatch-give-up-explicit-method ()
+  "With the `fswatch' method a dying fswatch is given up on without polling.
+
+The method asks for fswatch and nothing else, so there is no
+fallback; the warning says external changes are not picked up."
+  (vulpea-db-sync-test--with-dying-fswatch
+    (let ((vulpea-db-sync-external-method 'fswatch))
+      (dotimes (_ vulpea-db-sync--fswatch-max-failed-starts)
+        (vulpea-db-sync-test--fswatch-dies))
+      (should-not vulpea-db-sync--fswatch-restart-timer)
+      (should vulpea-db-sync--fswatch-failure)
+      (should-not polling)
+      (should-not watched)
+      (should (= 1 (length warnings)))
+      (should (string-match-p "not picked up" (car warnings))))))
+
+(ert-deftest vulpea-db-sync-fswatch-long-run-is-not-a-failed-start ()
+  "An fswatch that ran for a while before dying is restarted as before.
+
+Only deaths right after a start count towards giving up: a process
+that stayed up proved its arguments and environment work, so its
+death starts the count over."
+  (vulpea-db-sync-test--with-dying-fswatch
+    (dotimes (_ (1- vulpea-db-sync--fswatch-max-failed-starts))
+      (vulpea-db-sync-test--fswatch-dies))
+    (dotimes (_ (* 2 vulpea-db-sync--fswatch-max-failed-starts))
+      (cancel-timer vulpea-db-sync--fswatch-restart-timer)
+      (setq vulpea-db-sync--fswatch-started-at
+            (- (float-time) vulpea-db-sync--fswatch-min-uptime 1))
+      (vulpea-db-sync--fswatch-sentinel 'dead-process "killed\n")
+      (should (memq vulpea-db-sync--fswatch-restart-timer timer-list)))
+    (should (= 0 vulpea-db-sync--fswatch-failed-starts))
+    (should-not vulpea-db-sync--fswatch-failure)
+    (should-not polling)))
+
+(ert-deftest vulpea-db-sync-fswatch-long-run-death-omits-complaint ()
+  "The restart message of a long-lived fswatch leaves its complaint out.
+
+The complaint is the first thing the process printed, so for one
+that then ran for a while it is old news, not the cause of death."
+  (vulpea-db-sync-test--with-dying-fswatch
+    (let ((inhibit-message nil)
+          (messages nil))
+      (cl-letf (((symbol-function 'message)
+                 (lambda (format-string &rest args)
+                   (push (apply #'format format-string args) messages))))
+        (vulpea-db-sync--fswatch-filter nil "inotify_add_watch: Permission denied\n")
+        (setq vulpea-db-sync--fswatch-started-at
+              (- (float-time) vulpea-db-sync--fswatch-min-uptime 1))
+        (vulpea-db-sync--fswatch-sentinel 'dead-process "killed\n"))
+      (should (seq-some (lambda (m) (string-match-p "killed" m)) messages))
+      (should-not (seq-some (lambda (m) (string-match-p "Permission denied" m))
+                            messages)))))
+
+(ert-deftest vulpea-db-sync-fswatch-filter-keeps-first-complaint ()
+  "The filter remembers the first line of fswatch output that is not an event.
+
+Events carry the `|||' separator of the output format; anything
+else is fswatch talking.  The first such line names the problem (an
+unknown option is followed by the whole usage text)."
+  (vulpea-db-sync-test--with-dying-fswatch
+    (vulpea-db-sync--fswatch-filter nil "/elsewhere/note.org|||Updated\n")
+    (should-not vulpea-db-sync--fswatch-complaint)
+    (vulpea-db-sync--fswatch-filter
+     nil "fswatch: unrecognized option `--bogus'\nUsage:\n")
+    (should (equal vulpea-db-sync--fswatch-complaint
+                   "fswatch: unrecognized option `--bogus'"))))
+
+(ert-deftest vulpea-db-sync-fswatch-fresh-start-forgets-failures ()
+  "Starting fswatch anew clears what an earlier run left behind.
+
+A start that is not a restart by the sentinel (the mode is toggled,
+a sync directory is added or removed) may run with a fixed fswatch
+or other arguments, so it gets the full number of attempts.  A
+restart by the sentinel keeps the count: it is what the count is
+about."
+  (vulpea-db-sync-test--with-dying-fswatch
+    (cl-letf (((symbol-function 'make-process)
+               (lambda (&rest _) 'fake-process)))
+      (setq vulpea-db-sync--fswatch-failed-starts 2
+            vulpea-db-sync--fswatch-complaint "Invalid value: 0.1")
+      (vulpea-db-sync--setup-fswatch 'retry)
+      (should (= 2 vulpea-db-sync--fswatch-failed-starts))
+      (should-not vulpea-db-sync--fswatch-complaint)
+      (setq vulpea-db-sync--fswatch-process nil
+            vulpea-db-sync--fswatch-failure "exited abnormally with code 3")
+      (vulpea-db-sync--setup-fswatch)
+      (should (= 0 vulpea-db-sync--fswatch-failed-starts))
+      (should-not vulpea-db-sync--fswatch-failure))))
+
+(ert-deftest vulpea-db-sync-stop-forgets-fswatch-failure ()
+  "Stopping external monitoring clears the record of a given-up fswatch."
+  (vulpea-db-sync-test--with-dying-fswatch
+    (let ((vulpea-db-sync--poll-timer nil))
+      (dotimes (_ vulpea-db-sync--fswatch-max-failed-starts)
+        (vulpea-db-sync-test--fswatch-dies))
+      (should vulpea-db-sync--fswatch-failure)
+      (vulpea-db-sync--stop-external-monitoring)
+      (should-not vulpea-db-sync--fswatch-failure)
+      (should (= 0 vulpea-db-sync--fswatch-failed-starts)))))
+
+(ert-deftest vulpea-db-sync-fswatch-rejected-argument-falls-back ()
+  "A real fswatch that rejects its arguments ends up replaced by polling."
+  (skip-unless (executable-find "fswatch"))
+  (let* ((dir (make-temp-file "vulpea-fswatch-dying-" t))
+         (warnings nil)
+         (inhibit-message t)
+         (vulpea-db-sync-directories (list dir))
+         (vulpea-db-sync-external-method 'auto)
+         (vulpea-db-sync--fswatch-restart-delay 0.05)
+         (vulpea-db-sync--fswatch-process nil)
+         (vulpea-db-sync--fswatch-restart-timer nil)
+         (vulpea-db-sync--fswatch-failed-starts 0)
+         (vulpea-db-sync--fswatch-complaint nil)
+         (vulpea-db-sync--fswatch-failure nil)
+         (vulpea-db-sync--poll-timer nil)
+         (vulpea-db-sync--watchers nil)
+         (vulpea-db-sync--file-attributes (make-hash-table :test 'equal)))
+    (unwind-protect
+        (cl-letf (((symbol-function 'vulpea-db-sync--fswatch-latency-args)
+                   (lambda () '("--latency" "bogus")))
+                  ((symbol-function 'display-warning)
+                   (lambda (_type message &rest _) (push message warnings))))
+          (vulpea-db-sync--setup-external-monitoring)
+          (with-timeout (10 (ert-fail "fswatch was never given up on"))
+            (while (not vulpea-db-sync--fswatch-failure)
+              (accept-process-output nil 0.05)))
+          (should-not vulpea-db-sync--fswatch-process)
+          (should (string-match-p "Invalid value: bogus"
+                                  vulpea-db-sync--fswatch-failure))
+          (should (= 1 (length warnings)))
+          (should vulpea-db-sync--poll-timer))
+      (vulpea-db-sync--stop-external-monitoring)
+      (vulpea-db-sync--unwatch-root (file-name-as-directory dir))
+      (delete-directory dir t))))
+
 (ert-deftest vulpea-db-sync-setup-polling-idempotent ()
   "Test repeated polling setup does not leak a second timer."
   (let* ((test-dir (make-temp-file "vulpea-test-poll-idem-" t))
