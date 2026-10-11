@@ -163,6 +163,17 @@ git pull / Dropbox sync / external edit
           └─ vulpea-db-sync--enqueue-change(path)  ← ALWAYS ASYNC
 #+end_example
 
+An =fswatch= process that dies is restarted two seconds later.  One
+that dies within a minute of starting counts as a failed start, and
+after three failed starts in a row vulpea stops restarting it: an
+=fswatch= that rejects its arguments or cannot run in this
+environment would die the same way every time.  The warning shown
+then carries the first line =fswatch= printed that was not an
+event, which is where it says what is wrong.  With the =auto= method
+polling and filenotify take over, as if =fswatch= were not
+installed; with the =fswatch= method nothing does.  =fswatch= is
+tried again the next time external monitoring starts.
+
 *** D. External changes (polling)
 
 #+begin_example

@@ -285,6 +285,18 @@ Setup) shows whether fswatch is running. With =vulpea-db-sync-verbose= on (the d
 Vulpea: Started fswatch monitoring
 #+end_example
 
+*** fswatch keeps exiting
+
+=fswatch= can be installed and still not stay up: it rejects an argument, or something in the environment stops it. Vulpea restarts a dead =fswatch=, but after three starts in a row that end right away it stops trying and shows a warning with what =fswatch= printed:
+
+#+begin_example
+Warning (vulpea): fswatch keeps exiting right after it starts (exited abnormally with code 3: Invalid value: 0.1). Using polling for external changes instead; toggle `vulpea-db-autosync-mode' to try fswatch again.
+#+end_example
+
+With =vulpea-db-sync-external-method= set to ='auto= external changes are then picked up by polling, the same as without =fswatch=. With ='fswatch= they are not picked up at all. =M-x vulpea-doctor= lists the same reason under Issues for as long as it holds.
+
+The part in parentheses is the lead: run =fswatch= by hand on one of your note directories to see the error for yourself, fix it, and toggle =vulpea-db-autosync-mode=. If the argument it rejects is one Vulpea passes, please [[https://github.com/d12frosted/vulpea/issues][report it]].
+
 *** Fallback to polling
 
 If fswatch isn't available:
