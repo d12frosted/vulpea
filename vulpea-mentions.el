@@ -315,7 +315,8 @@ stay out of the output."
    dirs))
 
 (defvar vulpea-mentions--fold-table nil
-  "Translation table erasing case, built by `vulpea-mentions--fold-table'.")
+  "Translation table erasing case.
+Built by the function `vulpea-mentions--fold-table'.")
 
 (defun vulpea-mentions--fold-table ()
   "Return the translation table that erases case.

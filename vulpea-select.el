@@ -517,8 +517,9 @@ of `vulpea-select-from'. Signatures must match."
 note from the database and describing it again: the finished
 candidate strings are kept between selections and only the one
 picked note is read in full.  The cache is built on the first
-selection (or in idle time, see `vulpea-select-cache-prewarm') and
-kept current file by file through `vulpea-db-updated-functions'.
+selection (or in idle time, see the option
+`vulpea-select-cache-prewarm') and kept current file by file through
+`vulpea-db-updated-functions'.
 
 Only the default selection is served from the cache: no FILTER-FN
 or CANDIDATES-FN argument, `vulpea-find-default-filter' and
@@ -1072,7 +1073,7 @@ While files keep being announced (a scan, a re-index), wait for
 
 (defun vulpea-select--cache-schedule-prewarm ()
   "Schedule a prewarm of the candidate cache when it is wanted.
-That is, with `vulpea-db-autosync-mode' and
+That is, with `vulpea-db-autosync-mode' and the option
 `vulpea-select-cache-prewarm' on, and the cache serving `vulpea-find'
 or `vulpea-insert'."
   (when (and (bound-and-true-p vulpea-db-autosync-mode)
