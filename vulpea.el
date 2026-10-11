@@ -169,7 +169,7 @@ The version is resolved in the following order:
    e.g. \"v2.2.0\" or \"v2.2.0-15-g2938416\".
 2. Installed package version, including the commit for MELPA
    snapshot installs, e.g. \"20260610.1234 (commit 2938416)\".
-3. The `vulpea-version' constant as a fallback.
+3. The variable `vulpea-version' as a fallback.
 
 When SHOW is non-nil (always when called interactively), also
 display the version in the echo area. Please include this
