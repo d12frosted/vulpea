@@ -159,6 +159,45 @@ a bytes submatch is dropped from :matched while text ones survive."
       (should (equal (plist-get (car hits) :line) 7))
       (should (equal (plist-get (car hits) :matched) '("Cabernet"))))))
 
+(ert-deftest vulpea-mentions--parse-rg-json-splits-multiline-matches ()
+  "A match spanning several lines becomes one hit per line.
+In multiline mode ripgrep reports a link wrapped across lines, and
+matches on adjacent lines, as one event.  Each line gets its own number
+and text, plus the columns a wrapped link covers on it."
+  (let* ((output (concat
+                  "{\"type\":\"match\",\"data\":{\"path\":{\"text\":\"/n/a.org\"},"
+                  "\"lines\":{\"text\":\"see [[id:x][a fine\\nCabernet]] and Merlot\\nplain Cabernet\\n\"},"
+                  "\"line_number\":7,"
+                  "\"submatches\":["
+                  "{\"match\":{\"text\":\"[[id:x][a fine\\nCabernet]]\"},\"start\":4,\"end\":29},"
+                  "{\"match\":{\"text\":\"Cabernet\"},\"start\":47,\"end\":55}]}}\n"))
+         (hits (vulpea-mentions--parse-rg-json output)))
+    (should (equal (mapcar (lambda (hit) (plist-get hit :line)) hits)
+                   '(7 8 9)))
+    (should (equal (mapcar (lambda (hit) (plist-get hit :line-text)) hits)
+                   '("see [[id:x][a fine"
+                     "Cabernet]] and Merlot"
+                     "plain Cabernet")))
+    (should (equal (mapcar (lambda (hit) (plist-get hit :link-spans)) hits)
+                   '(((4 . 18)) ((0 . 10)) nil)))
+    (dolist (hit hits)
+      (should (equal (plist-get hit :path) "/n/a.org"))
+      ;; the wrapped link itself is not a matched term
+      (should (equal (plist-get hit :matched) '("Cabernet"))))))
+
+(ert-deftest vulpea-mentions--parse-rg-json-splits-crlf-matches ()
+  "Lines split out of a multi-line match lose their carriage return."
+  (let* ((output (concat
+                  "{\"type\":\"match\",\"data\":{\"path\":{\"text\":\"/n/a.org\"},"
+                  "\"lines\":{\"text\":\"a [[id:x][fine\\r\\nCabernet]]\\r\\n\"},"
+                  "\"line_number\":2,"
+                  "\"submatches\":["
+                  "{\"match\":{\"text\":\"[[id:x][fine\\r\\nCabernet]]\"},\"start\":2,\"end\":26}]}}\n"))
+         (hits (vulpea-mentions--parse-rg-json output)))
+    (should (equal (mapcar (lambda (hit) (plist-get hit :line-text)) hits)
+                   '("a [[id:x][fine" "Cabernet]]")))
+    (should (equal (plist-get (cadr hits) :link-spans) '((0 . 10))))))
+
 (ert-deftest vulpea-mentions--link-spans-and-in-link-p ()
   "Link spans are found and positions tested against them."
   (let* ((line "[[id:abc][Cabernet]] and bare Cabernet")
@@ -180,6 +219,25 @@ a bytes submatch is dropped from :matched while text ones survive."
     (should-not (vulpea-mentions--line-unlinked-p "many Cabernets" terms))
     ;; no term at all
     (should-not (vulpea-mentions--line-unlinked-p "nothing here" terms))))
+
+(ert-deftest vulpea-mentions--line-unlinked-p-honours-extra-spans ()
+  "Columns covered by a link wrapped onto the line count as linked.
+A link that crosses a line boundary cannot be recognized from one of
+its lines alone, so its part on the line is passed in."
+  (let ((terms '("Cabernet")))
+    ;; the tail of a wrapped link looks like prose on its own
+    (should (vulpea-mentions--line-unlinked-p "Cabernet]] and more" terms))
+    (should-not (vulpea-mentions--line-unlinked-p
+                 "Cabernet]] and more" terms '((0 . 10))))
+    ;; so does its head
+    (should-not (vulpea-mentions--line-unlinked-p
+                 "see [[id:x][a fine Cabernet" terms '((4 . 27))))
+    ;; a bare mention next to the wrapped part still counts
+    (should (vulpea-mentions--line-unlinked-p
+             "Cabernet]] and Cabernet" terms '((0 . 10))))
+    ;; and a link that fits the line is still found without help
+    (should-not (vulpea-mentions--line-unlinked-p
+                 "Cabernet]] and [[id:y][Cabernet]]" terms '((0 . 10))))))
 
 (ert-deftest vulpea-mentions--line-unlinked-p-script-aware ()
   "Boundaries are enforced per script: spaceless scripts match as substrings."
@@ -225,7 +283,11 @@ a bytes submatch is dropped from :matched while text ones survive."
     (should-not (member "--word-regexp" cmd))
     ;; each term passed via -e as a pattern with script-aware boundaries
     (should (member "(?-u:\\b)Wine(?-u:\\b)" cmd))
-    (should (member "金阁寺" cmd))))
+    (should (member "金阁寺" cmd))
+    ;; a link wrapped across lines has to arrive whole, which takes
+    ;; multiline mode and a pattern of its own
+    (should (member "--multiline" cmd))
+    (should (member (vulpea-mentions--rg-link-pattern '("Wine" "金阁寺")) cmd))))
 
 (ert-deftest vulpea-mentions--rg-file-command-shape ()
   "The single-file ripgrep command reads literal patterns and input from files."
@@ -240,6 +302,8 @@ a bytes submatch is dropped from :matched while text ones survive."
     (should-not (member "--ignore-case" cmd))
     (should-not (member "--word-regexp" cmd))
     (should-not (member "-" cmd))
+    ;; wrapped links come from the buffer here, not from ripgrep
+    (should-not (member "--multiline" cmd))
     (should (equal (last cmd 3) '("-f" "/tmp/patterns" "/tmp/input")))))
 
 (ert-deftest vulpea-mentions--fold ()
@@ -700,6 +764,93 @@ up in `expand-file-name' and rejecting the entire result."
       (when (file-exists-p vulpea-db-location) (delete-file vulpea-db-location))
       (delete-directory dir t))))
 
+(ert-deftest vulpea-mentions-wrapped-link-with-real-rg ()
+  "A term inside a link that wraps across lines is not a mention.
+Filling a paragraph breaks a link description like any other text, and
+ripgrep then reports each line of the link on its own.  The term may sit
+on the last, a middle or the first line of the link; a bare occurrence
+next to it, and matches on adjacent lines, are still reported with
+their own line numbers."
+  (vulpea-test--require-rg)
+  (vulpea-test--with-temp-db-and-files
+      `((:name "target.org"
+         :content ":PROPERTIES:\n:ID: target\n:END:\n#+title: Sauvignon\n")
+        (:name "other.org"
+         :content ":PROPERTIES:\n:ID: other\n:END:\n#+title: Cabernet Sauvignon\n")
+        (:name "wrapped.org"
+         :content ,(concat ":PROPERTIES:\n:ID: wrapped\n:END:\n#+title: Wrapped\n\n"
+                           "We opened a [[id:other][Cabernet\n"
+                           "Sauvignon]] last night.\n"
+                           "\n"
+                           "Then a [[id:other][very long description of\n"
+                           "that Sauvignon which goes\n"
+                           "on and on]] too.\n"
+                           "\n"
+                           "And a [[id:other][Sauvignon of\n"
+                           "note]] to finish, or a [[Cabernet\n"
+                           "Sauvignon]] target.\n"))
+        (:name "mixed.org"
+         :content ,(concat ":PROPERTIES:\n:ID: mixed\n:END:\n#+title: Mixed\n\n"
+                           "A [[id:other][Cabernet\n"
+                           "Sauvignon]] and a bare Sauvignon after it.\n"
+                           "Sauvignon again on the next line.\n")))
+    (let ((mentions (vulpea-mentions-test--collect-incoming-mentions-for-note
+                     "target")))
+      (should (equal (sort (mapcar (lambda (m)
+                                     (list (vulpea-note-id (plist-get m :note))
+                                           (plist-get m :line)
+                                           (plist-get m :context)))
+                                   mentions)
+                           (lambda (a b) (< (cadr a) (cadr b))))
+                     '(("mixed" 7 "Sauvignon]] and a bare Sauvignon after it.")
+                       ("mixed" 8 "Sauvignon again on the next line.")))))))
+
+(ert-deftest vulpea-mentions-link-without-term-is-not-reported ()
+  "ripgrep stays quiet about links that hold none of the terms.
+A filled collection has a wrapped link on every other line, and one
+event for each of them would bury the few that matter."
+  (vulpea-test--require-rg)
+  (let* ((dir (make-temp-file "vulpea-mentions-" t))
+         (file (expand-file-name "prose.org" dir)))
+    (unwind-protect
+        (progn
+          (with-temp-file file
+            (insert "A [[id:a][link that wraps\nacross lines]] and [[id:b][one that fits]].\n"
+                    "Then [[id:c][Cabernet\nSauvignon]] at last.\n"))
+          (let* ((cmd (vulpea-mentions--rg-command
+                       (executable-find "rg") '("Sauvignon") (list dir)))
+                 (output (with-temp-buffer
+                           (apply #'call-process (car cmd) nil t nil (cdr cmd))
+                           (buffer-string)))
+                 (hits (vulpea-mentions--parse-rg-json output)))
+            (should (equal (mapcar (lambda (hit) (plist-get hit :line)) hits)
+                           '(3 4)))
+            (should (equal (mapcar (lambda (hit) (plist-get hit :link-spans)) hits)
+                           '(((5 . 21)) ((0 . 11)))))))
+      (delete-directory dir t))))
+
+(ert-deftest vulpea-mentions-wrapped-link-cjk-with-real-rg ()
+  "A wrapped link is recognized in CJK prose too."
+  (vulpea-test--require-rg)
+  (vulpea-test--with-temp-db-and-files
+      `((:name "target.org"
+         :content ":PROPERTIES:\n:ID: target\n:END:\n#+title: 金阁寺\n")
+        (:name "wrapped.org"
+         :content ,(concat ":PROPERTIES:\n:ID: wrapped\n:END:\n#+title: 京都游记\n\n"
+                           "参观[[id:other][鹿苑寺，又名\n"
+                           "金阁寺]]。\n"))
+        (:name "mixed.org"
+         :content ,(concat ":PROPERTIES:\n:ID: mixed\n:END:\n#+title: 日记\n\n"
+                           "参观[[id:other][鹿苑寺，又名\n"
+                           "金阁寺]]，再访金阁寺。\n")))
+    (let ((mentions (vulpea-mentions-test--collect-incoming-mentions-for-note
+                     "target")))
+      (should (= (length mentions) 1))
+      (should (equal (vulpea-note-id (plist-get (car mentions) :note)) "mixed"))
+      (should (equal (plist-get (car mentions) :line) 7))
+      (should (equal (plist-get (car mentions) :context)
+                     "金阁寺]]，再访金阁寺。")))))
+
 (ert-deftest vulpea-mentions-latin-in-cjk-prefilter-with-real-rg ()
   "The default pre-filter surfaces a Latin title glued into CJK prose.
 The ASCII assertion treats non-ASCII text as a boundary, so this works
@@ -1018,6 +1169,55 @@ Ripgrep reads the case-folded text, so that is what the event quotes."
         (should (equal (plist-get (car mentions) :context) "had some Cabernet"))
         (should (equal (plist-get (car mentions) :line) 2))))))
 
+(ert-deftest vulpea-mentions--buffer-wrapped-link-spans ()
+  "Links wrapped across lines map to the columns they cover on each line."
+  (with-temp-buffer
+    (insert "see [[id:x][a fine\nCabernet]] and [[id:y][Merlot]]\n"
+            "plain\n"
+            "[[id:z][one\ntwo\nthree]] end\n")
+    (let ((table (vulpea-mentions--buffer-wrapped-link-spans)))
+      (should (equal (gethash 1 table) '((4 . 18))))
+      (should (equal (gethash 2 table) '((0 . 10))))
+      (should (equal (gethash 4 table) '((0 . 11))))
+      (should (equal (gethash 5 table) '((0 . 3))))
+      (should (equal (gethash 6 table) '((0 . 7))))
+      ;; a link that fits its line is left to the per-line check
+      (should (= (hash-table-count table) 5)))
+    ;; ripgrep numbers the lines of the accessible portion, which is
+    ;; what it is given
+    (goto-char (point-min))
+    (forward-line 3)
+    (narrow-to-region (point) (point-max))
+    (let ((table (vulpea-mentions--buffer-wrapped-link-spans)))
+      (should (equal (gethash 1 table) '((0 . 11))))
+      (should (equal (gethash 3 table) '((0 . 7))))
+      (should (= (hash-table-count table) 3)))))
+
+(ert-deftest vulpea-mentions--collect-outgoing-skips-wrapped-links ()
+  "A term on a line of a wrapped link is not an outgoing mention."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "cab" "Cabernet" :path "/n/cab.org")
+    (vulpea-test--insert-test-note "merlot" "Merlot" :path "/n/merlot.org")
+    (let* ((dict (car (vulpea-mentions--title-dictionary)))
+           (text (concat "see [[id:x][a fine\n"
+                         "Cabernet]] and Merlot\n"))
+           (output (concat (vulpea-mentions-test--rg-match text 2 "Cabernet")
+                           (vulpea-mentions-test--rg-match text 2 "Merlot")))
+           (none (make-hash-table :test 'equal))
+           (wrapped (with-temp-buffer
+                      (insert text)
+                      (vulpea-mentions--buffer-wrapped-link-spans))))
+      (should (equal (mapcar (lambda (m) (plist-get m :matched))
+                             (vulpea-mentions--collect-outgoing
+                              output text dict nil none wrapped))
+                     '("Merlot")))
+      ;; without the table the tail of the link reads as prose
+      (should (equal (mapcar (lambda (m) (plist-get m :matched))
+                             (vulpea-mentions--collect-outgoing
+                              output text dict nil none))
+                     '("Cabernet" "Merlot"))))))
+
 (ert-deftest vulpea-mentions--collect-outgoing-decides-ignore-once-per-candidate ()
   "The per-note ignore check runs once per candidate, not once per hit.
 
@@ -1269,6 +1469,24 @@ The candidates come from a stubbed `vulpea-db-query', because inserting
           (should (= (length mentions) 1))
           (should (equal (vulpea-note-id (plist-get (car mentions) :note))
                          "cab")))))))
+
+(ert-deftest vulpea-mentions-outgoing-skips-wrapped-links ()
+  "The outgoing scan drops a term inside a link that wraps across lines.
+The link's description continues on the next line, where \"Sauvignon\"
+is the title of another note; the bare \"Merlot\" after the link is
+still a mention."
+  (vulpea-test--require-rg)
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "sauv" "Sauvignon" :path "/n/sauv.org")
+    (vulpea-test--insert-test-note "merlot" "Merlot" :path "/n/merlot.org")
+    (let ((mentions (vulpea-mentions-test--outgoing
+                     (concat "We opened a [[id:other][Cabernet\n"
+                             "Sauvignon]] and then a Merlot.\n"))))
+      (should (equal (mapcar (lambda (m)
+                               (list (plist-get m :matched) (plist-get m :line)))
+                             mentions)
+                     '(("Merlot" 2)))))))
 
 (defun vulpea-mentions-test--outgoing-temp-files (proc)
   "Return the temporary files PROC's ripgrep command reads, patterns first."
