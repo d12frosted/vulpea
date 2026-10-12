@@ -7,7 +7,7 @@ This document compares Vulpea with other Org-mode note management libraries: [[h
 
 I have not used org-node or Supertag myself; what I say about them comes from their READMEs, documentation and source code. What I say about Denote comes from its manual and source code. If you notice any inaccuracies, please open an issue or pull request.
 
-Last updated: 2026-10-12, against org-roam 2.3.1, org-node 3.18 with org-mem 0.34, Supertag 0.3.0 (commit ac0ca81) and Denote 4.2.3.
+Last updated: 2026-10-13, against org-roam 2.3.1, org-node 3.18 with org-mem 0.34, Supertag 0.3.0 (commit ac0ca81) and Denote 4.2.3.
 
 * Overview
 
@@ -306,7 +306,7 @@ Each project keeps a longer list: vulpea's is in its [[file:../README.org][READM
 
 All four keep their own index and read the same kind of files, so they can index one collection side by side: org-node and org-roam even share the on-disk format, Supertag can take file-level IDs from org-roam's or Denote's convention, and vulpea keeps its database separate from all of them. That makes evaluating one or migrating gradually easy.
 
-Denote has no index of its own, so it runs next to any of them. vulpea can index a Denote collection of Org files when each note's =ID= property holds its Denote identifier, and vulpea-ui then counts =denote:= links as links between notes (=vulpea-ui-link-types=).
+Denote has no index of its own, so it runs next to any of them. The catch is links, because a =denote:= link is not an =id:= link. org-roam and org-node build backlinks from =id:= links (plus links to a note's =ROAM_REFS=), so a =denote:= link between two notes is not among them. Supertag does read =denote:= links as links between notes, once =supertag-file-id-source= lets a file take its identity from =#+identifier=. vulpea can index a Denote collection of Org files when each note's =ID= property holds its Denote identifier, and vulpea-ui then counts =denote:= links as links between notes (=vulpea-ui-link-types=); vulpea's own backlink command follows =id:= links.
 
 * Performance Notes
 
