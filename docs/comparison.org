@@ -216,6 +216,19 @@ Query functions over the database, or any predicate over notes:
        90)))
 #+end_src
 
+** Searching Text
+
+The queries above ask an index about structure: tags, links, properties, metadata. Finding where a piece of text occurs is a different job, and most of these packages leave it to grep.
+
+- *org-roam* and *vulpea* have no command for it. You point a grep of your choice (=consult-ripgrep=, =deadgrep=, =rgrep=) at the notes directory. Both use ripgrep themselves for unlinked mentions, and vulpea can match titles in its database (=vulpea-db-search-by-title=).
+- *org-node* ships =org-node-grep=, which runs ripgrep through Consult over the directories of the files it knows.
+- *Supertag* searches its own index: the Discovery view matches keywords against the title, tags, properties and stored text of each node.
+- *Denote* has =denote-grep=, a grep over its directory shown through xref.
+
+Two tools outside this comparison are built around searching and keep no index at all. [[https://www.gnu.org/software/hyperbole/][GNU Hyperbole]]'s HyRolo searches Org, Markdown and outline files for a string, a regexp or a logical expression and shows the matching entries whole; with Consult and ripgrep installed, ripgrep does the searching. [[https://github.com/alphapapa/org-ql][org-ql]] is a query language over Org headings (text, tags, TODO states, properties, dates) that reads the files into buffers and needs no database.
+
+The two jobs overlap less than it seems. A search finds where a string occurs; a query finds notes by what they are. An ID is a string too, so a search can stand in for backlinks: grep for a note's ID and you have every line that links to it. It cannot tell you which of those notes are tagged =wine= and rated 90 or more, and an index cannot tell you which notes mention Bordeaux unless it stores their text.
+
 ** Building on Top
 
 *** org-roam
