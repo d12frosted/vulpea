@@ -41,6 +41,11 @@
 ;; inside an Org link are dropped, the note's own file is skipped, and
 ;; each hit is mapped back to the mentioning note.
 ;;
+;; A mention is a title in prose.  Where the title is Org syntax (a
+;; heading tag, a todo keyword, a date in a timestamp, code) a link in
+;; its place would break what is there, so the Org parser is asked
+;; about every occurrence that is otherwise a mention.
+;;
 ;; The "outgoing" question is the dual: which notes does this buffer
 ;; mention without linking?  There ripgrep searches one buffer for the
 ;; titles of the whole collection, so it is given the cheapest thing it
@@ -60,6 +65,10 @@
 ;; e.g. as a `vui-use-async' loader via
 ;; `(apply-partially #\\='vulpea-note-unlinked-mentions-async note)'.
 ;;
+;; `vulpea-mentions-link' turns the mentions on a line into links.  It
+;; reads the line with the code the searches read it with, so it links
+;; what they list and nothing else.
+;;
 ;;; Code:
 
 (require 'cl-lib)
@@ -68,12 +77,16 @@
 (require 'json)
 (require 'ol)
 (require 'org)
+(require 'org-element)
 (require 'vulpea-note)
 (require 'vulpea-db-query)
 (require 'vulpea-db-extract)
 (require 'vulpea-utils)
 
 (defvar vulpea-db-sync-directories)     ; defined in vulpea-db-sync
+(defvar org-element-cache-persistent)   ; Org 9.6
+(defvar org-resource-download-policy)   ; Org 9.6
+(defvar org-agenda-file-menu-enabled)   ; defined in org
 
 (defgroup vulpea-mentions nil
   "Unlinked mention detection for Vulpea."
@@ -117,19 +130,20 @@ pre-filter carries no boundaries and finds what nil finds here.
   rely on the Emacs re-check.  A mixed term like Emacs入门 keeps the
   assertion only on its Latin edge.  The ASCII assertion treats
   non-ASCII text as a boundary, so a Latin title glued into CJK
-  prose (\"Emacs\" inside 我爱用Emacs写作) is found as well.
+  prose (\"Emacs\" inside 我爱用Emacs写作) is found as well, and it
+  lets an underscore through, which ripgrep counts as a word
+  character and Emacs does not: \"Emacs\" is found in _Emacs_.
 
 - t: a strict Unicode \\=\\b on both sides of every term, the old
-  behavior.  It misses mentions embedded in CJK prose, and it can
-  be slower than `auto', because a Unicode \\=\\b over non-ASCII
-  text forces the regex engine off its fast literal path.
+  behavior.  It misses mentions embedded in CJK prose and next to an
+  underscore, and it can be slower than `auto', because a Unicode
+  \\=\\b over non-ASCII text forces the regex engine off its fast
+  literal path.
 
-- nil: no boundaries in the pre-filter at all.  Over `auto' this
-  only adds matches next to an underscore (\"foo\" inside
-  \"foo_bar\"), which `auto' leaves behind because ripgrep counts _
-  as a word character.  The cost is that every glued occurrence of
-  every Latin title (\"art\" inside \"smart\") travels to the Emacs
-  re-check just to be rejected there."
+- nil: no boundaries in the pre-filter at all.  It finds what `auto'
+  finds, only slower: every glued occurrence of every Latin title
+  (\"art\" inside \"smart\") travels to the Emacs re-check just to
+  be rejected there."
   :type '(choice (const :tag "Per term edge (script-aware)" auto)
                  (const :tag "Always" t)
                  (const :tag "Never" nil))
@@ -176,7 +190,15 @@ among the target's incoming unlinked mentions, and notes already
 linked from a buffer are dropped from that buffer's outgoing
 mentions.  The reasoning: once a link exists, further plain-text
 occurrences are prose, not a missing connection.  Set to nil to see
-every occurrence regardless of existing links."
+every occurrence regardless of existing links.
+
+For incoming mentions a file links to the target when the database
+has a link to it from a note of that file, or when the text of the
+file has a link to it that the Org parser confirms.  The second covers
+links no note owns: in a file without a file-level id, a link that no
+heading with an id encloses, like one above the first heading.  The
+text of a link in a comment or a code block is no link, and one in
+generated content does not count, as the database leaves it out too."
   :type 'boolean
   :group 'vulpea-mentions)
 
@@ -262,7 +284,7 @@ the exact boundary rules on every candidate line."
             ((vulpea-mentions--spaceless-char-p edge-char) nil)
             ((not (string-match-p "[[:alnum:]]" (char-to-string edge-char)))
              nil)
-            ((< edge-char 128) "(?-u:\\b)")
+            ((< edge-char 128) "(?:(?-u:\\b)|_)")
             (t nil)))
     ('nil nil)
     (_ "\\b")))
@@ -278,40 +300,35 @@ its edge character."
    (vulpea-mentions--rg-quote term)
    (or (vulpea-mentions--edge-boundary (aref term (1- (length term)))) "")))
 
-(defun vulpea-mentions--rg-link-pattern (terms)
-  "Return the ripgrep regex for an Org bracket link holding one of TERMS.
+(defun vulpea-mentions--rg-id-link-pattern (id)
+  "Return the ripgrep regex for the start of a bracket link to the note ID.
 
-The link may cross line boundaries: filling a paragraph breaks a link's
-description (or a path with spaces in it) like any other text.  Each
-term is compiled by `vulpea-mentions--rg-pattern'.  Stricter than
-`org-link-bracket-re': a link with a bracket inside its path or
-description, or one continued by an empty line, is not matched."
-  (let ((inner "(?:[^\\[\\]\\n]|\\]\\[|\\n(?:[^\\[\\]\\n]|\\]\\[))"))
-    (concat "\\[\\[" inner "*?\\n?"
-            "(?:" (mapconcat #'vulpea-mentions--rg-pattern terms "|") ")"
-            inner "*\\]\\]")))
+The id is matched as written, whatever case the search ignores
+elsewhere, and up to the bracket that closes it: a longer id starting
+with ID is the id of another note."
+  (concat "(?-i:\\[\\[id:" (vulpea-mentions--rg-quote id) "\\])"))
 
-(defun vulpea-mentions--rg-command (rg terms dirs)
+(defun vulpea-mentions--rg-command (rg terms dirs &optional link-id)
   "Build the ripgrep command, run as RG, for TERMS over DIRS.
 
 Produces a JSON stream of case-insensitive matches restricted to Org
 files.  Each term is compiled to a regex by
 `vulpea-mentions--rg-pattern', which applies script-aware word
-boundaries.
+boundaries.  ripgrep reports lines, and whether a term on one is
+inside a link, also a link that wraps across lines, is for the Org
+parser to tell (see `vulpea-mentions--keep-prose').
 
-ripgrep searches line by line, so on its own it reports each line of a
-link that wraps across lines separately, and none of them reads as a
-link.  Multiline mode with `vulpea-mentions--rg-link-pattern' makes a
-link holding a term a match of its own: the term inside it is no longer
-matched, and the link arrives whole for `vulpea-mentions--parse-rg-json'
-to tell which columns of each line it covers.  Links without a term
-stay out of the output."
+LINK-ID, when given, is the id of the note searched for.  The lines
+with a bracket link to it are reported as well (see
+`vulpea-mentions--rg-id-link-pattern'), which is how
+`vulpea-mentions--collect' learns of the links no note owns."
   (append
-   (list rg "--json" "--ignore-case" "--glob" "*.org" "--multiline")
+   (list rg "--json" "--ignore-case" "--glob" "*.org")
    (mapcan (lambda (term)
              (list "-e" (vulpea-mentions--rg-pattern term)))
            terms)
-   (list "-e" (vulpea-mentions--rg-link-pattern terms))
+   (when link-id
+     (list "-e" (vulpea-mentions--rg-id-link-pattern link-id)))
    dirs))
 
 (defvar vulpea-mentions--fold-table nil
@@ -389,64 +406,11 @@ buffer, so they are fed to ripgrep over a pipe instead."
     (or (null file)
         (string-suffix-p ".org" file))))
 
-(defun vulpea-mentions--clip-spans (spans beg end)
-  "Return the parts of SPANS that fall between BEG and END.
-
-SPANS is a list of (BEG . END) pairs.  The result is relative to BEG,
-so for a line that starts at BEG it holds columns on that line."
-  (let ((result nil))
-    (dolist (span spans)
-      (when (and (< (car span) end) (> (cdr span) beg))
-        (push (cons (- (max (car span) beg) beg)
-                    (- (min (cdr span) end) beg))
-              result)))
-    (nreverse result)))
-
-(defun vulpea-mentions--split-hit (path line-no text matched)
-  "Split a ripgrep match over several lines into one hit per line.
-
-In multiline mode a match event carries every line its matches touch:
-a link wrapped across lines (see `vulpea-mentions--rg-link-pattern')
-comes with all of its lines, and matches on adjacent lines are merged
-into one event.  TEXT is that block, starting at line LINE-NO of PATH,
-and MATCHED the substrings matched in it.
-
-A substring holding a newline is a wrapped link.  Each line becomes a
-hit like the one a single-line match produces, with :matched listing
-the other substrings of the whole block and :link-spans the
-\(BEG . END) columns the wrapped links cover on that line."
-  (let ((spans nil)
-        (others nil)
-        (start 0)
-        (result nil))
-    (dolist (match matched)
-      (if (not (string-search "\n" match))
-          (push match others)
-        ;; Matches come in order and do not overlap, so each link is the
-        ;; first occurrence of its text past the previous one.
-        (when-let* ((beg (string-search match text start)))
-          (setq start (+ beg (length match)))
-          (push (cons beg start) spans))))
-    (setq others (nreverse others)
-          start 0)
-    (dolist (line (split-string text "\n"))
-      (let ((end (+ start (length line))))
-        (push (list :path path
-                    :line line-no
-                    :line-text (string-trim-right line "\r+")
-                    :matched others
-                    :link-spans (vulpea-mentions--clip-spans spans start end))
-              result)
-        (setq start (1+ end)
-              line-no (1+ line-no))))
-    (nreverse result)))
-
 (defun vulpea-mentions--parse-rg-json (output)
   "Parse ripgrep --json OUTPUT into a list of raw hit plists.
 
 Each hit is a plist with :path, :line, :line-text, and :matched (the
-list of matched substrings on the line).  A match over several lines
-yields one hit per line, see `vulpea-mentions--split-hit'.  Non-match
+list of matched substrings on the line).  Non-match
 events and unparseable lines are ignored, as are hits whose path or
 line content ripgrep encodes as base64 bytes rather than text (the
 value was not valid UTF-8, e.g. a mis-encoded file name); one such
@@ -472,16 +436,11 @@ file must not take down the rest of the scan."
             ;; file name from raw bytes means guessing its encoding),
             ;; so the hit is dropped rather than decoded.
             (when (and path text)
-              (let ((text (string-trim-right text "[\n\r]+")))
-                (if (string-search "\n" text)
-                    (dolist (hit (vulpea-mentions--split-hit
-                                  path line-no text matched))
-                      (push hit result))
-                  (push (list :path path
-                              :line line-no
-                              :line-text text
-                              :matched matched)
-                        result))))))))
+              (push (list :path path
+                          :line line-no
+                          :line-text (string-trim-right text "[\n\r]+")
+                          :matched matched)
+                    result))))))
     (nreverse result)))
 
 (defun vulpea-mentions--link-spans (line)
@@ -520,19 +479,18 @@ have no word separators to respect."
        (string-match-p "[[:alnum:]]" (char-to-string edge))
        (string-match-p "[[:alnum:]]" (char-to-string neighbor))))
 
-(defun vulpea-mentions--occurrences (line term &optional link-spans)
+(defun vulpea-mentions--occurrences (line term)
   "Return the occurrences of TERM in LINE.
 
 Each one is a list (BEG END GLUED LINKED).  BEG and END delimit it in
 LINE.  GLUED is non-nil when it is part of a longer word rather than a
 word of its own: one of its edges touches spaced-script text (see
 `vulpea-mentions--glued-p').  LINKED is non-nil when it starts inside
-an Org link.  Matching is case-insensitive.
+an Org link that fits LINE.  Matching is case-insensitive.
 
 A link that crosses a line boundary cannot be recognized from LINE
-alone.  LINK-SPANS is the list of (BEG . END) columns such links cover
-on LINE; an occurrence that starts inside one is LINKED as well."
-  (let ((spans (append (vulpea-mentions--link-spans line) link-spans))
+alone.  The Org parser sees it, see `vulpea-mentions--prose-p'."
+  (let ((spans (vulpea-mentions--link-spans line))
         (case-fold-search t)
         (len (length line))
         (re (regexp-quote term))
@@ -558,17 +516,16 @@ on LINE; an occurrence that starts inside one is LINKED as well."
 OCCURRENCE is an element of `vulpea-mentions--occurrences'."
   (not (or (nth 2 occurrence) (nth 3 occurrence))))
 
-(defun vulpea-mentions--line-unlinked-p (line terms &optional link-spans)
+(defun vulpea-mentions--line-unlinked-p (line terms)
   "Return non-nil when some term in TERMS occurs in LINE outside any link.
 
 Matching is case-insensitive.  A match must stand on its own where its
 edges touch spaced-script text (see `vulpea-mentions--glued-p'), while
 spaceless scripts match as substrings; occurrences inside an Org link
-are not counted.  LINK-SPANS, the columns that links wrapped across
-lines cover on LINE, is passed on to `vulpea-mentions--occurrences'."
+that fits LINE are not counted."
   (seq-some (lambda (term)
               (seq-some #'vulpea-mentions--mention-p
-                        (vulpea-mentions--occurrences line term link-spans)))
+                        (vulpea-mentions--occurrences line term)))
             terms))
 
 (defun vulpea-mentions--boundary-p (line pos)
@@ -615,6 +572,463 @@ the patterns longest first."
           (push (substring line pos end) result)
           (setq pos end))))
     (delete-dups (nreverse result))))
+
+;;; Prose
+
+;; A title is a mention only where it is prose.  As a heading tag, a
+;; todo keyword, a date in a timestamp, or anywhere in code it is Org
+;; syntax, and a link written in its place would break what is there.
+;; Telling the two apart takes the Org parser, so the questions below
+;; are asked in an Org buffer: the buffer a mention is linked in, or a
+;; scratch copy of the text a search read.
+
+(defconst vulpea-mentions--prose-types
+  '(paragraph headline inlinetask item table-cell verse-block
+    bold italic underline strike-through footnote-reference)
+  "Org element and object types whose text can be prose.
+
+A heading is prose in its title only, an item in its tag, and a
+footnote reference in the definition it carries inline.  The text of
+any other type is Org syntax: timestamps, planning and clock lines,
+links and targets, code and verbatim, source and example blocks,
+comments, macros, subscripts, LaTeX, citations.")
+
+(defvar vulpea-mentions--state-note-re nil
+  "The regexp matching a state note, with the heading it was built from.
+A cons (HEADING . REGEXP) kept by the function
+`vulpea-mentions--state-note-re'.")
+
+(defun vulpea-mentions--state-note-re ()
+  "Return the regexp matching a line that records a state change.
+
+Org writes such a line into the log of a heading, shaped by the
+`state' entry of `org-log-note-headings':
+
+    - State \"DONE\"       from \"TODO\"       [2024-01-15 Mon 10:00]
+
+The todo keywords on it are no more prose than the one in the heading.
+Return nil when the entry is empty."
+  (let ((heading (cdr (assq 'state org-log-note-headings))))
+    (unless (and vulpea-mentions--state-note-re
+                 (equal heading (car vulpea-mentions--state-note-re)))
+      (setq vulpea-mentions--state-note-re
+            (cons heading
+                  (when (and (stringp heading)
+                             (not (string-blank-p heading)))
+                    ;; The regexp `org-skip-over-state-notes' builds,
+                    ;; except that either state may be missing: Org
+                    ;; leaves it empty when a heading had no keyword,
+                    ;; or has none left.
+                    (concat "[ \t]*[-+*] +"
+                            (replace-regexp-in-string
+                             " +" " +"
+                             (org-replace-escapes
+                              (regexp-quote heading)
+                              `(("%d" . ,org-ts-regexp-inactive)
+                                ("%D" . ,org-ts-regexp)
+                                ("%s" . "\\(?:\"\\S-+\"\\)?")
+                                ("%S" . "\\(?:\"\\S-+\"\\)?")
+                                ("%t" . ,org-ts-regexp-inactive)
+                                ("%T" . ,org-ts-regexp)
+                                ("%u" . ".*?")
+                                ("%U" . ".*?")))
+                             t t))))))
+    (cdr vulpea-mentions--state-note-re)))
+
+(defun vulpea-mentions--heading-title-p (pos begin)
+  "Return non-nil when POS is in the title of the heading at BEGIN.
+The stars, the todo keyword, the priority and the tags are not the
+title, and neither is the word that comments a heading out.  Nor is
+anything past the first line: the END line of an inline task belongs
+to the task, but is not its title."
+  (save-excursion
+    (goto-char begin)
+    (let ((case-fold-search nil))
+      (when (and (looking-at org-complex-heading-regexp)
+                 (match-beginning 4))
+        (let ((beg (match-beginning 4))
+              (end (match-end 4)))
+          (goto-char beg)
+          (when (looking-at (concat (regexp-quote org-comment-string)
+                                    "\\(?:[ \t]+\\|$\\)"))
+            (setq beg (match-end 0)))
+          (and (<= beg pos) (< pos end)))))))
+
+(defvar-local vulpea-mentions--lexed nil
+  "The objects lexed so far in the containers of a scratch buffer.
+A hash table from the start of a container's contents to a vector
+[OBJECTS TAIL NEXT DONE CURSOR CURSOR-POS]: the objects found in it, in
+order, the last cons of that list, the position lexing goes on from,
+whether it came to an end, and the first of the objects that does not
+end before CURSOR-POS.  Nil outside the scratch buffers of the
+searches, see `vulpea-mentions--context'.")
+
+(defun vulpea-mentions--lexed-objects (element pos)
+  "Return the objects of ELEMENT from the first that does not end before POS.
+
+The objects are lexed up to the first one past POS and kept in
+`vulpea-mentions--lexed', so a container is lexed once however many
+positions in it are asked about, and the ones that end before POS are
+passed over in one step when the positions come in order.  The buffer
+is narrowed to the contents of ELEMENT."
+  (let* ((key (org-element-property :contents-begin element))
+         (entry (or (gethash key vulpea-mentions--lexed)
+                    (puthash key (vector nil nil key nil nil key)
+                             vulpea-mentions--lexed)))
+         (restriction (org-element-restriction (org-element-type element))))
+    (while (and (not (aref entry 3))
+                (or (null (aref entry 1))
+                    (<= (org-element-property :begin (car (aref entry 1)))
+                        pos)))
+      (goto-char (aref entry 2))
+      (let ((next (org-element--object-lex restriction)))
+        (if (not next)
+            (aset entry 3 t)
+          (org-element-put-property next :parent element)
+          (let ((cell (list next)))
+            (if (aref entry 1)
+                (setcdr (aref entry 1) cell)
+              (aset entry 0 cell))
+            (aset entry 1 cell))
+          ;; An object that ends where lexing started is empty, like the
+          ;; last cell of a table row at the end of the buffer.  Lexed
+          ;; again from there it comes back again, so it is the last.
+          (if (> (org-element-property :end next) (aref entry 2))
+              (aset entry 2 (org-element-property :end next))
+            (aset entry 3 t)))))
+    (let ((objects (if (and (aref entry 4) (>= pos (aref entry 5)))
+                       (aref entry 4)
+                     (aref entry 0))))
+      (while (and objects (< (org-element-property :end (car objects)) pos))
+        (setq objects (cdr objects)))
+      (aset entry 4 objects)
+      (aset entry 5 pos)
+      objects)))
+
+(defun vulpea-mentions--context (element)
+  "Return the smallest element or object around point.
+
+This is `org-element-context' given ELEMENT, the element at point.  In
+the scratch buffer of a search (see `vulpea-mentions--lexed') the
+objects of a paragraph, a verse block or a table row are lexed once,
+and the choice among them is made the way `org-element-context' makes
+it.  That function lexes from the start of the container every time,
+which turns quadratic for a long paragraph that holds a title on many
+lines."
+  (let ((pos (point))
+        (type (org-element-type element))
+        (post (org-element-property :post-affiliated element))
+        (cbeg (org-element-property :contents-begin element))
+        (cend (org-element-property :contents-end element)))
+    (cond
+     ((or (null vulpea-mentions--lexed)
+          (not (memq type '(paragraph table-row verse-block)))
+          (and post (< pos post)))
+      (org-element-context element))
+     ((not (and cbeg cend (>= pos cbeg)
+                (or (< pos cend) (and (= pos cend) (eobp)))))
+      element)
+     (t
+      (save-excursion
+        (save-restriction
+          (narrow-to-region cbeg cend)
+          (let ((objects (vulpea-mentions--lexed-objects element pos))
+                (cached t)
+                (restriction nil)
+                (parent element)
+                (last nil))
+            (goto-char cbeg)
+            ;; The loop of `org-element-context', fed from the objects
+            ;; lexed before until it moves into one of them.
+            (catch 'exit
+              (while t
+                (let ((next (if cached
+                                (pop objects)
+                              (org-element--object-lex restriction))))
+                  ;; Objects from the cache know their parent already.
+                  (when (and next (not cached))
+                    (org-element-put-property next :parent parent))
+                  (if (or (not next) (> (org-element-property :begin next) pos))
+                      (throw 'exit (or last parent))
+                    (let ((end (org-element-property :end next))
+                          (next-cbeg
+                           (org-element-property :contents-begin next))
+                          (next-cend (org-element-property :contents-end next)))
+                      (cond
+                       ((and (<= end pos) (/= (point-max) end))
+                        (goto-char end)
+                        (when (and (= end pos)
+                                   (not (memq (char-before) '(?\s ?\t))))
+                          (setq last next)))
+                       ((and next-cbeg next-cend
+                             (>= pos next-cbeg)
+                             (or (< pos next-cend)
+                                 (and (= pos next-cend)
+                                      (or (= (point-max) pos)
+                                          (not (memq (char-before pos)
+                                                     '(?\s ?\t)))))))
+                        (goto-char next-cbeg)
+                        (narrow-to-region (point) next-cend)
+                        (setq parent next
+                              cached nil
+                              restriction (org-element-restriction next)))
+                       (t (throw 'exit next)))))))))))))))
+
+(defun vulpea-mentions--prose-p (pos)
+  "Return non-nil when the text at POS is prose.
+
+The current buffer has to be in Org mode: its parser decides, and it
+reads the whole buffer whatever the restriction.  Text is prose when
+its type is one of `vulpea-mentions--prose-types' and so is every
+object around it, which leaves out a link's description, also when the
+link wraps across lines or has brackets in it.
+
+Generated content is not prose either: a dynamic block or the results
+of a source block are rewritten the next time they are updated (see
+`vulpea-db--generated-element-p').  Nor is the line that records a
+state change, see the function `vulpea-mentions--state-note-re'."
+  (save-excursion
+    (save-restriction
+      ;; A restriction may cut a line in two, and the half left of it
+      ;; says what the line is: the stars of a heading, for one.
+      (widen)
+      (goto-char pos)
+      (unless (when-let* ((re (vulpea-mentions--state-note-re)))
+                (save-excursion
+                  (forward-line 0)
+                  (looking-at-p re)))
+        (let* ((context (vulpea-mentions--context (org-element-at-point)))
+               (type (org-element-type context)))
+          (and (memq type vulpea-mentions--prose-types)
+               (pcase type
+                 ((or 'headline 'inlinetask)
+                  (vulpea-mentions--heading-title-p
+                   pos (org-element-property :begin context)))
+                 ('footnote-reference
+                  (let ((beg (org-element-property :contents-begin context))
+                        (end (org-element-property :contents-end context)))
+                    (and beg end (<= beg pos) (< pos end))))
+                 (_ t))
+               (not (seq-some
+                     (lambda (node)
+                       (let ((type (org-element-type node)))
+                         (and (memq type org-element-all-objects)
+                              (not (memq type vulpea-mentions--prose-types)))))
+                     (org-element-lineage context)))
+               (not (vulpea-db--inside-generated-p context))))))))
+
+(defun vulpea-mentions--line-mentions (terms)
+  "Return the mentions of TERMS on the line at point as (BEG . END) pairs.
+
+This is what a mention is, for the searches and for
+`vulpea-mentions-link' alike: an occurrence of a term that stands on
+its own, outside any link (see `vulpea-mentions--occurrences'), in
+prose (see `vulpea-mentions--prose-p'), on a line that is not an Org
+metadata line.  The current buffer has to be in Org mode.
+
+The line is read whole, also when the restriction cuts it, so the part
+of a word inside the restriction is not taken for a word of its own.
+Only mentions inside the restriction are returned.
+
+The pairs are buffer positions, in order.  Where two occurrences
+overlap, the one that starts first wins, and of two that start
+together the longer one: an alias \"Emacs Lisp\" is not cut short by
+the title \"Emacs\"."
+  (let ((low (point-min))
+        (high (point-max))
+        (spans nil)
+        (result nil))
+    (save-restriction
+      (widen)
+      (let* ((bol (line-beginning-position))
+             (line (buffer-substring-no-properties bol (line-end-position)))
+             (end bol))
+        (unless (vulpea-mentions--metadata-line-p line)
+          (dolist (term terms)
+            (dolist (occurrence (vulpea-mentions--occurrences line term))
+              (when (vulpea-mentions--mention-p occurrence)
+                (push (cons (+ bol (car occurrence)) (+ bol (cadr occurrence)))
+                      spans))))
+          (pcase-dolist (`(,beg . ,span-end)
+                         (sort spans (lambda (a b)
+                                       (or (< (car a) (car b))
+                                           (and (= (car a) (car b))
+                                                (> (cdr a) (cdr b)))))))
+            (when (and (>= beg end)
+                       (<= low beg)
+                       (<= span-end high)
+                       (vulpea-mentions--prose-p beg))
+              (push (cons beg span-end) result)
+              (setq end span-end))))))
+    (nreverse result)))
+
+(defun vulpea-mentions--goto-line (line from)
+  "Move from the beginning of line FROM to the beginning of LINE.
+Return non-nil when there is such a line.  Lines are those of the
+accessible portion of the buffer."
+  (and (> line 0)
+       (zerop (forward-line (- line from)))
+       ;; Running into the end of a last line that has no newline
+       ;; counts as a line moved, and leaves point at the end of it.
+       (bolp)))
+
+(defun vulpea-mentions--scratch-fill (fill)
+  "Make the current scratch buffer hold a note in Org mode.
+
+FILL is called with no arguments to insert the text of the note into
+the buffer, which is empty by then.
+
+Org mode is turned on while the buffer is still empty.  Turned on over
+the text, it reads all of it for things the parser has no use for,
+macro templates above all: on a note of 2 MB that takes 70 ms where
+the rest takes 10.  What the parser does need from the text is read
+afterwards: the keywords the note declares, its todo keywords among
+them, and its radio targets if it has any.
+
+Mode hooks do not run and nothing Org does on startup happens, the
+agenda menu is not rebuilt either: the buffer is only parsed.  A setup
+file on another machine is read only when it was already marked as
+safe, as there is nobody to ask.
+
+The caller binds `org-element-use-cache' to t around this and around
+its questions: with the cache on, asking about one position after
+another costs one pass over the text, without it one pass each."
+  (let ((org-inhibit-startup t)
+        (org-resource-download-policy 'safe)
+        (org-agenda-file-menu-enabled nil)
+        (inhibit-message t))
+    (let ((inhibit-modification-hooks t))
+      (erase-buffer))
+    (delay-mode-hooks (org-mode))
+    (let ((inhibit-modification-hooks t))
+      (funcall fill))
+    ;; The text went in behind the back of the cache, and reading the
+    ;; keywords and radio targets below asks the parser already.
+    (org-element-cache-reset)
+    (org-set-regexps-and-options)
+    (goto-char (point-min))
+    (when (search-forward "<<<" nil t)
+      (org-update-radio-target-regexp))
+    (org-element-cache-reset)
+    (setq vulpea-mentions--lexed (make-hash-table :test 'eql))))
+
+(defun vulpea-mentions--scratch-file (path)
+  "Make the current scratch buffer hold the file PATH in Org mode.
+Return nil when the file cannot be read.  Each file gets Org mode set
+up anew, so the todo keywords it declares are its own, and the
+buffer's directory is that of the file, where a relative #+SETUPFILE
+is looked for."
+  (condition-case nil
+      (progn
+        (setq default-directory
+              (file-name-directory (expand-file-name path)))
+        (vulpea-mentions--scratch-fill
+         (lambda () (insert-file-contents path)))
+        (goto-char (point-min))
+        t)
+    (error nil)))
+
+(defun vulpea-mentions--scratch-line ()
+  "Return the text of the line at point, as ripgrep reports it.
+That is without the carriage return a file with mixed line endings
+leaves at the end of some lines."
+  (string-trim-right
+   (buffer-substring-no-properties (point) (line-end-position))
+   "\r+"))
+
+(defun vulpea-mentions--scratch-links-to-p (id hits)
+  "Return non-nil when one of HITS has an Org link to the note ID.
+
+HITS are ripgrep hits on lines where the text of a bracket link to ID
+was found, and the current buffer is the scratch copy of their file.
+The Org parser has the last word: the text of a link in a comment or
+a source block is no link, and a link in generated content does not
+count either, as the database leaves those out too.  A hit whose line
+no longer reads the way ripgrep saw it does not count, nor does one
+the parser gives up on: unconfirmed, the file is left to the database.
+Point is left at the start of the buffer."
+  (let ((needle (concat "[[id:" id "]"))
+        (case-fold-search nil))
+    (prog1
+        (seq-some
+         (lambda (hit)
+           (goto-char (point-min))
+           (condition-case nil
+               (if (not (and (vulpea-mentions--goto-line
+                              (plist-get hit :line) 1)
+                             (equal (plist-get hit :line-text)
+                                    (vulpea-mentions--scratch-line))))
+                   nil
+                 (let ((eol (line-end-position))
+                       (found nil))
+                   (while (and (not found) (search-forward needle eol t))
+                     (let ((link (save-excursion
+                                   (goto-char (match-beginning 0))
+                                   (org-element-context))))
+                       (setq found
+                             (and (eq (org-element-type link) 'link)
+                                  (equal (org-element-property :type link) "id")
+                                  (equal (org-element-property :path link) id)
+                                  (not (vulpea-db--inside-generated-p link))))))
+                   found))
+             (error nil)))
+         hits)
+      (goto-char (point-min)))))
+
+(defun vulpea-mentions--keep-prose (candidates terms &optional id links)
+  "Return the mentions of CANDIDATES that hold one of TERMS in prose.
+
+CANDIDATES is a list of (HIT . MENTION): a ripgrep hit that passed
+every other test, and the mention to report for it.  Only the Org
+parser can tell whether the title on its line is prose (see
+`vulpea-mentions--line-mentions'), so the file is read into a scratch
+buffer, once: ripgrep reports the hits of a file together.
+
+LINKS, when given, maps the path of a file to the ripgrep hits where
+the text of a bracket link to the note ID was found in it.  A file
+whose text has such a link that the parser confirms (see
+`vulpea-mentions--scratch-links-to-p') already links to the note, and
+none of its mentions is returned.
+
+A hit that cannot be read there is kept as ripgrep reported it: its
+file is gone, its line no longer reads the way ripgrep saw it, or the
+parser gave up on it.  One such file must not take down the rest of
+the search, and `vulpea-mentions-link' looks at the line again before
+it writes."
+  (when candidates
+    (let ((org-element-use-cache t)
+          (org-element-cache-persistent nil)
+          (loaded nil)
+          (readable nil)
+          (linked nil)
+          (line 1)
+          (result nil))
+      (with-temp-buffer
+        (pcase-dolist (`(,hit . ,mention) candidates)
+          (let ((path (plist-get hit :path))
+                (line-no (plist-get hit :line)))
+            (unless (equal path loaded)
+              (setq loaded path
+                    readable (vulpea-mentions--scratch-file path)
+                    line 1
+                    linked (when-let* ((link-hits (and links readable
+                                                       (gethash path links))))
+                             (vulpea-mentions--scratch-links-to-p
+                              id link-hits))))
+            (when (and (not linked)
+                       (or (not readable)
+                           (not (if (vulpea-mentions--goto-line line-no line)
+                                    (setq line line-no)
+                                  (goto-char (point-min))
+                                  (setq line 1)
+                                  nil))
+                           (not (equal (plist-get hit :line-text)
+                                       (vulpea-mentions--scratch-line)))
+                           (condition-case nil
+                               (vulpea-mentions--line-mentions terms)
+                             (error t))))
+              (push mention result)))))
+      (nreverse result))))
 
 (defun vulpea-mentions--file-notes (path cache)
   "Return the notes of file PATH, memoized in the CACHE hash table.
@@ -686,6 +1100,23 @@ candidate dictionary."
          (notes (vulpea-db-query-by-ids ids))
          (paths (mapcar #'vulpea-note-path notes)))
     (mapc (lambda (path) (puthash (expand-file-name path) t result)) paths)
+    result))
+
+(defun vulpea-mentions--text-links (hits id)
+  "Return the HITS whose line has the text of a bracket link to ID.
+
+The result is a hash table from the path of a file to its hits, for
+`vulpea-mentions--keep-prose' to confirm with the parser.  The
+database only knows the links some note owns.  In a file without a
+file-level id, text that no heading with an id encloses belongs to no
+note, and a link written there is known to ripgrep alone."
+  (let ((needle (concat "[[id:" id "]"))
+        (result (make-hash-table :test 'equal)))
+    (dolist (hit hits)
+      (when (string-search needle (plist-get hit :line-text))
+        (push hit (gethash (plist-get hit :path) result))))
+    (maphash (lambda (path hits) (puthash path (nreverse hits) result))
+             result)
     result))
 
 (defun vulpea-mentions--ignore-mention-ids (note)
@@ -773,19 +1204,26 @@ are dropped."
 
 OWN-PATH is NOTE's own expanded file path, whose hits are skipped.  Hits
 whose mentioning note shares a name with NOTE (a title collision) are
-skipped too.  Hits whose mentioning note contains at least one explicit
-link to NOTE are skipped as well.  Set `vulpea-mentions-exclude-linked'
-to nil to disable this behavior.  Hits are skipped as well when NOTE
-ignores any note of the mentioning file through
-`vulpea-mentions-per-note-ignore-property-key', so which id of that file
-was written there does not matter.  Returns a list of plists with
-:note (the mentioning note), :path, :line, and :context."
+skipped too.  Hits in a file that holds at least one explicit link to
+NOTE are skipped as well: a link the database knows, or one ripgrep
+found in the text and the parser confirms (see
+`vulpea-mentions--text-links').
+Set `vulpea-mentions-exclude-linked' to nil to disable this behavior.
+Hits are skipped as well when NOTE ignores any note of the mentioning
+file through `vulpea-mentions-per-note-ignore-property-key', so which
+id of that file was written there does not matter.  The hits left are
+read in their files, and those whose title is not prose there are
+dropped, see `vulpea-mentions--keep-prose'.  Returns a list of plists
+with :note (the mentioning note), :path, :line, and :context."
   (let* ((terms (vulpea-mentions--note-terms note))
          (path->notes (make-hash-table :test 'equal))
          (hits (vulpea-mentions--parse-rg-json output))
          (paths-link-to-note
           (when (and vulpea-mentions-exclude-linked hits)
             (vulpea-mentions--paths-link-to-note note)))
+         (text-links
+          (when (and vulpea-mentions-exclude-linked hits)
+            (vulpea-mentions--text-links hits (vulpea-note-id note))))
          (ignore-mention-ids (vulpea-mentions--ignore-mention-ids-table note))
          (result nil))
     (dolist (hit hits)
@@ -796,19 +1234,22 @@ was written there does not matter.  Returns a list of plists with
                    (not (and vulpea-mentions-exclude-linked
                              (gethash expanded-path paths-link-to-note)))
                    (not (vulpea-mentions--metadata-line-p line-text))
-                   (vulpea-mentions--line-unlinked-p
-                    line-text terms (plist-get hit :link-spans)))
+                   (vulpea-mentions--line-unlinked-p line-text terms))
           (let ((mentioning (vulpea-mentions--file-note path path->notes)))
             (when (and mentioning
                        (not (vulpea-mentions--shares-name-p mentioning terms))
                        (not (vulpea-mentions--ignored-file-p
                              path path->notes ignore-mention-ids)))
-              (push (list :note mentioning
-                          :path path
-                          :line (plist-get hit :line)
-                          :context (string-trim line-text))
+              (push (cons hit
+                          (list :note mentioning
+                                :path path
+                                :line (plist-get hit :line)
+                                :context (string-trim line-text)))
                     result))))))
-    (nreverse result)))
+    ;; Reading a file is the expensive test, so it comes last, for the
+    ;; hits nothing else has turned down.
+    (vulpea-mentions--keep-prose
+     (nreverse result) terms (vulpea-note-id note) text-links)))
 
 ;;; Outgoing: mentions made by a buffer
 
@@ -869,44 +1310,6 @@ search for \"[[\" is also much cheaper than the plain-link regexp."
          (puthash (plist-get link :dest) t result))))
     result))
 
-(defun vulpea-mentions--buffer-wrapped-link-spans ()
-  "Return a hash table of the links wrapped across lines in the current buffer.
-
-Maps a line number to the list of (BEG . END) columns that bracket
-links crossing a line boundary cover on that line, the shape
-`vulpea-mentions--occurrences' takes.  Links that fit on one line are
-left out: they are recognized from the line itself.  Lines are numbered
-from the start of the accessible portion, which is the text ripgrep is
-handed."
-  (let ((result (make-hash-table :test 'eql))
-        (line 1)
-        (line-start (point-min)))
-    (save-excursion
-      (goto-char (point-min))
-      (while (re-search-forward org-link-bracket-re nil t)
-        (let ((beg (match-beginning 0))
-              (end (match-end 0)))
-          (goto-char beg)
-          (when (< (line-end-position) end)
-            ;; Count from the previous wrapped link, not from the top:
-            ;; the buffer may hold thousands of them.
-            (setq line (+ line (count-lines line-start (line-beginning-position)))
-                  line-start (line-beginning-position))
-            (while (< (point) end)
-              (let ((bol (line-beginning-position)))
-                (puthash line
-                         (nconc (gethash line result)
-                                (vulpea-mentions--clip-spans
-                                 (list (cons beg end))
-                                 bol (line-end-position)))
-                         result))
-              (forward-line 1)
-              (when (< (point) end)
-                (setq line (1+ line)
-                      line-start (point)))))
-          (goto-char end))))
-    result))
-
 (defun vulpea-mentions--ignored-by-note-p (ids note)
   "Return non-nil if at least one of IDS is ignored by NOTE."
   (let ((ignore-mentions-id (vulpea-mentions--ignore-mention-ids-table note)))
@@ -933,7 +1336,8 @@ TEXT."
         (substring text pos (string-search "\n" text pos))))))
 
 (defun vulpea-mentions--collect-outgoing (output text dict self-ids linked-ids
-                                                &optional wrapped-links)
+                                                &optional before after
+                                                directory)
   "Collect outgoing unlinked mentions from ripgrep OUTPUT over one buffer.
 
 TEXT is the text of the buffer.  OUTPUT comes from searching the
@@ -949,10 +1353,19 @@ explicitly ignored by the mentioned note, then the mention will be
 dropped (see `vulpea-mentions-per-note-ignore-property-key').
 LINKED-IDS is a hash table keyed by the note ids the buffer already
 links to (see `vulpea-mentions--buffer-link-ids'); candidates found in
-it are dropped.  Pass an empty table to keep them all.  WRAPPED-LINKS
-is a hash table of the buffer's links that cross a line boundary (see
-`vulpea-mentions--buffer-wrapped-link-spans'); an occurrence inside one
-is dropped like one inside a link that fits its line.
+it are dropped.  Pass an empty table to keep them all.
+
+An occurrence that is not prose is dropped as well (see
+`vulpea-mentions--prose-p'), which covers one inside a link that wraps
+across lines.  That is read from a scratch copy of the buffer in Org
+mode, made when the first occurrence that passed every other test asks
+for it.  BEFORE and AFTER are the text of the buffer around TEXT when
+TEXT is only the accessible portion of it: what a line is depends on
+the lines around it, a block that opens above the restriction or the
+todo keywords the file declares at its top, and a restriction may cut
+a word in two.  DIRECTORY is the directory of the buffer, where a
+relative #+SETUPFILE is looked for.  An occurrence the parser gives up
+on is kept.
 
 Ripgrep matches plain strings, so it also reports \"red wine\" inside
 \"red wines\".  Such a glued match is dropped here.  But ripgrep's
@@ -968,57 +1381,132 @@ Returns a list of plists with :note (a candidate note to link to),
         ;; The ignore check walks every one of SELF-IDS, and a candidate
         ;; can be hit on hundreds of lines: decide it once per candidate.
         (id->ignored (make-hash-table :test 'equal))
+        (term->notes (make-hash-table :test 'equal))
         (line-at (vulpea-mentions--line-reader text))
+        (org-element-use-cache t)
+        (org-element-cache-persistent nil)
+        (scratch nil)
+        (scratch-line 1)
         (longest nil)
         (result nil))
-    (cl-flet ((resolve-note (id)
-                (let ((cached (gethash id id->note 'miss)))
-                  (if (not (eq cached 'miss)) cached
-                    (puthash id (vulpea-db-get-by-id id) id->note))))
-              (ignored-p (id cand)
-                (let ((cached (gethash id id->ignored 'miss)))
-                  (if (not (eq cached 'miss)) cached
-                    (puthash id (vulpea-mentions--ignored-by-note-p self-ids cand)
-                             id->ignored))))
-              (max-length ()
-                (or longest
-                    (progn
-                      (setq longest 0)
-                      (maphash (lambda (term _)
-                                 (setq longest (max longest (length term))))
-                               dict)
-                      longest))))
-      (dolist (hit (vulpea-mentions--parse-rg-json output))
-        (let* ((line-no (plist-get hit :line))
-               (folded (plist-get hit :line-text))
-               (line (funcall line-at line-no))
-               (link-spans (and wrapped-links
-                                (gethash line-no wrapped-links))))
-          (unless (vulpea-mentions--metadata-line-p line)
-            (let* ((occurrences (lambda (term)
-                                  (cons term (vulpea-mentions--occurrences
-                                              folded term link-spans))))
-                   (found (mapcar occurrences
-                                  (seq-uniq (plist-get hit :matched)))))
-              (when (seq-some (pcase-lambda (`(,term . ,spans))
-                                (and (seq-some #'cl-third spans)
-                                     (vulpea-mentions--compound-p term)))
-                              found)
-                (setq found (mapcar occurrences
-                                    (vulpea-mentions--line-terms
-                                     folded dict (max-length)))))
-              (pcase-dolist (`(,term . ,spans) found)
-                (when-let* ((span (seq-find #'vulpea-mentions--mention-p spans))
-                            (matched (substring line (car span) (cadr span))))
-                  (dolist (id (gethash term dict))
-                    (unless (or (member id self-ids)
-                                (gethash id linked-ids))
-                      (when-let* ((cand (resolve-note id)))
-                        (unless (ignored-p id cand)
-                          (push (list :note cand :line line-no
-                                      :context (string-trim line)
-                                      :matched matched)
-                                result))))))))))))
+    (cl-flet* ((resolve-note (id)
+                 (let ((cached (gethash id id->note 'miss)))
+                   (if (not (eq cached 'miss)) cached
+                     (puthash id (vulpea-db-get-by-id id) id->note))))
+               (ignored-p (id cand)
+                 (let ((cached (gethash id id->ignored 'miss)))
+                   (if (not (eq cached 'miss)) cached
+                     (puthash id
+                              (vulpea-mentions--ignored-by-note-p self-ids cand)
+                              id->ignored))))
+               ;; The notes TERM may be a mention of.  Most lines of a
+               ;; long note repeat a few terms, and a term without any
+               ;; spares its occurrences the parser.
+               (candidates (term)
+                 (let ((cached (gethash term term->notes 'miss)))
+                   (if (not (eq cached 'miss)) cached
+                     (puthash
+                      term
+                      (delq nil
+                            (mapcar
+                             (lambda (id)
+                               (unless (or (member id self-ids)
+                                           (gethash id linked-ids))
+                                 (when-let* ((cand (resolve-note id)))
+                                   (unless (ignored-p id cand)
+                                     cand))))
+                             (gethash term dict)))
+                      term->notes))))
+               ;; Whether the occurrence from column BEG to END of line
+               ;; LINE-NO of TEXT is a mention: a word of its own also
+               ;; where the restriction cuts the line, and prose.
+               (mention-p (line-no beg end)
+                 (condition-case nil
+                     (progn
+                       (unless scratch
+                         ;; Marked as failed before it is set up, so a
+                         ;; copy that breaks half way is never asked.
+                         (setq scratch 'failed)
+                         (let ((buffer (generate-new-buffer
+                                        " *vulpea-mentions-prose*" t)))
+                           (unwind-protect
+                               (with-current-buffer buffer
+                                 (when directory
+                                   (setq default-directory directory))
+                                 (vulpea-mentions--scratch-fill
+                                  (lambda ()
+                                    (insert (or before "") text
+                                            (or after ""))))
+                                 (goto-char (1+ (length before)))
+                                 (setq scratch buffer))
+                             (unless (eq scratch buffer)
+                               (kill-buffer buffer)))))
+                       (when (eq scratch 'failed)
+                         (error "No scratch copy"))
+                       (with-current-buffer scratch
+                         ;; Point rests where the line starts in TEXT,
+                         ;; which for its first line may be the middle
+                         ;; of a line of the buffer.  Ripgrep reports
+                         ;; lines in order, so point moves forward.
+                         (cond
+                          ((> line-no scratch-line)
+                           (forward-line (- line-no scratch-line)))
+                          ((< line-no scratch-line)
+                           (goto-char (1+ (length before)))
+                           (forward-line (1- line-no))))
+                         (setq scratch-line line-no)
+                         (let ((beg (+ (point) beg))
+                               (end (+ (point) end)))
+                           (and (not (vulpea-mentions--glued-p
+                                      (char-after beg) (char-before beg)))
+                                (not (vulpea-mentions--glued-p
+                                      (char-before end) (char-after end)))
+                                (vulpea-mentions--prose-p beg)))))
+                   (error t)))
+               (max-length ()
+                 (or longest
+                     (progn
+                       (setq longest 0)
+                       (maphash (lambda (term _)
+                                  (setq longest (max longest (length term))))
+                                dict)
+                       longest))))
+      (unwind-protect
+          (dolist (hit (vulpea-mentions--parse-rg-json output))
+            (let* ((line-no (plist-get hit :line))
+                   (folded (plist-get hit :line-text))
+                   (line (funcall line-at line-no)))
+              (unless (vulpea-mentions--metadata-line-p line)
+                (let* ((occurrences (lambda (term)
+                                      (cons term (vulpea-mentions--occurrences
+                                                  folded term))))
+                       (found (mapcar occurrences
+                                      (seq-uniq (plist-get hit :matched)))))
+                  (when (seq-some (pcase-lambda (`(,term . ,spans))
+                                    (and (seq-some #'cl-third spans)
+                                         (vulpea-mentions--compound-p term)))
+                                  found)
+                    (setq found (mapcar occurrences
+                                        (vulpea-mentions--line-terms
+                                         folded dict (max-length)))))
+                  (pcase-dolist (`(,term . ,spans) found)
+                    (when-let* ((notes (candidates term))
+                                (span (seq-find
+                                       (lambda (span)
+                                         (and (vulpea-mentions--mention-p span)
+                                              (mention-p line-no
+                                                         (car span)
+                                                         (cadr span))))
+                                       spans))
+                                (matched (substring line
+                                                    (car span) (cadr span))))
+                      (dolist (cand notes)
+                        (push (list :note cand :line line-no
+                                    :context (string-trim line)
+                                    :matched matched)
+                              result))))))))
+        (when (buffer-live-p scratch)
+          (kill-buffer scratch))))
     (nreverse result)))
 
 ;;; Async entry point
@@ -1037,6 +1525,16 @@ nil), and maps each remaining hit to the mentioning note.  When NOTE
 itself opts out of mention detection (see
 `vulpea-mentions-ignore-property-key'), no search runs at all and
 RESOLVE is called synchronously with nil.
+
+A title counts where it is prose.  As a heading tag, a todo keyword or
+a date in a timestamp, in code, a source or example block, or a
+comment, it is Org syntax, and a link in its place would break what is
+there.  In generated content, a dynamic block or the results of a
+source block, a link would be lost on the next update.  Such an
+occurrence is not reported, so `vulpea-mentions-link' can link every
+line reported as long as the file has not changed since.  Only the Org
+parser can tell prose from syntax, so the files that still have hits
+after every other test are read.
 
 This is asynchronous and promise-style: exactly one of RESOLVE or
 REJECT is called.
@@ -1071,7 +1569,10 @@ Returns the ripgrep process, so the caller can wait on or
           (let ((output ""))
             (make-process
              :name "vulpea-mentions"
-             :command (vulpea-mentions--rg-command rg terms dirs)
+             :command (vulpea-mentions--rg-command
+                       rg terms dirs
+                       (and vulpea-mentions-exclude-linked
+                            (vulpea-note-id note)))
              :connection-type 'pipe
              :noquery t
              ;; Emacs encodes the :command arguments with the process
@@ -1118,6 +1619,15 @@ to (unless `vulpea-mentions-exclude-linked' is nil), and maps each
 remaining match to the candidate note(s) it could link to.  The
 buffer's live content is searched, so unsaved edits are included -
 both for the mentions and for the links that exclude them.
+
+A title counts where it is prose, as it does for
+`vulpea-note-unlinked-mentions-async': not as a heading tag, a todo
+keyword or a date in a timestamp, not in code, a source or example
+block, a comment or generated content.  The text is parsed as Org for
+that, whatever the mode of the buffer, and as a part of the whole
+buffer when the buffer is narrowed.  In an Org buffer
+`vulpea-mentions-link' can link every line reported, and :matched
+quotes the first mention of the term on that line.
 
 The accessible portion of the buffer is snapshotted to a temporary file
 for ripgrep to read, so the call returns as soon as the process is
@@ -1166,12 +1676,25 @@ target a specific buffer."
           ;; serves both the sentinel and a setup that fails part way.
           ;;
           ;; Ripgrep reads the folded text; the text as written stays
-          ;; here, for the sentinel to quote mentions from, along with
-          ;; the links in it that ripgrep cannot see whole.
-          (let ((snapshot (vulpea-mentions--snapshot-buffer-p))
-                (text (buffer-substring-no-properties (point-min) (point-max)))
-                (wrapped-links (vulpea-mentions--buffer-wrapped-link-spans))
-                folded patterns-file input-file output-buffer proc)
+          ;; here, for the sentinel to quote mentions from and to read
+          ;; as Org.
+          (let* ((snapshot (vulpea-mentions--snapshot-buffer-p))
+                 (beg (point-min))
+                 (end (point-max))
+                 (text (buffer-substring-no-properties beg end))
+                 ;; What a line is, prose or not, depends on the lines
+                 ;; around it, so the sentinel gets the rest of a
+                 ;; narrowed buffer as well.
+                 (before (when (buffer-narrowed-p)
+                           (save-restriction
+                             (widen)
+                             (buffer-substring-no-properties (point-min) beg))))
+                 (after (when (buffer-narrowed-p)
+                          (save-restriction
+                            (widen)
+                            (buffer-substring-no-properties end (point-max)))))
+                 (directory default-directory)
+                 folded patterns-file input-file output-buffer proc)
             (cl-flet ((cleanup ()
                         (when patterns-file
                           (ignore-errors (delete-file patterns-file)))
@@ -1225,7 +1748,7 @@ target a specific buffer."
                                          (funcall resolve
                                                   (vulpea-mentions--collect-outgoing
                                                    output text dict self-ids linked-ids
-                                                   wrapped-links))
+                                                   before after directory))
                                        (error
                                         (funcall reject (error-message-string err)))))
                                     ((eq status 'exit)
@@ -1261,6 +1784,62 @@ target a specific buffer."
                  (cleanup)
                  (funcall reject (error-message-string err))
                  nil))))))))))
+
+;;; Linking a mention
+
+;;;###autoload
+(defun vulpea-mentions-link (buffer line note &optional context)
+  "Turn the mentions of NOTE on LINE of BUFFER into links to it.
+
+A mention is read the way `vulpea-note-unlinked-mentions-async' and
+`vulpea-buffer-unlinked-mentions-async' read it: the title or an alias
+of NOTE standing on its own, outside any link, in prose.  Every one on
+the line is replaced with an `id:' link to NOTE that keeps the text as
+written for its description.  Return the number of mentions linked.
+
+LINE is counted from the start of the accessible portion of BUFFER,
+which is how the search of a buffer numbers the lines it reports.  The
+search for the mentions of a note numbers the lines of the file, so
+widen the buffer before linking one of those.
+
+CONTEXT, when given, is the :context a search reported for the line.
+Nothing is linked unless the line still reads the same, so a line that
+moved since the search does not get the link put on its neighbor.
+
+Nothing is linked, and 0 returned, when there is no such line, when it
+holds no mention of NOTE, or when BUFFER is not in Org mode: only the
+Org parser can tell prose from syntax.
+
+The buffer is edited and not saved.  The search for the mentions of a
+note reads files, so it goes on listing the mention until the buffer
+is saved."
+  (with-current-buffer buffer
+    (save-excursion
+      (goto-char (point-min))
+      (let ((terms (vulpea-mentions--note-terms note))
+            (count 0))
+        (when (and terms
+                   (derived-mode-p 'org-mode)
+                   (vulpea-mentions--goto-line line 1)
+                   (or (null context)
+                       (string= context
+                                (string-trim
+                                 (buffer-substring-no-properties
+                                  (point) (line-end-position))))))
+          ;; The mentions are found before any of them is replaced,
+          ;; and replaced from the end of the line: a link never moves
+          ;; a mention still to be replaced, and is never read as one.
+          (pcase-dolist (`(,beg . ,end)
+                         (nreverse (vulpea-mentions--line-mentions terms)))
+            (let ((text (buffer-substring-no-properties beg end)))
+              ;; The link goes in before the text comes out, so a
+              ;; position after the mention, or inside it, ends up
+              ;; after the link.
+              (goto-char beg)
+              (insert (vulpea-utils-link-make-string note text))
+              (delete-region (point) (+ (point) (- end beg)))
+              (setq count (1+ count)))))
+        count))))
 
 (provide 'vulpea-mentions)
 ;;; vulpea-mentions.el ends here

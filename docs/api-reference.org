@@ -450,6 +450,73 @@ is never a mention) and both return the ripgrep process, so a caller can
 wait on or cancel the scan. A link counts whether it fits on one line or
 wraps across several, as it does after filling a paragraph.
 
+A title is a mention only where it is prose. In
+=* Setup notes :emacs:work:= the word is a tag, in =* DONE Ship it= a
+todo keyword, in =SCHEDULED: <2024-01-15 Mon>= part of a timestamp,
+and a link written in its place would break the tag, the keyword or
+the date. Neither search reports these, nor a title in a plain URL, in
+=~code~= or ==verbatim==, in a source or example block, in a comment,
+a target, a macro or a footnote label. In a heading only the title
+counts, and quote, verse and other blocks of text are prose like any
+paragraph. Generated content is left out as well, a dynamic block or the
+=#+RESULTS:= of a source block, since it is rewritten on the next
+update, and so is the line Org logs on a state change
+(=- State "DONE" from "TODO" [...]=).
+
+The Org parser decides what is prose, so the answer follows your todo
+keywords, those a file declares with =#+TODO:= included. It is asked
+last, about the occurrences nothing else has turned down. The incoming
+search reads each file that still has one, which costs under 1ms for a
+5 KB note with three such lines (Emacs 31 on an M1 Pro); the outgoing
+search reads a copy of the buffer, all of it even when the buffer is
+narrowed, since what a line is depends on the lines around it.
+
+With =vulpea-mentions-exclude-linked= on (the default) a note that
+already links to the target is not listed among its incoming mentions,
+and notes a buffer already links to are not suggested for it. For the
+incoming search a file links to the target when the database has a
+link from one of its notes, or when its text has a link to the target
+that the Org parser confirms. The second half is for links no note
+owns: in a file without a file-level id, text that no heading with an
+id encloses (the lines above the first heading, for one) belongs to no
+note, so a link written there never reaches the database. Link text in
+a comment or a code block is no link, and a link in generated content
+does not count, as the database leaves it out too.
+
+=vulpea-mentions-link= turns a mention into a link. It takes a buffer,
+a line and the note to link to, and replaces every mention of that
+note on the line with an =id:= link that keeps the text as written:
+
+#+begin_src emacs-lisp
+;; MENTION comes from either search.  For an incoming mention BUFFER
+;; visits its :path (widened) and NOTE is the searched note; for an
+;; outgoing one BUFFER is the searched buffer and NOTE its :note
+(vulpea-mentions-link buffer
+                      (plist-get mention :line)
+                      note
+                      (plist-get mention :context))
+;; => number of mentions linked
+#+end_src
+
+It reads the line with the code the searches read it with, so it links
+what they count as a mention and nothing else: =C++=, the =Emacs= of
+=Emacs's= and =金阁寺= inside =又名金阁寺= become links, a tag or a
+timestamp does not. One difference is on purpose: where one title
+starts another, the outgoing search lists only the longest one that
+fits (=Emacs Lisp=, not =Emacs=), while the link function asked to link
+=Emacs= links it there too. Pass the =:context= of the mention and nothing is linked unless
+the line still reads the same, so a line that moved since the search
+never gets the link put on its neighbor. It returns 0 then, as it does
+when the line has no mention of the note or the buffer is not in Org
+mode.
+
+The line is counted from the start of the accessible portion of the
+buffer, which is how the outgoing search numbers lines. The incoming
+search numbers the lines of the file, so widen the buffer before
+linking one of its mentions. The buffer is edited and not saved. That
+matters for incoming mentions: the search reads files, so a mention
+stays listed until its buffer is saved.
+
 Incoming mentions can be silenced per note. The property named by
 =vulpea-mentions-per-note-ignore-property-key= holds a whitespace
 separated list of note ids, and mentions coming from those notes are
@@ -483,14 +550,14 @@ rules are enforced in Emacs; ripgrep only pre-filters. For the
 incoming search the pre-filter strategy is controlled by
 =vulpea-mentions-word-boundaries=: =auto= (the default) decides per
 term edge, =t= demands strict boundaries everywhere (the historical
-behavior - it can also be slower, since a Unicode =\b= over non-ASCII
-text forces ripgrep off its fast literal path), and =nil= drops boundaries
-from the ripgrep pre-filter entirely - over =auto= this only adds
-matches next to an underscore (=foo= inside =foo_bar=, ripgrep counts
-=_= as a word character), and its cost is that every glued occurrence
-of every Latin title travels to the Emacs re-check just to be rejected
-there. The outgoing search does not read the option: its pre-filter
-never carries boundaries, so it finds what =nil= finds.
+behavior - it misses titles next to an underscore, and it can also be
+slower, since a Unicode =\b= over non-ASCII text forces ripgrep off its
+fast literal path), and =nil= drops boundaries from the ripgrep
+pre-filter entirely: it finds what =auto= finds, and its cost is that
+every glued occurrence of every Latin title travels to the Emacs
+re-check just to be rejected there. The outgoing search does not read
+the option: its pre-filter never carries boundaries, so it finds what
+=nil= finds.
 Which scripts count as spaceless lives in
 =vulpea-mentions-spaceless-scripts=. The minimum
 searchable length (=vulpea-mentions-min-term-length=, default 3)

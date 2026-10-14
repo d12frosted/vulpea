@@ -30,7 +30,8 @@
          (cmd (vulpea-mentions--rg-command
                (executable-find "rg")
                (vulpea-mentions--note-terms note)
-               vulpea-db-sync-directories))
+               vulpea-db-sync-directories
+               (and vulpea-mentions-exclude-linked (vulpea-note-id note))))
          (output (with-temp-buffer
                    (apply #'call-process (car cmd) nil t nil (cdr cmd))
                    (buffer-string)))
@@ -159,44 +160,17 @@ a bytes submatch is dropped from :matched while text ones survive."
       (should (equal (plist-get (car hits) :line) 7))
       (should (equal (plist-get (car hits) :matched) '("Cabernet"))))))
 
-(ert-deftest vulpea-mentions--parse-rg-json-splits-multiline-matches ()
-  "A match spanning several lines becomes one hit per line.
-In multiline mode ripgrep reports a link wrapped across lines, and
-matches on adjacent lines, as one event.  Each line gets its own number
-and text, plus the columns a wrapped link covers on it."
+(ert-deftest vulpea-mentions--parse-rg-json-drops-the-line-ending ()
+  "A line ripgrep quotes from a CRLF file loses its carriage return."
   (let* ((output (concat
                   "{\"type\":\"match\",\"data\":{\"path\":{\"text\":\"/n/a.org\"},"
-                  "\"lines\":{\"text\":\"see [[id:x][a fine\\nCabernet]] and Merlot\\nplain Cabernet\\n\"},"
-                  "\"line_number\":7,"
-                  "\"submatches\":["
-                  "{\"match\":{\"text\":\"[[id:x][a fine\\nCabernet]]\"},\"start\":4,\"end\":29},"
-                  "{\"match\":{\"text\":\"Cabernet\"},\"start\":47,\"end\":55}]}}\n"))
-         (hits (vulpea-mentions--parse-rg-json output)))
-    (should (equal (mapcar (lambda (hit) (plist-get hit :line)) hits)
-                   '(7 8 9)))
-    (should (equal (mapcar (lambda (hit) (plist-get hit :line-text)) hits)
-                   '("see [[id:x][a fine"
-                     "Cabernet]] and Merlot"
-                     "plain Cabernet")))
-    (should (equal (mapcar (lambda (hit) (plist-get hit :link-spans)) hits)
-                   '(((4 . 18)) ((0 . 10)) nil)))
-    (dolist (hit hits)
-      (should (equal (plist-get hit :path) "/n/a.org"))
-      ;; the wrapped link itself is not a matched term
-      (should (equal (plist-get hit :matched) '("Cabernet"))))))
-
-(ert-deftest vulpea-mentions--parse-rg-json-splits-crlf-matches ()
-  "Lines split out of a multi-line match lose their carriage return."
-  (let* ((output (concat
-                  "{\"type\":\"match\",\"data\":{\"path\":{\"text\":\"/n/a.org\"},"
-                  "\"lines\":{\"text\":\"a [[id:x][fine\\r\\nCabernet]]\\r\\n\"},"
+                  "\"lines\":{\"text\":\"a Cabernet\\r\\n\"},"
                   "\"line_number\":2,"
                   "\"submatches\":["
-                  "{\"match\":{\"text\":\"[[id:x][fine\\r\\nCabernet]]\"},\"start\":2,\"end\":26}]}}\n"))
+                  "{\"match\":{\"text\":\"Cabernet\"},\"start\":2,\"end\":10}]}}\n"))
          (hits (vulpea-mentions--parse-rg-json output)))
     (should (equal (mapcar (lambda (hit) (plist-get hit :line-text)) hits)
-                   '("a [[id:x][fine" "Cabernet]]")))
-    (should (equal (plist-get (cadr hits) :link-spans) '((0 . 10))))))
+                   '("a Cabernet")))))
 
 (ert-deftest vulpea-mentions--link-spans-and-in-link-p ()
   "Link spans are found and positions tested against them."
@@ -219,25 +193,6 @@ and text, plus the columns a wrapped link covers on it."
     (should-not (vulpea-mentions--line-unlinked-p "many Cabernets" terms))
     ;; no term at all
     (should-not (vulpea-mentions--line-unlinked-p "nothing here" terms))))
-
-(ert-deftest vulpea-mentions--line-unlinked-p-honours-extra-spans ()
-  "Columns covered by a link wrapped onto the line count as linked.
-A link that crosses a line boundary cannot be recognized from one of
-its lines alone, so its part on the line is passed in."
-  (let ((terms '("Cabernet")))
-    ;; the tail of a wrapped link looks like prose on its own
-    (should (vulpea-mentions--line-unlinked-p "Cabernet]] and more" terms))
-    (should-not (vulpea-mentions--line-unlinked-p
-                 "Cabernet]] and more" terms '((0 . 10))))
-    ;; so does its head
-    (should-not (vulpea-mentions--line-unlinked-p
-                 "see [[id:x][a fine Cabernet" terms '((4 . 27))))
-    ;; a bare mention next to the wrapped part still counts
-    (should (vulpea-mentions--line-unlinked-p
-             "Cabernet]] and Cabernet" terms '((0 . 10))))
-    ;; and a link that fits the line is still found without help
-    (should-not (vulpea-mentions--line-unlinked-p
-                 "Cabernet]] and [[id:y][Cabernet]]" terms '((0 . 10))))))
 
 (ert-deftest vulpea-mentions--line-unlinked-p-script-aware ()
   "Boundaries are enforced per script: spaceless scripts match as substrings."
@@ -282,12 +237,11 @@ its lines alone, so its part on the line is passed in."
     (should-not (member "--fixed-strings" cmd))
     (should-not (member "--word-regexp" cmd))
     ;; each term passed via -e as a pattern with script-aware boundaries
-    (should (member "(?-u:\\b)Wine(?-u:\\b)" cmd))
+    (should (member "(?:(?-u:\\b)|_)Wine(?:(?-u:\\b)|_)" cmd))
     (should (member "金阁寺" cmd))
-    ;; a link wrapped across lines has to arrive whole, which takes
-    ;; multiline mode and a pattern of its own
-    (should (member "--multiline" cmd))
-    (should (member (vulpea-mentions--rg-link-pattern '("Wine" "金阁寺")) cmd))))
+    ;; whether a term is in a link is for the Org parser to tell, so
+    ;; ripgrep reports lines and nothing more
+    (should-not (member "--multiline" cmd))))
 
 (ert-deftest vulpea-mentions--rg-file-command-shape ()
   "The single-file ripgrep command reads literal patterns and input from files."
@@ -332,22 +286,24 @@ its lines alone, so its part on the line is passed in."
 
 (ert-deftest vulpea-mentions--rg-pattern-script-aware ()
   "Boundary assertions are chosen per side from the edge character."
-  ;; ASCII alphanumeric edges get the fast ASCII assertion
+  ;; ASCII alphanumeric edges get the fast ASCII assertion, which
+  ;; lets an underscore through: ripgrep takes it for a word
+  ;; character, Emacs does not
   (should (equal (vulpea-mentions--rg-pattern "Wine")
-                 "(?-u:\\b)Wine(?-u:\\b)"))
+                 "(?:(?-u:\\b)|_)Wine(?:(?-u:\\b)|_)"))
   ;; non-ASCII spaced edges (Cyrillic) rely on the Emacs re-check:
   ;; a Unicode \\b here would force the regex engine off its fast path
   (should (equal (vulpea-mentions--rg-pattern "Київ") "Київ"))
   ;; punctuation edges get no assertion (a \\b next to punctuation
   ;; inverts into demanding adjacent text); escaping still applies
-  (should (equal (vulpea-mentions--rg-pattern "C++") "(?-u:\\b)C\\+\\+"))
+  (should (equal (vulpea-mentions--rg-pattern "C++") "(?:(?-u:\\b)|_)C\\+\\+"))
   ;; spaceless scripts match as substrings
   (should (equal (vulpea-mentions--rg-pattern "金阁寺") "金阁寺"))
   ;; mixed terms keep the assertion only on the ASCII edge
   (should (equal (vulpea-mentions--rg-pattern "Emacs入门")
-                 "(?-u:\\b)Emacs入门"))
+                 "(?:(?-u:\\b)|_)Emacs入门"))
   (should (equal (vulpea-mentions--rg-pattern "入门Emacs")
-                 "入门Emacs(?-u:\\b)")))
+                 "入门Emacs(?:(?-u:\\b)|_)")))
 
 (ert-deftest vulpea-mentions--rg-pattern-respects-configuration ()
   "The boundary strategy and script list are customizable."
@@ -805,30 +761,6 @@ their own line numbers."
                      '(("mixed" 7 "Sauvignon]] and a bare Sauvignon after it.")
                        ("mixed" 8 "Sauvignon again on the next line.")))))))
 
-(ert-deftest vulpea-mentions-link-without-term-is-not-reported ()
-  "ripgrep stays quiet about links that hold none of the terms.
-A filled collection has a wrapped link on every other line, and one
-event for each of them would bury the few that matter."
-  (vulpea-test--require-rg)
-  (let* ((dir (make-temp-file "vulpea-mentions-" t))
-         (file (expand-file-name "prose.org" dir)))
-    (unwind-protect
-        (progn
-          (with-temp-file file
-            (insert "A [[id:a][link that wraps\nacross lines]] and [[id:b][one that fits]].\n"
-                    "Then [[id:c][Cabernet\nSauvignon]] at last.\n"))
-          (let* ((cmd (vulpea-mentions--rg-command
-                       (executable-find "rg") '("Sauvignon") (list dir)))
-                 (output (with-temp-buffer
-                           (apply #'call-process (car cmd) nil t nil (cdr cmd))
-                           (buffer-string)))
-                 (hits (vulpea-mentions--parse-rg-json output)))
-            (should (equal (mapcar (lambda (hit) (plist-get hit :line)) hits)
-                           '(3 4)))
-            (should (equal (mapcar (lambda (hit) (plist-get hit :link-spans)) hits)
-                           '(((5 . 21)) ((0 . 11)))))))
-      (delete-directory dir t))))
-
 (ert-deftest vulpea-mentions-wrapped-link-cjk-with-real-rg ()
   "A wrapped link is recognized in CJK prose too."
   (vulpea-test--require-rg)
@@ -1169,30 +1101,6 @@ Ripgrep reads the case-folded text, so that is what the event quotes."
         (should (equal (plist-get (car mentions) :context) "had some Cabernet"))
         (should (equal (plist-get (car mentions) :line) 2))))))
 
-(ert-deftest vulpea-mentions--buffer-wrapped-link-spans ()
-  "Links wrapped across lines map to the columns they cover on each line."
-  (with-temp-buffer
-    (insert "see [[id:x][a fine\nCabernet]] and [[id:y][Merlot]]\n"
-            "plain\n"
-            "[[id:z][one\ntwo\nthree]] end\n")
-    (let ((table (vulpea-mentions--buffer-wrapped-link-spans)))
-      (should (equal (gethash 1 table) '((4 . 18))))
-      (should (equal (gethash 2 table) '((0 . 10))))
-      (should (equal (gethash 4 table) '((0 . 11))))
-      (should (equal (gethash 5 table) '((0 . 3))))
-      (should (equal (gethash 6 table) '((0 . 7))))
-      ;; a link that fits its line is left to the per-line check
-      (should (= (hash-table-count table) 5)))
-    ;; ripgrep numbers the lines of the accessible portion, which is
-    ;; what it is given
-    (goto-char (point-min))
-    (forward-line 3)
-    (narrow-to-region (point) (point-max))
-    (let ((table (vulpea-mentions--buffer-wrapped-link-spans)))
-      (should (equal (gethash 1 table) '((0 . 11))))
-      (should (equal (gethash 3 table) '((0 . 7))))
-      (should (= (hash-table-count table) 3)))))
-
 (ert-deftest vulpea-mentions--collect-outgoing-skips-wrapped-links ()
   "A term on a line of a wrapped link is not an outgoing mention."
   (vulpea-test--with-temp-db
@@ -1204,19 +1112,15 @@ Ripgrep reads the case-folded text, so that is what the event quotes."
                          "Cabernet]] and Merlot\n"))
            (output (concat (vulpea-mentions-test--rg-match text 2 "Cabernet")
                            (vulpea-mentions-test--rg-match text 2 "Merlot")))
-           (none (make-hash-table :test 'equal))
-           (wrapped (with-temp-buffer
-                      (insert text)
-                      (vulpea-mentions--buffer-wrapped-link-spans))))
-      (should (equal (mapcar (lambda (m) (plist-get m :matched))
-                             (vulpea-mentions--collect-outgoing
-                              output text dict nil none wrapped))
-                     '("Merlot")))
-      ;; without the table the tail of the link reads as prose
+           (none (make-hash-table :test 'equal)))
+      ;; The tail of the link reads as prose to the line check, and it
+      ;; is the Org parser that turns it down
+      (should (vulpea-mentions--line-unlinked-p
+               "Cabernet]] and Merlot" '("Cabernet")))
       (should (equal (mapcar (lambda (m) (plist-get m :matched))
                              (vulpea-mentions--collect-outgoing
                               output text dict nil none))
-                     '("Cabernet" "Merlot"))))))
+                     '("Merlot"))))))
 
 (ert-deftest vulpea-mentions--collect-outgoing-decides-ignore-once-per-candidate ()
   "The per-note ignore check runs once per candidate, not once per hit.
@@ -1761,6 +1665,930 @@ waiting on stdin, and the patterns file on disk."
          (lambda (_ms) (setq state 'resolved))
          (lambda (_e) (setq state 'rejected)))
         (should (eq state 'rejected))))))
+
+;;; Prose
+
+;; A mention is a title in prose.  The scans and `vulpea-mentions-link'
+;; ask the same question of the same code, so what one lists the other
+;; links; the corpora below are read by all three.
+
+(defun vulpea-mentions-test--link (content line note &optional context)
+  "Link the mentions of NOTE on LINE of an Org buffer holding CONTENT.
+
+Return (COUNT TEXT): what `vulpea-mentions-link' returned and the text
+of the buffer after it.  CONTEXT is passed on."
+  (with-temp-buffer
+    (insert content)
+    (delay-mode-hooks (org-mode))
+    (list (vulpea-mentions-link (current-buffer) line note context)
+          (buffer-string))))
+
+(defun vulpea-mentions-test--linkable-lines (content note)
+  "Return the lines of CONTENT on which a mention of NOTE gets linked.
+Each line is tried in a fresh Org buffer holding CONTENT."
+  (seq-filter
+   (lambda (line)
+     (> (car (vulpea-mentions-test--link content line note)) 0))
+   (number-sequence 1 (length (split-string content "\n")))))
+
+(defun vulpea-mentions-test--incoming-lines (content note)
+  "Return the lines of CONTENT the incoming search lists for NOTE.
+
+CONTENT becomes a file of a collection that also holds NOTE's own
+file, and real ripgrep searches it."
+  (vulpea-test--with-temp-db-and-files
+      `((:name "target.org"
+         :content ,(format ":PROPERTIES:\n:ID: %s\n:END:\n#+title: %s\n"
+                           (vulpea-note-id note) (vulpea-note-title note)))
+        (:name "mentioner.org" :content ,content))
+    (sort (mapcar (lambda (m) (plist-get m :line))
+                  (vulpea-mentions-test--collect-incoming-mentions-for-note
+                   (vulpea-note-id note)))
+          #'<)))
+
+(defun vulpea-mentions-test--outgoing-lines (content note)
+  "Return the lines of CONTENT the outgoing search lists for NOTE.
+NOTE is the only note of the collection."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note (vulpea-note-id note) (vulpea-note-title note)
+                                   :path "/n/target.org")
+    (sort (mapcar (lambda (m) (plist-get m :line))
+                  (vulpea-mentions-test--outgoing content))
+          #'<)))
+
+(defconst vulpea-mentions-test--prose-corpus
+  (concat
+   ":PROPERTIES:\n"                                              ; 1
+   ":ID: mentioner\n"                                            ; 2
+   ":END:\n"                                                     ; 3
+   "#+title: Mentioner\n"                                        ; 4
+   "#+filetags: :emacs:\n"                                       ; 5
+   "\n"                                                          ; 6
+   "Plain Emacs in a paragraph.\n"                               ; 7 *
+   "Glued Emacsen and GNUEmacs do not count.\n"                  ; 8
+   "Possessive Emacs's and quoted \"Emacs\" do.\n"               ; 9 *
+   "A link [[id:other][Emacs]] is taken.\n"                      ; 10
+   "A link [[id:other][to Emacs with [brackets] inside]] too.\n" ; 11
+   "A wrapped [[id:other][link to\n"                             ; 12
+   "Emacs]] and a bare Emacs after it.\n"                        ; 13 *
+   "Code ~Emacs~ and verbatim =Emacs= are syntax.\n"             ; 14
+   "A URL https://example.com/Emacs is a link.\n"                ; 15
+   "A <<Emacs>> target, a {{{Emacs}}} macro, a note[fn:Emacs].\n" ; 16
+   "# Emacs in a comment\n"                                      ; 17
+   "Stamp <2024-01-15 Mon> then Emacs follows.\n"                ; 18 *
+   "*Emacs* in bold and /Emacs/ in italics.\n"                   ; 19 *
+   "\n"                                                          ; 20
+   "#+begin_src emacs-lisp\n"                                    ; 21
+   "(message \"Emacs\")\n"                                       ; 22
+   "#+end_src\n"                                                 ; 23
+   "\n"                                                          ; 24
+   "#+begin_example\n"                                           ; 25
+   "Emacs\n"                                                     ; 26
+   "#+end_example\n"                                             ; 27
+   "\n"                                                          ; 28
+   "#+begin_quote\n"                                             ; 29
+   "Emacs in a quote.\n"                                         ; 30 *
+   "#+end_quote\n"                                               ; 31
+   "\n"                                                          ; 32
+   "- Emacs :: a description term\n"                             ; 33 *
+   "- an item about Emacs\n"                                     ; 34 *
+   "\n"                                                          ; 35
+   "| Emacs | in a table |\n"                                    ; 36 *
+   "\n"                                                          ; 37
+   "#+BEGIN: clocktable\n"                                       ; 38
+   "| Emacs | generated |\n"                                     ; 39
+   "#+END:\n"                                                    ; 40
+   "\n"                                                          ; 41
+   "#+RESULTS:\n"                                                ; 42
+   "| Emacs | computed |\n"                                      ; 43
+   "\n"                                                          ; 44
+   "An inline note[fn:: about Emacs] counts.\n"                  ; 45 *
+   ": Emacs in fixed width\n"                                    ; 46
+   "\n"                                                          ; 47
+   "* Setup notes :emacs:work:\n"                                ; 48
+   "* TODO Learn Emacs :emacs:\n"                                ; 49 *
+   "SCHEDULED: <2024-01-15 Mon>\n"                               ; 50
+   ":PROPERTIES:\n"                                              ; 51
+   ":CUSTOM: Emacs\n"                                            ; 52
+   ":END:\n"                                                     ; 53
+   "* Emacs\n")                                                  ; 54 *
+  "A note whose lines hold the word Emacs in every kind of place.")
+
+(defconst vulpea-mentions-test--prose-lines '(7 9 13 18 19 30 33 34 36 45 49 54)
+  "The lines of `vulpea-mentions-test--prose-corpus' with Emacs in prose.")
+
+(ert-deftest vulpea-mentions-link-and-scans-agree-on-prose ()
+  "The link function links exactly the lines both searches list.
+A title counts where it is prose.  Where it is Org syntax - a tag, a
+keyword, a timestamp, a link, code, a block, a comment, generated
+content - a link in its place would break what is there, so no search
+lists it and nothing is linked."
+  (vulpea-test--require-rg)
+  (let ((note (make-vulpea-note :id "emacs" :title "Emacs"))
+        (corpus vulpea-mentions-test--prose-corpus)
+        (lines vulpea-mentions-test--prose-lines))
+    (should (equal (vulpea-mentions-test--linkable-lines corpus note) lines))
+    (should (equal (vulpea-mentions-test--incoming-lines corpus note) lines))
+    (should (equal (vulpea-mentions-test--outgoing-lines corpus note) lines))))
+
+(ert-deftest vulpea-mentions-link-and-scans-agree-on-todo-keywords ()
+  "A todo keyword is not a mention of a note called after it.
+Neither is the keyword in the record Org writes on a state change.  The
+keywords a file declares for itself count like the global ones."
+  (vulpea-test--require-rg)
+  (let ((corpus (concat
+                 ":PROPERTIES:\n"                                           ; 1
+                 ":ID: mentioner\n"                                         ; 2
+                 ":END:\n"                                                  ; 3
+                 "#+todo: NEXT | DONE FINISHED\n"                           ; 4
+                 "\n"                                                       ; 5
+                 "* DONE Ship it\n"                                         ; 6
+                 "CLOSED: [2024-01-15 Mon 10:00]\n"                         ; 7
+                 "- State \"DONE\"       from \"NEXT\"       [2024-01-15 Mon 10:00]\n" ; 8
+                 "* DONE Done is a word of this title\n"                    ; 9 *
+                 "We are done here, and next comes lunch.\n"                ; 10 *
+                 "* NEXT Step\n"                                            ; 11
+                 "* FINISHED Next to nothing\n"                             ; 12 *
+                 "* COMMENT Comment on the plan\n")))                       ; 13 *
+    (dolist (case '(("Done" (9 10)) ("Next" (10 12)) ("Comment" (13))))
+      (let ((note (make-vulpea-note :id "word" :title (car case)))
+            (lines (cadr case)))
+        (should (equal (vulpea-mentions-test--linkable-lines corpus note) lines))
+        (should (equal (vulpea-mentions-test--incoming-lines corpus note) lines))
+        (should (equal (vulpea-mentions-test--outgoing-lines corpus note) lines))))
+    ;; in a heading only the title is linked
+    (should (equal (vulpea-mentions-test--link
+                    corpus 9 (make-vulpea-note :id "done" :title "Done"))
+                   (list 1 (string-replace
+                            "* DONE Done is"
+                            "* DONE [[id:done][Done]] is"
+                            corpus))))
+    ;; and the word that comments a heading out is not its title
+    (should (equal (vulpea-mentions-test--link
+                    corpus 13 (make-vulpea-note :id "c" :title "Comment"))
+                   (list 1 (string-replace
+                            "* COMMENT Comment on"
+                            "* COMMENT [[id:c][Comment]] on"
+                            corpus))))))
+
+(ert-deftest vulpea-mentions-link-and-scans-agree-on-dates ()
+  "A date in a timestamp is not a mention of the daily note of that day."
+  (vulpea-test--require-rg)
+  (let ((note (make-vulpea-note :id "day" :title "2024-01-15"))
+        (corpus (concat
+                 ":PROPERTIES:\n"                                           ; 1
+                 ":ID: mentioner\n"                                         ; 2
+                 ":END:\n"                                                  ; 3
+                 "* Meeting\n"                                              ; 4
+                 "SCHEDULED: <2024-01-15 Mon>\n"                            ; 5
+                 ":LOGBOOK:\n"                                              ; 6
+                 "CLOCK: [2024-01-15 Mon 10:00]--[2024-01-15 Mon 11:00] =>  1:00\n" ; 7
+                 ":END:\n"                                                  ; 8
+                 "Met on [2024-01-15 Mon] and again on <2024-01-15 Mon>.\n" ; 9
+                 "See the 2024-01-15 entry.\n")))                           ; 10 *
+    (should (equal (vulpea-mentions-test--linkable-lines corpus note) '(10)))
+    (should (equal (vulpea-mentions-test--incoming-lines corpus note) '(10)))
+    (should (equal (vulpea-mentions-test--outgoing-lines corpus note) '(10)))))
+
+(ert-deftest vulpea-mentions-link-and-scans-agree-on-radio-targets ()
+  "Text that Org links to a radio target is a link already."
+  (vulpea-test--require-rg)
+  (let ((note (make-vulpea-note :id "emacs" :title "Emacs"))
+        (corpus (concat
+                 ":PROPERTIES:\n"                                           ; 1
+                 ":ID: mentioner\n"                                         ; 2
+                 ":END:\n"                                                  ; 3
+                 "The word <<<Emacs>>> is defined here.\n"                  ; 4
+                 "Later Emacs is a link to it, on its own.\n")))            ; 5
+    (should-not (vulpea-mentions-test--linkable-lines corpus note))
+    (should-not (vulpea-mentions-test--incoming-lines corpus note))
+    (should-not (vulpea-mentions-test--outgoing-lines corpus note))))
+
+(ert-deftest vulpea-mentions-link-and-scans-agree-on-odd-text ()
+  "Bracket pairs that are no link, underscores and logged states.
+Brackets on two lines read as a link to a regexp, but not to Org.  An
+underscore next to a title is no word character to Emacs.  A state
+note may have no new state at all."
+  (vulpea-test--require-rg)
+  (let ((note (make-vulpea-note :id "emacs" :title "Emacs"))
+        (corpus (concat
+                 ":PROPERTIES:\n"                                           ; 1
+                 ":ID: mentioner\n"                                         ; 2
+                 ":END:\n"                                                  ; 3
+                 "Type =[[= to open a link, and\n"                          ; 4
+                 "Emacs closes it with =]]=.\n"                             ; 5 *
+                 "\n"                                                       ; 6
+                 "Typing [[ starts a link.\n"                               ; 7
+                 "\n"                                                       ; 8
+                 "Emacs closes it with ]].\n"                               ; 9 *
+                 "An _Emacs_ word, and Emacs_ alone.\n")))                  ; 10 *
+    (should (equal (vulpea-mentions-test--linkable-lines corpus note) '(5 9 10)))
+    (should (equal (vulpea-mentions-test--incoming-lines corpus note) '(5 9 10)))
+    (should (equal (vulpea-mentions-test--outgoing-lines corpus note) '(5 9 10))))
+  (let ((note (make-vulpea-note :id "next" :title "Next"))
+        (corpus (concat
+                 ":PROPERTIES:\n"                                           ; 1
+                 ":ID: mentioner\n"                                         ; 2
+                 ":END:\n"                                                  ; 3
+                 "* Task\n"                                                 ; 4
+                 "- State             from \"NEXT\"       [2024-01-15 Mon 10:00]\n" ; 5
+                 "What comes next?\n")))                                    ; 6 *
+    (should (equal (vulpea-mentions-test--linkable-lines corpus note) '(6)))
+    (should (equal (vulpea-mentions-test--incoming-lines corpus note) '(6)))
+    (should (equal (vulpea-mentions-test--outgoing-lines corpus note) '(6)))))
+
+(ert-deftest vulpea-mentions-link-and-scans-agree-on-inline-tasks ()
+  "The END line of an inline task is no title."
+  (vulpea-test--require-rg)
+  (require 'org-inlinetask)
+  (let ((note (make-vulpea-note :id "end" :title "End"))
+        (corpus (concat
+                 ":PROPERTIES:\n"                                           ; 1
+                 ":ID: mentioner\n"                                         ; 2
+                 ":END:\n"                                                  ; 3
+                 "*************** TODO Fix the end\n"                       ; 4 *
+                 "Body text.\n"                                             ; 5
+                 "*************** END\n")))                                 ; 6
+    (should (equal (vulpea-mentions-test--linkable-lines corpus note) '(4)))
+    (should (equal (vulpea-mentions-test--incoming-lines corpus note) '(4)))
+    (should (equal (vulpea-mentions-test--outgoing-lines corpus note) '(4)))))
+
+(ert-deftest vulpea-mentions-scans-read-setup-files-next-to-the-note ()
+  "A relative #+SETUPFILE is read from the directory of the note.
+Whatever buffer is current when the search settles, the todo keywords
+the setup file declares are the ones the note sees when visited."
+  (vulpea-test--require-rg)
+  (vulpea-test--with-temp-db-and-files
+      `((:name "target.org"
+         :content ":PROPERTIES:\n:ID: target\n:END:\n#+title: Waiting\n")
+        (:name "setup.setup" :content "#+todo: TODO WAITING | DONE\n")
+        (:name "tasks.org"
+         :content ,(concat ":PROPERTIES:\n:ID: tasks\n:END:\n"
+                           "#+setupfile: setup.setup\n\n"
+                           "* WAITING Reply from Bob\n"
+                           "Still waiting for it.\n")))
+    (let ((path (expand-file-name "tasks.org" dir))
+          (note (vulpea-db-get-by-id "target")))
+      ;; the note itself, visited
+      (let ((buffer (find-file-noselect path)))
+        (unwind-protect
+            (with-current-buffer buffer
+              (should (= (vulpea-mentions-link buffer 6 note) 0))
+              (should (= (vulpea-mentions-link buffer 7 note) 1)))
+          (with-current-buffer buffer (set-buffer-modified-p nil))
+          (kill-buffer buffer)))
+      ;; the incoming search, settling in a buffer somewhere else
+      (let ((default-directory temporary-file-directory))
+        (with-temp-buffer
+          (should (equal (mapcar (lambda (m) (plist-get m :line))
+                                 (vulpea-mentions-test--collect-incoming-mentions-for-note
+                                  "target"))
+                         '(7)))))
+      ;; the outgoing search of a buffer visiting the note
+      (with-temp-buffer
+        (insert-file-contents path)
+        (setq default-directory (file-name-directory path))
+        (let ((state nil) (result nil))
+          (vulpea-buffer-unlinked-mentions-async
+           (lambda (ms) (setq state 'resolved result ms))
+           (lambda (err) (setq state (list 'rejected err))))
+          (let ((default-directory temporary-file-directory))
+            (with-temp-buffer
+              (vulpea-mentions-test--await (lambda () state))))
+          (should (eq state 'resolved))
+          (should (equal (mapcar (lambda (m) (plist-get m :line)) result)
+                         '(7))))))))
+
+(ert-deftest vulpea-mentions-incoming-counts-only-links-org-sees ()
+  "Link text that Org does not read as a note's link leaves the file listed.
+In a comment or a code block the text of a link is no link, and in a
+dynamic block or babel results it is generated, which the database
+leaves out as well."
+  (vulpea-test--require-rg)
+  (let ((files
+         (mapcar
+          (lambda (case)
+            (list :name (concat (car case) ".org")
+                  :content (concat ":PROPERTIES:\n:ID: " (car case) "\n:END:\n"
+                                   "A lovely Cabernet.\n\n" (cadr case))))
+          '(("dblock" "#+BEGIN: related\n- [[id:target][a wine]]\n#+END:\n")
+            ("results" "#+RESULTS:\n- [[id:target][a wine]]\n")
+            ("comment" "# old: [[id:target][a wine]]\n")
+            ("code" "#+begin_src org\n[[id:target][a wine]]\n#+end_src\n")
+            ("verbatim" "See =[[id:target][a wine]]= here.\n")))))
+    (vulpea-test--with-temp-db-and-files
+        (cons '(:name "target.org"
+                :content ":PROPERTIES:\n:ID: target\n:END:\n#+title: Cabernet\n")
+              files)
+      (should (equal (sort (mapcar (lambda (m) (vulpea-note-id (plist-get m :note)))
+                                   (vulpea-mentions-test--collect-incoming-mentions-for-note
+                                    "target"))
+                           #'string<)
+                     '("code" "comment" "dblock" "results" "verbatim"))))))
+
+(ert-deftest vulpea-mentions-incoming-reads-files-with-mixed-line-endings ()
+  "A line that ends in a carriage return in Emacs still reads as ripgrep saw it."
+  (vulpea-test--require-rg)
+  (vulpea-test--with-temp-db-and-files
+      '((:name "target.org"
+         :content ":PROPERTIES:\n:ID: target\n:END:\n#+title: Cabernet\n")
+        (:name "mixed.org"
+         :content ":PROPERTIES:\n:ID: mixed\n:END:\n#+title: Mixed\n\nA lovely Cabernet.\r\n~Cabernet~ as code.\r\n"))
+    (should (equal (mapcar (lambda (m) (plist-get m :line))
+                           (vulpea-mentions-test--collect-incoming-mentions-for-note
+                            "target"))
+                   '(6)))))
+
+(ert-deftest vulpea-mentions-link-and-scans-read-a-word-cut-by-the-restriction ()
+  "A restriction that cuts a word does not make a word of its part."
+  (vulpea-test--require-rg)
+  (let ((note (make-vulpea-note :id "emacs" :title "Emacs")))
+    (dolist (case '(("Use GNUEmacs daily.\n" "Emacs" nil)
+                    ("Use Emacsen daily.\n" nil "en")))
+      (with-temp-buffer
+        (insert (car case))
+        (delay-mode-hooks (org-mode))
+        (goto-char (point-min))
+        (narrow-to-region
+         (if (cadr case) (progn (search-forward (cadr case)) (match-beginning 0))
+           (point-min))
+         (if (nth 2 case)
+             (progn (goto-char (point-min)) (search-forward (nth 2 case))
+                    (match-beginning 0))
+           (point-max)))
+        (should (= (vulpea-mentions-link (current-buffer) 1 note) 0))
+        (should (equal (buffer-string) (buffer-substring (point-min) (point-max))))
+        (vulpea-test--with-temp-db
+          (vulpea-db)
+          (vulpea-test--insert-test-note "emacs" "Emacs" :path "/n/emacs.org")
+          (let ((state nil) (result nil))
+            (vulpea-buffer-unlinked-mentions-async
+             (lambda (ms) (setq state 'resolved result ms))
+             (lambda (err) (setq state (list 'rejected err))))
+            (vulpea-mentions-test--await (lambda () state))
+            (should (eq state 'resolved))
+            (should-not result)))))))
+
+(ert-deftest vulpea-mentions-link-leaves-point-after-the-mention ()
+  "Point after a mention, or inside it, ends up after the link."
+  (let ((note (make-vulpea-note :id "emacs" :title "Emacs")))
+    (dolist (offset '(0 2))
+      (with-temp-buffer
+        (insert "I use Emacs daily.\n")
+        (delay-mode-hooks (org-mode))
+        (goto-char (point-min))
+        (search-forward "Emacs")
+        (backward-char offset)
+        (should (= (vulpea-mentions-link (current-buffer) 1 note) 1))
+        (should (looking-at-p " daily\\.$"))))))
+
+(ert-deftest vulpea-mentions-scans-keep-quiet-about-radio-targets ()
+  "Reading a note with a radio target does not upset Org's element cache."
+  (vulpea-test--require-rg)
+  (let ((warnings nil)
+        (note (make-vulpea-note :id "emacs" :title "Emacs"))
+        (corpus (concat ":PROPERTIES:\n:ID: mentioner\n:END:\n"
+                        "The word <<<Emacs>>> is defined here.\n"
+                        "Later Emacs is a link to it.\n")))
+    (cl-letf (((symbol-function 'display-warning)
+               (lambda (&rest args) (push args warnings))))
+      (vulpea-mentions-test--incoming-lines corpus note)
+      (vulpea-mentions-test--outgoing-lines corpus note))
+    (should-not warnings)))
+
+(defconst vulpea-mentions-test--object-corpus
+  (concat
+   "Plain *bold* /it/ _under_ +strike+ =verb= ~code~ text.\n"
+   "Adjacent *a*/b/ and [[id:x][link]]*bold* and [[id:x][y]]_sub and x_{s}.\n"
+   "Emphasis *across\nlines* and a [[id:x][link *with bold*\nwrapped]] here.\n"
+   "Inline note[fn:: with *bold* inside] and [fn:label] and \\alpha entity.\n"
+   "Stamp <2024-01-15 Mon> and [2024-01-15 Mon] and {{{macro(x)}}} and $x$.\n"
+   "Ends with an object right before it: [[id:x][y]]Emacs and src_elisp{(+ 1 2)}.\n"
+   "\n"
+   "#+begin_verse\n"
+   "A verse *with bold*\n"
+   "and ~code~ in it\n"
+   "#+end_verse\n"
+   "\n"
+   "| *cell* | [[id:x][link]] | plain |\n"
+   "| ~c~    | x_{s}          | 2024  |\n")
+  "Text whose every position the object lookup is compared on.")
+
+(ert-deftest vulpea-mentions--context-matches-org-element-context ()
+  "Looking objects up in what was lexed before gives what Org gives.
+The scratch copy a search reads remembers the objects of a container,
+and the result must be the one `org-element-context' returns, at every
+position, in any order.  Both are asked in the same buffer: what
+`org-element-at-point' returns at the start of a table depends on what
+its cache holds already."
+  (let ((org-element-use-cache t))
+    (with-temp-buffer
+      (vulpea-mentions--scratch-fill
+       (lambda () (insert vulpea-mentions-test--object-corpus)))
+      (should vulpea-mentions--lexed)
+      (cl-flet ((same-p (pos)
+                  (goto-char pos)
+                  (let ((mine (vulpea-mentions--context (org-element-at-point)))
+                        (org (org-element-context)))
+                    (or (equal (list (org-element-type mine)
+                                     (org-element-property :begin mine)
+                                     (org-element-property :end mine))
+                               (list (org-element-type org)
+                                     (org-element-property :begin org)
+                                     (org-element-property :end org)))
+                        (list pos mine org)))))
+        ;; in order, the way the searches ask, and then backwards, past
+        ;; what was lexed and remembered
+        (dolist (pos (append (number-sequence 1 (buffer-size))
+                             (number-sequence (buffer-size) 1 -1)))
+          (should (eq t (same-p pos))))))))
+
+(ert-deftest vulpea-mentions--context-stops-at-an-empty-object ()
+  "An empty object at the end of a container ends the lexing.
+The last cell of a table row at the end of the buffer is empty, and
+lexed again from its end it comes back again: remembering objects
+until one starts past the end never came to an end."
+  (let ((org-element-use-cache t)
+        (text "| a | b |\n| _ Emacs | +x+ |"))
+    (with-temp-buffer
+      (vulpea-mentions--scratch-fill (lambda () (insert text)))
+      (dolist (pos (number-sequence 1 (1+ (buffer-size))))
+        (goto-char pos)
+        (let ((mine (vulpea-mentions--context (org-element-at-point)))
+              (org (org-element-context)))
+          (should (equal (list (org-element-type mine)
+                               (org-element-property :begin mine)
+                               (org-element-property :end mine))
+                         (list (org-element-type org)
+                               (org-element-property :begin org)
+                               (org-element-property :end org)))))))))
+
+(defconst vulpea-mentions-test--fuzz-tokens
+  ["Emacs" "word" " " " " " " "\n" "\t" "*" "/" "_" "+" "=" "~" "|" "\\"
+   "*b*" "/i/" "+s+" "=v=" "~c~" "*a\nb*" "*bold /it/ x*"
+   "[[id:x][" "]]" "[[id:x][d]]" "[[id:x][*b* d]]" "[[id:x][a\nb]]"
+   "[[https://e.org]]" "https://e.org/x" "<https://e.org>" "[[x]]"
+   "[fn::" "]" "[fn:l]" "[fn::a\nb]" "\\\\" "\\alpha" "\\alpha{}"
+   "src_elisp{(+ 1 2)}" "call_f()" "@@html:<b>@@" "[cite:@a;@b]"
+   "[1/2]" "[33%]" "<2024-01-15 Mon>" "[2024-01-15 Mon]" "$x$" "\\(x\\)"
+   "{{{m(a)}}}" "<<t>>" "<<<radio>>>" "x^2" "x_{s}" "a_b" "^{up}"]
+  "Pieces the documents of `vulpea-mentions--context-survives-random-text' are made of.")
+
+(defun vulpea-mentions-test--fuzz-doc ()
+  "Return a random Org document made of `vulpea-mentions-test--fuzz-tokens'."
+  (cl-flet ((inline (n &optional flat)
+              (mapconcat
+               (lambda (_)
+                 (let ((token (aref vulpea-mentions-test--fuzz-tokens
+                                    (random (length vulpea-mentions-test--fuzz-tokens)))))
+                   (if (and flat (string-match-p "[\n|]" token)) " " token)))
+               (number-sequence 1 n) "")))
+    (mapconcat
+     (lambda (_)
+       (pcase (random 5)
+         ((or 0 1) (concat (string-trim-left (inline (+ 5 (random 30)))) "\n"))
+         (2 (concat "| " (inline (+ 1 (random 5)) t) " | "
+                    (inline (+ 1 (random 5)) t) " |\n"))
+         (3 (concat "#+begin_verse\n" (inline (+ 5 (random 20))) "\n#+end_verse\n"))
+         (4 (concat "* " (inline (+ 1 (random 5)) t) "\n"))))
+     (number-sequence 0 (+ 2 (random 4)))
+     (if (zerop (random 2)) "\n" ""))))
+
+(ert-deftest vulpea-mentions--context-survives-random-text ()
+  "The object lookup agrees with `org-element-context' on random documents.
+Every position of every document is asked about forwards, backwards
+and in random order, and a document may end without a newline."
+  (random "vulpea")
+  (let ((org-element-use-cache t))
+    (dotimes (_ 12)
+      (let ((doc (vulpea-mentions-test--fuzz-doc)))
+        (when (zerop (random 2))
+          (setq doc (string-trim-right doc)))
+        (dolist (order '(forward backward random))
+          (with-temp-buffer
+            (vulpea-mentions--scratch-fill (lambda () (insert doc)))
+            (let ((positions (number-sequence 1 (1+ (buffer-size)))))
+              (pcase order
+                ('backward (setq positions (nreverse positions)))
+                ('random (setq positions
+                               (sort positions (lambda (_a _b) (zerop (random 2)))))))
+              (dolist (pos positions)
+                (goto-char pos)
+                (let* ((element (org-element-at-point))
+                       (mine (vulpea-mentions--context element))
+                       (org (progn (goto-char pos) (org-element-context element))))
+                  (should (equal (list doc pos
+                                       (org-element-type mine)
+                                       (org-element-property :begin mine)
+                                       (org-element-property :end mine))
+                                 (list doc pos
+                                       (org-element-type org)
+                                       (org-element-property :begin org)
+                                       (org-element-property :end org)))))))))))))
+
+(ert-deftest vulpea-mentions-outgoing-lexes-a-long-paragraph-once ()
+  "A long paragraph with a title on every line costs one pass, not one per line.
+Asking `org-element-context' about every occurrence lexes the
+paragraph from its start each time, which took seconds for a thousand
+lines, in a process sentinel that cannot be interrupted."
+  (vulpea-test--require-rg)
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "emacs" "Emacs" :path "/n/emacs.org")
+    (let ((lexed 0)
+          (lines 1000))
+      (cl-letf* ((orig (symbol-function 'org-element--object-lex))
+                 ((symbol-function 'org-element--object-lex)
+                  (lambda (&rest args)
+                    (cl-incf lexed)
+                    (apply orig args))))
+        (let ((mentions (vulpea-mentions-test--outgoing
+                         (mapconcat (lambda (i)
+                                      (format "Line %d talks about Emacs and ~code~.\n" i))
+                                    (number-sequence 1 lines)
+                                    ""))))
+          (should (= (length mentions) lines))
+          (should (< lexed (* 3 lines))))))))
+
+;;; Linking a mention
+
+(ert-deftest vulpea-mentions-link-replaces-mentions-on-the-line ()
+  "Every mention on the line becomes a link, and no other line is touched."
+  (let ((note (make-vulpea-note :id "emacs" :title "Emacs")))
+    ;; the text as written is kept as the description
+    (should (equal (vulpea-mentions-test--link "I use emacs daily.\n" 1 note)
+                   '(1 "I use [[id:emacs][emacs]] daily.\n")))
+    (should (equal (vulpea-mentions-test--link
+                    "Emacs here.\nEmacs and Emacs there.\nEmacs last.\n" 2 note)
+                   (list 2 (concat "Emacs here.\n"
+                                   "[[id:emacs][Emacs]] and [[id:emacs][Emacs]] there.\n"
+                                   "Emacs last.\n"))))
+    ;; a last line without a newline is a line too
+    (should (equal (vulpea-mentions-test--link "one\nEmacs" 2 note)
+                   '(1 "one\n[[id:emacs][Emacs]]")))
+    ;; nothing left to link the second time
+    (should (equal (vulpea-mentions-test--link
+                    "[[id:emacs][Emacs]] and [[id:emacs][Emacs]] there.\n" 1 note)
+                   '(0 "[[id:emacs][Emacs]] and [[id:emacs][Emacs]] there.\n")))))
+
+(ert-deftest vulpea-mentions-link-keeps-point-and-narrowing ()
+  "Linking leaves point on the text it was on, and the restriction as it was."
+  (let ((note (make-vulpea-note :id "emacs" :title "Emacs")))
+    (with-temp-buffer
+      (insert "First line.\nAn Emacs line.\nLast line.\n")
+      (delay-mode-hooks (org-mode))
+      (goto-char (point-min))
+      (search-forward "Last")
+      (should (= (vulpea-mentions-link (current-buffer) 2 note) 1))
+      (should (looking-at-p " line\\.$"))
+      (should (looking-back "Last" (line-beginning-position)))
+      (should-not (buffer-narrowed-p)))))
+
+(ert-deftest vulpea-mentions-link-checks-the-line ()
+  "A line that is not there, or reads differently than expected, is left alone."
+  (let ((note (make-vulpea-note :id "emacs" :title "Emacs"))
+        (text "  An Emacs line.  \nAnother Emacs line.\n"))
+    (should (equal (vulpea-mentions-test--link text 0 note) (list 0 text)))
+    (should (equal (vulpea-mentions-test--link text -1 note) (list 0 text)))
+    (should (equal (vulpea-mentions-test--link text 3 note) (list 0 text)))
+    (should (equal (vulpea-mentions-test--link text 9 note) (list 0 text)))
+    ;; the context is the trimmed line, as the searches report it
+    (should (equal (vulpea-mentions-test--link text 1 note "An Emacs line.")
+                   (list 1 "  An [[id:emacs][Emacs]] line.  \nAnother Emacs line.\n")))
+    ;; the line moved since the search: nothing lands on its neighbor
+    (should (equal (vulpea-mentions-test--link text 2 note "An Emacs line.")
+                   (list 0 text)))))
+
+(ert-deftest vulpea-mentions-link-reads-terms-like-the-search ()
+  "Titles and aliases are looked for the way the searches look for them."
+  ;; an alias too short to be searched for is not linked either, and a
+  ;; longer name wins over a shorter one it starts with
+  (let ((vulpea-mentions-min-term-length 3)
+        (note (make-vulpea-note :id "emacs" :title "Emacs"
+                                :aliases '("Emacs Lisp" "EL"))))
+    (should (equal (vulpea-mentions-test--link
+                    "Emacs Lisp, EL and Emacs.\n" 1 note)
+                   '(2 "[[id:emacs][Emacs Lisp]], EL and [[id:emacs][Emacs]].\n"))))
+  ;; a name that reads as part of a longer word is not a mention
+  (let ((note (make-vulpea-note :id "emacs" :title "Emacs")))
+    (should (equal (vulpea-mentions-test--link "Emacsen and GNUEmacs.\n" 1 note)
+                   '(0 "Emacsen and GNUEmacs.\n")))
+    ;; a possessive, and neighbors a word regexp takes for word
+    ;; characters in an Org buffer
+    (should (equal (vulpea-mentions-test--link "Emacs's manual.\n" 1 note)
+                   '(1 "[[id:emacs][Emacs]]'s manual.\n")))
+    (should (equal (vulpea-mentions-test--link
+                    "An $Emacs fee and an Emacs% share.\n" 1 note)
+                   '(2 "An $[[id:emacs][Emacs]] fee and an [[id:emacs][Emacs]]% share.\n")))
+    ;; a Latin title glued into a script that has no spaces
+    (should (equal (vulpea-mentions-test--link "我爱用Emacs写作\n" 1 note)
+                   '(1 "我爱用[[id:emacs][Emacs]]写作\n"))))
+  ;; a title that ends in punctuation
+  (let ((note (make-vulpea-note :id "cpp" :title "C++")))
+    (should (equal (vulpea-mentions-test--link "I like C++ and C++.\n" 1 note)
+                   '(2 "I like [[id:cpp][C++]] and [[id:cpp][C++]].\n"))))
+  ;; a title in a script without spaces matches inside running text
+  (let ((note (make-vulpea-note :id "kinkaku" :title "金阁寺")))
+    (should (equal (vulpea-mentions-test--link "鹿苑寺，又名金阁寺。\n" 1 note)
+                   '(1 "鹿苑寺，又名[[id:kinkaku][金阁寺]]。\n")))))
+
+(ert-deftest vulpea-mentions-link-survives-brackets-in-a-title ()
+  "A title with square brackets is linked once, not wrapped again and again.
+The link written for it holds the title, so a linker that searches the
+line again after each replacement never comes to an end."
+  (let* ((note (make-vulpea-note :id "foo" :title "Foo [bar]"))
+         (link (org-link-make-string "id:foo" "Foo [bar]"))
+         (linked (concat "About " link " today.\n")))
+    (should (equal (vulpea-mentions-test--link "About Foo [bar] today.\n" 1 note)
+                   (list 1 linked)))
+    (should (equal (vulpea-mentions-test--link linked 1 note)
+                   (list 0 linked)))))
+
+(ert-deftest vulpea-mentions-link-skips-links ()
+  "A title inside a link is left alone, whatever the link looks like."
+  (let ((note (make-vulpea-note :id "emacs" :title "Emacs")))
+    (dolist (text '("See [[id:other][Emacs]].\n"
+                    "See [[id:other][the Emacs manual]].\n"
+                    "See [[id:other][Emacs [1] notes]].\n"
+                    "See [[Emacs]].\n"
+                    "See [[id:other][*the Emacs manual*]].\n"
+                    "See https://example.com/Emacs today.\n"
+                    "See <https://example.com/Emacs> today.\n"))
+      (should (equal (vulpea-mentions-test--link text 1 note) (list 0 text))))
+    ;; a link wrapped across lines covers its part of each line
+    (let ((text "A [[id:other][long description of\nEmacs and more]] then Emacs.\n"))
+      (should (equal (vulpea-mentions-test--link text 2 note)
+                     (list 1 (concat "A [[id:other][long description of\n"
+                                     "Emacs and more]] then [[id:emacs][Emacs]].\n")))))))
+
+(ert-deftest vulpea-mentions-link-needs-an-org-buffer ()
+  "Outside Org mode nothing tells prose from syntax, so nothing is linked."
+  (let ((note (make-vulpea-note :id "emacs" :title "Emacs")))
+    (with-temp-buffer
+      (insert "Plain Emacs text.\n")
+      (should (= (vulpea-mentions-link (current-buffer) 1 note) 0))
+      (should (equal (buffer-string) "Plain Emacs text.\n")))))
+
+(ert-deftest vulpea-mentions-link-counts-lines-in-the-accessible-portion ()
+  "Lines are counted from the start of the restriction, as the search does.
+What the text is, prose or not, is still read from the whole buffer."
+  (let ((note (make-vulpea-note :id "emacs" :title "Emacs")))
+    (with-temp-buffer
+      (insert "#+begin_src emacs-lisp\n(message \"Emacs\")\n#+end_src\n\n"
+              "* Heading\nEmacs in prose.\n")
+      (delay-mode-hooks (org-mode))
+      ;; the body of the block, cut off from the lines that make it one
+      (goto-char (point-min))
+      (forward-line 1)
+      (narrow-to-region (point) (line-end-position))
+      (should (= (vulpea-mentions-link (current-buffer) 1 note) 0))
+      (widen)
+      (search-forward "* Heading")
+      (narrow-to-region (line-beginning-position) (point-max))
+      (should (= (vulpea-mentions-link (current-buffer) 2 note) 1))
+      (should (buffer-narrowed-p))
+      (widen)
+      (should (equal (buffer-string)
+                     (concat "#+begin_src emacs-lisp\n(message \"Emacs\")\n#+end_src\n\n"
+                             "* Heading\n[[id:emacs][Emacs]] in prose.\n"))))))
+
+;;; Prose in the searches
+
+(ert-deftest vulpea-mentions--collect-drops-what-is-not-prose ()
+  "A hit is read in its file, and dropped when the title is not prose there.
+A hit that cannot be read there is kept as ripgrep reported it: the
+file is gone, or no longer says what ripgrep saw."
+  (vulpea-test--with-temp-db-and-files
+      '((:name "target.org"
+         :content ":PROPERTIES:\n:ID: target\n:END:\n#+title: Cabernet\n")
+        (:name "tasting.org"
+         :content ":PROPERTIES:\n:ID: tasting\n:END:\n#+title: Tasting\n\nA lovely Cabernet.\n~Cabernet~ as code.\nRewritten since.\n"))
+    (let* ((note (vulpea-db-get-by-id "target"))
+           (path (expand-file-name "tasting.org" dir))
+           (event (lambda (file line-no text)
+                    (format (concat "{\"type\":\"match\",\"data\":{\"path\":{\"text\":%S},"
+                                    "\"lines\":{\"text\":%S},\"line_number\":%d}}\n")
+                            file text line-no)))
+           (output (concat
+                    (funcall event path 6 "A lovely Cabernet.")
+                    (funcall event path 7 "~Cabernet~ as code.")
+                    ;; the file has changed under the search
+                    (funcall event path 8 "More Cabernet here.")
+                    ;; and this line is past its end
+                    (funcall event path 20 "Cabernet at the end.")))
+           (mentions (vulpea-mentions--collect
+                      output note (vulpea-note-path note))))
+      (should (equal (mapcar (lambda (m) (plist-get m :line)) mentions)
+                     '(6 8 20))))))
+
+(ert-deftest vulpea-mentions--keep-prose-reads-files-in-any-order ()
+  "Hits are read in the right file also when they do not come file by file."
+  (vulpea-test--with-temp-db-and-files
+      '((:name "a.org" :content "~Cabernet~ here.\nCabernet there.\n")
+        (:name "b.org" :content "Cabernet here.\n~Cabernet~ there.\n"))
+    (let* ((a (expand-file-name "a.org" dir))
+           (b (expand-file-name "b.org" dir))
+           (hit (lambda (path line-no text)
+                  (cons (list :path path :line line-no :line-text text)
+                        (list path line-no)))))
+      (should (equal (vulpea-mentions--keep-prose
+                      (list (funcall hit a 2 "Cabernet there.")
+                            (funcall hit b 2 "~Cabernet~ there.")
+                            (funcall hit a 1 "~Cabernet~ here.")
+                            (funcall hit b 1 "Cabernet here."))
+                      '("Cabernet"))
+                     (list (list a 2) (list b 1)))))))
+
+(ert-deftest vulpea-mentions--keep-prose-survives-the-parser ()
+  "A hit the parser gives up on is kept, and the rest is still read."
+  (vulpea-test--with-temp-db-and-files
+      '((:name "a.org" :content "Cabernet here.\n~Cabernet~ there.\n"))
+    (let* ((a (expand-file-name "a.org" dir))
+           (orig (symbol-function 'vulpea-mentions--prose-p))
+           (calls 0))
+      (cl-letf (((symbol-function 'vulpea-mentions--prose-p)
+                 (lambda (pos)
+                   (if (= (cl-incf calls) 1)
+                       (error "Parser gave up")
+                     (funcall orig pos)))))
+        (should (equal (vulpea-mentions--keep-prose
+                        (list (cons (list :path a :line 1
+                                          :line-text "Cabernet here.")
+                                    1)
+                              (cons (list :path a :line 2
+                                          :line-text "~Cabernet~ there.")
+                                    2))
+                        '("Cabernet"))
+                       '(1)))
+        (should (= calls 2))))))
+
+(ert-deftest vulpea-mentions-incoming-reads-files-with-dos-line-endings ()
+  "A file with CRLF line endings reads the same to ripgrep and to Emacs."
+  (vulpea-test--require-rg)
+  (vulpea-test--with-temp-db-and-files
+      '((:name "target.org"
+         :content ":PROPERTIES:\n:ID: target\n:END:\n#+title: Cabernet\n")
+        (:name "dos.org"
+         :content ":PROPERTIES:\r\n:ID: dos\r\n:END:\r\n#+title: Dos\r\n\r\nA lovely Cabernet.\r\n~Cabernet~ as code.\r\n"))
+    (should (equal (mapcar (lambda (m)
+                             (list (plist-get m :line) (plist-get m :context)))
+                           (vulpea-mentions-test--collect-incoming-mentions-for-note
+                            "target"))
+                   '((6 "A lovely Cabernet."))))))
+
+(ert-deftest vulpea-mentions-incoming-reads-each-file-with-its-own-keywords ()
+  "Todo keywords declared by one file do not leak into the next one."
+  (vulpea-test--require-rg)
+  (vulpea-test--with-temp-db-and-files
+      '((:name "target.org"
+         :content ":PROPERTIES:\n:ID: target\n:END:\n#+title: Review\n")
+        (:name "a.org"
+         :content ":PROPERTIES:\n:ID: a\n:END:\n#+title: Tasks\n#+todo: REVIEW | DONE\n\n* REVIEW the draft\n")
+        (:name "b.org"
+         :content ":PROPERTIES:\n:ID: b\n:END:\n#+title: Notes\n\n* REVIEW the draft\n"))
+    (let ((mentions (vulpea-mentions-test--collect-incoming-mentions-for-note
+                     "target")))
+      (should (equal (mapcar (lambda (m) (vulpea-note-id (plist-get m :note)))
+                             mentions)
+                     '("b"))))))
+
+(ert-deftest vulpea-mentions-outgoing-quotes-the-mention-in-prose ()
+  "The text a mention quotes is the first occurrence that is prose."
+  (vulpea-test--require-rg)
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "emacs" "Emacs" :path "/n/emacs.org")
+    (let ((mentions (vulpea-mentions-test--outgoing
+                     "Run ~emacs~ to start EMACS, or Emacs.\n")))
+      (should (equal (mapcar (lambda (m) (plist-get m :matched)) mentions)
+                     '("EMACS")))
+      ;; the copy of the buffer the parser read is gone
+      (should-not (seq-find (lambda (buffer)
+                              (string-prefix-p " *vulpea-mentions-prose*"
+                                               (buffer-name buffer)))
+                            (buffer-list))))))
+
+(ert-deftest vulpea-mentions-outgoing-reads-prose-from-the-whole-buffer ()
+  "A narrowed buffer is searched in part, but read as the part of a whole.
+The restriction may start inside a block or leave the todo keywords of
+the file outside, and both decide what the text in it is."
+  (vulpea-test--require-rg)
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "emacs" "Emacs" :path "/n/emacs.org")
+    (vulpea-test--insert-test-note "next" "Next" :path "/n/next.org")
+    (with-temp-buffer
+      (insert "#+todo: NEXT | DONE\n\n"
+              "#+begin_src emacs-lisp\n(message \"Emacs\")\n#+end_src\n\n"
+              "* NEXT Install Emacs\nNext, read the manual.\n")
+      (cl-flet ((search ()
+                  (let ((state nil) (result nil))
+                    (vulpea-buffer-unlinked-mentions-async
+                     (lambda (ms) (setq state 'resolved result ms))
+                     (lambda (err) (setq state (list 'rejected err))))
+                    (vulpea-mentions-test--await (lambda () state))
+                    (should (eq state 'resolved))
+                    (mapcar (lambda (m)
+                              (list (vulpea-note-id (plist-get m :note))
+                                    (plist-get m :line)
+                                    (plist-get m :matched)))
+                            result))))
+        ;; the body of the block alone
+        (goto-char (point-min))
+        (forward-line 3)
+        (narrow-to-region (point) (line-end-position))
+        (should-not (search))
+        ;; the subtree, without the line that declares NEXT
+        (widen)
+        (search-forward "* NEXT")
+        (narrow-to-region (line-beginning-position) (point-max))
+        (should (equal (search)
+                       '(("emacs" 1 "Emacs") ("next" 2 "Next"))))))))
+
+;;; Links no note owns
+
+(ert-deftest vulpea-mentions--rg-command-asks-for-links-to-the-note ()
+  "Given an id, the ripgrep command looks for bracket links to it as well."
+  (let ((cmd (vulpea-mentions--rg-command "rg" '("Wine") '("/dir") "a.b")))
+    ;; the id is quoted, matched as written, and closed by a bracket so
+    ;; that a longer id starting with it does not count
+    (should (member "(?-i:\\[\\[id:a\\.b\\])" cmd)))
+  (should-not (seq-find (lambda (arg) (string-search "id:" arg))
+                        (vulpea-mentions--rg-command "rg" '("Wine") '("/dir")))))
+
+(ert-deftest vulpea-mentions-incoming-counts-links-no-note-owns ()
+  "A file counts as linking wherever in it the link is.
+In a file whose ids live on headings, a link above the first of them
+belongs to no note, so the database does not know it.  The file still
+says it, and its other mentions are no longer missing connections."
+  (vulpea-test--require-rg)
+  (vulpea-test--with-temp-db-and-files
+      `((:name "target.org"
+         :content ":PROPERTIES:\n:ID: target\n:END:\n#+title: Cabernet\n")
+        (:name "headings.org"
+         :content ,(concat "#+title: Tastings\n\n"
+                           "We opened a [[id:target][fine bottle]] first.\n\n"
+                           "* First\n:PROPERTIES:\n:ID: first\n:END:\n"
+                           "The Cabernet was fine.\n"))
+        (:name "wrapped.org"
+         :content ,(concat "#+title: More tastings\n\n"
+                           "We opened a [[id:target][very fine\n"
+                           "Cabernet]] first.\n\n"
+                           "* Second\n:PROPERTIES:\n:ID: second\n:END:\n"
+                           "The Cabernet was fine again.\n"))
+        ;; a longer id that starts with the id of the note is another note
+        (:name "other.org"
+         :content ,(concat "#+title: Other tastings\n\n"
+                           "We opened a [[id:target-2][fine bottle]] first.\n\n"
+                           "* Third\n:PROPERTIES:\n:ID: third\n:END:\n"
+                           "The Cabernet was something else.\n")))
+    ;; the database has nothing on these links
+    (should-not (vulpea-db-query-links-to "target"))
+    (should (equal (mapcar (lambda (m) (vulpea-note-id (plist-get m :note)))
+                           (vulpea-mentions-test--collect-incoming-mentions-for-note
+                            "target"))
+                   '("third")))
+    (let ((vulpea-mentions-exclude-linked nil))
+      (should (equal (sort (mapcar (lambda (m)
+                                     (vulpea-note-id (plist-get m :note)))
+                                   (vulpea-mentions-test--collect-incoming-mentions-for-note
+                                    "target"))
+                           #'string<)
+                     '("first" "second" "third"))))))
+
+(ert-deftest vulpea-mentions-link-then-search-drops-the-file ()
+  "Linking one mention takes the other mentions of that file off the list.
+This is the round trip a UI makes: search, link, save, search again."
+  (vulpea-test--require-rg)
+  (vulpea-test--with-temp-db-and-files
+      `((:name "target.org"
+         :content ":PROPERTIES:\n:ID: target\n:END:\n#+title: Cabernet\n")
+        (:name "headings.org"
+         :content ,(concat "#+title: Tastings\n\n"
+                           "We opened a Cabernet first.\n\n"
+                           "* First\n:PROPERTIES:\n:ID: first\n:END:\n"
+                           "The Cabernet was fine.\n")))
+    (let* ((note (vulpea-db-get-by-id "target"))
+           (path (expand-file-name "headings.org" dir))
+           (mentions (vulpea-mentions-test--collect-incoming-mentions-for-note
+                      "target"))
+           (mention (car mentions)))
+      (should (equal (mapcar (lambda (m) (plist-get m :line)) mentions) '(3 9)))
+      (let ((buffer (find-file-noselect path)))
+        (unwind-protect
+            (with-current-buffer buffer
+              (should (= (vulpea-mentions-link buffer
+                                               (plist-get mention :line)
+                                               note
+                                               (plist-get mention :context))
+                         1))
+              (save-buffer))
+          (with-current-buffer buffer (set-buffer-modified-p nil))
+          (kill-buffer buffer)))
+      (vulpea-db-update-file path)
+      (should-not (vulpea-mentions-test--collect-incoming-mentions-for-note
+                   "target")))))
 
 (provide 'vulpea-mentions-test)
 ;;; vulpea-mentions-test.el ends here
