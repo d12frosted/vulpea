@@ -824,9 +824,15 @@ another file).
 
 ** Status Messages
 
-By default, Vulpea reports routine sync activity in the echo area (e.g.
-=Vulpea: Syncing N files...=, =Vulpea: Sync complete=). With autosync
-enabled, this happens on every save, which some find distracting.
+By default, Vulpea reports routine sync activity in the echo area. A
+sync of several files (the scan when autosync starts,
+=M-x vulpea-db-sync-full-scan=, the files a =git pull= changed) shows
+=Vulpea: Syncing N files...= when it starts and a summary when it is
+done: =Vulpea: Sync complete= for the files handled in your session,
+=Vulpea: background sync complete= for those the background worker
+parsed. Saving a note syncs a single file, and that happens silently,
+so a command that saves a note and reports what it did keeps its
+message on screen.
 
 #+begin_src emacs-lisp
 ;; Silence routine sync status messages (errors and warnings still shown)

@@ -1938,6 +1938,12 @@ last file completes.  A requeued file counts anew on re-dispatch."
         (vulpea-db-sync--async-applied 0)
         (vulpea-db-sync--async-unchanged 0)
         (vulpea-db-sync--async-start-time (current-time))
+        ;; A sync of three files was announced when it started
+        (vulpea-db-sync--announced t)
+        ;; A requeued file is back on the queue before its reply is
+        ;; announced
+        (vulpea-db-sync--queue (list (cons "/tmp/c.org" (float-time))))
+        (vulpea-db-sync--processing nil)
         (vulpea-db-sync-verbose t)
         (messages nil))
     (cl-letf (((symbol-function 'vulpea-db-sync--message)
@@ -1953,7 +1959,9 @@ last file completes.  A requeued file counts anew on re-dispatch."
                               (car messages)))
       ;; counters reset for the next burst
       (should (zerop vulpea-db-sync--async-dispatched))
-      (should (zerop vulpea-db-sync--async-applied)))))
+      (should (zerop vulpea-db-sync--async-applied))
+      ;; The requeued file is still part of the sync, which goes on
+      (should vulpea-db-sync--announced))))
 
 (ert-deftest vulpea-db-worker-respawn-before-sentinel-salvages ()
   "A request racing a dead worker's deferred sentinel loses no files.
