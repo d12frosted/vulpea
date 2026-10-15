@@ -2722,6 +2722,283 @@ watches still have to be removed."
       (vulpea-db-sync--message "Vulpea: hello %d" 1))
     (should-not calls)))
 
+;;; Completion Messages
+
+(defmacro vulpea-db-sync-test--with-fresh-queue (&rest body)
+  "Run BODY with an empty sync queue and no sync in progress.
+Status messages are on, as by default."
+  (declare (indent 0))
+  `(let ((vulpea-db-sync-verbose t)
+         (vulpea-db-sync--queue nil)
+         (vulpea-db-sync--queue-tail nil)
+         (vulpea-db-sync--queue-set (make-hash-table :test 'equal))
+         (vulpea-db-sync--force-set (make-hash-table :test 'equal))
+         (vulpea-db-sync--timer nil)
+         (vulpea-db-sync--processing nil)
+         (vulpea-db-sync--queue-total 0)
+         (vulpea-db-sync--processed-total 0)
+         (vulpea-db-sync--updated-total 0)
+         (vulpea-db-sync--sync-start-time nil)
+         (vulpea-db-sync--async-dispatched 0)
+         (vulpea-db-sync--async-applied 0)
+         (vulpea-db-sync--async-unchanged 0)
+         (vulpea-db-sync--async-completed 0)
+         (vulpea-db-sync--async-start-time nil)
+         (vulpea-db-sync--announced nil))
+     (unwind-protect
+         (progn ,@body)
+       (when vulpea-db-sync--timer
+         (cancel-timer vulpea-db-sync--timer)))))
+
+(defun vulpea-db-sync-test--status-lines (fn)
+  "Call FN and return the Vulpea status lines it showed, oldest first."
+  (let (lines)
+    (cl-letf (((symbol-function 'message)
+               (lambda (format-string &rest args)
+                 (when format-string
+                   (let ((text (apply #'format format-string args)))
+                     (when (string-prefix-p "Vulpea:" text)
+                       (push text lines))
+                     text)))))
+      (funcall fn))
+    (nreverse lines)))
+
+(ert-deftest vulpea-db-sync-single-file-sync-is-silent ()
+  "Syncing one file shows neither a start nor a completion line.
+A save queues its file, and a summary a moment later would replace
+whatever the command that saved it just showed."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-db-sync-test--with-fresh-queue
+      (let* ((dir (make-temp-file "vulpea-quiet-" t))
+             (path (car (vulpea-db-sync-test--make-org-files dir 1)))
+             (vulpea-db-sync-directories (list dir))
+             (vulpea-db-async-extraction nil))
+        (unwind-protect
+            (progn
+              (vulpea-db-sync--enqueue path)
+              (should-not (vulpea-db-sync-test--status-lines
+                           #'vulpea-db-sync--process-queue))
+              (should (vulpea-db-get-by-id "window-0"))
+              (should-not vulpea-db-sync--announced))
+          (delete-directory dir t))))))
+
+(ert-deftest vulpea-db-sync-multi-file-sync-reports-start-and-completion ()
+  "A sync of several files is announced and reports its completion.
+The sync spans two batches; the summary comes once, after the last."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-db-sync-test--with-fresh-queue
+      (let* ((dir (make-temp-file "vulpea-loud-" t))
+             (paths (vulpea-db-sync-test--make-org-files dir 3))
+             (vulpea-db-sync-directories (list dir))
+             (vulpea-db-async-extraction nil)
+             (vulpea-db-sync-batch-size 2))
+        (unwind-protect
+            (progn
+              (dolist (path paths)
+                (vulpea-db-sync--enqueue path))
+              (should (equal (vulpea-db-sync-test--status-lines
+                              #'vulpea-db-sync--process-queue)
+                             '("Vulpea: Syncing 3 files...")))
+              (let ((lines (vulpea-db-sync-test--status-lines
+                            #'vulpea-db-sync--process-queue)))
+                (should (= 1 (length lines)))
+                (should (string-prefix-p
+                         "Vulpea: Sync complete - 3 files (3 updated, 0 unchanged"
+                         (car lines))))
+              (should-not vulpea-db-sync--queue)
+              (should-not vulpea-db-sync--announced))
+          (delete-directory dir t))))))
+
+(ert-deftest vulpea-db-sync-single-file-background-sync-is-silent ()
+  "With async extraction, one saved file is silent through landing."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-db-sync-test--with-fresh-queue
+      (let* ((dir (make-temp-file "vulpea-quiet-async-" t))
+             (path (car (vulpea-db-sync-test--make-org-files dir 1)))
+             (vulpea-db-sync-directories (list dir))
+             (vulpea-db-async-extraction t)
+             (vulpea-db-async-extraction-threshold nil)
+             (dispatched nil))
+        (unwind-protect
+            (cl-letf (((symbol-function 'vulpea-db-worker-request)
+                       (lambda (path &optional _force)
+                         (push path dispatched)))
+                      ((symbol-function 'vulpea-db-worker-refresh-if-changed)
+                       #'ignore)
+                      ((symbol-function 'vulpea-db-worker-free-slots)
+                       (lambda () 100)))
+              (vulpea-db-sync--enqueue path)
+              (should-not
+               (vulpea-db-sync-test--status-lines
+                (lambda ()
+                  (vulpea-db-sync--process-queue)
+                  (should (= 1 (length dispatched)))
+                  (vulpea-db-sync--worker-done (car dispatched) 'applied 1))))
+              (should (zerop vulpea-db-sync--async-dispatched))
+              (should (zerop vulpea-db-sync--async-applied))
+              (should-not vulpea-db-sync--announced))
+          (delete-directory dir t))))))
+
+(ert-deftest vulpea-db-sync-announced-sync-survives-worker-catching-up ()
+  "An announced sync still reports when the worker finishes early.
+A scan sends only the changed files to the worker, and the worker
+can finish them while the queue still holds the rest of the scan.
+That must not end the announced sync: the queue's summary and the
+worker's later ones still show, and the sync ends after both."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-db-sync-test--with-fresh-queue
+      (let* ((dir (make-temp-file "vulpea-catch-up-" t))
+             (paths (vulpea-db-sync-test--make-org-files dir 4))
+             (vulpea-db-sync-directories (list dir))
+             (vulpea-db-async-extraction t)
+             (vulpea-db-async-extraction-threshold nil)
+             (vulpea-db-sync-batch-size 2)
+             (dispatched nil))
+        (unwind-protect
+            (cl-letf (((symbol-function 'vulpea-db-worker-request)
+                       (lambda (path &optional _force)
+                         (push path dispatched)))
+                      ((symbol-function 'vulpea-db-worker-refresh-if-changed)
+                       #'ignore)
+                      ((symbol-function 'vulpea-db-worker-free-slots)
+                       (lambda () 100))
+                      ((symbol-function 'vulpea-db-sync--register-org-ids-for)
+                       #'ignore))
+              ;; The first and the last note are indexed already, so
+              ;; each batch has one unchanged file and one for the worker
+              (vulpea-db-update-file (nth 0 paths))
+              (vulpea-db-update-file (nth 3 paths))
+              (dolist (path paths)
+                (vulpea-db-sync--enqueue path))
+              (let ((lines
+                     (vulpea-db-sync-test--status-lines
+                      (lambda ()
+                        (vulpea-db-sync--process-queue)
+                        ;; The worker is done before the next batch
+                        (vulpea-db-sync--worker-done (car dispatched) 'applied 1)
+                        (should vulpea-db-sync--queue)
+                        (vulpea-db-sync--process-queue)
+                        (should-not vulpea-db-sync--queue)
+                        (should vulpea-db-sync--announced)
+                        (vulpea-db-sync--worker-done (car dispatched) 'applied 1)))))
+                (should (= 2 (length dispatched)))
+                (should (equal (car lines) "Vulpea: Syncing 4 files..."))
+                (should (seq-find
+                         (lambda (line)
+                           (string-prefix-p
+                            "Vulpea: Sync complete - 2 files (0 updated, 2 unchanged"
+                            line))
+                         lines))
+                (should (string-prefix-p
+                         "Vulpea: background sync complete - 1 file (1 updated"
+                         (car (last lines)))))
+              (should-not vulpea-db-sync--announced))
+          (delete-directory dir t))))))
+
+(ert-deftest vulpea-db-sync-sync-after-restart-is-announced ()
+  "A sync after the mode was turned off mid-sync reports as usual.
+Stopping ends the interrupted sync, so the scan that follows when the
+mode is turned back on is a new sync with its own start and summary."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-db-sync-test--with-fresh-queue
+      (let* ((dir (make-temp-file "vulpea-restart-" t))
+             (paths (vulpea-db-sync-test--make-org-files dir 3))
+             (vulpea-db-sync-directories (list dir))
+             (vulpea-db-async-extraction nil)
+             (vulpea-db-sync-batch-size 2)
+             (vulpea-db-sync--watchers nil)
+             (vulpea-db-sync--idle-timer nil)
+             (vulpea-db-sync--saved-stamps (make-hash-table :test 'equal))
+             (after-save-hook nil))
+        (unwind-protect
+            (cl-letf (((symbol-function 'vulpea-db-worker-stop) #'ignore)
+                      ((symbol-function 'vulpea-db-sync--stop-external-monitoring)
+                       #'ignore)
+                      ((symbol-function 'vulpea-db-sync--register-org-ids-for)
+                       #'ignore))
+              (dolist (path paths)
+                (vulpea-db-sync--enqueue path))
+              (vulpea-db-sync-test--status-lines #'vulpea-db-sync--process-queue)
+              (vulpea-db-sync--stop)
+              (dolist (path paths)
+                (vulpea-db-sync--enqueue path))
+              (let ((lines (vulpea-db-sync-test--status-lines
+                            (lambda ()
+                              (vulpea-db-sync--process-queue)
+                              (vulpea-db-sync--process-queue)))))
+                (should (equal (car lines) "Vulpea: Syncing 3 files..."))
+                (should (string-prefix-p
+                         "Vulpea: Sync complete - 3 files (1 updated, 2 unchanged"
+                         (cadr lines)))))
+          (delete-directory dir t))))))
+
+(ert-deftest vulpea-db-sync-update-file-command-reports-completion ()
+  "Re-indexing a file by command reports it; a call from Lisp does not.
+With autosync on the command only queues the file, so the summary is
+the only answer the command gives."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-db-sync-test--with-fresh-queue
+      (let* ((dir (make-temp-file "vulpea-update-cmd-" t))
+             (path (car (vulpea-db-sync-test--make-org-files dir 1)))
+             (vulpea-db-sync-directories (list dir))
+             (vulpea-db-autosync-mode t)
+             (vulpea-db-async-extraction nil))
+        (unwind-protect
+            (progn
+              (vulpea-db-sync-update-file path)
+              (should-not (vulpea-db-sync-test--status-lines
+                           #'vulpea-db-sync--process-queue))
+              (funcall-interactively #'vulpea-db-sync-update-file path)
+              (let ((lines (vulpea-db-sync-test--status-lines
+                            #'vulpea-db-sync--process-queue)))
+                (should (= 1 (length lines)))
+                (should (string-prefix-p
+                         "Vulpea: Sync complete - 1 file (1 updated, 0 unchanged"
+                         (car lines))))
+              (should-not vulpea-db-sync--announced))
+          (delete-directory dir t))))))
+
+(ert-deftest vulpea-db-sync-dropping-last-queued-files-ends-sync ()
+  "A sync whose remaining queued files are removed is over.
+It never reaches the end of the queue processing, so dropping the
+files ends it: a save afterwards is a single-file sync, and silent."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-db-sync-test--with-fresh-queue
+      (let* ((dir (make-temp-file "vulpea-dropped-" t))
+             (paths (vulpea-db-sync-test--make-org-files dir 3))
+             (vulpea-db-sync-directories (list dir))
+             (vulpea-db-async-extraction nil)
+             (vulpea-db-sync-batch-size 2)
+             (vulpea-db-sync--watchers nil))
+        (unwind-protect
+            (cl-letf (((symbol-function 'vulpea-db-sync--register-org-ids-for)
+                       #'ignore))
+              (dolist (path paths)
+                (vulpea-db-sync--enqueue path))
+              (vulpea-db-sync-test--status-lines #'vulpea-db-sync--process-queue)
+              (should vulpea-db-sync--announced)
+              (delete-file (nth 2 paths))
+              (vulpea-db-sync--handle-removed-file (nth 2 paths))
+              (should-not vulpea-db-sync--queue)
+              (should-not vulpea-db-sync--announced)
+              (should (zerop vulpea-db-sync--processed-total))
+              (with-temp-file (nth 0 paths)
+                (insert ":PROPERTIES:\n:ID: window-0\n:END:\n#+title: Edited\n"))
+              (vulpea-db-sync--enqueue (nth 0 paths))
+              (should-not (vulpea-db-sync-test--status-lines
+                           #'vulpea-db-sync--process-queue))
+              (should (equal "Edited"
+                             (vulpea-note-title
+                              (vulpea-db-get-by-id "window-0")))))
+          (delete-directory dir t))))))
+
 ;;; fswatch path normalization (Windows)
 
 (ert-deftest vulpea-db-sync-fswatch-normalize-mingw-backslash ()

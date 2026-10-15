@@ -586,9 +586,10 @@ t)= and read =*vulpea-worker-log*=.
 
 ** Data seems stale right after saving
 
-Worker-extracted files become queryable when the background sync
-completes (watch for the "background sync complete" message), a
-moment after the save. Code that reacts to saves should listen on
+Worker-extracted files become queryable a moment after the save, when
+the worker's result reaches the database. A sync of several files
+reports that with a "background sync complete" message; a single
+saved file lands silently. Code that reacts to saves should listen on
 =vulpea-db-updated-functions=, which runs once a file's notes are in
 the database. Programmatic APIs (=vulpea-create=, move/split/merge,
 =vulpea-utils-with-note-sync=) are unaffected - they are synchronous

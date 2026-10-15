@@ -178,10 +178,14 @@ or a larger value (e.g., 1000) for less frequent updates."
 (defcustom vulpea-db-sync-verbose t
   "Whether to report sync progress and completion in the echo area.
 
-When non-nil, routine status messages such as \"Vulpea: Syncing N
-files...\" and \"Vulpea: Sync complete\" are shown.  Set to nil to
-silence these messages, for example to avoid distraction on every
-save when autosync is enabled.
+When non-nil, routine status messages are shown.  A sync of several
+files (the scan on enable, `vulpea-db-sync-full-scan', a batch of
+external changes) shows \"Vulpea: Syncing N files...\" when it
+starts, progress when it is large, and a summary such as \"Vulpea:
+Sync complete\" when it is done.  A sync of a single file, which is
+what a save starts, shows neither, so the message of the command that
+saved the file stays on screen.  Set to nil to silence routine status
+messages altogether.
 
 Errors and warnings are always shown regardless of this setting.
 For low-level timing diagnostics see `vulpea-db-sync-debug'."
@@ -427,7 +431,11 @@ Reset when async processing completes.")
   "Non-nil after the sync-start message was shown for this burst.
 Prevents the Syncing-N-files announcement from re-firing on
 every batch while all work is dispatched to the worker (the legacy
-processed counter only moves for synchronously processed files).")
+processed counter only moves for synchronously processed files).
+
+Completion summaries are shown only while this is set, so a sync
+that was never announced (one file, as after a save) ends silently.
+Cleared once both the queue and the worker are done with the burst.")
 
 (defcustom vulpea-db-sync-debug nil
   "When non-nil, log timing information for sync operations."
@@ -730,10 +738,10 @@ a subprocess.  The `blocking' mode still scans synchronously."
     (cancel-timer vulpea-db-sync--idle-timer)
     (setq vulpea-db-sync--idle-timer nil))
 
-  ;; Clear queue
+  ;; Clear queue, ending the run it held
   (setq vulpea-db-sync--queue nil
         vulpea-db-sync--queue-tail nil)
-  (clrhash vulpea-db-sync--queue-set)
+  (vulpea-db-sync--end-run)
   (clrhash vulpea-db-sync--force-set))
 
 (defun vulpea-db-sync--watch-directory (dir &optional rootp)
@@ -922,7 +930,8 @@ CALLBACK receives a list of absolute file paths."
     (setq vulpea-db-sync--queue (nreverse result))
     (setq vulpea-db-sync--queue-tail (last vulpea-db-sync--queue))
     (remhash path vulpea-db-sync--queue-set)
-    (remhash path vulpea-db-sync--force-set)))
+    (remhash path vulpea-db-sync--force-set)
+    (vulpea-db-sync--end-run-if-drained)))
 
 (defun vulpea-db-sync--purge-queue-under (dir)
   "Drop pending queue entries under DIR that are no longer tracked.
@@ -940,7 +949,8 @@ dedup set, the force marks and the tail pointer stay consistent."
             (remhash (car entry) vulpea-db-sync--force-set))
         (push entry kept)))
     (setq vulpea-db-sync--queue (nreverse kept))
-    (setq vulpea-db-sync--queue-tail (last vulpea-db-sync--queue))))
+    (setq vulpea-db-sync--queue-tail (last vulpea-db-sync--queue))
+    (vulpea-db-sync--end-run-if-drained)))
 
 (defun vulpea-db-sync--handle-removed-file (path)
   "Permanently remove PATH from database tracking.
@@ -1235,6 +1245,26 @@ other half keeps it busy."
   (min vulpea-db-sync-batch-size
        (max 1 (/ vulpea-db-worker-max-in-flight 2))))
 
+(defun vulpea-db-sync--end-run ()
+  "Reset the bookkeeping of a queue run that has ended.
+The next batch then starts a new run, with its own announcement.  The
+announce flag stays while background work is still in flight; the
+worker done handler clears it with its completion summary."
+  (setq vulpea-db-sync--queue-total 0
+        vulpea-db-sync--processed-total 0
+        vulpea-db-sync--updated-total 0
+        vulpea-db-sync--sync-start-time nil)
+  (when (zerop vulpea-db-sync--async-dispatched)
+    (setq vulpea-db-sync--announced nil))
+  (clrhash vulpea-db-sync--queue-set))
+
+(defun vulpea-db-sync--end-run-if-drained ()
+  "End the queue run when dropping entries left the queue empty.
+Such a run never reaches the end of `vulpea-db-sync--process-queue',
+where it would otherwise end."
+  (unless (or vulpea-db-sync--queue vulpea-db-sync--processing)
+    (vulpea-db-sync--end-run)))
+
 (defun vulpea-db-sync--process-queue ()
   "Process queued file update."
   ;; Until the worker request window has room for a batch, leave the
@@ -1409,9 +1439,12 @@ other half keeps it busy."
                                      vulpea-db-sync--updated-total
                                      (- vulpea-db-sync--processed-total vulpea-db-sync--updated-total)))
 
-          ;; Final summary when done
+          ;; Final summary when done.  Only an announced sync reports
+          ;; completion: a single saved file syncs silently, so the
+          ;; summary does not replace what the saving command showed.
           (when (null vulpea-db-sync--queue)
-            (when (> vulpea-db-sync--processed-total 0)
+            (when (and vulpea-db-sync--announced
+                       (> vulpea-db-sync--processed-total 0))
               (let ((duration (when vulpea-db-sync--sync-start-time
                                 (float-time (time-subtract (current-time)
                                                            vulpea-db-sync--sync-start-time)))))
@@ -1423,16 +1456,7 @@ other half keeps it busy."
                                          (if duration
                                              (format ", %.2fs" duration)
                                            ""))))
-            ;; Reset counters (the announce flag stays while
-            ;; background work is still in flight; the worker done
-            ;; handler clears it with its completion summary)
-            (setq vulpea-db-sync--queue-total 0
-                  vulpea-db-sync--processed-total 0
-                  vulpea-db-sync--updated-total 0
-                  vulpea-db-sync--sync-start-time nil)
-            (when (zerop vulpea-db-sync--async-dispatched)
-              (setq vulpea-db-sync--announced nil))
-            (clrhash vulpea-db-sync--queue-set)))
+            (vulpea-db-sync--end-run)))
 
       (setq vulpea-db-sync--processing nil)
 
@@ -1454,7 +1478,8 @@ unused beyond distinguishing applied results.
 
 Emits the honest completion message: background sync complete only
 fires when the last in-flight file has actually landed in the
-database, not when it was dispatched."
+database, not when it was dispatched, and only for a sync that was
+announced (see `vulpea-db-sync--announced')."
   (ignore count)
   (when (> vulpea-db-sync--async-dispatched 0)
     (pcase status
@@ -1484,7 +1509,7 @@ database, not when it was dispatched."
                         (float-time
                          (time-subtract (current-time)
                                         vulpea-db-sync--async-start-time)))))
-        (when (> total 0)
+        (when (and vulpea-db-sync--announced (> total 0))
           (vulpea-db-sync--message
            "Vulpea: background sync complete - %d file%s (%d updated, %d unchanged%s)"
            total (if (= total 1) "" "s")
@@ -1494,8 +1519,14 @@ database, not when it was dispatched."
         (setq vulpea-db-sync--async-applied 0
               vulpea-db-sync--async-unchanged 0
               vulpea-db-sync--async-completed 0
-              vulpea-db-sync--async-start-time nil
-              vulpea-db-sync--announced nil)))))
+              vulpea-db-sync--async-start-time nil)
+        ;; A scan sends the worker only its changed files, so the
+        ;; worker can be done while the queue still holds the rest of
+        ;; the same sync.  Ending it here would silence what follows;
+        ;; the queue clears the flag when it finishes instead.
+        (when (and (null vulpea-db-sync--queue)
+                   (not vulpea-db-sync--processing))
+          (setq vulpea-db-sync--announced nil))))))
 
 (defun vulpea-db-sync--changed-on-disk-p (path &optional hash-cache attrs)
   "Return non-nil when PATH's stamp differs from the stored one.
@@ -2156,10 +2187,19 @@ Otherwise, updates immediately.
 
 The update is forced: reaching for this command means the database
 should re-read the file, so the unchanged-content check that would
-silently skip it does not apply."
+silently skip it does not apply.
+
+Called interactively with autosync enabled, the summary of the sync
+is shown when the update lands, as for a sync of several files."
   (interactive (list (buffer-file-name)))
   (if vulpea-db-autosync-mode
-      (vulpea-db-sync--enqueue path 'force)
+      (progn
+        (vulpea-db-sync--enqueue path 'force)
+        ;; Queueing is all the command does here: the summary is its
+        ;; only answer, and a sync of one file shows none unless
+        ;; announced
+        (when (called-interactively-p 'any)
+          (setq vulpea-db-sync--announced t)))
     (vulpea-db-update-file path)))
 
 (defun vulpea-db-sync-update-directory (dir &optional force)
