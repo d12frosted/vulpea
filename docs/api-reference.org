@@ -1564,6 +1564,18 @@ Ids double as interactive handles in both commands. Every candidate carries its 
 (vulpea-db-sync-full-scan 'force)
 #+end_src
 
+** Waiting for an Up-to-date Database
+
+With =vulpea-db-autosync-mode= on, scans and file changes are indexed from timers, process output and the extraction worker, so =vulpea-db-sync-full-scan= returns before the work is done, and a script in a fresh =emacs --batch= reads the database as the last session left it. Code that must see every change on disk before it queries calls:
+
+#+begin_src emacs-lisp
+;; Index new, changed and deleted files, plus anything queued
+;; (forced re-indexes included), in this session; returns when done
+(vulpea-db-sync-catch-up)
+#+end_src
+
+It waits for what the extraction worker holds, indexes the sync queue, scans every existing sync directory with the usual change detection (an unchanged file costs a stat) and indexes what that scan queued. It works the same with the mode on or off. Unlike =vulpea-db-sync-full-scan= it keeps the rows of files outside =vulpea-db-sync-directories=, so notes a script indexed by hand stay put. A database that stays locked is a =user-error=.
+
 ** Directory List
 
 Change =vulpea-db-sync-directories= without toggling
@@ -2186,6 +2198,7 @@ package - it flags the same violations inline as you edit.)
 | =vulpea-db-sync-update-file=      | Re-read file (async if enabled) |
 | =vulpea-db-sync-update-directory= | Update directory                |
 | =vulpea-db-sync-full-scan=        | Scan all directories            |
+| =vulpea-db-sync-catch-up=         | Scan and wait until up to date  |
 | =vulpea-db-sync-add-directory=    | Add sync directory at runtime   |
 | =vulpea-db-sync-remove-directory= | Remove sync directory           |
 
