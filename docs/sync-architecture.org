@@ -115,7 +115,31 @@ vulpea-db-sync-update-directory(dir, force)
 #+end_example
 
 
-** 4. File Watchers (External Changes)
+** 4. Catching Up (blocking, autosync on or off)
+
+#+begin_example
+vulpea-db-sync-catch-up()
+  │
+  ├─ Wait until the worker holds nothing  ← queue held meanwhile
+  │   (in flight, results, fallback, salvage)
+  ├─ Index the queue in this session      ← forced entries forced
+  ├─ Scan existing sync directories       ← smart, in this session;
+  │                                          rows outside them kept
+  └─ Index what the scan queued           ← dir-locals reactions
+
+A queue that stops shrinking (the database stays locked) is a
+=user-error=, so the caller never goes on with a stale database.
+#+end_example
+
+*Note*: For code that queries right after files changed with nothing
+watching them, such as a script in a fresh =emacs --batch=: there the
+startup scan and the watchers only run from timers and process
+output, which wait until the script is done.  Queued work goes before
+the scan, so a forced re-index after a schema change is not followed
+by a second full index.
+
+
+** 5. File Watchers (External Changes)
 
 Saves made in Emacs are queued by a hook, and three types of file
 watchers report everything else.
@@ -267,7 +291,7 @@ Notes behind such links need their real location (or the link
 itself) listed in =vulpea-db-sync-directories=.
 
 
-** 5. Autosync Startup (async mode)
+** 6. Autosync Startup (async mode)
 
 #+begin_example
 vulpea-db-autosync-mode +1
@@ -308,7 +332,7 @@ Emacs are queued by the save hook without waiting for it.  Programmatic
 changes (=vulpea-create=, =vulpea-utils-with-note-sync=) call
 =vulpea-db-update-file= directly and never rely on filenotify.
 
-** 6. Async Queue Processing
+** 7. Async Queue Processing
 
 #+begin_example
 vulpea-db-sync--enqueue(path)
@@ -359,6 +383,7 @@ Timer fires after 0.01s of quiet
 | Directory sync          | ON            | OFF   | Async (queued)                    |
 | Directory sync          | ON            | ON    | Queued with async extraction,     |
 |                         |               |       | otherwise immediate + force       |
+| Catch up                | any           | n/a   | Immediate, waits for queued work  |
 | Save in Emacs           | ON            | n/a   | Async (queued) by the save hook   |
 | External change         | ON            | n/a   | Async (queued) via file watchers  |
 | Save or external change | OFF           | n/a   | Nothing (no watchers)             |

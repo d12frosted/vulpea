@@ -803,6 +803,274 @@ repair, and `vulpea-db-register-org-ids' remains for by-hand use."
         (delete-file path)
         (setq vulpea-db-sync--queue nil)))))
 
+;;; Catch-up Tests
+
+(defmacro vulpea-db-sync-test--with-catch-up-state (&rest body)
+  "Run BODY with a sync queue of its own and no migration pending.
+Sync messages are silenced.  The queue's timer and the worker are
+stopped afterwards."
+  (declare (indent 0))
+  `(let ((vulpea-db-sync--queue nil)
+         (vulpea-db-sync--queue-tail nil)
+         (vulpea-db-sync--queue-set (make-hash-table :test #'equal))
+         (vulpea-db-sync--force-set (make-hash-table :test #'equal))
+         (vulpea-db-sync--timer nil)
+         (vulpea-db-sync--processing nil)
+         (vulpea-db-sync--queue-total 0)
+         (vulpea-db-sync--processed-total 0)
+         (vulpea-db-sync--updated-total 0)
+         (vulpea-db-sync-verbose nil)
+         (vulpea-db--schema-rebuilt nil)
+         (vulpea-db--settings-changed nil)
+         (vulpea-db--parser-changed nil)
+         (vulpea-db--plugin-schema-changed nil)
+         (vulpea-db-worker--broken nil)
+         (vulpea-db-worker--crash-times nil))
+     (unwind-protect
+         (progn ,@body)
+       (when (timerp vulpea-db-sync--timer)
+         (cancel-timer vulpea-db-sync--timer))
+       (vulpea-db-worker-stop))))
+
+(defun vulpea-db-sync-test--title (id)
+  "Return the indexed title of the note with ID."
+  (vulpea-note-title (vulpea-db-get-by-id id)))
+
+(defun vulpea-db-sync-test--stamp-as-indexed (path)
+  "Make the files row of PATH match the file on disk, content aside.
+Change detection then skips PATH, so only a forced re-index reads
+what it holds now."
+  (let ((row (vulpea-db--get-file-hash path))
+        (attrs (file-attributes path 'integer)))
+    (vulpea-db--update-file-hash path (plist-get row :hash)
+                                 (file-attribute-modification-time attrs)
+                                 (file-attribute-size attrs))))
+
+(ert-deftest vulpea-db-sync-catch-up-indexes-changes-on-disk ()
+  "Catching up indexes what changed on disk since the last index.
+Changed files are re-read, deleted ones forgotten and new ones
+indexed.  Without autosync nothing else would do it."
+  (vulpea-test--with-temp-notes-dir
+    (vulpea-db-sync-test--with-catch-up-state
+      (let ((changed (expand-file-name "changed.org" root))
+            (deleted (expand-file-name "deleted.org" root))
+            (added (expand-file-name "added.org" root))
+            (vulpea-db-autosync-mode nil))
+        (vulpea-db-sync-test--write-note changed "catch-up-changed" "Before")
+        (vulpea-db-sync-test--write-note deleted "catch-up-deleted" "Deleted")
+        (vulpea-db-update-file changed)
+        (vulpea-db-update-file deleted)
+        ;; Behind the database's back
+        (vulpea-db-sync-test--write-note changed "catch-up-changed" "After, longer")
+        (delete-file deleted)
+        (vulpea-db-sync-test--write-note added "catch-up-added" "Added")
+        (vulpea-db-sync-catch-up)
+        (should (equal (vulpea-db-sync-test--title "catch-up-changed")
+                       "After, longer"))
+        (should-not (vulpea-db-get-by-id "catch-up-deleted"))
+        (should (equal (vulpea-db-sync-test--title "catch-up-added") "Added"))))))
+
+(ert-deftest vulpea-db-sync-catch-up-after-background-start ()
+  "Catching up right after a background start indexes before returning.
+A script in a fresh `emacs --batch' is in this spot: the startup
+scan lists files in a subprocess and indexes them from timers, and
+neither runs while the script works, so its queries read the
+database as the last session left it.  Catching up does the work in
+the session, without starting the extraction worker."
+  (vulpea-test--with-temp-notes-dir
+    (vulpea-db-sync-test--with-catch-up-state
+      (let ((path (expand-file-name "note.org" root))
+            (vulpea-db-sync-scan-on-enable 'background)
+            (vulpea-db-async-extraction t)
+            (vulpea-db-sync-external-method nil)
+            (vulpea-db-sync--idle-timer nil)
+            (vulpea-db-sync--watchers nil))
+        (vulpea-db-sync-test--write-note path "catch-up-start" "Before")
+        (vulpea-db-update-file path)
+        (vulpea-db-sync-test--write-note path "catch-up-start" "After, longer")
+        (unwind-protect
+            (progn
+              (vulpea-db-autosync-mode +1)
+              (should (equal (vulpea-db-sync-test--title "catch-up-start")
+                             "Before"))
+              (vulpea-db-sync-catch-up)
+              (should (equal (vulpea-db-sync-test--title "catch-up-start")
+                             "After, longer"))
+              (should-not vulpea-db-sync--queue)
+              (should-not (process-live-p vulpea-db-worker--process)))
+          (vulpea-db-autosync-mode -1))))))
+
+(ert-deftest vulpea-db-sync-catch-up-runs-queued-forced-reindex ()
+  "Files queued for a forced re-index are re-read before returning.
+A schema or settings change queues every file that way, and change
+detection would skip them all: their content did not change."
+  (vulpea-test--with-temp-notes-dir
+    (vulpea-db-sync-test--with-catch-up-state
+      (let ((path (expand-file-name "note.org" root))
+            (vulpea-db-autosync-mode t)
+            (vulpea-db-async-extraction t))
+        (vulpea-db-sync-test--write-note path "catch-up-forced" "Old")
+        (vulpea-db-update-file path)
+        (vulpea-db-sync-test--write-note path "catch-up-forced" "Renamed")
+        (vulpea-db-sync-test--stamp-as-indexed path)
+        (vulpea-db-sync--enqueue path 'force)
+        (vulpea-db-sync-catch-up)
+        (should (equal (vulpea-db-sync-test--title "catch-up-forced") "Renamed"))
+        (should-not vulpea-db-sync--queue)))))
+
+(ert-deftest vulpea-db-sync-catch-up-runs-reindex-queued-by-its-scan ()
+  "A re-index the scan itself queues is done before returning too.
+Under autosync a dir-locals file changed since the last scan queues
+its subtree for a forced re-index instead of indexing it there."
+  (vulpea-test--with-temp-notes-dir
+    (vulpea-db-sync-test--with-catch-up-state
+      (let ((path (expand-file-name "note.org" root))
+            (dl (expand-file-name ".dir-locals.el" root))
+            (vulpea-db-sync-reindex-on-dir-locals-change t)
+            (vulpea-db-autosync-mode t)
+            (vulpea-db-async-extraction t))
+        (vulpea-db-sync-test--write-note path "catch-up-dir-locals" "Old")
+        (vulpea-db-update-file path)
+        (with-temp-file dl
+          (insert "((org-mode . ((fill-column . 80))))"))
+        ;; Baseline, as an earlier scan would have recorded it
+        (vulpea-db-sync--check-dir-locals (list path))
+        (vulpea-db-sync-test--write-note path "catch-up-dir-locals" "Renamed")
+        (vulpea-db-sync-test--stamp-as-indexed path)
+        (with-temp-file dl
+          (insert "((org-mode . ((fill-column . 100) (my-var . t))))"))
+        (vulpea-db-sync-catch-up)
+        (should (equal (vulpea-db-sync-test--title "catch-up-dir-locals")
+                       "Renamed"))
+        (should-not vulpea-db-sync--queue)))))
+
+(ert-deftest vulpea-db-sync-catch-up-waits-for-the-worker ()
+  "Requests the extraction worker holds have landed when it returns.
+Otherwise their results would arrive while the caller already reads
+the database."
+  (vulpea-test--with-temp-notes-dir
+    (vulpea-db-sync-test--with-catch-up-state
+      (let ((path (expand-file-name "note.org" root))
+            (vulpea-db-async-extraction t))
+        (vulpea-db-sync-test--write-note path "catch-up-worker" "Before")
+        (vulpea-db-update-file path)
+        (vulpea-db-sync-test--write-note path "catch-up-worker" "After, longer")
+        (vulpea-db-worker-request path)
+        (should (vulpea-db-worker-busy-p))
+        (vulpea-db-sync-catch-up)
+        (should-not (vulpea-db-worker-busy-p))
+        (should (equal (vulpea-db-sync-test--title "catch-up-worker")
+                       "After, longer"))))))
+
+(ert-deftest vulpea-db-sync-catch-up-without-directories ()
+  "Without sync directories there is nothing to scan, and no error.
+Queued work is still done."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-db-sync-test--with-catch-up-state
+      (let ((path (vulpea-test--create-temp-org-file
+                   ":PROPERTIES:\n:ID: catch-up-no-dirs\n:END:\n#+TITLE: Queued\n"))
+            (vulpea-db-sync-directories nil))
+        (unwind-protect
+            (progn
+              (vulpea-db-sync--enqueue path)
+              (vulpea-db-sync-catch-up)
+              (should (equal (vulpea-db-sync-test--title "catch-up-no-dirs")
+                             "Queued"))
+              (should-not vulpea-db-sync--queue))
+          (delete-file path))))))
+
+(ert-deftest vulpea-db-sync-catch-up-reads-queued-files-once ()
+  "A queued file that also changed on disk is parsed once, not twice.
+Queued work runs before the scan, which then finds it up to date.
+After a schema change that is every file of the collection."
+  (vulpea-test--with-temp-notes-dir
+    (vulpea-db-sync-test--with-catch-up-state
+      (let ((path (expand-file-name "note.org" root))
+            (vulpea-db-autosync-mode t)
+            (vulpea-db-async-extraction t)
+            (updates 0))
+        (vulpea-db-sync-test--write-note path "catch-up-once" "Old")
+        (vulpea-db-update-file path)
+        (vulpea-db-sync-test--write-note path "catch-up-once" "Changed, longer")
+        (vulpea-db-sync--enqueue path 'force)
+        (let ((update (symbol-function 'vulpea-db-update-file)))
+          (cl-letf (((symbol-function 'vulpea-db-update-file)
+                     (lambda (file &rest args)
+                       (when (equal file path)
+                         (setq updates (1+ updates)))
+                       (apply update file args))))
+            (vulpea-db-sync-catch-up)))
+        (should (= updates 1))
+        (should (equal (vulpea-db-sync-test--title "catch-up-once")
+                       "Changed, longer"))))))
+
+(ert-deftest vulpea-db-sync-catch-up-keeps-files-outside-sync-directories ()
+  "Catching up leaves notes outside `vulpea-db-sync-directories' alone.
+A script may index its notes by hand without configuring the sync
+directories; forgetting those notes would empty its database.
+Pruning them stays with `vulpea-db-sync-full-scan'."
+  (vulpea-test--with-temp-notes-dir
+    (vulpea-db-sync-test--with-catch-up-state
+      (let ((outside (vulpea-test--create-temp-org-file
+                      ":PROPERTIES:\n:ID: catch-up-outside\n:END:\n#+TITLE: Outside\n")))
+        (unwind-protect
+            (progn
+              (vulpea-db-update-file outside)
+              (vulpea-db-sync-catch-up)
+              (should (vulpea-db-get-by-id "catch-up-outside")))
+          (delete-file outside))))))
+
+(ert-deftest vulpea-db-sync-catch-up-skips-missing-directories ()
+  "A sync directory that does not exist is skipped, not an error.
+The default is `org-directory', which a script may never create."
+  (vulpea-test--with-temp-notes-dir
+    (vulpea-db-sync-test--with-catch-up-state
+      (let ((path (expand-file-name "note.org" root))
+            (vulpea-db-sync-directories
+             (list root (expand-file-name "missing/" root))))
+        (vulpea-db-sync-test--write-note path "catch-up-missing" "Here")
+        (vulpea-db-sync-catch-up)
+        (should (vulpea-db-get-by-id "catch-up-missing"))))))
+
+(ert-deftest vulpea-db-sync-catch-up-gives-up-on-a-locked-database ()
+  "A database that stays locked is an error, not an endless retry.
+The caller must not go on believing the database is current."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-db-sync-test--with-catch-up-state
+      (let ((path (vulpea-test--create-temp-org-file
+                   ":PROPERTIES:\n:ID: catch-up-locked\n:END:\n#+TITLE: Locked\n"))
+            (vulpea-db-sync-directories nil)
+            (attempts 0))
+        (unwind-protect
+            (let ((execute (symbol-function 'sqlite-execute)))
+              (vulpea-db-sync--enqueue path)
+              (cl-letf (((symbol-function 'sqlite-execute)
+                         (lambda (db statement &rest args)
+                           (if (equal statement "BEGIN IMMEDIATE")
+                               (progn
+                                 (setq attempts (1+ attempts))
+                                 (when (> attempts 1000)
+                                   (error "Still retrying"))
+                                 (signal 'sqlite-locked-error
+                                         '("database is locked")))
+                             (apply execute db statement args)))))
+                (should-error (vulpea-db-sync-catch-up) :type 'user-error))
+              (should (< attempts 1000)))
+          (delete-file path))))))
+
+(ert-deftest vulpea-db-sync-catch-up-refuses-inside-queue-processing ()
+  "Called while the queue is mid-batch, it signals instead of returning.
+Neither the queue nor the scan can run then, and returning would
+claim a database that is not current."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-db-sync-test--with-catch-up-state
+      (let ((vulpea-db-sync--processing t)
+            (vulpea-db-sync-directories nil))
+        (should-error (vulpea-db-sync-catch-up) :type 'user-error)))))
+
 ;;; External Monitoring Tests
 
 (ert-deftest vulpea-db-sync-external-setup-auto-with-fswatch ()

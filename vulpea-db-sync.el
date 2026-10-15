@@ -2282,6 +2282,103 @@ settings migrations from freezing the session."
                                    updated
                                    unchanged))))))
 
+(defun vulpea-db-sync--wait-for-worker ()
+  "Wait for the extraction worker to finish its work.
+
+Everything `vulpea-db-worker-busy-p' counts has to land: requests in
+flight, results waiting to be applied, files waiting for the
+synchronous fallback and files of a dead worker waiting to be queued
+again.  Process output and timers run meanwhile.  The sync queue is
+held: its files are indexed in this session right after, and sending
+them to the worker would only make the wait longer."
+  (when (vulpea-db-worker-busy-p)
+    ;; The queue's timers leave it alone while it counts as processing
+    (let ((vulpea-db-sync--processing t))
+      (while (vulpea-db-worker-busy-p)
+        (accept-process-output nil 0.05)))))
+
+(defconst vulpea-db-sync--drain-max-stalls 20
+  "Passes without progress after which draining the queue gives up.
+A pass that cannot take the write lock within the busy timeout puts
+its batch back, so this many in a row means the database stays
+locked.")
+
+(defun vulpea-db-sync--drain-queue ()
+  "Index every file in the sync queue in this session.
+Batches go through `vulpea-db-sync--process-queue' as usual, forced
+entries included, only without the extraction worker.  Signals a
+`user-error' when the queue stops shrinking: the database stays
+locked (see `vulpea-db-sync--drain-max-stalls'), and the caller must
+not go on as if it were current."
+  (let ((vulpea-db-async-extraction nil)
+        (stalls 0))
+    (while vulpea-db-sync--queue
+      (let ((before (length vulpea-db-sync--queue)))
+        (vulpea-db-sync--process-queue)
+        (if (< (length vulpea-db-sync--queue) before)
+            (setq stalls 0)
+          (setq stalls (1+ stalls))
+          (when (>= stalls vulpea-db-sync--drain-max-stalls)
+            (user-error "Vulpea: %d file%s could not be indexed, the database stays locked"
+                        (length vulpea-db-sync--queue)
+                        (if (= (length vulpea-db-sync--queue) 1) "" "s"))))))))
+
+(defun vulpea-db-sync--scan-in-session ()
+  "Index what changed on disk under `vulpea-db-sync-directories' here.
+Like `vulpea-db-sync-full-scan' with change detection, except that
+rows of files outside the sync directories are kept (only deleted
+files are forgotten), and directories that do not exist are skipped."
+  (let ((dirs (seq-filter #'file-directory-p vulpea-db-sync-directories)))
+    (vulpea-db-sync--cleanup-deleted-files)
+    (vulpea-db-sync--check-dir-locals
+     (mapcan #'vulpea-db-sync--list-org-files dirs))
+    (let ((vulpea-db-sync--blocking t))
+      (dolist (dir dirs)
+        (vulpea-db-sync-update-directory dir)))))
+
+;;;###autoload
+(defun vulpea-db-sync-catch-up ()
+  "Bring the database up to date with the files on disk, and wait.
+
+For code that reads the database and must see every change made to
+the files, wherever it came from, such as a script in a fresh `emacs
+--batch'.  Autosync works from timers, process output and the
+extraction worker, and none of them run while Lisp code is busy, so a
+script that queries right after enabling `vulpea-db-autosync-mode'
+reads the database as the last session left it, startup scan or not.
+Without the mode, changes made outside Emacs are not picked up at
+all.
+
+When this returns, the database matches the files under
+`vulpea-db-sync-directories': new and changed files are indexed,
+deleted ones are forgotten, and files queued for a forced re-index
+\(after a schema or settings change) are re-read.  The work runs in
+this session, with the mode on or off:
+
+1. What the extraction worker holds is waited for, so none of its
+   results land later.  A hung worker is waited for until
+   `vulpea-db-worker-hang-timeout' restarts it.
+2. Files in the sync queue are indexed.
+3. Every existing sync directory is scanned with the usual change
+   detection, unchanged files costing a stat and no parse.  Unlike
+   `vulpea-db-sync-full-scan', rows of files outside the sync
+   directories are kept: a script may index notes of its own.
+4. Files the scan queued (under autosync a changed dir-locals file
+   queues its subtree) are indexed.
+
+Signals a `user-error' when the database stays locked, and when
+called while the sync queue is processing a batch, where none of this
+can run."
+  (when vulpea-db-sync--processing
+    (user-error "Vulpea: cannot catch up while the sync queue is processing"))
+  (vulpea-db-sync--wait-for-worker)
+  ;; Queued work goes first: after a schema change the queue holds
+  ;; every file for a forced re-index, and a scan ahead of it would
+  ;; index them all twice
+  (vulpea-db-sync--drain-queue)
+  (vulpea-db-sync--scan-in-session)
+  (vulpea-db-sync--drain-queue))
+
 ;;; Directory Management
 ;;
 ;; `vulpea-db-autosync-mode' snapshots `vulpea-db-sync-directories'
