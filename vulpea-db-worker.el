@@ -530,15 +530,28 @@ more slowly than the worker parses has a full window of them waiting,
 no more requests go out, instead of parsed results piling up."
   (max vulpea-db-worker--in-flight-count vulpea-db-worker--results-count))
 
+(defvar vulpea-db-worker--diagnosing nil
+  "Non-nil while `vulpea-db-worker-diagnose' has the worker to itself.
+The request window is closed meanwhile: the diagnosis watches the
+worker's completions and stops the worker when done, so a file the
+sync queue sent it would complete out of the queue's sight or be
+discarded.  The queue keeps its files and retries after the check.")
+
 (defun vulpea-db-worker-saturated-p ()
   "Return non-nil when the worker request window is full.
 Callers should keep their files queued and retry later instead of
-requesting more (see `vulpea-db-worker-max-in-flight')."
-  (>= (vulpea-db-worker--window-used) vulpea-db-worker-max-in-flight))
+requesting more (see `vulpea-db-worker-max-in-flight').  The window
+counts as full during a diagnosis (see `vulpea-db-worker--diagnosing')."
+  (or vulpea-db-worker--diagnosing
+      (>= (vulpea-db-worker--window-used) vulpea-db-worker-max-in-flight)))
 
 (defun vulpea-db-worker-free-slots ()
-  "Return how many more requests fit in the worker request window."
-  (max 0 (- vulpea-db-worker-max-in-flight (vulpea-db-worker--window-used))))
+  "Return how many more requests fit in the worker request window.
+None during a diagnosis (see `vulpea-db-worker--diagnosing')."
+  (if vulpea-db-worker--diagnosing
+      0
+    (max 0 (- vulpea-db-worker-max-in-flight
+              (vulpea-db-worker--window-used)))))
 
 (defvar vulpea-db-worker--results nil
   "Worker results waiting to be applied, oldest first.
@@ -626,6 +639,12 @@ output is not.")
             (list "--eval" "(setq load-prefer-newer t)"
                   "-l" lib "-f" "vulpea-db-worker-batch-main"))))
 
+(defvar vulpea-db-worker--salvage-pending 0
+  "Files of a dead worker waiting for their salvage requeue.
+The requeue runs on a timer (see `vulpea-db-worker--salvage'), and
+until it does the files are unfinished work although nothing is in
+flight any more.")
+
 (defun vulpea-db-worker--salvage ()
   "Re-enqueue in-flight work of a dead worker and reset client state.
 
@@ -654,17 +673,24 @@ lands here.  Idempotent: the second caller finds no pending work."
       ;; Deferred: salvage may run inside vulpea-db-worker--ensure,
       ;; and re-requesting synchronously would recurse into the spawn
       ;; path and orphan the process being created
+      (setq vulpea-db-worker--salvage-pending
+            (+ vulpea-db-worker--salvage-pending (length pending)))
       (run-at-time 0 nil #'vulpea-db-worker--salvage-requeue
                    pending forced))))
 
 (defun vulpea-db-worker--salvage-requeue (pending forced)
   "Re-enqueue salvaged PENDING paths, restoring their FORCED flags."
-  (dolist (path pending)
-    (vulpea-db-worker--reenqueue path (gethash path forced))
-    ;; Terminal for this dispatch: the re-enqueued entry counts
-    ;; anew when the queue dispatches it again
-    (run-hook-with-args 'vulpea-db-worker-done-functions
-                        path 'requeued nil)))
+  (unwind-protect
+      (dolist (path pending)
+        (vulpea-db-worker--reenqueue path (gethash path forced))
+        ;; Terminal for this dispatch: the re-enqueued entry counts
+        ;; anew when the queue dispatches it again
+        (run-hook-with-args 'vulpea-db-worker-done-functions
+                            path 'requeued nil))
+    ;; Even when a hook function signals: a count left behind would
+    ;; keep the worker busy for good
+    (setq vulpea-db-worker--salvage-pending
+          (max 0 (- vulpea-db-worker--salvage-pending (length pending))))))
 
 (defun vulpea-db-worker--watchdog ()
   "Kill the worker when it has been silent too long with work pending."
@@ -845,11 +871,13 @@ to outlast a commit of the full-write worker.")
 
 (defun vulpea-db-worker-busy-p ()
   "Return non-nil while the worker has unfinished requests.
-Results waiting to be applied and files waiting for the synchronous
-fallback count too."
+Results waiting to be applied, files waiting for the synchronous
+fallback and files of a dead worker waiting to be queued again count
+too."
   (and (or vulpea-db-worker--in-flight
            vulpea-db-worker--results
-           vulpea-db-worker--fallback-queue)
+           vulpea-db-worker--fallback-queue
+           (> vulpea-db-worker--salvage-pending 0))
        t))
 
 (defun vulpea-db-worker--org-attach-function-p (fn)
@@ -2375,16 +2403,21 @@ and reports every stage - spawn time, journal mode, mode degradations
 and why, round-trip time, and the worker's stderr if anything went
 wrong - in a dedicated buffer.  Refuses to run while background
 extraction is in flight (it restarts the worker, which would discard
-that work); the check file is temporary and removed from the
-database afterwards."
+that work), and holds back new background work until it is done;
+the check file is temporary and removed from the database
+afterwards."
   (interactive)
   (when (vulpea-db-worker-busy-p)
-    (user-error
-     "Vulpea: %d file%s still extracting in background; run the diagnosis once the worker is idle"
-     vulpea-db-worker--in-flight-count
-     (if (= vulpea-db-worker--in-flight-count 1) "" "s")))
+    (let ((count (+ vulpea-db-worker--in-flight-count
+                    vulpea-db-worker--salvage-pending)))
+      (user-error
+       "Vulpea: %d file%s still extracting in background; run the diagnosis once the worker is idle"
+       count (if (= count 1) "" "s"))))
   (let ((report (get-buffer-create "*vulpea-worker-diagnose*"))
-        (vulpea-db-worker-debug t))
+        (vulpea-db-worker-debug t)
+        ;; The sync queue's timers run while the check waits for the
+        ;; worker; whatever they would send it waits for the check
+        (vulpea-db-worker--diagnosing t))
     (with-current-buffer report
       (erase-buffer)
       (insert (format "vulpea async extraction diagnosis (%s)\n\n"

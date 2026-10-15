@@ -3318,5 +3318,63 @@ an extractor or break the worker after enabling the mode."
       (should-not (process-live-p vulpea-db-worker--process))
       (should (memq vulpea-db-worker--prestart-timer timer-idle-list)))))
 
+(ert-deftest vulpea-db-worker-pending-salvage-counts-as-busy ()
+  "Files of a dead worker waiting to go back to the queue are unfinished.
+Salvage hands them back on a timer.  Until it fires, a diagnosis must
+refuse to run: it watches the worker's completions, so the requeue
+would be reported to it instead of the sync queue."
+  (let ((vulpea-db-worker--process nil)
+        (vulpea-db-worker--in-flight (list "/tmp/vulpea-salvaged.org"))
+        (vulpea-db-worker--in-flight-tail nil)
+        (vulpea-db-worker--in-flight-count 1)
+        (vulpea-db-worker--salvage-pending 0)
+        (vulpea-db-worker-done-functions nil)
+        (requeued nil))
+    (setq vulpea-db-worker--in-flight-tail vulpea-db-worker--in-flight)
+    (cl-letf (((symbol-function 'vulpea-db-worker--reenqueue)
+               (lambda (path &optional _force) (push path requeued)))
+              ((symbol-function 'message) #'ignore))
+      (vulpea-db-worker--salvage)
+      (should-not vulpea-db-worker--in-flight)
+      (should (vulpea-db-worker-busy-p))
+      (should-error (vulpea-db-worker-diagnose) :type 'user-error)
+      (sit-for 0.05)
+      (should (equal requeued '("/tmp/vulpea-salvaged.org")))
+      (should-not (vulpea-db-worker-busy-p)))))
+
+(ert-deftest vulpea-db-worker-diagnose-leaves-queued-files-to-the-queue ()
+  "A file queued during a diagnosis is indexed once it is over.
+The diagnosis waits on its worker for a reply, and the sync queue's
+timer runs during that wait.  A file the queue sent to that worker
+completed out of the queue's sight (the diagnosis watches the
+completions) or was discarded when the diagnosis stopped the worker:
+never indexed, and counted in flight for good, so the queue's
+completion summaries never came again."
+  (let ((vulpea-db-async-extraction t)
+        (vulpea-db-async-extraction-threshold nil)
+        (vulpea-db-worker-prestart nil))
+    (vulpea-db-worker-test--with-autosync
+      (let* ((dir (make-temp-file "vulpea-diagnose-queue-" t))
+             (path (expand-file-name "queued.org" dir))
+             (vulpea-db-sync-directories (list dir)))
+        (unwind-protect
+            (progn
+              (with-temp-file path
+                (insert ":PROPERTIES:\n:ID: diagnose-queued\n:END:\n#+title: Queued\n"))
+              (vulpea-db-sync--enqueue path)
+              (cl-letf (((symbol-function 'pop-to-buffer) #'ignore))
+                (vulpea-db-worker-diagnose))
+              ;; The queue sends the file now, to a new worker, and the
+              ;; reply lands (as long as `vulpea-db-worker-test--wait')
+              (let ((deadline (+ (float-time) 60)))
+                (while (and (or vulpea-db-sync--queue
+                                (> vulpea-db-sync--async-dispatched 0)
+                                (vulpea-db-worker-busy-p))
+                            (< (float-time) deadline))
+                  (accept-process-output vulpea-db-worker--process 0.05)))
+              (should (zerop vulpea-db-sync--async-dispatched))
+              (should (vulpea-db-get-by-id "diagnose-queued")))
+          (delete-directory dir t))))))
+
 (provide 'vulpea-db-worker-test)
 ;;; vulpea-db-worker-test.el ends here
