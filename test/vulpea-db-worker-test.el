@@ -1243,6 +1243,7 @@ savepoints opened."
            (vulpea-db-worker--pending nil)
            (vulpea-db-worker--pending-since nil)
            (vulpea-db-worker--grouped-writes t)
+           (vulpea-db-worker--integer-mtimes t)
            (vulpea-db-worker--write-budget 600)
            (replies nil)
            (commits 0)
@@ -1401,6 +1402,27 @@ never sends flush answers every request at once."
        (list :db-version vulpea-db-version
              :parser-epoch vulpea-db-parser-epoch))
       (should-not vulpea-db-worker--grouped-writes))))
+
+(ert-deftest vulpea-db-worker-settings-announce-integer-mtimes ()
+  "The settings message tells the worker to send mtimes as integers.
+A worker only does so when told: a main process running older code
+compares the mtime it gets with `equal' against a float."
+  (should (plist-get (nth 4 (vulpea-db-worker--settings-form))
+                     :integer-mtimes))
+  (let ((vulpea-db-worker--integer-mtimes nil)
+        (vulpea-db-worker--version-mismatch nil))
+    (cl-letf (((symbol-function 'vulpea-db-worker--reply) #'ignore))
+      (vulpea-db-worker--apply-settings
+       nil (org-link-types) nil
+       (list :db-version vulpea-db-version
+             :parser-epoch vulpea-db-parser-epoch
+             :integer-mtimes t))
+      (should vulpea-db-worker--integer-mtimes)
+      (vulpea-db-worker--apply-settings
+       nil (org-link-types) nil
+       (list :db-version vulpea-db-version
+             :parser-epoch vulpea-db-parser-epoch))
+      (should-not vulpea-db-worker--integer-mtimes))))
 
 (ert-deftest vulpea-db-worker-request-flushes-outside-group ()
   "A full-write request is flushed at once unless it is part of a group.
@@ -2079,6 +2101,96 @@ signals); the second file must still complete."
                                         (file-attributes path)))
                            (file-attribute-size (file-attributes path))))))
         (should (eq completed 'applied))))))
+
+(defun vulpea-db-worker-test--floats (form)
+  "Return the floats anywhere inside FORM."
+  (cond ((floatp form) (list form))
+        ((consp form) (append (vulpea-db-worker-test--floats (car form))
+                              (vulpea-db-worker-test--floats (cdr form))))
+        ((vectorp form) (mapcan #'vulpea-db-worker-test--floats form))))
+
+(ert-deftest vulpea-db-worker-replies-carry-no-floats ()
+  "Worker replies carry no floats, so their text reads the same anywhere.
+The main process reads replies with the Lisp reader, which parses a
+float with the C numeric locale: under a decimal-comma locale
+\"1761428683.25\" reads as 1761428683.0, so a float mtime never
+matched the file and the file was re-requested forever.  See
+vulpea#579."
+  (vulpea-db-worker-test--with-notes paths '("float-a" "float-b")
+    (set-file-times (car paths) (seconds-to-time 1761428683.25))
+    (let* ((vulpea-db-worker--integer-mtimes t)
+           (streamed (car (read-from-string
+                          (car (last (split-string
+                                      (vulpea-db-worker-test--replies
+                                       (list (car paths)))
+                                      "\n" t)))))))
+      (should (eq (car streamed) 'done))
+      (should-not (vulpea-db-worker-test--floats streamed)))
+    (vulpea-db-worker-test--as-worker
+      (mapc #'vulpea-db-worker-test--request paths)
+      (vulpea-db-worker--handle-message '(flush))
+      (should (equal (mapcar #'car replies) '(written written)))
+      (should-not (vulpea-db-worker-test--floats replies)))))
+
+(ert-deftest vulpea-db-worker-replies-keep-float-mtime-unannounced ()
+  "Without the announcement the worker sends the mtime as a float.
+A main process running older code compares it with `equal' against
+a float, so an integer pair would make every file look stale."
+  (vulpea-db-worker-test--with-notes paths '("float-old")
+    (set-file-times (car paths) (seconds-to-time 1761428683.25))
+    (let* ((vulpea-db-worker--integer-mtimes nil)
+           (streamed (car (read-from-string
+                           (car (last (split-string
+                                       (vulpea-db-worker-test--replies paths)
+                                       "\n" t)))))))
+      (should (eq (car streamed) 'done))
+      (should (equal (nth 3 streamed) 1761428683.25)))))
+
+(ert-deftest vulpea-db-worker-done-reply-takes-integer-mtime ()
+  "A streamed result with an integer-pair mtime is applied, not stale."
+  (vulpea-db-worker-test--with-file
+      ":PROPERTIES:\n:ID: integer-mtime-done\n:END:\n#+TITLE: D\n"
+    (vulpea-test--with-temp-db
+      (vulpea-db)
+      (set-file-times path (seconds-to-time 1761428683.25))
+      (vulpea-db-worker--ensure)
+      (let (completed)
+        (let ((vulpea-db-worker-done-functions
+               (list (lambda (p status _c)
+                       (when (equal p path)
+                         (setq completed status))))))
+          (vulpea-db-worker--filter
+           vulpea-db-worker--process
+           (concat (format "(begin %S)\n" path)
+                   "(file-node (:id \"integer-mtime-done\" :title \"D\"))\n"
+                   (format "(done %S \"hash\" %S %d)\n"
+                           path
+                           (time-convert (file-attribute-modification-time
+                                          (file-attributes path))
+                                         t)
+                           (file-attribute-size (file-attributes path)))))
+          (vulpea-db-worker-test--wait-results))
+        (should (eq completed 'applied))
+        (should (equal (plist-get (vulpea-db--get-file-hash path) :mtime)
+                       1761428683.25))))))
+
+(ert-deftest vulpea-db-worker-written-reply-takes-integer-mtime ()
+  "A written reply with an integer-pair mtime is not re-requested."
+  (vulpea-db-worker-test--with-file
+      ":PROPERTIES:\n:ID: integer-mtime-written\n:END:\n#+TITLE: W\n"
+    (vulpea-test--with-temp-db
+      (vulpea-db)
+      (set-file-times path (seconds-to-time 1761428683.25))
+      (let ((attrs (file-attributes path))
+            reenqueued)
+        (cl-letf (((symbol-function 'vulpea-db-worker--reenqueue)
+                   (lambda (p &rest _) (push p reenqueued))))
+          (vulpea-db-worker--dispatch
+           (list 'written path "somehash"
+                 (time-convert (file-attribute-modification-time attrs) t)
+                 (file-attribute-size attrs) 1
+                 (list "integer-mtime-written") nil)))
+        (should-not reenqueued)))))
 
 (ert-deftest vulpea-db-worker-written-for-vanished-file-removes-ghosts ()
   "A written reply for a file that no longer exists removes its rows.

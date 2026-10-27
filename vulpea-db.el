@@ -1476,10 +1476,13 @@ does."
 (defun vulpea-db--update-dir-locals-hash (path hash mtime size)
   "Update dir-locals tracking info for PATH.
 
-HASH, MTIME and SIZE are inserted as values."
-  (emacsql (vulpea-db)
-           [:insert :or :replace :into dir-locals-files :values $v1]
-           (list (vector (vulpea-db-normalize-path path) hash mtime size))))
+HASH, MTIME and SIZE are inserted as values.  Bound natively: emacsql
+prints the float MTIME into SQL text, which breaks when the numeric
+locale uses a decimal comma.  See vulpea#579."
+  (vulpea-db--execute
+   (concat "INSERT OR REPLACE INTO dir_locals_files (path, hash, mtime, size)"
+           " VALUES (?, ?, ?, ?)")
+   (list (vulpea-db-normalize-path path) hash mtime size)))
 
 (defun vulpea-db--get-dir-locals-hash (path)
   "Get stored hash for the dir-locals file at PATH.

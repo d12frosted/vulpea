@@ -548,15 +548,14 @@ modified but not yet synced keeps its previous mtime until the
 next sync.
 
 Returns list of `vulpea-note' structs."
+  ;; The float cutoff is bound natively: emacsql would print it into
+  ;; SQL text, which breaks under a decimal-comma locale (vulpea#579).
   (let* ((cutoff (- (float-time) (* days 86400)))
-         (rows (emacsql (vulpea-db)
-                        [:select [notes:*]
-                         :from notes
-                         :inner :join files
-                         :on (= notes:path files:path)
-                         :where (< files:mtime $s1)
-                         :order :by files:mtime]
-                        cutoff)))
+         (rows (vulpea-db--select
+                (concat "SELECT notes.* FROM notes"
+                        " INNER JOIN files ON notes.path = files.path"
+                        " WHERE files.mtime < ? ORDER BY files.mtime")
+                (list cutoff))))
     (mapcar #'vulpea-db--row-to-note rows)))
 
 ;;; Property-Based Queries

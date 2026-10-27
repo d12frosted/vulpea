@@ -1164,6 +1164,20 @@ be returned with string keys after JSON round-trip through the DB."
         (should (member "old-file" (butlast ids)))
         (should (member "old-head" (butlast ids)))))))
 
+(ert-deftest vulpea-db-query-stale-notes-comma-decimal-locale ()
+  "The float cutoff works under a comma decimal locale.  See vulpea#579."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((now (float-time)))
+      (vulpea-test--insert-test-note "fresh" "Fresh" :path "/tmp/fresh.org")
+      (vulpea-test--insert-test-note "stale" "Stale" :path "/tmp/stale.org")
+      (vulpea-db--update-file-hash "/tmp/fresh.org" "h1" (- now (* 1 86400)) 10)
+      (vulpea-db--update-file-hash "/tmp/stale.org" "h2" (- now (* 100 86400)) 10)
+      (vulpea-test--with-comma-decimal-locale
+        (let ((notes (vulpea-db-query-stale-notes 30)))
+          (should (= (length notes) 1))
+          (should (equal (vulpea-note-id (car notes)) "stale")))))))
+
 ;;; Dead Link Detection Tests
 
 (ert-deftest vulpea-db-query-dead-links-found ()

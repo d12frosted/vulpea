@@ -52,8 +52,11 @@
 ;; synchronous updates (`vulpea-db--apply-parse-ctx').  The wire
 ;; format is pure ASCII: everything is printed with
 ;; `print-escape-nonascii', so process coding can never corrupt it.
-;; The worker's stderr goes to a separate buffer; in batch mode
-;; `message' writes to stderr, keeping stdout clean for the protocol.
+;; Replies carry no floats: the reader parses those with the C numeric
+;; locale, so MTIME travels as an integer pair (see
+;; `vulpea-db-worker--wire-time').  The worker's stderr goes to a
+;; separate buffer; in batch mode `message' writes to stderr, keeping
+;; stdout clean for the protocol.
 ;;
 ;; The worker mirrors an explicit allowlist of settings (vulpea
 ;; customs, org link types, tag inheritance, org-attach
@@ -215,6 +218,29 @@ This is an extension point, not a setting: attach to it with
         (print-circle nil))
     (prin1-to-string form)))
 
+(defvar vulpea-db-worker--integer-mtimes nil
+  "Non-nil when the main process reads mtimes as integer pairs.
+Worker side, set from the settings message; see
+`vulpea-db-worker--wire-time'.  Without it mtimes go out as floats:
+a main process running older code compares them with `equal'
+against a float, so a pair would make every file look stale.")
+
+(defun vulpea-db-worker--wire-time (time)
+  "Return TIME as an exact (TICKS . HZ) pair of integers for the wire.
+
+The Lisp reader parses a float with the C numeric locale, so in a
+session whose locale was switched to one with a decimal comma
+\"1761428683.25\" reads as 1761428683.0 and an mtime sent as a float
+never matches the file again.  Integers read the same everywhere,
+and `float-time' turns the pair back into the identical float.  See
+vulpea#579.
+
+TIME is sent unchanged unless the main process announced it reads
+pairs (see `vulpea-db-worker--integer-mtimes')."
+  (if vulpea-db-worker--integer-mtimes
+      (time-convert time t)
+    time))
+
 (defun vulpea-db-worker--printable-p (value)
   "Return non-nil when VALUE survives a print/read round trip."
   (condition-case nil
@@ -362,7 +388,9 @@ cases."
                 :parser-epoch ,vulpea-db-parser-epoch
                 ;; Full-write requests are followed by (flush); see
                 ;; `vulpea-db-worker--grouped-writes'
-                :grouped-writes t))))
+                :grouped-writes t
+                ;; See `vulpea-db-worker--integer-mtimes'
+                :integer-mtimes t))))
 
 (defun vulpea-db-worker--extractor-specs ()
   "Build wire specs for worker-safe extractors.
@@ -1200,7 +1228,9 @@ file behind it."
        (vulpea-db-worker--forget path)
        (vulpea-db-worker--log "done %s" path)
        (vulpea-db-worker--queue-result
-        (list path hash mtime size
+        ;; `float-time' also takes the plain float a worker running
+        ;; older code sends
+        (list path hash (float-time mtime) size
               (plist-get current :file-node)
               (nreverse (plist-get current :heading-nodes))
               force))))
@@ -1239,7 +1269,7 @@ file behind it."
          (vulpea-db--unregister-id-locations (cadr rest) path)
          (when (or (not (equal (float-time
                                 (file-attribute-modification-time attrs))
-                               mtime))
+                               (float-time mtime)))
                    (not (equal (file-attribute-size attrs) size)))
            ;; Changed again while the worker was writing: what landed
            ;; reflects older content, re-parse to catch up.
@@ -1867,6 +1897,8 @@ this worker."
     (setq-default enable-local-variables :safe))
   (setq vulpea-db-worker--grouped-writes
         (plist-get db-constants :grouped-writes))
+  (setq vulpea-db-worker--integer-mtimes
+        (plist-get db-constants :integer-mtimes))
   ;; A code-version mismatch (main upgraded vulpea while running, or
   ;; stale byte-code) forbids opening the database from this worker:
   ;; vulpea-db--init would delete and rebuild it on a schema mismatch
@@ -2067,7 +2099,7 @@ Runs inside the group's transaction, if there is one."
         (t
          `(written ,path
                    ,(vulpea-parse-ctx-hash ctx)
-                   ,(vulpea-parse-ctx-mtime ctx)
+                   ,(vulpea-db-worker--wire-time (vulpea-parse-ctx-mtime ctx))
                    ,(vulpea-parse-ctx-size ctx)
                    ,count
                    ,(vulpea-db-worker--ctx-ids ctx)
@@ -2186,7 +2218,7 @@ result is written even when the content hash matches."
         (vulpea-db-worker--reply
          `(done ,path
                 ,(vulpea-parse-ctx-hash ctx)
-                ,(vulpea-parse-ctx-mtime ctx)
+                ,(vulpea-db-worker--wire-time (vulpea-parse-ctx-mtime ctx))
                 ,(vulpea-parse-ctx-size ctx))))
     (vulpea-db-worker-handback
      (vulpea-db-worker--reply `(handback ,path ,(cadr err))))
