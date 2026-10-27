@@ -146,6 +146,29 @@ BODY completes (even on error)."
        (when (file-directory-p root)
          (delete-directory root t)))))
 
+(defun vulpea-test--comma-decimal-escape (escape value)
+  "Call ESCAPE on VALUE, printing a float with a decimal comma.
+Around advice for `emacsql-escape-scalar'."
+  (if (floatp value)
+      (string-replace "." "," (number-to-string value))
+    (funcall escape value)))
+
+(defmacro vulpea-test--with-comma-decimal-locale (&rest body)
+  "Execute BODY with emacsql printing floats with a decimal comma.
+
+Emulates an Emacs whose C numeric locale was switched to one with a
+comma decimal separator (such as de_DE) after startup: floats then
+print as `1761428683,25', which emacsql inlines into SQL text as two
+values.  See vulpea#579."
+  (declare (indent 0))
+  `(unwind-protect
+       (progn
+         (advice-add 'emacsql-escape-scalar :around
+                     #'vulpea-test--comma-decimal-escape)
+         ,@body)
+     (advice-remove 'emacsql-escape-scalar
+                    #'vulpea-test--comma-decimal-escape)))
+
 ;;; File Helpers
 
 (defun vulpea-test--create-temp-org-file (content)

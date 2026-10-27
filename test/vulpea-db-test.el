@@ -976,6 +976,28 @@ parse, and dropping the hash there would force needless re-extraction."
     (vulpea-db--delete-dir-locals-hash "/tmp/.dir-locals.el")
     (should-not (vulpea-db--get-dir-locals-hash "/tmp/.dir-locals.el"))))
 
+(ert-deftest vulpea-db-dir-locals-tracking-comma-decimal-locale ()
+  "A float mtime is stored under a comma decimal locale.
+The value is bound natively, never printed into SQL.  See vulpea#579."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-comma-decimal-locale
+      (vulpea-db--update-dir-locals-hash
+       "/tmp/.dir-locals.el" "abc123" 1761428683.25 64)
+      (let ((info (vulpea-db--get-dir-locals-hash "/tmp/.dir-locals.el")))
+        (should (equal (plist-get info :mtime) 1761428683.25))
+        (should (equal (plist-get info :size) 64))))))
+
+(ert-deftest vulpea-db-file-tracking-comma-decimal-locale ()
+  "A float file mtime is stored under a comma decimal locale.
+See vulpea#579."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--with-comma-decimal-locale
+      (vulpea-db--update-file-hash "/tmp/test.org" "abc123" 1761428683.25 64)
+      (let ((info (vulpea-db--get-file-hash "/tmp/test.org")))
+        (should (equal (plist-get info :mtime) 1761428683.25))))))
+
 ;;; Transaction Tests
 
 (ert-deftest vulpea-db-transaction-rollback ()
