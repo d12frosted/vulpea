@@ -2054,12 +2054,11 @@ polling backend; live file watchers react through
 (defun vulpea-db-sync--register-org-ids-from-rows (rows)
   "Register with `org-id' the ids in ROWS it lacks or knows elsewhere.
 ROWS are (id path) lists from the notes table.  One lookup per id, a
-write only for the drift.  Returns the number of ids registered."
+write only for the drift.  Returns the number of ids registered.
+While org scans for ids nothing is registered and the drift is left
+to the next scan, see `vulpea-db--org-id-prepare'."
   (let ((registered 0))
-    (when (and rows org-id-track-globally)
-      (unless org-id-locations (org-id-locations-load))
-      (when (and org-id-locations (not (hash-table-p org-id-locations)))
-        (setq org-id-locations (org-id-alist-to-hash org-id-locations)))
+    (when (and rows org-id-track-globally (vulpea-db--org-id-prepare))
       (let ((missing (make-hash-table :test #'equal)))
         (pcase-dolist (`(,id ,path) rows)
           (unless (equal (gethash id org-id-locations)
