@@ -1883,6 +1883,98 @@ stores this spelling and looks it up again."
               (file-name-nondirectory path))
     (abbreviate-file-name path)))
 
+;;; Sharing `org-id-locations' with org's own scan
+;;
+;; `org-id-update-id-locations' collects the files to scan, sets
+;; `org-id-locations' to nil, pushes an alist entry per scanned file
+;; and converts the alist to a hash table at the end.  Anything that
+;; waits during the scan (an encrypted file asking gpg, a remote file)
+;; runs timers and process filters, and vulpea registers ids from
+;; both.  Touching the variable then breaks one or the other: loading
+;; it from disk while it is nil, or turning the alist into a hash
+;; table, makes org push its next entries onto a hash table, which
+;; fails the scan and every registration after it with "Wrong type
+;; argument: listp" (vulpea#583); writing into the old table before
+;; org resets it is simply lost.  So while the scan runs, vulpea's
+;; changes wait in `vulpea-db--org-id-pending' and are applied as soon
+;; as it returns.
+
+(defvar vulpea-db--org-id-scanning nil
+  "Non-nil while `org-id-update-id-locations' runs.
+Bound by `vulpea-db--org-id-around-scan'.")
+
+(defvar vulpea-db--org-id-pending nil
+  "Changes to `org-id-locations' held during org's scan, newest first.
+Each entry is (OP IDS . PATH), OP being `register' or `unregister',
+as the function of that name received it.  They are applied in order
+once the scan returns, see `vulpea-db--org-id-around-scan'.")
+
+(defun vulpea-db--org-id-around-scan (orig &rest args)
+  "Call ORIG with ARGS and defer vulpea's org-id work until it is done.
+Around advice for `org-id-update-id-locations'.  Changes held during
+the scan are applied right after it, also when it fails or is quit:
+a scan that did not finish leaves its partial alist, which
+`vulpea-db--org-id-prepare' converts."
+  (if vulpea-db--org-id-scanning
+      (apply orig args)
+    (unwind-protect
+        (let ((vulpea-db--org-id-scanning t))
+          (apply orig args))
+      (when (and vulpea-db--org-id-pending org-id-track-globally)
+        (condition-case err
+            (vulpea-db--org-id-prepare)
+          (error
+           (message "Vulpea: org-id registration failed: %s"
+                    (error-message-string err))))))))
+
+(advice-add 'org-id-update-id-locations :around
+            #'vulpea-db--org-id-around-scan)
+
+(defun vulpea-db--org-id-prepare ()
+  "Make `org-id-locations' ready for writing, or return nil.
+
+Returns nil while org scans for ids and owns the variable.  Otherwise
+loads it when nil, converts an alist left by a scan that did not
+finish (a quit or an error inside it), applies the changes held
+during a scan, and returns non-nil."
+  (unless vulpea-db--org-id-scanning
+    (cond
+     ((hash-table-p org-id-locations))
+     (org-id-locations
+      (setq org-id-locations (org-id-alist-to-hash org-id-locations)))
+     (t (org-id-locations-load)))
+    (when (hash-table-p org-id-locations)
+      (when vulpea-db--org-id-pending
+        (let ((pending (reverse vulpea-db--org-id-pending)))
+          (setq vulpea-db--org-id-pending nil)
+          (pcase-dolist (`(,op ,ids . ,path) pending)
+            (if (eq op 'register)
+                (vulpea-db--org-id-put ids path)
+              (vulpea-db--org-id-remove ids path)))))
+      t)))
+
+(defun vulpea-db--org-id-put (ids path)
+  "Write IDS at PATH into `org-id-locations', a hash table by now."
+  (cond
+   ((null org-id-files)
+    (clrhash vulpea-db--org-id-files-seen))
+   ((zerop (hash-table-count vulpea-db--org-id-files-seen))
+    (dolist (file org-id-files)
+      (puthash file t vulpea-db--org-id-files-seen))))
+  (let ((afile (vulpea-db--org-id-abbreviate path)))
+    (dolist (id ids)
+      (puthash id afile org-id-locations))
+    (unless (gethash afile vulpea-db--org-id-files-seen)
+      (push afile org-id-files)
+      (puthash afile t vulpea-db--org-id-files-seen))))
+
+(defun vulpea-db--org-id-remove (ids path)
+  "Drop IDS from `org-id-locations', a hash table by now, at PATH."
+  (let ((afile (vulpea-db--org-id-abbreviate path)))
+    (dolist (id ids)
+      (when (equal (gethash id org-id-locations) afile)
+        (remhash id org-id-locations)))))
+
 (defun vulpea-db--unregister-id-locations (ids path)
   "Drop IDS from `org-id-locations' where they still point at PATH.
 
@@ -1901,40 +1993,26 @@ happens when the note was refiled and the file now holding it has
 already been indexed, so its registration is the correct one and
 removing it would break a working link.  `org-id-files' is deliberately
 not touched - it lists files to scan, and `org-id-update-id-locations'
-already skips files that no longer exist."
+already skips files that no longer exist.
+
+While org scans for ids the change is held and applied once the scan
+returns, see `vulpea-db--org-id-around-scan'."
   (when (and ids org-id-track-globally)
-    (unless org-id-locations (org-id-locations-load))
-    (when (hash-table-p org-id-locations)
-      (let ((afile (vulpea-db--org-id-abbreviate path)))
-        (dolist (id ids)
-          (when (equal (gethash id org-id-locations) afile)
-            (remhash id org-id-locations)))))))
+    (if (vulpea-db--org-id-prepare)
+        (vulpea-db--org-id-remove ids path)
+      (push (cons 'unregister (cons ids path)) vulpea-db--org-id-pending))))
 
 (defun vulpea-db--register-id-locations (ids path)
   "Register note IDS at PATH with org-id, batched.
 
 Equivalent to calling `org-id-add-location' for each ID, minus the
-repeated path abbreviation and `org-id-files' scans that would do."
+repeated path abbreviation and `org-id-files' scans that would do.
+While org scans for ids the registration is held and applied once the
+scan returns, see `vulpea-db--org-id-around-scan'."
   (when (and ids org-id-track-globally)
-    (unless org-id-locations (org-id-locations-load))
-    ;; Ensure org-id-locations is a hash table first — during
-    ;; org-id-update-id-locations it is temporarily an alist, and a
-    ;; vulpea timer firing in that window would hit puthash on the
-    ;; alist, causing "Wrong type argument: hash-table-p".
-    (when (and org-id-locations (not (hash-table-p org-id-locations)))
-      (setq org-id-locations (org-id-alist-to-hash org-id-locations)))
-    (cond
-     ((null org-id-files)
-      (clrhash vulpea-db--org-id-files-seen))
-     ((zerop (hash-table-count vulpea-db--org-id-files-seen))
-      (dolist (file org-id-files)
-        (puthash file t vulpea-db--org-id-files-seen))))
-    (let ((afile (vulpea-db--org-id-abbreviate path)))
-      (dolist (id ids)
-        (puthash id afile org-id-locations))
-      (unless (gethash afile vulpea-db--org-id-files-seen)
-        (push afile org-id-files)
-        (puthash afile t vulpea-db--org-id-files-seen)))))
+    (if (vulpea-db--org-id-prepare)
+        (vulpea-db--org-id-put ids path)
+      (push (cons 'register (cons ids path)) vulpea-db--org-id-pending))))
 
 ;;; Pending id claims
 ;;

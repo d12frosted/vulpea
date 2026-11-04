@@ -2385,6 +2385,128 @@ must not push it again, and registering a new one must append it."
     (dolist (f org-id-files)
       (should (gethash f vulpea-db--org-id-files-seen)))))
 
+(defun vulpea-test--org-id-scan-interrupted-by (where fn)
+  "Run `org-id-update-id-locations' over two notes, calling FN inside.
+FN runs the way a timer or a process filter does when the scan waits
+on something.  WHERE is `prelude' for the start of the scan, while
+`org-id-locations' still holds the old table, or N to run right
+before org reads the Nth file: nil before the first, the alist of
+what was found so far before the second.  Returns the two scanned
+paths, as true names, the way org registers them."
+  (let* ((a (file-truename
+             (vulpea-test--create-temp-org-file
+              ":PROPERTIES:\n:ID: scan-a\n:END:\n#+TITLE: A\n")))
+         (b (file-truename
+             (vulpea-test--create-temp-org-file
+              ":PROPERTIES:\n:ID: scan-b\n:END:\n#+TITLE: B\n")))
+         (org-agenda-files nil)
+         (org-id-extra-files (list a b))
+         (calls 0)
+         (target (if (eq where 'prelude) 'org-agenda-files
+                   'insert-file-contents))
+         (nth (if (eq where 'prelude) 1 where))
+         (hook (lambda (&rest _)
+                 (when (= (cl-incf calls) nth)
+                   (funcall fn)))))
+    (advice-add target :before hook)
+    (unwind-protect
+        (org-id-update-id-locations nil t)
+      (advice-remove target hook))
+    (list a b)))
+
+(defmacro vulpea-test--with-org-id-sandbox (&rest body)
+  "Run BODY with org-id state of its own and a scratch locations file."
+  (declare (indent 0))
+  `(let* ((locations-file (make-temp-file "vulpea-org-id-"))
+          (org-id-track-globally t)
+          (org-id-locations-file locations-file)
+          (org-id-locations (make-hash-table :test #'equal))
+          (org-id-files nil)
+          (org-id--locations-checksum nil)
+          (vulpea-db--org-id-files-seen (make-hash-table :test #'equal))
+          (vulpea-db--org-id-pending nil))
+     (unwind-protect
+         (progn ,@body)
+       (delete-file locations-file))))
+
+(ert-deftest vulpea-db-extract-org-id-registration-waits-for-org-scan ()
+  "Registering ids while org scans for them leaves the scan intact.
+`org-id-update-id-locations' rebuilds `org-id-locations' as an alist
+and converts it to a hash table at the end.  Making it a hash table
+earlier, or loading it from disk while the scan has it set to nil,
+let org push onto the table, which broke the scan and every
+registration after it with =Wrong type argument: listp= (vulpea#583).
+Writing into the old table before org resets it was lost.  The
+registration is applied as soon as the scan returns."
+  (dolist (where '(prelude 1 2))
+    (vulpea-test--with-org-id-sandbox
+      (let* ((late (expand-file-name "late.org" temporary-file-directory))
+             (files (vulpea-test--org-id-scan-interrupted-by
+                     where (lambda ()
+                             (vulpea-db--register-id-locations
+                              '("late-id") late)))))
+        (unwind-protect
+            (progn
+              (should (hash-table-p org-id-locations))
+              (should (equal (gethash "scan-a" org-id-locations)
+                             (abbreviate-file-name (nth 0 files))))
+              (should (equal (gethash "scan-b" org-id-locations)
+                             (abbreviate-file-name (nth 1 files))))
+              (should (equal (gethash "late-id" org-id-locations)
+                             (abbreviate-file-name late)))
+              (should (member (abbreviate-file-name late) org-id-files))
+              (should (= (length org-id-files) 3))
+              (should-not vulpea-db--org-id-pending))
+          (mapc #'delete-file files))))))
+
+(ert-deftest vulpea-db-extract-org-id-unregistration-waits-for-org-scan ()
+  "Dropping ids while org scans for them leaves the scan intact.
+Held changes apply in order, so ids registered and then dropped during
+the scan end up unregistered, and the ids of a file org had already
+read when its note was deleted are dropped once the scan returns."
+  (dolist (where '(prelude 1 2))
+    (vulpea-test--with-org-id-sandbox
+      (let* ((gone (expand-file-name "gone.org" temporary-file-directory))
+             (files (vulpea-test--org-id-scan-interrupted-by
+                     where (lambda ()
+                             (vulpea-db--register-id-locations
+                              '("gone-id" "kept-id") gone)
+                             (vulpea-db--unregister-id-locations
+                              '("gone-id") gone)))))
+        (unwind-protect
+            (progn
+              (should (hash-table-p org-id-locations))
+              (should (gethash "scan-a" org-id-locations))
+              (should (gethash "scan-b" org-id-locations))
+              (should-not (gethash "gone-id" org-id-locations))
+              (should (equal (gethash "kept-id" org-id-locations)
+                             (abbreviate-file-name gone))))
+          (mapc #'delete-file files)))))
+  (vulpea-test--with-org-id-sandbox
+    (let ((files (vulpea-test--org-id-scan-interrupted-by
+                  2 (lambda ()
+                      ;; Org read the first file already.
+                      (vulpea-db--unregister-id-locations
+                       '("scan-a") (car org-id-extra-files))))))
+      (unwind-protect
+          (progn
+            (should-not (gethash "scan-a" org-id-locations))
+            (should (gethash "scan-b" org-id-locations)))
+        (mapc #'delete-file files)))))
+
+(ert-deftest vulpea-db-extract-org-id-registration-converts-left-alist ()
+  "An alist left by a scan that did not finish is converted.
+A quit or an error inside `org-id-update-id-locations' leaves
+`org-id-locations' as the alist it was building.  With no scan
+running, nothing else will convert it, so registration does."
+  (vulpea-test--with-org-id-sandbox
+    (setq org-id-locations (list (list "~/vault/old.org" "old-id")))
+    (vulpea-db--register-id-locations
+     '("new-id") (expand-file-name "~/vault/new.org"))
+    (should (hash-table-p org-id-locations))
+    (should (equal (gethash "old-id" org-id-locations) "~/vault/old.org"))
+    (should (equal (gethash "new-id" org-id-locations) "~/vault/new.org"))))
+
 (ert-deftest vulpea-db-extract-org-id-abbreviation-matches-org ()
   "The per-directory abbreviation spells a path exactly as org does.
 `org-id' stores the `abbreviate-file-name' form and vulpea must store
