@@ -1599,7 +1599,8 @@ no longer exists."
 Rows written before path normalization was in effect (or by a
 process with different filename decoding) can be keyed by a
 differently-normalized twin of the canonical path - on macOS an NFD
-variant of an NFC path, addressing the same file.  Such rows can
+variant of an NFC path, or on Windows a path with backslash
+separators, addressing the same file.  Such rows can
 never be updated again, since every write goes through
 `vulpea-db-normalize-path', yet `file-exists-p' reports their path
 as existing on normalization-insensitive file systems, so regular
@@ -1613,7 +1614,7 @@ with a legacy row silently dropped them), and removing the files row
 forces a full re-index of the file on the next scan.
 
 Returns number of purged paths."
-  (if (not vulpea-db-path-normalization)
+  (if (not (or vulpea-db-path-normalization (eq system-type 'windows-nt)))
       0
     (let* ((db (vulpea-db))
            (note-paths (mapcar #'car (emacsql db [:select :distinct [path]
