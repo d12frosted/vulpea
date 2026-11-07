@@ -83,10 +83,11 @@ file - one updated by each source - and consumers read stale hashes
 and metadata depending on which row a query happens to hit.
 
 When set to symbol `nfc', every path is composed to NFC before it is
-used as a database key or queue key.  When nil, paths are used as
+used as a database key or queue key.  When nil, Unicode is left as
 given - the correct setting for file systems where two
 differently-normalized names address different files (most Linux
-setups)."
+setups).  Windows path separators are canonicalized independently
+of this setting."
   :type '(choice (const :tag "Compose to NFC" nfc)
                  (const :tag "No normalization" nil))
   :group 'vulpea-db)
@@ -94,10 +95,17 @@ setups)."
 (defun vulpea-db-normalize-path (path)
   "Return the canonical form of PATH for use as a database key.
 
-Applies the normalization selected by
-`vulpea-db-path-normalization'.  Returns PATH unchanged when
-normalization is disabled or PATH is nil.  NFC leaves ASCII as is,
-so an ASCII path is returned without running the normalizer."
+On Windows, converts backslashes to forward slashes so paths from
+native subprocesses and Emacs address the same rows, even when
+`vulpea-db-path-normalization' is nil.  Backslashes are preserved on
+other systems, where they can be part of a file name.
+
+Also applies the Unicode normalization selected by
+`vulpea-db-path-normalization'.  NFC leaves ASCII as is, so an ASCII
+path is returned without running the Unicode normalizer.
+Returns nil when PATH is nil."
+  (when (and path (eq system-type 'windows-nt) (string-search "\\" path))
+    (setq path (subst-char-in-string ?\\ ?/ path)))
   (if (and path
            (eq vulpea-db-path-normalization 'nfc)
            (not (vulpea-db--ascii-string-p path)))
