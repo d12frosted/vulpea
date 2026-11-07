@@ -15,12 +15,14 @@
 ;;
 ;;; Commentary:
 ;;
-;; Tests for Unicode normalization of file paths used as database
+;; Tests for normalization of file paths used as database
 ;; keys.  On macOS the same file can be referred to by an NFC string
 ;; (filename syscalls decoded via utf-8-hfs) and an NFD string (raw
 ;; output of fd/find/fswatch subprocesses).  Without canonicalization
 ;; the database accumulates duplicate rows per file that update
 ;; independently, so consumers read stale hashes and metadata.
+;; Native Windows subprocesses can likewise return backslashes where
+;; Emacs uses forward slashes; these must share one database key.
 ;;
 ;;; Code:
 
@@ -49,7 +51,7 @@
                    vulpea-db-path-test--nfc))))
 
 (ert-deftest vulpea-db-normalize-path/identity-when-disabled ()
-  "Paths are returned unchanged when normalization is disabled."
+  "Unicode is unchanged when Unicode normalization is disabled."
   (let ((vulpea-db-path-normalization nil))
     (should (equal (vulpea-db-normalize-path vulpea-db-path-test--nfd)
                    vulpea-db-path-test--nfd))))
@@ -103,6 +105,61 @@
   "nil input returns nil."
   (let ((vulpea-db-path-normalization 'nfc))
     (should-not (vulpea-db-normalize-path nil))))
+
+;;; Windows separators
+
+(ert-deftest vulpea-db-normalize-path/windows-separators ()
+  "Windows separator variants agree even with Unicode normalization off."
+  (let ((system-type 'windows-nt))
+    (dolist (vulpea-db-path-normalization '(nil nfc))
+      (dolist (pair '(("C:\\notes\\note.org" . "C:/notes/note.org")
+                      ("C:/notes\\note.org" . "C:/notes/note.org")
+                      ("C:/notes/note.org" . "C:/notes/note.org")
+                      ("\\\\server\\share\\note.org" . "//server/share/note.org")
+                      ("" . "")
+                      (nil . nil)))
+        (should (equal (vulpea-db-normalize-path (car pair))
+                       (cdr pair)))))))
+
+(ert-deftest vulpea-db-normalize-path/windows-separators-and-unicode ()
+  "Windows separators and the selected Unicode normalization both apply."
+  (let ((system-type 'windows-nt)
+        (path (subst-char-in-string ?/ ?\\ vulpea-db-path-test--nfd)))
+    (let ((vulpea-db-path-normalization nil))
+      (should (equal (vulpea-db-normalize-path path)
+                     vulpea-db-path-test--nfd)))
+    (let ((vulpea-db-path-normalization 'nfc))
+      (should (equal (vulpea-db-normalize-path path)
+                     vulpea-db-path-test--nfc)))))
+
+(ert-deftest vulpea-db-normalize-path/preserves-unix-backslashes ()
+  "A backslash can be part of a filename on Unix."
+  (dolist (system-type '(gnu/linux darwin cygwin))
+    (let ((vulpea-db-path-normalization 'nfc)
+          (path "/tmp/notes/back\\slash.org"))
+      (should (equal (vulpea-db-normalize-path path) path)))))
+
+(ert-deftest vulpea-db-sync-parse-scan-output/windows-separators ()
+  "Native fd output uses the same keys as Emacs file names."
+  (let ((system-type 'windows-nt)
+        (vulpea-db-path-normalization nil))
+    (should (equal (vulpea-db-sync--parse-scan-output
+                    "C:/notes\\one.org\nC:/notes\\two.org\n")
+                   '("C:/notes/one.org" "C:/notes/two.org")))))
+
+(ert-deftest vulpea-db-file-hash/windows-separators-share-one-row ()
+  "Scans and saves update the same file hash through either spelling."
+  (vulpea-test--with-temp-db
+    (let ((system-type 'windows-nt)
+          (vulpea-db-path-normalization nil))
+      (vulpea-db--update-file-hash "C:/notes\\note.org" "old" 1.0 10)
+      (vulpea-db--update-file-hash "C:/notes/note.org" "new" 2.0 20)
+      (should (= 1 (caar (emacsql (vulpea-db)
+                                  [:select (funcall count *) :from files]))))
+      (should (equal "new"
+                     (plist-get (vulpea-db--get-file-hash
+                                 "C:/notes\\note.org")
+                                :hash))))))
 
 ;;; files table
 
@@ -254,7 +311,54 @@ scratch on the next scan."
                        [:select * :from notes :where (= path $s1)]
                        vulpea-db-path-test--nfc)))))
 
-;;; end-to-end on a normalization-insensitive file system
+(ert-deftest vulpea-db-sync-cleanup/purges-legacy-windows-separators ()
+  "Default Windows cleanup repairs stale notes and fresh twin file rows."
+  (vulpea-test--with-temp-db
+    (let ((canonical "C:/notes/note.org")
+          (legacy "C:/notes\\note.org")
+          (vulpea-db-path-normalization nil))
+      (vulpea-test--insert-test-note "id-1" "note" :path canonical)
+      (vulpea-db--update-file-hash canonical "fresh" 2.0 20)
+      ;; Bypass normalization to reproduce a database from before the fix.
+      (emacsql (vulpea-db) [:update notes :set (= path $s1)] legacy)
+      (vulpea-db--execute "INSERT INTO files VALUES (?, ?, ?, ?)"
+                         (list legacy "stale" 1.0 10))
+      (let ((system-type 'windows-nt))
+        (vulpea-db-sync--cleanup-deleted-files-using (list canonical)))
+      (should-not (emacsql (vulpea-db) [:select * :from notes]))
+      ;; Drop the fresh twin too: its stamp must not suppress re-indexing
+      ;; after the legacy note that held the id has been removed.
+      (should-not (emacsql (vulpea-db) [:select * :from files])))))
+
+;;; end-to-end on normalization-insensitive file systems
+
+(ert-deftest vulpea-db-update-file/windows-scanned-path-stays-updatable ()
+  "Tags saved through an Emacs path replace tags indexed through fd."
+  (skip-unless (eq system-type 'windows-nt))
+  (vulpea-test--with-temp-notes-dir
+    (let* ((path (expand-file-name "note.org" root))
+           (raw-path (subst-char-in-string ?/ ?\\ path))
+           (vulpea-db-path-normalization nil)
+           (vulpea-db-autosync-mode nil))
+      (with-temp-file path
+        (insert ":PROPERTIES:\n:ID: id-windows\n:END:\n"
+                "#+title: Windows note\n#+filetags: :before:\n"))
+      (vulpea-db-update-file
+       (car (vulpea-db-sync--parse-scan-output (concat raw-path "\n"))))
+      (vulpea-select-cache-candidates)
+      (with-temp-file path
+        (insert ":PROPERTIES:\n:ID: id-windows\n:END:\n"
+                "#+title: Windows note\n#+filetags: :after:\n"))
+      (vulpea-db-sync-update-file path)
+      (should (equal '("after")
+                     (vulpea-note-tags (vulpea-db-get-by-id "id-windows"))))
+      (should (= 1 (vulpea-db-count-notes)))
+      (should (= 1 (length (vulpea-db-query-by-file-path raw-path))))
+      (should (equal (list (list path))
+                     (emacsql (vulpea-db) [:select path :from files])))
+      (let ((candidate (car (vulpea-select-cache-candidates))))
+        (should (string-match-p "#after" candidate))
+        (should-not (string-match-p "#before" candidate))))))
 
 (ert-deftest vulpea-db-update-file/normalizes-path-e2e ()
   "Indexing a file through its NFD name stores canonical NFC rows.

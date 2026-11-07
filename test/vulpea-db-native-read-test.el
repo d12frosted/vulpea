@@ -346,9 +346,11 @@ Text from `sqlite-select' is multibyte, blobs are unibyte."
   "Stored file stamps fetched natively equal what emacsql returns.
 The sync queue looks them up for every batch it processes."
   (vulpea-test--with-temp-db
-    (let ((paths (list "/tmp/plain.org" "/tmp/with space/ünï.org"
-                       "/tmp/quote\"d.org" "/tmp/it's.org"
-                       "/tmp/back\\slash.org" "/tmp/日本語.org")))
+    ;; The batch reader takes canonical keys, as supplied by the sync queue.
+    (let ((paths (mapcar #'vulpea-db-normalize-path
+                        (list "/tmp/plain.org" "/tmp/with space/ünï.org"
+                              "/tmp/quote\"d.org" "/tmp/it's.org"
+                              "/tmp/back\\slash.org" "/tmp/日本語.org"))))
       (let ((i 0))
         (dolist (path paths)
           (setq i (1+ i))
