@@ -87,6 +87,25 @@ mark this test's worker broken."
   (should (eq t (eval (car (get 'vulpea-db-async-extraction 'standard-value))
                       t))))
 
+;;; Wire format
+
+(ert-deftest vulpea-db-worker-print/ascii-only ()
+  "The wire is ASCII, so no process coding can corrupt it.
+Batch Emacs reads stdin and writes stdout in the locale's coding,
+which on Windows is often a code page that cannot hold CJK, while
+the session decodes the pipe as UTF-8.  Multibyte text, including a
+hex digit right after an escaped character, must still read back
+as the same multibyte string."
+  (dolist (value (list "日本語のノート"
+                       "ünïcode 1f"
+                       "日a"
+                       "emoji 😀"
+                       '(file-node (:title "Тест" :tags ("标签") :path "/tmp/日本.org"))))
+    (let ((wire (vulpea-db-worker--print value)))
+      (should-not (string-match-p "[^\0-\177]" wire))
+      (should (equal value (car (read-from-string wire))))
+      (should (vulpea-db-worker--printable-p value)))))
+
 ;;; Settings the worker needs from libraries the session may not load
 
 (ert-deftest vulpea-db-worker-sends-attach-settings-without-org-attach ()

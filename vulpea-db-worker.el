@@ -50,8 +50,12 @@
 ;; Only extracted data crosses the boundary - printable plists, never
 ;; the AST - so results flow through the exact same write path as
 ;; synchronous updates (`vulpea-db--apply-parse-ctx').  The wire
-;; format is pure ASCII: everything is printed with
-;; `print-escape-nonascii', so process coding can never corrupt it.
+;; format is ASCII: strings are printed with `print-escape-nonascii'
+;; and `print-escape-multibyte', so process coding can never corrupt
+;; them.  That matters on Windows, where the batch worker reads and
+;; writes the pipe in the locale's code page while the session uses
+;; UTF-8.  Symbol names have no escape syntax and are printed as is,
+;; which is fine as long as they are ASCII.
 ;; Replies carry no floats: the reader parses those with the C numeric
 ;; locale, so MTIME travels as an integer pair (see
 ;; `vulpea-db-worker--wire-time').  The worker's stderr goes to a
@@ -213,6 +217,8 @@ This is an extension point, not a setting: attach to it with
   (let ((print-escape-newlines t)
         (print-escape-control-characters t)
         (print-escape-nonascii t)
+        ;; `print-escape-nonascii' covers unibyte strings only
+        (print-escape-multibyte t)
         (print-length nil)
         (print-level nil)
         (print-circle nil))
