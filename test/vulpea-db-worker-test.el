@@ -1662,13 +1662,22 @@ This is the parser-epoch migration path: it must re-apply every file
           ;; Everything indexed and up to date
           (dolist (f (directory-files dir t "\\.org\\'"))
             (vulpea-db-update-file f))
-          ;; Force scan with autosync-like async processing
+          ;; Force scan with autosync-like async processing.  The queue
+          ;; counts what it sends the worker, and the handler that counts
+          ;; it back down is not among the done functions here: keep the
+          ;; counts local, or later tests start with files in flight.
           (let (statuses)
             (let ((vulpea-db-worker-done-functions
                    (list (lambda (_path status _count)
                            (push status statuses))))
                   (vulpea-db-autosync-mode t)
-                  (vulpea-db-sync-verbose nil))
+                  (vulpea-db-sync-verbose nil)
+                  (vulpea-db-sync--async-dispatched 0)
+                  (vulpea-db-sync--async-applied 0)
+                  (vulpea-db-sync--async-unchanged 0)
+                  (vulpea-db-sync--async-completed 0)
+                  (vulpea-db-sync--async-start-time nil)
+                  (vulpea-db-sync--announced nil))
               (vulpea-db-sync-update-directory dir 'force)
               ;; Drain the queue manually (no timers in batch tests)
               (while vulpea-db-sync--queue
