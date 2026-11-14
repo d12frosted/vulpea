@@ -131,6 +131,18 @@ Returns STR with cookies removed, or nil if STR is nil."
       (let ((stripped (string-trim result)))
         (if (string-empty-p stripped) str stripped)))))
 
+(defun vulpea-db--link-dest (type path)
+  "Return the destination stored for a link of TYPE pointing at PATH.
+
+An `id:' link is the only link that names a note, and Org may append a
+search option to it after the id, as in \"UUID::*Sub heading\" (see
+`vulpea-note--id-link-id').  The destination is then the id alone, or
+no backlink query reaches the note.  Any other link keeps PATH as is:
+a file name, for one, is not a note id."
+  (if (equal type "id")
+      (vulpea-note--id-link-id path)
+    path))
+
 (defun vulpea-db--extract-links-from-string (str &optional base-pos)
   "Extract org links from raw STR.
 
@@ -153,7 +165,8 @@ When BASE-POS is nil, the match offset within STR is used."
                                   (cons (match-string 1 raw-link)
                                         (match-string 2 raw-link))
                                 (cons "fuzzy" raw-link))))
-          (push (list :dest (cdr type-and-path)
+          (push (list :dest (vulpea-db--link-dest
+                             (car type-and-path) (cdr type-and-path))
                       :type (car type-and-path)
                       :pos (+ (or base-pos 0) match-start)
                       :description description)
@@ -1315,7 +1328,8 @@ see `vulpea-db--generated-element-p') are never extracted."
                      (or vulpea-db-index-plain-links
                          (eq (org-element-property :format link) 'bracket))
                      (not (vulpea-db--inside-generated-p link)))
-            (list :dest path :type type :pos pos :description desc)))))))
+            (list :dest (vulpea-db--link-dest type path)
+                  :type type :pos pos :description desc)))))))
 
 (defun vulpea-db--extract-links-stopping-at-notes (node &optional no-heading-notes)
   "Extract links from NODE, stopping at note boundaries.
@@ -1383,7 +1397,8 @@ are only computed once a candidate turns up."
                       (ce (org-element-property :contents-end link)))
                   (when (and type path)
                     (funcall callback
-                             (list :dest path :type type :pos pos
+                             (list :dest (vulpea-db--link-dest type path)
+                                   :type type :pos pos
                                    :description (when (and cb ce)
                                                   (buffer-substring-no-properties
                                                    cb ce)))))
@@ -1448,8 +1463,9 @@ the buffer NODE was parsed from."
           (when (and type path
                      (or vulpea-db-index-plain-links
                          (eq (org-element-property :format child) 'bracket)))
-            (funcall callback (list :dest path :type type :pos pos
-                                    :description desc)))))
+            (funcall callback
+                     (list :dest (vulpea-db--link-dest type path)
+                           :type type :pos pos :description desc)))))
        ;; Headline with ID: skip (note boundary)
        ((and (eq child-type 'headline)
              (not no-heading-notes)

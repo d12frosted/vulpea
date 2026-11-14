@@ -314,12 +314,14 @@ literal or a function of the note."
 
 (defun vulpea-schema--link-id (raw)
   "Return the note id referenced by RAW, or nil when RAW is not an id link.
-Accepts a bracket link \"[[id:UUID][desc]]\" or a bare UUID."
+Accepts a bracket link \"[[id:UUID][desc]]\" or a bare UUID.  The link
+may carry a search option after the id, which it does when it points
+below the target's heading."
   (cond
    ((string-match org-link-bracket-re raw)
     (let ((link (match-string 1 raw)))
       (when (string-prefix-p "id:" link)
-        (string-remove-prefix "id:" link))))
+        (vulpea-note--id-link-id (string-remove-prefix "id:" link)))))
    ((string-match-p (concat "\\`" vulpea-utils--uuid-regexp "\\'") raw)
     raw)))
 
