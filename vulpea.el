@@ -2306,12 +2306,27 @@ The old title is read from the database, not the buffer."
                            [:select title :from notes :where (= id $s1)]
                            vulpea--note-id-before-save))))))
 
+(defun vulpea--note-title-at-point ()
+  "Return the title Vulpea indexes for the note at point.
+
+For a file-level note that is the \"title\" keyword of the buffer.
+For a heading note it is the heading itself, read without the
+TODO keyword, the priority cookie and tags, and with statistics
+cookies stripped, the same way extraction reads it."
+  (if (= (org-outline-level) 0)
+      (vulpea-buffer-title-get)
+    (vulpea-db--strip-statistics-cookies
+     (vulpea-db--strip-emphasis
+      (org-link-display-format
+       (vulpea-db--string-no-properties
+        (org-get-heading t t t t)))))))
+
 (defun vulpea--notify-title-change ()
   "After save, check if title changed and notify user."
   (when (and vulpea--note-id-before-save
              vulpea--title-before-save
              (derived-mode-p 'org-mode))
-    (let ((new-title (vulpea-buffer-title-get)))
+    (let ((new-title (vulpea--note-title-at-point)))
       (when (and new-title
                  (not (string= new-title vulpea--title-before-save)))
         (message

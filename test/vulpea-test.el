@@ -2330,6 +2330,100 @@ the whole match."
         (when (file-exists-p target-path)
           (delete-file target-path))))))
 
+;;;; Title Change Detection Mode Tests
+
+(defmacro vulpea-test--with-title-detection-buffer (&rest body)
+  "Run BODY in a buffer visiting a file that holds two notes.
+
+The file-level note is titled \"Target File\", the heading note
+\"Heading Under Test\", and both are indexed in the database.  The
+heading carries a TODO keyword, a priority cookie, a statistics
+cookie and a tag, none of which belong to its title.
+`vulpea-title-change-detection-mode' is enabled in the buffer and
+point is at the beginning of the buffer.  The messages shown while
+BODY runs are collected, newest first, in `messages'."
+  (declare (indent 0))
+  `(vulpea-test--with-temp-db
+     (vulpea-db)
+     (let* ((path (vulpea-test--create-temp-org-file
+                   (concat ":PROPERTIES:\n:ID: title-detection-file\n:END:\n"
+                           "#+TITLE: Target File\n\n"
+                           "* TODO [#A] Heading Under Test [1/2] :work:\n"
+                           ":PROPERTIES:\n:ID: title-detection-heading\n:END:\n"
+                           "\nBody text.\n")))
+            (buffer (find-file-noselect path))
+            (messages nil))
+       (unwind-protect
+           (with-current-buffer buffer
+             (vulpea-db-update-file path)
+             (vulpea-title-change-detection-mode 1)
+             (goto-char (point-min))
+             (cl-letf (((symbol-function 'message)
+                        (lambda (format-string &rest args)
+                          (push (apply #'format format-string args)
+                                messages))))
+               ,@body))
+         (when (buffer-live-p buffer)
+           (with-current-buffer buffer
+             (set-buffer-modified-p nil))
+           (kill-buffer buffer))
+         (when (file-exists-p path)
+           (delete-file path))))))
+
+(ert-deftest vulpea-title-change-detection-heading-note-body-save ()
+  "A save that leaves a heading note's title alone reports nothing."
+  (vulpea-test--with-title-detection-buffer
+    (search-forward "Body text.")
+    (should (equal (org-entry-get nil "ID") "title-detection-heading"))
+    (goto-char (point-max))
+    (insert "More body.\n")
+    (save-buffer)
+    (should-not (seq-some (lambda (m) (string-match-p "Title changed" m))
+                          messages))))
+
+(ert-deftest vulpea-title-change-detection-heading-note-rename ()
+  "Renaming a heading note reports the heading's old and new titles."
+  (vulpea-test--with-title-detection-buffer
+    (search-forward "Heading Under Test")
+    (replace-match "Renamed Heading" t t)
+    (should (equal (org-entry-get nil "ID") "title-detection-heading"))
+    (save-buffer)
+    (should (seq-some
+             (lambda (m)
+               (string-match-p
+                "Title changed from \"Heading Under Test\" to \"Renamed Heading\""
+                m))
+             messages))))
+
+(ert-deftest vulpea-title-change-detection-heading-note-rename-without-file-title ()
+  "A heading rename is reported when the file has no title keyword."
+  (vulpea-test--with-title-detection-buffer
+    (search-forward "#+TITLE: Target File\n")
+    (replace-match "" t t)
+    (search-forward "Heading Under Test")
+    (replace-match "Renamed Heading" t t)
+    (save-buffer)
+    (should (seq-some
+             (lambda (m)
+               (string-match-p
+                "Title changed from \"Heading Under Test\" to \"Renamed Heading\""
+                m))
+             messages))))
+
+(ert-deftest vulpea-title-change-detection-file-note-rename ()
+  "Renaming a file-level note reports its old and new titles."
+  (vulpea-test--with-title-detection-buffer
+    (should (equal (org-entry-get nil "ID") "title-detection-file"))
+    (search-forward "#+TITLE: Target File")
+    (replace-match "#+TITLE: Renamed File" t t)
+    (save-buffer)
+    (should (seq-some
+             (lambda (m)
+               (string-match-p
+                "Title changed from \"Target File\" to \"Renamed File\""
+                m))
+             messages))))
+
 ;;;; Title Propagation Dry-Run Test
 
 (ert-deftest vulpea-propagate-title-change-dry-run ()
