@@ -4062,6 +4062,77 @@ File abc / * Parent (no ID) / ** Mention [[id:foo][person]] (no ID) -> abc -> fo
         (delete-file foo-path)
         (delete-file src-path)))))
 
+;;; Id Link Search Option Tests
+
+;; Since Org 9.7, `org-id-store-link' appends a search option to an id
+;; link that points below the entry holding the id, as in
+;; [[id:UUID::*Sub heading][Sub heading]] (`org-id-link-use-context').
+;; `org-id-open' resolves the id as everything before the first "::",
+;; so the option is not part of the target note.
+
+(ert-deftest vulpea-db-extract-id-link-search-option-dest ()
+  "An id link that carries a search option stores just the id.
+Both the link in a body and the link in a title (a different extractor)
+must drop the option, in either parse granularity."
+  (let ((path (vulpea-test--create-temp-org-file
+               (concat
+                ":PROPERTIES:\n:ID: ctx-file-id\n:END:\n"
+                "#+TITLE: Context\n\n"
+                "Body [[id:ctx-target::*Sub heading][Sub heading]].\n\n"
+                "* Mention [[id:ctx-target::*Sub heading][Sub heading]]\n"))))
+    (unwind-protect
+        (dolist (granularity '(object element))
+          (let* ((vulpea-db-parse-granularity granularity)
+                 (dests (vulpea-db-extract-test--file-link-dests path)))
+            (should (equal dests '("ctx-target" "ctx-target")))))
+      (delete-file path))))
+
+(ert-deftest vulpea-db-extract-id-link-search-option-backlink ()
+  "A link with a search option gives its target a backlink.
+The links table is what `vulpea-db-query-links-to' and the backlink
+queries read, and they match the destination exactly, so a destination
+that still carries \"::*Sub heading\" reaches no note."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let ((target (vulpea-test--create-temp-org-file
+                   (concat ":PROPERTIES:\n:ID: ctx-target\n:END:\n"
+                           "#+TITLE: Target\n\n* Sub heading\n")))
+          (source (vulpea-test--create-temp-org-file
+                   (concat ":PROPERTIES:\n:ID: ctx-source\n:END:\n"
+                           "#+TITLE: Source\n\n"
+                           "See [[id:ctx-target::*Sub heading][Sub heading]].\n"))))
+      (unwind-protect
+          (progn
+            (vulpea-db-update-file target)
+            (vulpea-db-update-file source)
+            (let ((links (vulpea-db-query-links-to "ctx-target")))
+              (should (= (length links) 1))
+              (should (equal (plist-get (car links) :source) "ctx-source")))
+            (should (equal (mapcar (lambda (l) (plist-get l :dest))
+                                   (vulpea-note-links
+                                    (vulpea-db-get-by-id "ctx-source")))
+                           '("ctx-target"))))
+        (delete-file target)
+        (delete-file source)))))
+
+(ert-deftest vulpea-db-extract-file-link-search-option-kept ()
+  "Only id links are split at \"::\"; a file link is left alone.
+A file link's path is the file, not a note id, so whatever the
+extractor saw stays in the destination.  Org's own parser hands the
+path and the search option over separately, while a link written in a
+title reaches the string extractor with the option still attached."
+  (let ((path (vulpea-test--create-temp-org-file
+               (concat
+                ":PROPERTIES:\n:ID: file-link-id\n:END:\n"
+                "#+TITLE: Notes on [[file:notes.org::*Heading][Notes]]\n\n"
+                "Body [[file:notes.org::*Heading][Notes]].\n"))))
+    (unwind-protect
+        (dolist (granularity '(object element))
+          (let* ((vulpea-db-parse-granularity granularity)
+                 (dests (vulpea-db-extract-test--file-link-dests path)))
+            (should (equal dests '("notes.org::*Heading" "notes.org")))))
+      (delete-file path))))
+
 ;;; Link Description Extraction Tests
 
 (ert-deftest vulpea-db-extract-link-description-basic ()

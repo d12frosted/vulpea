@@ -1199,6 +1199,40 @@ Some content.
    (should (equal (vulpea-buffer-meta-get-list "tags" 'string 'heading)
                   '("alpha" "beta" "gamma")))))
 
+;;; vulpea-buffer-meta-get-list and id link search options
+
+;; Org writes the option after "::" when the link points below the
+;; target's heading (`org-id-link-use-context').  The option is a
+;; search inside the note, not part of the note id.
+
+(ert-deftest vulpea-buffer-meta-get-list-note-with-search-option ()
+  "Test that `note' resolves an id link that carries a search option.
+The link references the note its id names, so it is not dangling and
+comes back as a `vulpea-note'."
+  (vulpea-buffer-test--with-temp-db-and-file
+      "grape1" "#+title: Cabernet Sauvignon\n\n* Sub heading\n"
+    (vulpea-buffer-test--with-temp-buffer
+     "#+title: Wine
+
+- grapes :: [[id:grape1::*Sub heading][Sub heading]]
+"
+     (let ((grapes (vulpea-buffer-meta-get-list "grapes" 'note)))
+       (should (= (length grapes) 1))
+       (should (equal (vulpea-note-id (car grapes)) "grape1"))
+       (should (equal (vulpea-note-title (car grapes))
+                      "Cabernet Sauvignon"))))))
+
+(ert-deftest vulpea-buffer-meta-get-list-link-with-search-option ()
+  "Test that `link' returns the id without the search option.
+The option points inside the note; it is not part of the note id."
+  (vulpea-buffer-test--with-temp-buffer
+   "#+title: Wine
+
+- grapes :: [[id:grape1::*Cabernet Sauvignon][Cabernet Sauvignon]]
+"
+   (should (equal (vulpea-buffer-meta-get-list "grapes" 'link)
+                  '("grape1")))))
+
 ;;; Tag Inheritance Tests
 
 (ert-deftest vulpea-buffer-tags-heading-get-with-filetags ()

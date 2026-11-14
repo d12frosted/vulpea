@@ -204,6 +204,21 @@ Example:
                copy))
            aliases))))
 
+;;; Id Links
+
+(defun vulpea-note--id-link-id (path)
+  "Return the note id in PATH, the path part of an `id:' link.
+
+PATH is what follows the \"id:\" prefix, e.g. \"UUID\" or
+\"UUID::*Sub heading\".  Org adds the search option after \"::\" when
+the link points below the entry that holds the id (see
+`org-id-link-use-context'), and `org-id-open' resolves the id as
+everything before the first \"::\", so that is what is returned.  The
+option belongs to the link, never to the id of the note it targets."
+  (if (string-match "::" path)
+      (substring path 0 (match-beginning 0))
+    path))
+
 ;;; Metadata Access
 
 (defun vulpea-note-meta-get-list (note prop &optional type)
@@ -228,7 +243,9 @@ Each element value depends on TYPE:
                                           (let ((link (match-string 1 value))
                                                 (desc (match-string 2 value)))
                                             (if (string-prefix-p "id:" link)
-                                                (cons (string-remove-prefix "id:" link) desc)
+                                                (cons (vulpea-note--id-link-id
+                                                       (string-remove-prefix "id:" link))
+                                                      desc)
                                               (user-error "Expected id link, but got '%s'" value)))
                                         ;; Plain UUID format
                                         (cons value nil))))
@@ -253,7 +270,8 @@ Each element value depends on TYPE:
                          ('link (if (string-match org-link-bracket-re value)
                                     (let ((link (match-string 1 value)))
                                       (if (string-prefix-p "id:" link)
-                                          (string-remove-prefix "id:" link)
+                                          (vulpea-note--id-link-id
+                                           (string-remove-prefix "id:" link))
                                         link))
                                   value))
                          ((or 'date 'datetime)

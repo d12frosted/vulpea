@@ -297,6 +297,29 @@
       (should (eq (vulpea-violation-type (car vs)) 'invalid-reference))
       (should (equal (vulpea-violation-field (car vs)) "producer")))))
 
+(ert-deftest vulpea-schema-validate-reference-with-search-option ()
+  "A note field accepts an id link that carries a search option.
+Org writes the option after \"::\" when the link points below the
+target's heading, and the field still references the note the id
+names, so its tags are checked rather than the target reported
+missing."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note
+     "acc-ctx" "Adobe Account" :tags '("adobe" "account"))
+    (let* ((vulpea-schema--registry (make-hash-table :test 'eq))
+           (schema (vulpea-schema-define 'client
+                     :predicate (lambda (_n) t)
+                     :fields
+                     (list '(:key "account" :type note
+                                  :target-tags ("adobe"))))))
+      (should-not
+       (vulpea-schema-validate
+        (make-vulpea-note
+         :id "c" :title "C"
+         :meta '(("account" "[[id:acc-ctx::*Adobe Account][Adobe Account]]")))
+        schema)))))
+
 (ert-deftest vulpea-schema-validate-conditional-required ()
   "A function :required is honored (carbonation method only for sparkling)."
   (vulpea-schema-test--with-wine schema

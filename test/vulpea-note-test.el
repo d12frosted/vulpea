@@ -228,6 +228,36 @@ the resolved note is nil; it should degrade to a nil entry instead."
       (should (equal (vulpea-note-title ref) "Alias1"))
       (should (equal (vulpea-note-primary-title ref) "Full Title")))))
 
+(ert-deftest vulpea-note-meta-get-list-note-with-search-option ()
+  "Test that an id link with a search option resolves to its note.
+Org writes the option after \"::\" when the link points below the
+target's heading; the note is the one the id names, so it is not
+dangling."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note "grape1" "Cabernet Sauvignon")
+    (vulpea-test--insert-test-note
+     "wine" "Wine Note"
+     :meta '(("grapes" . ("[[id:grape1::*Cabernet Sauvignon][Cabernet Sauvignon]]"))))
+
+    (let* ((note (vulpea-db-get-by-id "wine"))
+           (grapes (vulpea-note-meta-get-list note "grapes" 'note)))
+      (should (= (length grapes) 1))
+      (should (equal (vulpea-note-id (car grapes)) "grape1"))
+      (should (equal (vulpea-note-title (car grapes)) "Cabernet Sauvignon")))))
+
+(ert-deftest vulpea-note-meta-get-list-link-with-search-option ()
+  "Test that the `link' type returns the id without the search option.
+The option points inside the note; it is not part of the note id."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (vulpea-test--insert-test-note
+     "note1" "Test Note"
+     :meta '(("ref" . ("[[id:target::*Sub heading][Sub heading]]"))))
+
+    (let ((note (vulpea-db-get-by-id "note1")))
+      (should (equal (vulpea-note-meta-get note "ref" 'link) "target")))))
+
 (ert-deftest vulpea-note-meta-get-first-value ()
   "Test that meta-get returns only first value when multiple exist."
   (vulpea-test--with-temp-db

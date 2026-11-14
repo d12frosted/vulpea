@@ -53,6 +53,7 @@
 (require 's)
 
 (require 'url-parse)
+(require 'vulpea-note)
 (require 'vulpea-timestamp)
 (require 'vulpea-utils)
 (require 'vulpea-db)
@@ -590,7 +591,8 @@ Each element value depends on TYPE:
                       for el = (car (org-element-contents val))
                       when (equal 'link (org-element-type el))
                       when (string-equal (org-element-property :type el) "id")
-                      collect (cons (org-element-property :path el)
+                      collect (cons (vulpea-note--id-link-id
+                                     (org-element-property :path el))
                                     (substring-no-properties (car (org-element-contents el))))))
                (ids (mapcar #'car kvps))
                (notes (cl-loop for note in (vulpea-db-query-by-ids ids)
@@ -634,7 +636,8 @@ Each element value depends on TYPE:
                       (when (equal 'link
                                    (org-element-type el))
                         (pcase (org-element-property :type el)
-                          ("id" (org-element-property :path el))
+                          ("id" (vulpea-note--id-link-id
+                                 (org-element-property :path el)))
                           (_ (org-element-property :raw-link el))))))
                    ((or `date `datetime)
                     (vulpea-timestamp-parse
