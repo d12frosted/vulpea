@@ -2381,6 +2381,23 @@ link descriptions."
 
 ;;; Title Propagation Command
 
+(defun vulpea--note-refresh (note)
+  "Return NOTE with its file re-read when the file changed on disk.
+
+Async extraction indexes a saved file a moment later (see
+`vulpea-db-async-extraction'), so a title read from the database
+right after a save can be the old one.  The file is re-read only when
+its stamp on disk differs from the indexed one, the same check a sync
+scan makes.  Returns NOTE unchanged when the file is unchanged,
+missing, or no longer holds the note."
+  (let ((path (vulpea-note-path note)))
+    (if (and path
+             (vulpea-db-sync--changed-on-disk-p path))
+        (progn
+          (vulpea-db-update-file path)
+          (or (vulpea-db-get-by-id (vulpea-note-id note)) note))
+      note)))
+
 ;;;###autoload
 (cl-defun vulpea-propagate-title-change (&optional note-or-id)
   "Propagate title change for NOTE-OR-ID to filename and links.
@@ -2409,12 +2426,19 @@ Interactive flow:
                      (vulpea-db-get-by-id id)))))
          (note (or note
                    (vulpea-select "Note to propagate")))
+         (note (vulpea--note-refresh note))
          (note-id (vulpea-note-id note))
          (new-title (vulpea-note-title note))
-         ;; Get old title - from detection or prompt
+         ;; Get old title - from detection or prompt.  The detected
+         ;; title is the indexed one as of the last save in this
+         ;; buffer, so it only is the old title when it was captured
+         ;; for this note and the title has changed since.
          (old-title
-          (or vulpea--title-before-save
-              (read-string (format "Old title (new: \"%s\"): " new-title))))
+          (if (and (equal vulpea--note-id-before-save note-id)
+                   vulpea--title-before-save
+                   (not (string= vulpea--title-before-save new-title)))
+              vulpea--title-before-save
+            (read-string (format "Old title (new: \"%s\"): " new-title))))
          ;; Get incoming links
          (links (vulpea--get-incoming-links-with-descriptions note-id))
          (categorized (vulpea--categorize-links links old-title))
