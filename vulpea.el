@@ -1347,7 +1347,8 @@ Links with nil descriptions or custom descriptions are excluded."
 (defun vulpea--update-link-description (file pos new-description)
   "Update link description at POS in FILE to NEW-DESCRIPTION.
 Works for both bare links [[id:xxx]] and links with
-descriptions [[id:xxx][old]]."
+descriptions [[id:xxx][old]].  Return non-nil when a link was
+rewritten, nil when POS does not hold one."
   (with-current-buffer (find-file-noselect file)
     (save-excursion
       (goto-char pos)
@@ -1357,11 +1358,38 @@ descriptions [[id:xxx][old]]."
         (let ((link-part (match-string 1)))
           ;; LITERAL (3rd arg) so backslashes in NEW-DESCRIPTION are not
           ;; interpreted as match-group backreferences.
-          (replace-match (concat link-part "[" new-description "]]") t t)))
+          (replace-match (concat link-part "[" new-description "]]") t t)
+          t))
        ;; Bare link without description: [[id:xxx]]
        ((looking-at "\\(\\[\\[id:[^]]+\\)\\]\\]")
         (let ((link-part (match-string 1)))
-          (replace-match (concat link-part "][" new-description "]]") t t)))))))
+          (replace-match (concat link-part "][" new-description "]]") t t)
+          t))))))
+
+(defun vulpea--update-link-descriptions (links new-description)
+  "Rewrite descriptions of LINKS to NEW-DESCRIPTION.
+Return the number of links actually rewritten.
+
+A rewrite changes the length of the line it sits on, which invalidates
+the stored position of every later link in the same file, so links are
+rewritten from the highest position down.  Each file is saved once its
+last link has been rewritten."
+  (let ((updated 0)
+        (paths '()))
+    (dolist (link (sort (copy-sequence links)
+                        (lambda (a b)
+                          (> (plist-get a :pos) (plist-get b :pos)))))
+      (when (vulpea--update-link-description
+             (plist-get link :source-path)
+             (plist-get link :pos)
+             new-description)
+        (cl-incf updated)
+        (cl-pushnew (plist-get link :source-path) paths :test #'equal)))
+    (dolist (path (nreverse paths))
+      (when-let* ((buf (get-file-buffer path)))
+        (with-current-buffer buf
+          (save-buffer))))
+    updated))
 
 (defun vulpea--default-directory ()
   "Return the default directory for creating new notes.
@@ -2356,6 +2384,23 @@ link descriptions."
 
 ;;; Title Propagation Command
 
+(defun vulpea--note-refresh (note)
+  "Return NOTE with its file re-read when the file changed on disk.
+
+Async extraction indexes a saved file a moment later (see
+`vulpea-db-async-extraction'), so a title read from the database
+right after a save can be the old one.  The file is re-read only when
+its stamp on disk differs from the indexed one, the same check a sync
+scan makes.  Returns NOTE unchanged when the file is unchanged,
+missing, or no longer holds the note."
+  (let ((path (vulpea-note-path note)))
+    (if (and path
+             (vulpea-db-sync--changed-on-disk-p path))
+        (progn
+          (vulpea-db-update-file path)
+          (or (vulpea-db-get-by-id (vulpea-note-id note)) note))
+      note)))
+
 ;;;###autoload
 (cl-defun vulpea-propagate-title-change (&optional note-or-id)
   "Propagate title change for NOTE-OR-ID to filename and links.
@@ -2384,12 +2429,19 @@ Interactive flow:
                      (vulpea-db-get-by-id id)))))
          (note (or note
                    (vulpea-select "Note to propagate")))
+         (note (vulpea--note-refresh note))
          (note-id (vulpea-note-id note))
          (new-title (vulpea-note-title note))
-         ;; Get old title - from detection or prompt
+         ;; Get old title - from detection or prompt.  The detected
+         ;; title is the indexed one as of the last save in this
+         ;; buffer, so it only is the old title when it was captured
+         ;; for this note and the title has changed since.
          (old-title
-          (or vulpea--title-before-save
-              (read-string (format "Old title (new: \"%s\"): " new-title))))
+          (if (and (equal vulpea--note-id-before-save note-id)
+                   vulpea--title-before-save
+                   (not (string= vulpea--title-before-save new-title)))
+              vulpea--title-before-save
+            (read-string (format "Old title (new: \"%s\"): " new-title))))
          ;; Get incoming links
          (links (vulpea--get-incoming-links-with-descriptions note-id))
          (categorized (vulpea--categorize-links links old-title))
@@ -2448,31 +2500,22 @@ Interactive flow:
               '(?! ?r ?s ?q))))
         (pcase action
           (?! ;; Update all exact matches
-           (dolist (link exact-links)
-             (vulpea--update-link-description
-              (plist-get link :source-path)
-              (plist-get link :pos)
-              new-title)
-             (when-let* ((buf (get-file-buffer (plist-get link :source-path))))
-               (with-current-buffer buf
-                 (save-buffer))))
-           (message "Updated %d link%s"
-                    exact-count (if (= exact-count 1) "" "s")))
+           (let ((updated (vulpea--update-link-descriptions
+                           exact-links new-title)))
+             (message "Updated %d link%s"
+                      updated (if (= updated 1) "" "s"))))
           (?r ;; Review individually
-           (let ((updated 0))
+           (let ((approved '()))
              (dolist (link exact-links)
                (let ((path (plist-get link :source-path))
-                     (pos (plist-get link :pos))
                      (desc (plist-get link :description)))
                  (when (y-or-n-p (format "Update \"%s\" in %s? "
                                          desc (file-name-nondirectory path)))
-                   (vulpea--update-link-description path pos new-title)
-                   (when-let* ((buf (get-file-buffer path)))
-                     (with-current-buffer buf
-                       (save-buffer)))
-                   (cl-incf updated))))
-             (message "Updated %d of %d link%s"
-                      updated exact-count (if (= exact-count 1) "" "s"))))
+                   (push link approved))))
+             (let ((updated (vulpea--update-link-descriptions
+                             approved new-title)))
+               (message "Updated %d of %d link%s"
+                        updated exact-count (if (= exact-count 1) "" "s")))))
           (?s ;; Skip exact matches
            (message "Skipped exact matches"))
           (?q ;; Quit

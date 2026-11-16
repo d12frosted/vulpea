@@ -2486,6 +2486,7 @@ BODY runs are collected, newest first, in `messages'."
             (vulpea-db-update-file linking-path)
             ;; Run dry-run
             (let ((current-prefix-arg t)
+                  (vulpea--note-id-before-save target-id)
                   (vulpea--title-before-save "Old Title"))
               (vulpea-propagate-title-change target-id))
             ;; Verify preview buffer was created
@@ -2503,6 +2504,238 @@ BODY runs are collected, newest first, in `messages'."
             (delete-file path)))
         (when (file-directory-p temp-dir)
           (delete-directory temp-dir t))))))
+
+(ert-deftest vulpea-propagate-title-change-asks-after-a-later-save ()
+  "A title captured by a later save is not taken as the old title.
+`vulpea--title-before-save' holds the indexed title as of the last
+save, so once the rename is indexed the next save captures the new
+title.  The command then refused with \"Title has not changed\"
+instead of asking which title the links carry."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((id "propagate-later-save")
+           (path (vulpea-test--create-temp-org-file
+                  (format ":PROPERTIES:\n:ID: %s\n:END:\n#+TITLE: Old Title\n\nBody.\n"
+                          id)))
+           (buffer (find-file-noselect path)))
+      (unwind-protect
+          (progn
+            (vulpea-db-update-file path)
+            (with-current-buffer buffer
+              (vulpea-title-change-detection-mode 1)
+              (goto-char (point-min))
+              (re-search-forward "^#\\+TITLE: Old Title$")
+              (replace-match "#+TITLE: New Title")
+              (save-buffer)
+              ;; What autosync does a moment after the save
+              (vulpea-db-update-file path)
+              (goto-char (point-max))
+              (insert "More body.\n")
+              (save-buffer)
+              (let ((current-prefix-arg t)
+                    (prompts 0))
+                (cl-letf (((symbol-function 'read-string)
+                           (lambda (&rest _) (cl-incf prompts) "Old Title")))
+                  (vulpea-propagate-title-change id))
+                (should (= prompts 1))
+                (with-current-buffer "*vulpea-propagate-preview*"
+                  (should (string-match-p "^Old title: Old Title$"
+                                          (buffer-string)))))))
+        (when (get-buffer "*vulpea-propagate-preview*")
+          (kill-buffer "*vulpea-propagate-preview*"))
+        (with-current-buffer buffer
+          (set-buffer-modified-p nil))
+        (kill-buffer buffer)
+        (when (file-exists-p path)
+          (delete-file path))))))
+
+(ert-deftest vulpea-propagate-title-change-ignores-another-notes-title ()
+  "A title captured for one note is not used to propagate another.
+The detection state is buffer-local, so a save in a buffer visiting
+one note left the command comparing against that note's old title
+while propagating the note it was given."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((a-id "propagate-buffer-note")
+           (b-id "propagate-other-note")
+           (a-path (vulpea-test--create-temp-org-file
+                    (format ":PROPERTIES:\n:ID: %s\n:END:\n#+TITLE: A Old Title\n\nBody.\n"
+                            a-id)))
+           (b-path (vulpea-test--create-temp-org-file
+                    (format ":PROPERTIES:\n:ID: %s\n:END:\n#+TITLE: B New Title\n\nBody.\n"
+                            b-id)))
+           (buffer (find-file-noselect a-path)))
+      (unwind-protect
+          (progn
+            (vulpea-db-update-file a-path)
+            (vulpea-db-update-file b-path)
+            (with-current-buffer buffer
+              (vulpea-title-change-detection-mode 1)
+              (goto-char (point-min))
+              (re-search-forward "^#\\+TITLE: A Old Title$")
+              (replace-match "#+TITLE: A New Title")
+              (save-buffer)
+              (vulpea-db-update-file a-path)
+              (let ((current-prefix-arg t)
+                    (prompts 0))
+                (cl-letf (((symbol-function 'read-string)
+                           (lambda (&rest _) (cl-incf prompts) "B Old Title")))
+                  (vulpea-propagate-title-change b-id))
+                (should (= prompts 1))
+                (with-current-buffer "*vulpea-propagate-preview*"
+                  (should (string-match-p "^Old title: B Old Title$"
+                                          (buffer-string)))))))
+        (when (get-buffer "*vulpea-propagate-preview*")
+          (kill-buffer "*vulpea-propagate-preview*"))
+        (with-current-buffer buffer
+          (set-buffer-modified-p nil))
+        (kill-buffer buffer)
+        (dolist (path (list a-path b-path))
+          (when (file-exists-p path)
+            (delete-file path)))))))
+
+(ert-deftest vulpea-propagate-title-change-reads-the-notes-file ()
+  "The new title is read from the note's file, not from a lagging index.
+Async extraction indexes a save a moment later, so right after one
+the database still holds the old title and the command refused with
+\"Title has not changed\"."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((id "propagate-stale-index")
+           (path (vulpea-test--create-temp-org-file
+                  (format ":PROPERTIES:\n:ID: %s\n:END:\n#+TITLE: Old Title\n\nBody.\n"
+                          id))))
+      (unwind-protect
+          (progn
+            (vulpea-db-update-file path)
+            ;; The save has landed on disk, the index has not caught up
+            (with-temp-file path
+              (insert (format ":PROPERTIES:\n:ID: %s\n:END:\n#+TITLE: New Title\n\nBody.\n"
+                              id)))
+            (let ((current-prefix-arg t)
+                  (prompts 0))
+              (cl-letf (((symbol-function 'read-string)
+                         (lambda (&rest _) (cl-incf prompts) "Old Title")))
+                (vulpea-propagate-title-change id))
+              (should (= prompts 1))
+              (with-current-buffer "*vulpea-propagate-preview*"
+                (should (string-match-p "^New title: New Title$"
+                                        (buffer-string))))))
+        (when (get-buffer "*vulpea-propagate-preview*")
+          (kill-buffer "*vulpea-propagate-preview*"))
+        (when (get-file-buffer path)
+          (kill-buffer (get-file-buffer path)))
+        (when (file-exists-p path)
+          (delete-file path))))))
+
+;;;; Title Propagation Update Tests
+
+(defun vulpea-test--propagation-links (target-id)
+  "Return an org file body with three exact links to TARGET-ID.
+Each link uses \"Old Note Title\" as its description, so all three are
+exact matches for the old title and the new title is longer than the
+description they carry."
+  (format (concat "First [[id:%s][Old Note Title]].\n"
+                  "Second [[id:%s][Old Note Title]].\n"
+                  "Third [[id:%s][Old Note Title]].\n")
+          target-id target-id target-id))
+
+(defmacro vulpea-test--with-title-propagation (linker-body &rest body)
+  "Execute BODY with a target note and one note linking to it.
+
+The target is a file-level note titled \"Renamed Note Title\" and the
+linking note is titled \"Linker\".  LINKER-BODY is an expression,
+evaluated with `target-id' bound, that provides the body of the linking
+note.  Both files are indexed before BODY runs, which sees `target-id',
+`target-path' and `linking-path' bound and `vulpea--title-before-save'
+set to \"Old Note Title\" for the target, as if it had just been
+renamed.  Both files and the database are removed afterwards."
+  (declare (indent 1))
+  `(vulpea-test--with-temp-db
+     (vulpea-db)
+     (let* ((target-id "propagate-target")
+            (target-path (vulpea-test--create-temp-org-file
+                          (format (concat ":PROPERTIES:\n:ID: %s\n:END:\n"
+                                          "#+TITLE: Renamed Note Title\n")
+                                  target-id)))
+            (linking-path (vulpea-test--create-temp-org-file
+                           (format (concat ":PROPERTIES:\n:ID: propagate-linker\n"
+                                           ":END:\n#+TITLE: Linker\n\n%s")
+                                   ,linker-body))))
+       (unwind-protect
+           (progn
+             (vulpea-db-update-file target-path)
+             (vulpea-db-update-file linking-path)
+             (let ((vulpea--note-id-before-save target-id)
+                   (vulpea--title-before-save "Old Note Title"))
+               ,@body))
+         (dolist (path (list target-path linking-path))
+           (when (get-file-buffer path)
+             (kill-buffer (get-file-buffer path)))
+           (when (file-exists-p path)
+             (delete-file path)))))))
+
+(defun vulpea-test--propagate-capturing (target-id action)
+  "Run title propagation for TARGET-ID, answering ACTION.
+Prompts about renaming the note or opening files are declined, while
+the per-link review prompts are accepted.  Return the emitted messages,
+oldest first."
+  (let ((messages '()))
+    (cl-letf (((symbol-function 'read-char-choice)
+               (lambda (&rest _) action))
+              ((symbol-function 'y-or-n-p)
+               (lambda (prompt &rest _) (string-prefix-p "Update " prompt)))
+              ((symbol-function 'message)
+               (lambda (fmt &rest args)
+                 (push (apply #'format fmt args) messages))))
+      (vulpea-propagate-title-change target-id))
+    (nreverse messages)))
+
+(ert-deftest vulpea-propagate-title-change-updates-every-link ()
+  "Updating all exact matches rewrites every link in the file.
+Each rewrite lengthens the line it sits on, so the stored positions of
+the links that follow it go stale.  The command used to rewrite only the
+first link of a file and report the whole file as updated."
+  (vulpea-test--with-title-propagation (vulpea-test--propagation-links target-id)
+    (let ((messages (vulpea-test--propagate-capturing target-id ?!)))
+      (with-temp-buffer
+        (insert-file-contents linking-path)
+        (goto-char (point-min))
+        (should (= 3 (how-many "\\[Renamed Note Title\\]")))
+        (should (= 0 (how-many "\\[Old Note Title\\]"))))
+      (should (member "Updated 3 links" messages)))))
+
+(ert-deftest vulpea-propagate-title-change-review-updates-every-link ()
+  "Approve every link in the review flow and check they are all rewritten.
+The review loop prompts in stored order, so approving several links in
+the same file must not leave the later ones behind."
+  (vulpea-test--with-title-propagation (vulpea-test--propagation-links target-id)
+    (let ((messages (vulpea-test--propagate-capturing target-id ?r)))
+      (with-temp-buffer
+        (insert-file-contents linking-path)
+        (goto-char (point-min))
+        (should (= 3 (how-many "\\[Renamed Note Title\\]")))
+        (should (= 0 (how-many "\\[Old Note Title\\]"))))
+      (should (member "Updated 3 of 3 links" messages)))))
+
+(ert-deftest vulpea-propagate-title-change-counts-only-rewritten-links ()
+  "The reported count must match the number of links actually rewritten.
+A file edited since the last sync keeps its links at positions the
+database no longer knows, so nothing can be rewritten; the command used
+to report every exact match as updated anyway."
+  (vulpea-test--with-title-propagation (vulpea-test--propagation-links target-id)
+    ;; Shift the links without telling the database, as an edit made
+    ;; outside Emacs would.
+    (with-temp-file linking-path
+      (insert (format (concat ":PROPERTIES:\n:ID: propagate-linker\n:END:\n"
+                              "#+TITLE: Linker\n\nXX%s")
+                      (vulpea-test--propagation-links target-id))))
+    (let ((messages (vulpea-test--propagate-capturing target-id ?!)))
+      (with-temp-buffer
+        (insert-file-contents linking-path)
+        (goto-char (point-min))
+        (should (= 3 (how-many "\\[Old Note Title\\]"))))
+      (should (member "Updated 0 links" messages)))))
 
 ;;;; File Rename Tests
 
