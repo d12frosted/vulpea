@@ -304,9 +304,18 @@ its edge character."
   "Return the ripgrep regex for the start of a bracket link to the note ID.
 
 The id is matched as written, whatever case the search ignores
-elsewhere, and up to the bracket that closes it: a longer id starting
-with ID is the id of another note."
-  (concat "(?-i:\\[\\[id:" (vulpea-mentions--rg-quote id) "\\])"))
+elsewhere, and up to the bracket that closes it or the \"::\" of a
+search option: a longer id starting with ID is the id of another
+note."
+  (concat "(?-i:\\[\\[id:" (vulpea-mentions--rg-quote id) "(?:\\]|::))"))
+
+(defun vulpea-mentions--id-link-needles (id)
+  "Return the strings that start the text of a bracket link to ID.
+The id ends at the bracket that closes the path, or at the \"::\" of
+a search option, which Org writes when the link points below the
+heading that holds the id."
+  (list (concat "[[id:" id "]")
+        (concat "[[id:" id "::")))
 
 (defun vulpea-mentions--rg-command (rg terms dirs &optional link-id)
   "Build the ripgrep command, run as RG, for TERMS over DIRS.
@@ -947,7 +956,7 @@ count either, as the database leaves those out too.  A hit whose line
 no longer reads the way ripgrep saw it does not count, nor does one
 the parser gives up on: unconfirmed, the file is left to the database.
 Point is left at the start of the buffer."
-  (let ((needle (concat "[[id:" id "]"))
+  (let ((needle (regexp-opt (vulpea-mentions--id-link-needles id)))
         (case-fold-search nil))
     (prog1
         (seq-some
@@ -961,14 +970,16 @@ Point is left at the start of the buffer."
                    nil
                  (let ((eol (line-end-position))
                        (found nil))
-                   (while (and (not found) (search-forward needle eol t))
+                   (while (and (not found) (re-search-forward needle eol t))
                      (let ((link (save-excursion
                                    (goto-char (match-beginning 0))
                                    (org-element-context))))
                        (setq found
                              (and (eq (org-element-type link) 'link)
                                   (equal (org-element-property :type link) "id")
-                                  (equal (org-element-property :path link) id)
+                                  (equal (vulpea-note--id-link-id
+                                          (org-element-property :path link))
+                                         id)
                                   (not (vulpea-db--inside-generated-p link))))))
                    found))
              (error nil)))
@@ -1110,10 +1121,12 @@ The result is a hash table from the path of a file to its hits, for
 database only knows the links some note owns.  In a file without a
 file-level id, text that no heading with an id encloses belongs to no
 note, and a link written there is known to ripgrep alone."
-  (let ((needle (concat "[[id:" id "]"))
+  (let ((needles (vulpea-mentions--id-link-needles id))
         (result (make-hash-table :test 'equal)))
     (dolist (hit hits)
-      (when (string-search needle (plist-get hit :line-text))
+      (when (let ((text (plist-get hit :line-text)))
+              (seq-some (lambda (needle) (string-search needle text))
+                        needles))
         (push hit (gethash (plist-get hit :path) result))))
     (maphash (lambda (path hits) (puthash path (nreverse hits) result))
              result)

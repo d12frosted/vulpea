@@ -296,6 +296,39 @@
               (kill-buffer buf))
             (delete-file path)))))))
 
+(ert-deftest vulpea-find-backlink-lands-on-link-with-search-option ()
+  "Point lands on a backlink that carries a search option.
+Org writes one after \"::\" when the link points below the heading
+that holds the id, and the link is still a backlink of the note."
+  (vulpea-test--with-temp-db
+    (vulpea-db)
+    (let* ((target-id "target-id")
+           (source-id "source-id")
+           (target-path (vulpea-test--create-temp-org-file
+                         (format ":PROPERTIES:\n:ID: %s\n:END:\n#+TITLE: Target\n\n* Sub\n"
+                                 target-id)))
+           (source-path (vulpea-test--create-temp-org-file
+                         (format ":PROPERTIES:\n:ID: %s\n:END:\n#+TITLE: Source\n\nSome text.\n\nSee [[id:%s::*Sub][Sub]].\n"
+                                 source-id target-id))))
+      (unwind-protect
+          (progn
+            (vulpea-db-update-file target-path)
+            (vulpea-db-update-file source-path)
+            (cl-letf (((symbol-function 'completing-read)
+                       (lambda (_prompt collection &rest _)
+                         (car (all-completions "" collection)))))
+              (vulpea-visit target-id)
+              (vulpea-find-backlink)
+              (should (equal (file-truename (buffer-file-name))
+                             (file-truename source-path)))
+              (should (looking-at-p
+                       (regexp-quote (format "[[id:%s::*Sub]" target-id))))))
+        (dolist (path (list target-path source-path))
+          (when (file-exists-p path)
+            (when-let* ((buf (get-file-buffer path)))
+              (kill-buffer buf))
+            (delete-file path)))))))
+
 ;;; vulpea-find Tests
 
 (ert-deftest vulpea-find-uses-create-fn ()
