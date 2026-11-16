@@ -2424,6 +2424,44 @@ BODY runs are collected, newest first, in `messages'."
                 m))
              messages))))
 
+(ert-deftest vulpea-title-change-detection-file-note-markup-body-save ()
+  "A body save reports nothing when the file title carries markup."
+  (vulpea-test--with-title-detection-buffer
+    (search-forward "#+TITLE: Target File")
+    (replace-match
+     "#+TITLE: The *Bold* [[https://example.com][Linked]] File" t t)
+    (save-buffer)
+    (vulpea-db-update-file (buffer-file-name))
+    (setq messages nil)
+    (goto-char (point-min))
+    (should (equal (org-entry-get nil "ID") "title-detection-file"))
+    (save-excursion
+      (goto-char (point-max))
+      (insert "More body.\n"))
+    (save-buffer)
+    (should-not (seq-some (lambda (m) (string-match-p "Title changed" m))
+                          messages))))
+
+(ert-deftest vulpea-title-change-detection-file-note-markup-rename ()
+  "Renaming a file title with markup reports both titles as indexed."
+  (vulpea-test--with-title-detection-buffer
+    (search-forward "#+TITLE: Target File")
+    (replace-match "#+TITLE: The *Bold* File" t t)
+    (save-buffer)
+    (vulpea-db-update-file (buffer-file-name))
+    (setq messages nil)
+    (goto-char (point-min))
+    (search-forward "#+TITLE: The *Bold* File")
+    (replace-match "#+TITLE: The *Bold* Renamed File" t t)
+    (goto-char (point-min))
+    (save-buffer)
+    (should (seq-some
+             (lambda (m)
+               (string-match-p
+                "Title changed from \"The Bold File\" to \"The Bold Renamed File\""
+                m))
+             messages))))
+
 ;;;; Title Propagation Dry-Run Test
 
 (ert-deftest vulpea-propagate-title-change-dry-run ()

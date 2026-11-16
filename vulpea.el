@@ -2312,9 +2312,12 @@ The old title is read from the database, not the buffer."
 For a file-level note that is the \"title\" keyword of the buffer.
 For a heading note it is the heading itself, read without the
 TODO keyword, the priority cookie and tags, and with statistics
-cookies stripped, the same way extraction reads it."
+cookies stripped.  Both have links reduced to their descriptions
+and emphasis markers stripped, the same way extraction reads them."
   (if (= (org-outline-level) 0)
-      (vulpea-buffer-title-get)
+      (when-let* ((title (vulpea-buffer-title-get)))
+        (vulpea-db--strip-emphasis
+         (org-link-display-format title)))
     (vulpea-db--strip-statistics-cookies
      (vulpea-db--strip-emphasis
       (org-link-display-format
