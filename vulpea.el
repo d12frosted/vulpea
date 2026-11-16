@@ -1637,9 +1637,11 @@ the file changed since the last sync), point stays at the note."
                                     :expand-aliases vulpea-find-backlink-expand-aliases)))
       (when (vulpea-note-id note)
         (vulpea-visit note)
-        ;; Land on the link itself rather than the beginning of the note
+        ;; Land on the link itself rather than the beginning of the
+        ;; note.  The id ends at the bracket or at the "::" of a
+        ;; search option.
         (when (re-search-forward
-               (format "\\[\\[id:%s[]\\[]" (regexp-quote id))
+               (format "\\[\\[id:%s\\(?:[]\\[]\\|::\\)" (regexp-quote id))
                nil t)
           (goto-char (match-beginning 0))
           (vulpea--show-context))))))

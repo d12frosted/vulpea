@@ -2511,9 +2511,10 @@ the file outside, and both decide what the text in it is."
 (ert-deftest vulpea-mentions--rg-command-asks-for-links-to-the-note ()
   "Given an id, the ripgrep command looks for bracket links to it as well."
   (let ((cmd (vulpea-mentions--rg-command "rg" '("Wine") '("/dir") "a.b")))
-    ;; the id is quoted, matched as written, and closed by a bracket so
-    ;; that a longer id starting with it does not count
-    (should (member "(?-i:\\[\\[id:a\\.b\\])" cmd)))
+    ;; the id is quoted, matched as written, and closed by a bracket or
+    ;; a search option so that a longer id starting with it does not
+    ;; count
+    (should (member "(?-i:\\[\\[id:a\\.b(?:\\]|::))" cmd)))
   (should-not (seq-find (lambda (arg) (string-search "id:" arg))
                         (vulpea-mentions--rg-command "rg" '("Wine") '("/dir")))))
 
@@ -2556,6 +2557,31 @@ says it, and its other mentions are no longer missing connections."
                                     "target"))
                            #'string<)
                      '("first" "second" "third"))))))
+
+(ert-deftest vulpea-mentions-incoming-counts-links-no-note-owns-with-search-option ()
+  "A link no note owns counts when it carries a search option too.
+Org writes one after \"::\" when the link points below the heading
+that holds the id, and the link still names the note."
+  (vulpea-test--require-rg)
+  (vulpea-test--with-temp-db-and-files
+      `((:name "target.org"
+         :content ,(concat ":PROPERTIES:\n:ID: target\n:END:\n"
+                           "#+title: Cabernet\n\n* Vintages\n"))
+        (:name "headings.org"
+         :content ,(concat "#+title: Tastings\n\n"
+                           "We opened a [[id:target::*Vintages][fine bottle]] first.\n\n"
+                           "* First\n:PROPERTIES:\n:ID: first\n:END:\n"
+                           "The Cabernet was fine.\n"))
+        (:name "other.org"
+         :content ,(concat "#+title: Other tastings\n\n"
+                           "We opened a [[id:target-2::*Vintages][fine bottle]] first.\n\n"
+                           "* Third\n:PROPERTIES:\n:ID: third\n:END:\n"
+                           "The Cabernet was something else.\n")))
+    (should-not (vulpea-db-query-links-to "target"))
+    (should (equal (mapcar (lambda (m) (vulpea-note-id (plist-get m :note)))
+                           (vulpea-mentions-test--collect-incoming-mentions-for-note
+                            "target"))
+                   '("third")))))
 
 (ert-deftest vulpea-mentions-link-then-search-drops-the-file ()
   "Linking one mention takes the other mentions of that file off the list.
