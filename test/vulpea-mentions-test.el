@@ -990,6 +990,31 @@ coming back."
       (should (string-match-p "又名金阁寺"
                               (plist-get (car result) :context))))))
 
+(ert-deftest vulpea-mentions-async-same-directory-twice ()
+  "A directory listed twice in different spellings is searched once."
+  (vulpea-test--require-rg)
+  (vulpea-test--with-temp-db-and-files
+      `((:name "target.org"
+         :content ,(concat ":PROPERTIES:\n:ID: target\n:END:\n"
+                           "#+title: Merlot\n"))
+        (:name "mention.org"
+         :content ,(concat ":PROPERTIES:\n:ID: mention\n:END:\n"
+                           "#+title: Wines\n\n"
+                           "A glass of Merlot.\n")))
+    (let* ((dir (car vulpea-db-sync-directories))
+           (vulpea-db-sync-directories
+            (list (directory-file-name dir) (file-name-as-directory dir)))
+           (note (vulpea-db-get-by-id "target"))
+           (state nil)
+           (result nil))
+      (vulpea-note-unlinked-mentions-async
+       note
+       (lambda (ms) (setq state 'resolved result ms))
+       (lambda (err) (setq state (list 'rejected err))))
+      (vulpea-mentions-test--await (lambda () state))
+      (should (eq state 'resolved))
+      (should (= (length result) 1)))))
+
 ;;; Outgoing (what a buffer mentions)
 
 (ert-deftest vulpea-mentions--title-dictionary ()

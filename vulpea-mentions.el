@@ -1573,8 +1573,11 @@ Returns the ripgrep process, so the caller can wait on or
      (t
       (let ((terms (vulpea-mentions--note-terms note))
             (dirs (seq-filter #'file-directory-p
-                              (mapcar #'expand-file-name
-                                      vulpea-db-sync-directories)))
+                              (seq-uniq
+                               (mapcar (lambda (d)
+                                         (file-name-as-directory
+                                          (expand-file-name d)))
+                                       vulpea-db-sync-directories))))
             (own-path (expand-file-name (vulpea-note-path note))))
         (if (or (null terms) (null dirs)
                 (vulpea-mentions--ignore-note-p note))
