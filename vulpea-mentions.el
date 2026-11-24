@@ -1524,6 +1524,20 @@ Returns a list of plists with :note (a candidate note to link to),
 
 ;;; Async entry point
 
+(defun vulpea-mentions--search-roots (dirs)
+  "Return existing DIRS, normalized, without roots lying under another.
+A directory listed in two spellings, or nested under another listed
+directory, is searched once."
+  (let ((roots (seq-uniq
+                (mapcar (lambda (d) (file-name-as-directory (expand-file-name d)))
+                        (seq-filter #'file-directory-p dirs)))))
+    (seq-remove (lambda (d)
+                  (seq-some (lambda (other)
+                              (and (not (string= d other))
+                                   (string-prefix-p other d)))
+                            roots))
+                roots)))
+
 ;;;###autoload
 (defun vulpea-note-unlinked-mentions-async (note resolve reject)
   "Find notes mentioning NOTE's title or aliases without linking to it.
@@ -1572,12 +1586,7 @@ Returns the ripgrep process, so the caller can wait on or
       nil)
      (t
       (let ((terms (vulpea-mentions--note-terms note))
-            (dirs (seq-filter #'file-directory-p
-                              (seq-uniq
-                               (mapcar (lambda (d)
-                                         (file-name-as-directory
-                                          (expand-file-name d)))
-                                       vulpea-db-sync-directories))))
+            (dirs (vulpea-mentions--search-roots vulpea-db-sync-directories))
             (own-path (expand-file-name (vulpea-note-path note))))
         (if (or (null terms) (null dirs)
                 (vulpea-mentions--ignore-note-p note))

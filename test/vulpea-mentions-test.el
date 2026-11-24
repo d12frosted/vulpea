@@ -1015,6 +1015,50 @@ coming back."
       (should (eq state 'resolved))
       (should (= (length result) 1)))))
 
+(ert-deftest vulpea-mentions-async-nested-directory ()
+  "A directory nested under another listed one is searched once."
+  (vulpea-test--require-rg)
+  (vulpea-test--with-temp-db-and-files
+      `((:name "target.org"
+         :content ,(concat ":PROPERTIES:\n:ID: target\n:END:\n"
+                           "#+title: Merlot\n")))
+    (let* ((dir (car vulpea-db-sync-directories))
+           (sub (expand-file-name "journal" dir))
+           (vulpea-db-sync-directories (list dir sub))
+           (note (vulpea-db-get-by-id "target"))
+           (state nil)
+           (result nil))
+      (make-directory sub)
+      (let ((path (expand-file-name "mention.org" sub)))
+        (with-temp-file path
+          (insert ":PROPERTIES:\n:ID: mention\n:END:\n"
+                  "#+title: Wines\n\nA glass of Merlot.\n"))
+        (vulpea-db-update-file path))
+      (vulpea-note-unlinked-mentions-async
+       note
+       (lambda (ms) (setq state 'resolved result ms))
+       (lambda (err) (setq state (list 'rejected err))))
+      (vulpea-mentions-test--await (lambda () state))
+      (should (eq state 'resolved))
+      (should (= (length result) 1)))))
+
+(ert-deftest vulpea-mentions--search-roots ()
+  "Roots are normalized, missing ones dropped, nested ones folded into their parent."
+  (let* ((dir (make-temp-file "vulpea-roots-" t))
+         (a (expand-file-name "a" dir))
+         (a-sub (expand-file-name "a/journal" dir))
+         (ab (expand-file-name "ab" dir)))
+    (unwind-protect
+        (progn
+          (make-directory a-sub t)
+          (make-directory ab)
+          (should (equal (vulpea-mentions--search-roots
+                          (list a (file-name-as-directory a) a-sub ab
+                                (expand-file-name "missing" dir)))
+                         (list (file-name-as-directory a)
+                               (file-name-as-directory ab)))))
+      (delete-directory dir t))))
+
 ;;; Outgoing (what a buffer mentions)
 
 (ert-deftest vulpea-mentions--title-dictionary ()
